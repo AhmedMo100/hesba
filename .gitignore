@@ -23,6 +23,11 @@
 /playwright-report
 blob-report
 
+# typescript & serwist build artifacts
+*.tsbuildinfo
+/public/sw*
+/public/swe-worker*
+
 # logs
 npm-debug.log*
 yarn-debug.log*

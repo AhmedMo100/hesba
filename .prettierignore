@@ -1,0 +1,8 @@
+node_modules
+.next
+pnpm-lock.yaml
+dist
+build
+coverage
+*.min.js
+docs/
