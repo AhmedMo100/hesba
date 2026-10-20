@@ -27,6 +27,10 @@
 | D17 | Vercel Hobby for development only; any customers = commercial hosting | 05 section 0 | ✅ |
 | D18 | Remove the floating (+) button from the demo | 07 | ✅ |
 | D19 | Alert: near-expiry ≤ 7 days, "running low" thresholds from `09` section 8 | 09, 11 | ✅ (customizable) |
+| D20 | **Use Webpack for build and dev** (`--webpack`) because Serwist requires Webpack plugins | ADR-0002 | ✅ (ADR proposed) |
+| D21 | **Local Postgres host port 5434** (`HESBA_POSTGRES_PORT=5434`) to avoid port collision with host PostgreSQL | 17, docker-compose | ✅ |
+| D22 | **Node >=22 and pnpm 10.20.0 pinned** for deterministic builds and LTS runtime support | package.json | ✅ |
+| D23 | **`agentRules: false` in `next.config.ts`** to prevent Next.js CLI from mutating `AGENTS.md` | next.config.ts | ✅ |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |
@@ -96,7 +100,7 @@
 | # | Title | Status | Written in |
 |---|---|---|---|
 | 0001 | Project structure (single package, import boundaries) | Proposed (from 03) | Phase 1 |
-| 0002 | ORM: Drizzle | Proposed (from 08) | Phase 1 |
+| 0002 | Use Webpack for build and dev because Serwist needs it | Proposed | Setup |
 | 0003 | `change_log`: Trigger or Repository | **Open** | Phase 2 |
 | 0004 | Session storage (rotating cookie) | Settled (D8) — to be documented | Phase 2 |
 | 0005 | Service Worker update strategy + Kill switch | **Open** | Phase 1–2 |
@@ -115,3 +119,4 @@ The template is in `docs/adr/template.md`. The Agent writes the draft, and you a
 | 2026-10-15 | From BullMQ/Redis to a jobs table + cron | Free/serverless hosting |
 | 2026-10-15 | From JWT in IndexedDB to an httpOnly cookie | Higher security, same origin |
 | 2026-10-17 | Added the full package (07–16) + AGENTS.md | Preparing for Antigravity |
+| 2026-10-20 | Use Webpack for Serwist, host Postgres port 5434, Node >=22, pnpm 10.20.0, agentRules false | Repository setup and local environment requirements |
