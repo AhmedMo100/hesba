@@ -1,4 +1,4 @@
-# ADR-0010: Manual renewal via Vodafone Cash and InstaPay, no payment gateway
+# ADR-0008: Manual renewal via Vodafone Cash and InstaPay, no payment gateway
 
 - **Status:** Accepted
 - **Date:** 2026-10-24

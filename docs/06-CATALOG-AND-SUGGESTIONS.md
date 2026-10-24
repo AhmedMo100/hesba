@@ -100,8 +100,9 @@ CREATE TABLE catalog_reports (id uuid PRIMARY KEY, store_id uuid, candidate_id u
 ## 3. The public catalog: preparing it manually
 
 ### Data source (manual, because there is no API)
-1. **Google Sheet / CSV** with fixed columns (template in `data/catalog/template.csv`):
-   `name, brand, size_value, size_unit, category, barcode, carton_qty, notes`
+1. **Market seed CSV files** in `data/catalog/` (template in `data/catalog/template.csv`):
+   The market seed is loaded from CSV files in `data/catalog/`. Seed prices are reference only. The shop's own price always wins.
+   Columns: `name, brand, size_value, size_unit, category, barcode, carton_qty, reference_price, notes`
 2. **Filling rules:** a short, clear name · brand separate · unit/size separate · category from a fixed list · barcode if available (not mandatory).
 3. **Double review:** two people review before import (catalog mistakes repeat at every store).
 4. **Import:** `scripts/import-catalog.ts` (normalizes, checks duplicates by barcode + `pg_trgm`, and outputs a report of similar items instead of merging blindly).

@@ -59,6 +59,7 @@
 - ☐ **P0-D-03** (⏱1.5) Verify every ❓ item in `docs/05` section 1: current hosting plan prices, commercial-use terms, Neon minimum compute, cron limits, S3-compatible storage. ✅ Updated table where every line has a source link and a date. ↔ S-07.
 - ☐ **P0-D-04** (⏱0.5) Write to the hosting provider's support, in writing, asking whether the plan you are considering allows commercial use. ✅ Their written answer is saved. ↔ S-07.
 - ☐ **P0-D-05** (⏱0.5) Record the hosting decision (A/B/C/D from `docs/05` section 2) in ADR-0007. Vercel Hobby is for internal development only. ✅ ADR-0007 accepted (status: proposed pending owner decision).
+- ☐ **P0-D-06** (⏱0.5) Document product variants (ADR-0009) and services/commissions (ADR-0010) models before any code is written. ✅ ADR-0009 and ADR-0010 accepted, tables listed in docs/09. (Phase 0)
 
 ### Front
 - ☑ **P0-F-01** (⏱1) Apply the simple interview changes to the demo, then freeze `docs/demo/hesba-demo.html` as the reference version. ✅ Git tag `demo-v1`.
@@ -176,12 +177,14 @@ A new user signs up and logs in · an operation recorded offline is synced exact
 - ☐ **P3-B-07** (⏱3) `drizzle/0003_catalog.sql`: `global_products`, `products.global_product_id`, `pg_trgm`. `scripts/import-catalog.ts` with normalization and a duplicate report. **No automatic merging.** ✅ Import runs; duplicates are listed, not merged.
 - ☐ **P3-B-08** (⏱2) `src/domain/normalize.ts` for Arabic text: hamza forms, alif maqsura, ta marbuta, Arabic-Indic digits. 30+ real-value tests. ✅ All tests green.
 - ☐ **P3-B-09** (⏱2) `GET /api/sync/catalog?cursor=` (incremental, compressed gzip/brotli, ETag, long cache). ✅ A second call with the same cursor returns 204 or 304.
+- ☐ **P3-B-11** (⏱2) Market seed import from CSV files in `data/catalog/` (`scripts/import-catalog.ts`): reference prices only, shop's own price always wins. ✅ Seed import tested. (Phase 3)
 - ☐ **P3-F-12** (⏱3) `catalog-sync` + Dexie table `global_products` with a `name_norm` index. ✅ Search works offline and is fast.
 - ☐ **P3-F-13** (⏱3) Adding a product: local matching against the catalog ("is this the same as X?"). Creating a **custom product** always goes to the database, with the shop's own price. ✅ Custom product saved and synced.
 - ☐ **P3-Q-03** (⏱1.5) Tests: normalization, RLS on `products`, no endpoint returns a shop's identity, offline behaviour. ✅ All green.
 
 ### 3.1 Products and inventory
 - ☐ **P3-B-01** (⏱3) `catalog` module: products, units (piece, carton, weight), prices, the `product.upsert` handler. ✅ Handler is idempotent and tested.
+- ☐ **P3-B-10** (⏱3) Product variants domain model: `brands`, `global_products`, `global_variants`, `store_variants`, `store_stock_batches`, variant barcodes, prices, and pack quantities (ADR-0009). ✅ Model and tests green. (Phase 3)
 - ☐ **P3-B-02** (⏱4) `inventory` module: batches, append-only movements, `stock.add`, waste, balance (`stock_levels` cache), stock alerts. ✅ Balance equals the sum of movements in property tests.
 - ☐ **P3-F-01** (⏱3) ProductsPage, ProductFormModal, price row, search. ✅ Matches the demo at 360px.
 - ☐ **P3-F-02** (⏱3) StockPage, AddStockModal, combobox, additions log. ✅ Matches the demo.
@@ -208,6 +211,11 @@ A new user signs up and logs in · an operation recorded offline is synced exact
 - ☐ **P3-F-09** (⏱2) Lazy chunks, prefetch, and a bundle-size budget enforced in CI. ✅ CI fails when the budget is exceeded.
 - ☐ **P3-F-10** (⏱2) Real-device check on 3 phones, including a low-spec Android (⛓ S-23 for the devices). Widths 320, 360, 390 px. ✅ Recorded results in `docs/13`.
 - ☐ **P3-F-11** (⏱1) Accessibility: focus order, touch targets 44 px or more, `prefers-reduced-motion`. ✅ Checked with an automated audit and by hand.
+
+### 3.6 Services, prepaid cards and commissions (ADR-0010)
+- ☐ **P3-B-12** (⏱3) Services and commissions model: `service_items`, `card_serials` (encrypted at rest with `HESBA_CARD_KEY`, sold once), `commission_rules` with ranges and automated fee calculation, manual override audit logging. ✅ Card single-sale invariant and rule calculations tested. (Phase 3)
+- ☐ **P3-F-14** (⏱3) Services and prepaid cards screen: service category selection, bill/transfer amount input with auto-calculated commission, card sale with one-time PIN reveal. ✅ Matches the demo at 360px. (Phase 3)
+- ☐ **P3-Q-04** (⏱2) Commission and card tests: rule-based fee calculation, range edge cases, manual override logging, single-sale card invariant (sold card cannot be sold again), PIN encryption at rest and redaction in logs. ✅ All tests green. (Phase 3)
 
 ### DevOps
 - ☐ **P3-D-01** (⏱1) Test data for staging and a reset script (never run against production). ✅ Reset works and is guarded by an environment check.

@@ -32,6 +32,8 @@
 | D22 | **Node >=22 and pnpm 10.20.0 pinned** for deterministic builds and LTS runtime support | package.json | ✅ |
 | D23 | **`agentRules: false` in `next.config.ts`** to prevent Next.js CLI from mutating `AGENTS.md` | next.config.ts | ✅ |
 | D24 | **Manual subscription renewal**: subscriptions are renewed by manual transfer (Vodafone Cash or InstaPay), confirmed on WhatsApp, and activated by the owner | ADR-0008 | ✅ Accepted |
+| D25 | **Product variants**: every sellable item is a product; variants carry flavor, size, unit, pack quantity, barcode, price, stock | ADR-0009 | ✅ Accepted |
+| D26 | **Services and commissions**: serialized cards sold once (PIN encrypted with HESBA_CARD_KEY); bills/transfers non-stock with rule-based fee | ADR-0010 | ✅ Accepted |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |
@@ -97,6 +99,13 @@
 | Performance targets (p95…) | `01` section 1 (preliminary) | Load test | `01` |
 **The Agent:** any new value you guess is added here and flagged in the code with a comment `// ASSUMPTION: see docs/15`.
 
+### 5.1 Data to be provided by owner before Phase 3
+The owner must provide the following data before Phase 3:
+- Products master list: TBD by owner (owner to provide)
+- Prepaid card denominations and prices per network: TBD by owner (owner to provide)
+- Bill providers: TBD by owner (owner to provide)
+- Transfer commission tiers: TBD by owner (owner to provide)
+
 ## 6. ADRs (required architecture decisions)
 | # | Title | Status | Written in |
 |---|---|---|---|
@@ -108,9 +117,11 @@
 | 0006 | SMS provider | Proposed | Phase 0 |
 | 0007 | Hosting and data residency | Proposed | Phase 0 |
 | 0008 | Manual renewal via Vodafone Cash and InstaPay | Accepted | Phase 0 |
-| 0009 | Local catalog search library | **Open** (O12) | Phase 3 |
-| 0010 | Router inside `/app` | **Open** (O13) | Phase 1 |
-| 0011 | LLM provider | **Open** (O4) | Phase 4 |
+| 0009 | Product variants | Accepted | Phase 0 |
+| 0010 | Services: prepaid cards, bills and transfers with commissions | Accepted | Phase 0 |
+| 0011 | Local catalog search library | **Open** (O12) | Phase 3 |
+| 0012 | Router inside `/app` | **Open** (O13) | Phase 1 |
+| 0013 | LLM provider | **Open** (O4) | Phase 4 |
 The template is in `docs/adr/template.md`. The Agent writes the draft, and you approve.
 
 ## 7. Decision change log
@@ -123,3 +134,4 @@ The template is in `docs/adr/template.md`. The Agent writes the draft, and you a
 | 2026-10-20 | Use Webpack for Serwist, host Postgres port 5434, Node >=22, pnpm 10.20.0, agentRules false | Repository setup and local environment requirements |
 | 2026-10-24 | ADR-0006 (SMS, proposed), ADR-0007 (Hosting, proposed), ADR-0008 (Manual renewal via Vodafone Cash/InstaPay, accepted) | Phase 0 decisions |
 | 2026-10-24 | Switched Phase 4 billing to manual renewal (ADR-0008). Task IDs repurposed: P4-B-05 (manual admin activation and audit logging), P4-F-03 (renewal info and WhatsApp link), P4-Q-03 (manual renewal and expiry tests), S-20 (receiving accounts setup) | Owner decision (simplicity, familiar Egyptian transfer methods, zero card data stored) |
+| 2026-10-24 | ADR-0009 (Product variants, accepted), ADR-0010 (Services: prepaid cards, bills and transfers with commissions, accepted) | Phase 0 decisions (P0-D-06) |

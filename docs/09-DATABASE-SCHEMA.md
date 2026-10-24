@@ -38,6 +38,19 @@ CREATE TYPE sub_status      AS ENUM ('trial','active','past_due','canceled','exp
 CREATE TYPE member_role     AS ENUM ('owner','cashier');
 ```
 
+### Variants, Inventory, and Services Table List (ADR-0009, ADR-0010)
+- `brands`: Master list of commercial product brands shared globally across categories.
+- `global_products`: Global catalog base products grouped under a brand and category without store-specific pricing.
+- `global_variants`: Global sellable variants of a product defining flavor, size value/unit, packaging pack quantity, and default barcode.
+- `store_variants`: Store-specific sellable product variants (linked to a global variant or custom) holding selling price, carton price, low-stock threshold, and barcode.
+- `store_stock_batches`: Store inventory batches for a variant holding received quantity, remaining quantity, purchase cost, expiry date, and supplier link.
+- `card_serials`: Serialized stock inventory for prepaid telecom/internet recharge scratch cards, with PINs encrypted at rest and sold exactly once.
+- `service_items`: Non-stock financial service catalog (bill payments, mobile recharge, Vodafone Cash / InstaPay transfers).
+- `commission_rules`: Provider-specific commission fee calculation rules with amount ranges (from_amount, to_amount), fee type (fixed/percent), and fee value.
+- `sale_lines`: Individual line items within a sale recording either a physical product variant sold (with batch takes) or a financial service transaction (with amount and calculated commission).
+
+*(Schema definitions and migrations for these tables will be implemented in Phase 3; no SQL written yet).*
+
 ---
 
 ## 2. Identity and Store
@@ -298,7 +311,7 @@ CREATE TABLE daily_store_stats (               -- aggregate table updated by job
 |---|---|---|
 | `users`, `otp_codes`, `sessions` | identity | `hesba_service` (server) only |
 | `categories`, `plans` | global | read for the app |
-| `global_products` | global | read for the app, write by `hesba_service` |
+| `brands`, `global_products`, `global_variants` | global | read for the app, write by `hesba_service` |
 | `catalog_candidates`, `catalog_reports` | internal | `hesba_service` only |
 | `jobs`, `flags` | operations | `hesba_service` only |
 | `stores` | one store per user/membership | RLS policy on `store_members` (or `id = app.store_id`) |
