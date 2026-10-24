@@ -50,7 +50,7 @@
 
 ### Back / Legal / Business
 - ☐ **P0-B-01** (⏱1) Brief the lawyer: Law 151/2020, where data is stored, privacy policy, terms. ✅ Written reply saved in `docs/12` references. ↔ S-06.
-- ☐ **P0-B-02** (⏱1) Create the ADR placeholders with options and open questions: ADR-0006 hosting, ADR-0007 SMS provider, ADR-0008 payment gateway. ✅ Three ADR files in `docs/adr/` with status "proposed". *(Align the numbers with `docs/15` when you apply this file.)*
+- ☑ **P0-B-02** (⏱1) Create the ADR placeholders with options and open questions: ADR-0006 SMS provider, ADR-0007 hosting, ADR-0010 payment gateway (manual renewal). ✅ Three ADR files in `docs/adr/`. *(Aligned with `docs/15`)*
 - ☐ **P0-B-03** (⏱1) Decide the team size and the 4-month budget from real quotes. ✅ Budget written in `docs/15`. ↔ S-08.
 
 ### DevOps
@@ -58,10 +58,10 @@
 - ☐ **P0-D-02** (⏱0.5) Password manager for the team and a secret store for the project, with separate staging and production entries. ✅ No secret is in Git. ↔ S-04.
 - ☐ **P0-D-03** (⏱1.5) Verify every ❓ item in `docs/05` section 1: current hosting plan prices, commercial-use terms, Neon minimum compute, cron limits, S3-compatible storage. ✅ Updated table where every line has a source link and a date. ↔ S-07.
 - ☐ **P0-D-04** (⏱0.5) Write to the hosting provider's support, in writing, asking whether the plan you are considering allows commercial use. ✅ Their written answer is saved. ↔ S-07.
-- ☐ **P0-D-05** (⏱0.5) Record the hosting decision (A/B/C/D from `docs/05` section 2) in ADR-0006. Vercel Hobby is for internal development only. ✅ ADR-0006 accepted.
+- ☐ **P0-D-05** (⏱0.5) Record the hosting decision (A/B/C/D from `docs/05` section 2) in ADR-0007. Vercel Hobby is for internal development only. ✅ ADR-0007 accepted (status: proposed pending owner decision).
 
 ### Front
-- ☐ **P0-F-01** (⏱1) Apply the simple interview changes to the demo, then freeze `docs/demo/hesba-demo.html` as the reference version. ✅ Git tag `demo-v1`.
+- ☑ **P0-F-01** (⏱1) Apply the simple interview changes to the demo, then freeze `docs/demo/hesba-demo.html` as the reference version. ✅ Git tag `demo-v1`.
 
 ### Gates for this phase
 - ⛓ Nothing in Phase 0 is blocked by the side track, except that ADR-0006 needs S-07.
