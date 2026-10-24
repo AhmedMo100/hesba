@@ -275,12 +275,7 @@ CREATE TABLE subscriptions (
   status sub_status NOT NULL DEFAULT 'trial', trial_ends_at timestamptz, current_period_end timestamptz,
   updated_at timestamptz DEFAULT now()
 );
-CREATE TABLE payments (
-  id uuid PRIMARY KEY, store_id uuid NOT NULL REFERENCES stores(id),
-  provider text NOT NULL, provider_ref text NOT NULL, amount_minor bigint NOT NULL,
-  status text NOT NULL, raw jsonb NULL, created_at timestamptz DEFAULT now(),
-  UNIQUE (provider, provider_ref)               -- idempotency for webhooks
-);
+        -- Subscriptions are renewed manually via Vodafone Cash / InstaPay and extended by admin (ADR-0008)
 
 CREATE TABLE daily_store_stats (               -- aggregate table updated by jobs
   store_id uuid NOT NULL, day date NOT NULL,
@@ -316,7 +311,7 @@ CREATE TABLE daily_store_stats (               -- aggregate table updated by job
 0004_inventory_sales suppliers, batches, stock_movements, stock_levels, waste_records, sales, sale_lines
 0005_misc            expenses, people, alert_dismissals, ai_usage
 0006_sync_jobs       change_log, sync_ops, jobs, flags, audit_log
-0007_billing_stats   plans, subscriptions, payments, daily_store_stats
+0007_billing_stats   plans, subscriptions, daily_store_stats
 0008_suggestions     catalog_candidates, catalog_suggestions, catalog_reports
 ```
 Every migration: Expand/Contract, tried on a copy of real data, and shipped with an RLS test.

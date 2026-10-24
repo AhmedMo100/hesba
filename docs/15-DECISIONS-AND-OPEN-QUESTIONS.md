@@ -31,14 +31,14 @@
 | D21 | **Local Postgres host port 5434** (`HESBA_POSTGRES_PORT=5434`) to avoid port collision with host PostgreSQL | 17, docker-compose | ✅ |
 | D22 | **Node >=22 and pnpm 10.20.0 pinned** for deterministic builds and LTS runtime support | package.json | ✅ |
 | D23 | **`agentRules: false` in `next.config.ts`** to prevent Next.js CLI from mutating `AGENTS.md` | next.config.ts | ✅ |
-| D24 | **Manual subscription renewal** via Vodafone Cash & InstaPay + WhatsApp confirmation; no payment gateway integration or card data stored | ADR-0010 | ✅ (Owner decision) |
+| D24 | **Manual subscription renewal**: subscriptions are renewed by manual transfer (Vodafone Cash or InstaPay), confirmed on WhatsApp, and activated by the owner | ADR-0008 | ✅ Accepted |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |
 |---|---|---|---|---|
 | O1 | **Hosting** | A: Vercel Pro · D: VM + Docker · C: Cloudflare | After verifying the ❓ points in `05`: A for simplicity, or D if you are sure of the terms | Phase 1 |
 | O2 | **SMS provider (OTP)** | (to be decided from actual quotes) | One that reliably delivers to Egyptian numbers + simple API + a fallback | Phase 2 |
-| O3 | **Payment gateway** | Settled (D24 / ADR-0010: Manual renewal via Vodafone Cash & InstaPay) | No payment gateway in V1; manual transfer + WhatsApp confirmation | Settled ✅ |
+| O3 | **Subscription renewal** | Settled (D24 / ADR-0008: Manual renewal via Vodafone Cash & InstaPay) | Manual transfer + WhatsApp confirmation; activated by owner | Settled ✅ |
 | O4 | **LLM provider** | (compare cost and quality in Arabic) | Behind an interface; start with the cheapest that is good enough | Phase 4 |
 | O5 | **Hesba name/brand** | Check domain and trademark availability ⚖️ | Before any marketing spend | Phase 0 |
 | O6 | **Catalog values:** daily suggestion cap, size of the first wave, N for promotion, K for reports | (06 section 1) | Start with small, conservative values and adjust by measurement | Phase 4 |
@@ -107,9 +107,9 @@
 | 0005 | Service Worker update strategy + Kill switch | **Open** | Phase 1–2 |
 | 0006 | SMS provider | Proposed | Phase 0 |
 | 0007 | Hosting and data residency | Proposed | Phase 0 |
-| 0008 | Router inside `/app` | **Open** (O13) | Phase 1 |
+| 0008 | Manual renewal via Vodafone Cash and InstaPay | Accepted | Phase 0 |
 | 0009 | Local catalog search library | **Open** (O12) | Phase 3 |
-| 0010 | Manual renewal via Vodafone Cash and InstaPay, no payment gateway | Accepted | Phase 0 |
+| 0010 | Router inside `/app` | **Open** (O13) | Phase 1 |
 | 0011 | LLM provider | **Open** (O4) | Phase 4 |
 The template is in `docs/adr/template.md`. The Agent writes the draft, and you approve.
 
@@ -121,4 +121,5 @@ The template is in `docs/adr/template.md`. The Agent writes the draft, and you a
 | 2026-10-15 | From JWT in IndexedDB to an httpOnly cookie | Higher security, same origin |
 | 2026-10-17 | Added the full package (07–16) + AGENTS.md | Preparing for Antigravity |
 | 2026-10-20 | Use Webpack for Serwist, host Postgres port 5434, Node >=22, pnpm 10.20.0, agentRules false | Repository setup and local environment requirements |
-| 2026-10-24 | ADR-0006 (SMS, proposed), ADR-0007 (Hosting, proposed), ADR-0010 (Manual renewal via Vodafone Cash/InstaPay, accepted) | Phase 0 decisions |
+| 2026-10-24 | ADR-0006 (SMS, proposed), ADR-0007 (Hosting, proposed), ADR-0008 (Manual renewal via Vodafone Cash/InstaPay, accepted) | Phase 0 decisions |
+| 2026-10-24 | Switched Phase 4 billing to manual renewal (ADR-0008). Task IDs repurposed: P4-B-05 (manual admin activation and audit logging), P4-F-03 (renewal info and WhatsApp link), P4-Q-03 (manual renewal and expiry tests), S-20 (receiving accounts setup) | Owner decision (simplicity, familiar Egyptian transfer methods, zero card data stored) |

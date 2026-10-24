@@ -17,7 +17,7 @@
 5. Database: PostgreSQL 16, every table has `store_id` + Row-Level Security.
 6. Inventory = an **append-only movement log** (batches + movements), not a number that gets edited.
 7. Reports are read from daily aggregate tables (`daily_store_stats`), not from millions of raw rows.
-8. Background jobs (SMS, payments, report aggregation, suggestions) live in a Postgres `jobs` table + `/api/cron/tick` (a real Queue later, driven by measurement).
+8. Background jobs (SMS, report aggregation, suggestions) live in a Postgres `jobs` table + `/api/cron/tick` (a real Queue later, driven by measurement).
 9. We scale in stages (Stages 0→5), and moving between them is driven by **measurement indicators**, not by customer count alone.
 10. Each stage lists: what will break, how we detect it, and the ready-made fix.
 
@@ -109,7 +109,7 @@ If the real numbers are much higher than the assumptions → this table is recal
    └───────────┘ └─────┬──────┘ └──────────────┘
                        │ jobs
         ┌──────────────▼───────────────┐
-        │ SMS · Payment gateway · LLM  │
+        │ SMS · LLM                    │
         └──────────────────────────────┘
 ```
 
@@ -140,7 +140,7 @@ If the real numbers are much higher than the assumptions → this table is recal
 10. **Time:** We store `client_ts` (from the device, for display) and `server_ts` (for ordering). **No core logic depends on the device clock.**
 
 ### Main tables (brief — details in 02)
-`stores, users, store_members, devices, products, product_units, batches, stock_movements, sales, sale_lines, expenses, waste_records, people, person_txns, change_log, sync_ops, alerts_state, subscriptions, payments, ai_usage, audit_log, daily_store_stats`.
+`stores, users, store_members, devices, products, product_units, batches, stock_movements, sales, sale_lines, expenses, waste_records, people, person_txns, change_log, sync_ops, alerts_state, subscriptions, ai_usage, audit_log, daily_store_stats`.
 
 ---
 
@@ -280,9 +280,9 @@ Two options for the database, **the decision is taken by measurement, not by gue
 | 8 | **Wrong device clock** | Wrong operation order / wrong reports | Ordering by `server_ts` + a note if the difference is large | Alert the user "your device clock is wrong" (ساعة جهازك غلط) |
 | 9 | **An app update breaks the old version** | Stores not syncing | `schema_v` + support for two consecutive versions | An "update the app" (حدّث التطبيق) screen while preserving the queue |
 | 10 | **Stale Service Worker Cache** | The user is stuck on an old version | A clear update strategy + `skipWaiting` with the user's permission | A Kill switch from the server |
-| 11 | **Dependence on a single provider** (SMS/payment/hosting) | Outage | Abstraction layer + a ready alternative provider for SMS | Documented manual Failover |
+| 11 | **Dependence on a single provider** (SMS/hosting) | Outage | Abstraction layer + a ready alternative provider for SMS | Documented manual Failover |
 | 12 | **A huge store / Hot Tenant** | Slowness for the other stores | Per-store limits + monitoring | Move it to a dedicated Shard/Pool (Stage 5) |
-| 13 | **Payments/subscriptions: a repeated or late Webhook** | A wrong subscription | Idempotent Webhooks + daily reconciliation with the gateway | A manual review board |
+| 13 | **Subscriptions: manual renewal transfer verification** | Disputed transfer or delayed confirmation | Manual transfer confirmation via WhatsApp + audit-logged admin activation (ADR-0008) | Admin review and audit log |
 | 14 | **Law/regulation** (data/invoices) | Shutdown/fine | Lawyer review before production + a clear privacy policy | A quick hosting-change plan |
 | 15 | **A small team gets tired / a single person holds the key** | Slowness/outage | Documentation + Runbooks + Infra as Code | Train a backup |
 
@@ -333,7 +333,7 @@ Two options for the database, **the decision is taken by measurement, not by gue
 | Cloudflare | Without it | DNS+WAF+CDN with ease |
 | `jobs` table in Postgres + cron tick | BullMQ/Redis/Kafka | No permanent Workers on free hosting; we move to a real Queue by measurement |
 
-**We agreed that the definitive answers (prices, hosting location, payment provider) are determined after: the lawyer's replies + provider quotes.**
+**We agreed that the definitive answers (prices, hosting location, SMS provider) are determined after: the lawyer's replies + provider quotes.**
 
 ---
 

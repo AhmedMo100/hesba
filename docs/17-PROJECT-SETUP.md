@@ -314,7 +314,7 @@ Stop at the end of Phase 1 and tell me whether its Done-when condition is met.
 
 - Domain name, DNS, and SSL → side tasks S-01 and S-02.
 - Hosting, database plans, backups → side tasks S-07, S-10, S-30, S-31.
-- SMS, payments, AI, Sentry accounts → side tasks S-05, S-20, S-21.
+- SMS, AI, Sentry accounts → side tasks S-05, S-20, S-21.
 - Legal text and the lawyer → side task S-06.
 
 These run next to the code. The only gates that block code are listed in `docs/04-TASKS.md` with the `⛓` marker.

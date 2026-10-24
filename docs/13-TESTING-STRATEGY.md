@@ -14,7 +14,7 @@
 | **Contract** | Shared zod | Client ↔ server (same schemas) | Medium |
 | **E2E** | Playwright | User journeys + offline | Medium |
 | **Offline chaos** | Playwright (network control) | Cut mid-push, repeated op, two devices | High |
-| **Security** | Vitest/CI | cross-tenant, identity leak, CSRF, webhooks | Mandatory |
+| **Security** | Vitest/CI | cross-tenant, identity leak, CSRF, audit log | Mandatory |
 | **Load** | k6 | Sync storm, evening peak | Before Beta and every growth stage |
 | **Visual/Device** | Manual + Playwright screenshots | 320/360/390, light/dark, low-end Android | Before Alpha |
 
@@ -49,7 +49,7 @@ Everything in `10-SYNC-PROTOCOL.md` section 9, plus:
 - **No polling:** A test that no periodic requests occur without an event (counts requests during minutes of idleness).
 
 ## 4. Isolation and Security Tests
-`12` section 10. The most important: **cross-tenant for every Endpoint**, RLS enabled on every table that has `store_id`, **no store identity leak** in the catalog, CSRF on `/api/sync`, forged webhook.
+`12` section 10. The most important: **cross-tenant for every Endpoint**, RLS enabled on every table that has `store_id`, **no store identity leak** in the catalog, CSRF on `/api/sync`, unauthorized subscription activation.
 
 ## 5. Catalog and Suggestions Tests (`06`)
 Normalization, duplicate prevention (concurrency: two stores with the same product at the same instant = one candidate), RLS on `catalog_suggestions`, the daily cap, offline acceptance, **the price is not copied**, automatic promotion at N, it never returns `submitted_by_store`.

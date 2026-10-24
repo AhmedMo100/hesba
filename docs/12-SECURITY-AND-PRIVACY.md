@@ -1,6 +1,6 @@
 # Hesba — Security and Privacy
 
-> Security here means **requirements that are implemented and tested**, not good intentions. Any feature that touches identity, sessions, OTP, subscriptions, payments, or the shared catalog = read this file first.
+> Security here means **requirements that are implemented and tested**, not good intentions. Any feature that touches identity, sessions, OTP, subscriptions, or the shared catalog = read this file first.
 > **Legal:** Points marked ⚖️ must be reviewed by a **lawyer** before production. I am not a substitute for legal advice.
 
 ---
@@ -20,7 +20,7 @@
 | 10 | Secret leakage | Compromise | Secret store, no secrets in code/logs, periodic rotation |
 | 11 | Compromised dependencies | Supply chain | `pnpm audit` + Dependabot + lockfile + review of additions |
 | 12 | Data loss/corruption | Trust | Encrypted off-site backup + tested restore |
-| 13 | Forged/duplicated payment webhook | Wrong subscription state | Webhook signature + idempotency (`UNIQUE provider,provider_ref`) + daily reconciliation |
+| 13 | Unauthorized subscription extension | Wrong subscription state or revenue loss | Manual activation restricted to platform_admin + mandatory audit_log entry |
 | 14 | Device lost/stolen | Local access | Optional PIN + server-side session revocation + no extra sensitive data stored locally |
 
 ## 2. Identity and Sessions
@@ -42,9 +42,9 @@
 
 ## 4. Web Security
 - **Headers:** Strict CSP (no unauthorized inline, `nonce`), HSTS (after stabilization), `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors 'none'`.
-- **CSRF:** Server Actions have Next's built-in protection; `/api/sync/*`, `/api/cron/*`, and `/api/webhooks/*`: check `Origin`/secret/signature depending on the type.
+- **CSRF:** Server Actions have Next's built-in protection; `/api/sync/*` and `/api/cron/*`: check `Origin`/secret depending on the type.
 - **Rate limiting:** On Cloudflare (WAF) + in the application (OTP, login, sync, AI, catalog). Limits are in `constants.ts`.
-- **Inputs:** zod at every system boundary (Actions, Handlers, Webhooks). Extra fields are rejected (`strict`).
+- **Inputs:** zod at every system boundary (Actions, Handlers). Extra fields are rejected (`strict`).
 - **Outputs:** React escapes output. `dangerouslySetInnerHTML` with user content is forbidden. Catalog text is sanitized (length, characters, no HTML).
 - **CORS:** Closed (same origin).
 - **Files:** V1 has no image upload. If added: verify type/size, store outside the origin, random names.
@@ -74,15 +74,17 @@
 - No real data in Dev/Staging environments (test data only).
 
 ## 8. Monitoring and Incident Response
-- Alerts on: 5xx error rate, OTP failures, unusual 401s, many 429s, AI/SMS consumption, webhook failures, backup failure, job queue depth, storage growth.
+- Alerts on: 5xx error rate, OTP failures, unusual 401s, many 429s, AI/SMS consumption, backup failure, job queue depth, storage growth.
 - `audit_log` for sensitive operations: login/logout, password change, account deletion, data export, admin operations, subscription change.
 - **Incident plan (Runbook):** detect → contain (maintenance flag / revoke sessions / rotate secrets) → assess → notify (users and authorities as required by law ⚖️) → fix → post-incident review.
 - Kill switch: `flags` (maintenance, disable suggestions, disable AI, disable registration).
 
-## 9. Payments and Subscriptions
-- We never store card data (the payment gateway handles it).
-- Webhooks: signature **verified** + `UNIQUE(provider, provider_ref)` + idempotent processing + daily reconciliation with the gateway.
-- Subscription status is determined by the server only. Subscription expiry = **read-only**, **no data deletion**.
+## 9. Subscriptions and Manual Renewal
+- **No card data is stored**: Hesba stores no card data and does not process online transactions.
+- **Renewal confirmation**: Subscription renewal confirmation is a WhatsApp message sent to the business contact after manual transfer (Vodafone Cash or InstaPay).
+- **Manual activation**: The owner activates subscriptions manually upon reviewing the transfer.
+- **Audit logging**: Every manual change is logged in `audit_log` (who, when, store, previous period end, new period end).
+- **Read-only on expiry**: Subscription status is determined by the server only. Subscription expiry = **read-only**, **never deletes store data**.
 
 ## 10. Security Tests (mandatory in CI)
 1. Cross-tenant on every Endpoint/Action/Handler.
@@ -91,7 +93,7 @@
 4. OTP/login brute-force is stopped by the limits.
 5. Reuse of an old session identifier = revocation.
 6. CSRF: `/api/sync/push` without `Origin`/`X-Hesba-Client` = rejected.
-7. Webhook with a wrong/duplicate signature = rejected/idempotent.
+7. Manual subscription change without audit log = rejected.
 8. Logs contain no sensitive fields (test on a sample).
 9. `pnpm audit` with no critical vulnerabilities.
 10. CSP is active (no unauthorized inline) in E2E.

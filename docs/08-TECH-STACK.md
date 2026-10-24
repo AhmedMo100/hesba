@@ -28,7 +28,7 @@
 | **Jobs** | A `jobs` table in Postgres + `/api/cron/tick` | No permanent Workers on free tiers/serverless | BullMQ/Redis (we move to it when measurements justify it) |
 | **AI** | An LLM provider behind an interface + SQL tools | Numbers come from SQL, the LLM only phrases them; we can swap the provider | Relying on the LLM for calculation (hallucination) |
 | **SMS** | A provider behind an interface (to be decided — ADR-0006) | OTP for sign-up only | — |
-| **Payments** | A local gateway behind an interface (to be decided — ADR) | Subscriptions + idempotent Webhooks | — |
+| **Subscriptions** | Manual renewal (Vodafone Cash & InstaPay) + WhatsApp confirmation (ADR-0008) | Activated manually by owner; no card data stored | Automated third-party billing (rejected in V1) |
 | **Monitoring** | Sentry + structured logs (pino) | UI and server errors | — |
 | **Testing** | Vitest + fast-check + Testcontainers + Playwright | Unit + property + real Postgres + offline | Jest (slower with ESM) |
 | **Quality** | ESLint (+ boundaries) + Prettier + `tsc` | Import boundaries are enforced automatically | — |
@@ -74,13 +74,15 @@ HESBA_DIRECT_URL        # direct (for migrations)
 HESBA_SESSION_SECRET
 HESBA_CRON_SECRET       # protects /api/cron/tick
 HESBA_SMS_PROVIDER / HESBA_SMS_KEY
-HESBA_PAYMENTS_PROVIDER / HESBA_PAYMENTS_KEY / HESBA_PAYMENTS_WEBHOOK_SECRET
 HESBA_LLM_PROVIDER / HESBA_LLM_KEY
 HESBA_SENTRY_DSN
 HESBA_STORAGE_*         # S3-compatible (if needed)
 HESBA_APP_ORIGIN        # for Origin check
+HESBA_RENEWAL_VODAFONE_CASH  # public: Vodafone Cash number shown to customers
+HESBA_RENEWAL_INSTAPAY       # public: InstaPay address/number shown to customers
+HESBA_RENEWAL_WHATSAPP       # public: WhatsApp contact number/link for renewal confirmation
 ```
-Real values live in the Secret store, and `.env.example` contains dummy values only. All of them are defined in `src/server/config/env.ts` with zod, and the app fails at startup if anything is missing.
+Real values live in the Secret store (except public renewal details), and `.env.example` contains dummy values only. All of them are defined in `src/server/config/env.ts` with zod, and the app fails at startup if anything is missing.
 
 ## 7. When Do We Change the Stack? (by measurement)
 | Symptom | Possible change |

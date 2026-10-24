@@ -28,7 +28,7 @@
 | 1 | Technical foundation | 1–2 | Repo, CI, empty app running, offline shell, cross-tenant test |
 | 2 | Identity, shop and sync | 2–5 | Sign-up, login, sync working offline → online |
 | 3 | The eight pages | 3–7 | All demo screens in real code, with sync and the public catalog |
-| 4 | Reports, AI and subscriptions | 6–9 | Real Home, AI assistant, payments, shop-to-shop suggestions |
+| 4 | Reports, AI and subscriptions | 6–9 | Real Home, AI assistant, manual subscription renewal, shop-to-shop suggestions |
 | 5 | Hardening and performance | 8–11 | Security, load test, restore test, migration drill |
 | 6 | Alpha | 11–13 | 5–10 real shops |
 | 7 | Beta, then public launch | 13–16 | Launch |
@@ -50,7 +50,7 @@
 
 ### Back / Legal / Business
 - ☐ **P0-B-01** (⏱1) Brief the lawyer: Law 151/2020, where data is stored, privacy policy, terms. ✅ Written reply saved in `docs/12` references. ↔ S-06.
-- ☑ **P0-B-02** (⏱1) Create the ADR placeholders with options and open questions: ADR-0006 SMS provider, ADR-0007 hosting, ADR-0010 payment gateway (manual renewal). ✅ Three ADR files in `docs/adr/`. *(Aligned with `docs/15`)*
+- ☑ **P0-B-02** (⏱1) Create the ADR placeholders with options and open questions: ADR-0006 SMS provider, ADR-0007 hosting, ADR-0008 manual renewal (Vodafone Cash / InstaPay). ✅ Three ADR files in `docs/adr/`. *(Aligned with `docs/15`)*
 - ☐ **P0-B-03** (⏱1) Decide the team size and the 4-month budget from real quotes. ✅ Budget written in `docs/15`. ↔ S-08.
 
 ### DevOps
@@ -227,10 +227,10 @@ Every demo screen works with the same look and behaviour · no core step needs t
 
 # PHASE 4 — Reports, AI and subscriptions (week 6–9)
 
-> **Goal:** Home numbers come from the server and are correct, the AI assistant answers only from database numbers, payments work, and shop-to-shop suggestions are safe.
+> **Goal:** Home numbers come from the server and are correct, the AI assistant answers only from database numbers, manual subscription renewals work, and shop-to-shop suggestions are safe.
 
 ### Product
-- ☐ **P4-PR-01** (⏱1) Subscription plans (decided from real quotes, not guesses) and the pricing page text. ✅ Plans in `docs/15`. ⛓ S-20 (payment gateway quotes).
+- ☐ **P4-PR-01** (⏱1) Subscription plans (decided from real quotes, not guesses) and the pricing page text. ✅ Plans in `docs/15`.
 - ☐ **P4-PR-02** (⏱1) The list of 10–15 AI questions supported in V1, and the "I can't answer that" reply for everything else. ✅ List in `docs/16`.
 - ☐ **P4-PR-03** (⏱0.5) Trial policy and what happens when a subscription ends (read-only, grace period). ✅ Written in `docs/12`.
 - ☐ **P4-PR-04** (⏱1) Tune the suggestion values: daily cap, first-wave size, N for promotion, K for reports, banned words. ✅ Values in `constants.ts`.
@@ -239,25 +239,25 @@ Every demo screen works with the same look and behaviour · no core step needs t
 - ☐ **P4-B-01** (⏱3) `daily_store_stats` table, aggregation job, rebuild (backfill), and tests that compare results with the raw tables. ✅ Aggregates equal raw totals on the test data.
 - ☐ **P4-B-02** (⏱2) `reports` endpoints for Home (day, week, month). ✅ Numbers match manual calculation for 3 scenarios (P4-Q-01).
 - ☐ **P4-B-03** (⏱4) `ai` module: read-only SQL tools, tool selection, phrasing, an atomic daily quota of 5 messages enforced on the server, timeout, fallback reply. ✅ The model never computes numbers itself; the quota cannot be bypassed from the client.
-- ☐ **P4-B-04** (⏱3) `billing` module: plans, subscription, trial, subscription status available to the session and to sync. ✅ Status changes are reflected in the app.
-- ☐ **P4-B-05** (⏱3) Payment gateway integration with **idempotent webhooks** and a daily reconciliation job. ⛓ S-20 (account approved). ✅ A duplicate webhook is ignored.
+- ☐ **P4-B-04** (⏱3) `billing` module: plans, subscription model, trial period, subscription expiration check, subscription status available to the session and to sync. ✅ Status changes are reflected in the app.
+- ☐ **P4-B-05** (⏱2) Manual renewal administrative actions: admin endpoint/action to activate or extend a shop's subscription (`current_period_end`), manual verification workflow, and audit logging of every manual activation in `audit_log`. ✅ Admin extends subscription; action is recorded in `audit_log`.
 - ☐ **P4-B-06** (⏱1) Per-shop rate limits on sync and AI. ✅ Limit tested.
 
 ### Front
 - ☐ **P4-F-01** (⏱2) HomePage reads from the reports, with the local offline fallback from Phase 3. ✅ Works offline and online.
 - ☐ **P4-F-02** (⏱3) AiPage: chat, message counter, locked state. ✅ Matches the demo; counter matches the server.
-- ☐ **P4-F-03** (⏱3) Subscription and payment screen with states: trial, active, expired. ✅ All three states tested.
+- ☐ **P4-F-03** (⏱2) Subscription and renewal screen with states: trial, active, expired, showing Vodafone Cash / InstaPay transfer numbers (`HESBA_RENEWAL_VODAFONE_CASH`, `HESBA_RENEWAL_INSTAPAY`) and direct WhatsApp confirmation link (`HESBA_RENEWAL_WHATSAPP`). ✅ All three states tested; renewal info and WhatsApp link displayed.
 - ☐ **P4-F-04** (⏱1) App behaviour when a subscription ends (per P4-PR-03), **without deleting any data**. ✅ Tested.
 
 ### DevOps
 - ☐ **P4-D-01** (⏱1) A read-only database connection for the AI and reports (a replica when the hosting provides one). ✅ Heavy reports do not slow sync.
 - ☐ **P4-D-02** (⏱1) Separate job types (reports, SMS, billing, suggestions) with a dead status and a review screen. ✅ A dead job can be retried from the screen.
-- ☐ **P4-D-03** (⏱1) Alerts on queue depth, webhook failures, and daily AI cost. ✅ Alerts fire in a test.
+- ☐ **P4-D-03** (⏱1) Alerts on queue depth and daily AI cost. ✅ Alerts fire in a test.
 
 ### QA
 - ☐ **P4-Q-01** (⏱2) Report numbers match manual calculation for 3 scenarios.
 - ☐ **P4-Q-02** (⏱2) AI tests: supported and unsupported questions, the 5-per-day limit, an attempt to bypass the limit from the client.
-- ☐ **P4-Q-03** (⏱1.5) Payments: success, failure, duplicate webhook, late webhook.
+- ☐ **P4-Q-03** (⏱1.5) Manual renewal flow tests: trial expiration, manual admin activation, audit log entry verification, read-only mode enforcement upon expiration without data deletion. ✅ Tested.
 
 ### 4.x Suggestions between shops (`docs/06`)
 - ☐ **P4-B-07** (⏱3) Suggestion tables (`catalog_candidates`, `catalog_suggestions`, `catalog_reports`) with RLS and protection against identity leakage. ✅ Leakage test passes.
@@ -268,14 +268,13 @@ Every demo screen works with the same look and behaviour · no core step needs t
 - ☐ **P4-Q-04** (⏱2.5) Tests: identity leakage, RLS on suggestions, concurrent duplicates, daily cap, automatic promotion, offline acceptance. ✅ All green.
 
 ### ✅ Done-when (Phase 4)
-Home numbers match manual calculation · the AI never makes up numbers and is limited to 5 per day by the server · a full test payment succeeds · ending a subscription deletes no data · suggestions reach suitable shops without leaking identity or prices.
+Home numbers match manual calculation · the AI never makes up numbers and is limited to 5 per day by the server · manual subscription renewal and expiration tested · ending a subscription deletes no data · suggestions reach suitable shops without leaking identity or prices.
 
 ### Risks (Phase 4)
 - **Weak or annoying suggestions** ← small first wave, daily cap, and watch the acceptance rate (`docs/06` section 5).
-- **Payment gateway approval takes long** ← apply in Phase 0–1 (S-20). If it is late, Alpha runs with manual payment, recorded in `docs/15`.
+- **Manual renewal confirmation delay** ← admin notifications via WhatsApp, clear renewal instructions for shop owners.
 - **AI cost grows** ← a per-shop daily limit, a global budget, and an automatic lock.
 - **Wrong report numbers** ← a daily automated comparison between aggregates and raw data.
-- **Duplicate webhook** ← idempotency keyed on the gateway's transaction ID.
 - **The LLM invents numbers** ← no arithmetic by the model; every number comes from SQL tools.
 
 ---
@@ -292,7 +291,7 @@ Home numbers match manual calculation · the AI never makes up numbers and is li
 - ☐ **P5-B-01** (⏱3) Review every hot query with `EXPLAIN`, indexes, and `pg_stat_statements`. ✅ No query over the target time in the load test.
 - ☐ **P5-B-02** (⏱2) Full rate limits, brute-force protection, and CAPTCHA only when activity looks suspicious. ✅ Tested.
 - ☐ **P5-B-03** (⏱2) Account deletion and data export as jobs. ✅ Export contains everything and deletion removes it, tested.
-- ☐ **P5-B-04** (⏱2) Graceful shutdown, timeouts, and circuit breakers on external services (SMS, AI, payments). ✅ Each one tested with a forced failure.
+- ☐ **P5-B-04** (⏱2) Graceful shutdown, timeouts, and circuit breakers on external services (SMS, AI). ✅ Each one tested with a forced failure.
 - ☐ **P5-B-05** (⏱1.5) Review `audit_log` and the owner/worker permissions. ✅ Checklist in `docs/12` completed.
 
 ### Front
@@ -302,7 +301,7 @@ Home numbers match manual calculation · the AI never makes up numbers and is li
 - ☐ **P5-F-04** (⏱1.5) Install prompt, icons, splash screen. ✅ Installs on Android and iOS (Safari steps documented).
 
 ### DevOps
-- ☐ **P5-D-01** (⏱4) Production on **commercial hosting** (ADR-0006) with a paid database plan when needed, point-in-time recovery, and an encrypted off-site backup. ⛓ S-30 (commercial hosting decision and payment), S-31 (backup storage). ✅ Production is live.
+- ☐ **P5-D-01** (⏱4) Production on **commercial hosting** (ADR-0006) with a paid database plan when needed, point-in-time recovery, and an encrypted off-site backup. ⛓ S-30 (commercial hosting decision and upgrade), S-31 (backup storage). ✅ Production is live.
 - ☐ **P5-D-02** (⏱2) **Real restore test** from backup, documented in `docs/runbooks/db-restore.md`. ✅ Restored data matches a known checksum.
 - ☐ **P5-D-03** (⏱2) **Load test (k6):** sync storm, evening peak, AI traffic. Record results, tune limits. ✅ Meets the targets written in `docs/13`.
 - ☐ **P5-D-04** (⏱1.5) Cloudflare: WAF rules, rate limits, SSL strict, HSTS. ⛓ S-32. ✅ Checked with an external scanner.
@@ -377,7 +376,7 @@ Two consecutive weeks with no data loss · the target from P0-PR-03 is met (for 
 ### DevOps
 - ☐ **P7-D-01** (⏱2) Final load test at twice the expected launch load. ✅ Meets the targets.
 - ☐ **P7-D-02** (⏱1) Launch checklist: SSL, DNS, backups, alerts, rollback, secrets, provider quotas. ✅ Every item checked.
-- ☐ **P7-D-03** (⏱1) Raise SMS, AI, and payment limits before launch. ⛓ S-40 (quota requests are slow). ✅ Limits confirmed in writing.
+- ☐ **P7-D-03** (⏱1) Raise SMS and AI limits before launch. ⛓ S-40 (quota requests are slow). ✅ Limits confirmed in writing.
 - ☐ **P7-D-04** (⏱1) On-call and support for the first two weeks: who, when, which channel. ✅ Rota published.
 
 ### ✅ Done-when (Phase 7)
@@ -385,7 +384,7 @@ Beta runs 7 days with no critical problems · the final load test passes · the 
 
 ### Risks (Phase 7)
 - **Launch with more load than we can serve** ← gradual launch by invitation, and a feature flag on signup.
-- **SMS or payment caps** ← raise the limits before announcing.
+- **SMS or AI caps** ← raise the limits before announcing.
 - **Small complaints blow up** ← quick, honest reply and a public fix.
 - **A legal mistake (advertising, data)** ← the lawyer reviews the landing page and the terms.
 
@@ -453,7 +452,7 @@ Beta runs 7 days with no critical problems · the final load test passes · the 
 - ☐ **S-12** (⏱ as needed) Native Egyptian Arabic reviewer for UI copy, error messages, empty states, and landing page. ✅ Reviewed lists. ↔ P2-PR-02, P3-PR-03.
 
 ### S2 — Weeks 4–8
-- ☐ **S-20** (⏱1) Payment gateway application with all documents. Start early: approval takes time. ✅ Application submitted. **⛓ gate for P4-B-05 (and P4-PR-01).** If late: Alpha uses manual payment (Phase 4 risk).
+- ☐ **S-20** (⏱0.5) Set up and verify Vodafone Cash and InstaPay receiving accounts and WhatsApp business contact for manual renewal. ✅ Accounts active.
 - ☐ **S-21** (⏱ as needed) Production SMS sender registration if the provider requires it. ✅ Approved. ⛓ before any real shop receives OTP (Phase 6).
 - ☐ **S-22** (⏱1) Evaluate a second SMS provider as a backup. ✅ Written comparison in ADR-0007.
 - ☐ **S-23** (⏱ borrow or buy) Test devices: two or three phones, including a low-spec Android. ✅ Available. **⛓ gate for P3-F-10.**
@@ -466,7 +465,7 @@ Beta runs 7 days with no critical problems · the final load test passes · the 
 - ☐ **S-34** (⏱1) Pentest vendor shortlist and budget. ✅ Shortlist in `docs/15`. **⛓ gate for the external part of P5-Q-01.**
 
 ### S4 — Launch preparation (weeks 13–16)
-- ☐ **S-40** (⏱1) Request quota increases for SMS, AI, and payments (requests are slow). ✅ Confirmed in writing. **⛓ gate for P7-D-03.**
+- ☐ **S-40** (⏱1) Request quota increases for SMS and AI (requests are slow). ✅ Confirmed in writing. **⛓ gate for P7-D-03.**
 - ☐ **S-41** (⏱ if we send email) Sender domain set up with SPF and DKIM through Cloudflare. ✅ Test email arrives, not in spam.
 - ☐ **S-42** (⏱0.5) Landing page hosting and privacy-friendly analytics, with consent. ✅ Live. ↔ P7-PR-02.
 - ☐ **S-43** (⏱1) Lawyer reviews the landing page claims and the terms. ✅ Written approval. **⛓ gate for P7-PR-02 publish.**
@@ -474,7 +473,7 @@ Beta runs 7 days with no critical problems · the final load test passes · the 
 ### S5 — Ongoing
 - ☐ **S-50** (⏱0.5, then monthly) Renewals calendar (domain, plans, providers) with reminders 30 days before. ✅ Calendar exists.
 - ☐ **S-51** (⏱0.5, monthly) Cost per shop review. ✅ Recorded in `docs/15`. ↔ P6-D-03, G5-02.
-- ☐ **S-52** (⏱0.5, monthly) Provider status and deprecation check (hosting, database, SMS, AI, payments). ✅ Note in `docs/15`.
+- ☐ **S-52** (⏱0.5, monthly) Provider status and deprecation check (hosting, database, SMS, AI). ✅ Note in `docs/15`.
 - ☐ **S-53** (⏱0.5, quarterly) Restore drill (G5-01). ✅ Result recorded in `docs/runbooks/db-restore.md`. ↔ G0-02.
 
 ### What to ignore on purpose (side track)
@@ -491,7 +490,7 @@ Multiple domains · a custom email design before launch · paid tools that dupli
 | 3 | Data leaks between shops | Low | Catastrophic | RLS, cross-tenant tests in CI | P1 onward |
 | 4 | Data loss | Low | Catastrophic | Point-in-time recovery, backups, a tested restore | P5 |
 | 5 | Shops stop using it | Medium | High | Interviews, alpha, usage measurement | P0, P6 |
-| 6 | Slow lawyer, payment, or SMS approval | High | Medium | Start early (S-06, S-20, S-05), alternatives | P0, P2, P4 |
+| 6 | Slow lawyer or SMS approval | High | Medium | Start early (S-06, S-05), alternatives | P0, P2 |
 | 7 | AI or SMS cost out of control | Medium | Medium | Daily limits, budget, lock | P4 |
 | 8 | Poor speed on cheap phones | Medium | High | Early test on a weak device, bundle budget | P3, P5 |
 | 9 | Scope creep | High | High | V2 list, "simplicity first" | All |
