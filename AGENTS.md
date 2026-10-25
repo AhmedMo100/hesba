@@ -23,6 +23,8 @@
 
 **On conflict:** `03-data` wins for schema, sync protocol, and catalog; `07-ops` for hosting and setup; `02-arch` for code details; `01-product` for big decisions and scope. If still conflicting: **ask, don't guess.**
 
+**Skills:** Before any task in an area covered by a skill (`.agents/skills/`), read that skill first.
+
 ## 3. Inviolable rules
 
 1. **One phase at a time** from `docs/04-tasks.md`. Start with a short plan, implement, run the checks, report the result honestly. Do not move on to the next phase without approval.
@@ -46,7 +48,6 @@ Next.js (App Router) + TypeScript · Postgres (Neon at first) + Drizzle · Dexie
 
 One package: `src/app` (routes) · `src/client` (browser only) · `src/server` (server only, starts with `import 'server-only'`) · `src/domain` (pure shared logic) · `src/schemas` (zod) · `drizzle/` (migrations) · `data/catalog/` · `tests/` · `docs/`. **No folders or files outside `docs/02-arch.md` Part 2** without an ADR in `docs/adr/`.
 Import boundaries: `src/client` ❌ `src/server`. `domain` and `schemas` stay pure. `pages → features → entities → shared`. A module imports from another module only via `index.ts`.
-Import boundaries: `src/client` ❌ `src/server`. `domain` and `schemas` stay pure. `pages → features → entities → shared`. A module imports from another module only via `index.ts`.
 
 ## 6. Commands (names are fixed, created in phase 1)
 
@@ -68,6 +69,7 @@ pnpm catalog:import # data/catalog/*.csv → global_products
 ## 7. Working style
 
 - Read the Phase task + its Done-when condition before you start.
+- Before any task in an area covered by a skill (`.agents/skills/`), read that skill first.
 - Small PRs (≈400 lines) with tests. Commits in Conventional Commits format.
 - UI: RTL, mobile-first (320/360/390px), touch targets ≥ 44px, `prefers-reduced-motion`, colors and motion from `docs/05-ui.md` — **don't invent a new design**, port the demo.
 - All visible text lives in `src/client/shared/i18n/ar.json` (no text hard-coded in components). Colloquial Arabic: simple and short.

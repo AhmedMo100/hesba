@@ -12,6 +12,8 @@
 # environment
 .env*.local
 .env
+.mcp.local.json
+.mcp.*.local.json
 
 # next.js
 /.next/
