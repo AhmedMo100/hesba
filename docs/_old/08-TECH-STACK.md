@@ -14,7 +14,7 @@
 | **Framework** | **Next.js (App Router)** | One app (front end + server), Server Actions, Route Handlers, easy deployment | Vite + NestJS (two parts and more maintenance) |
 | **UI** | React | Standard, the demo is written in it | Vue/Svelte (no reason to switch) |
 | **Database** | **PostgreSQL** (Neon at first) | RLS to isolate shops, strong transactions for inventory, `pg_trgm` for search | MongoDB/Firebase (weak transactions, harder isolation), SQLite (multi-device sync is harder) |
-| **ORM/Migrations** | **Drizzle ORM** + drizzle-kit (SQL migrations) | Close to SQL, supports RLS via raw SQL easily, light on serverless | Prisma (RLS and `set_config` are harder, larger size) |
+| **ORM/Migrations** | **Prisma** (schema.prisma + migrations) | Declarative schema, type-safe client, RLS via raw SQL migrations and interactive transactions (ADR-0012) | Micro-ORMs without schema generators |
 | **Local database** | **Dexie** (IndexedDB) | Source of truth on the phone, `useLiveQuery` | localStorage (small), SQLite-WASM (heavier, less mature) |
 | **PWA / Service Worker** | **Serwist** (Workbox for Next) | Precache + Background Sync for App Router | next-pwa (unmaintained) |
 | **Validation** | **zod** | A single source of types between client and server | Yup/Joi |
@@ -96,7 +96,7 @@ Real values live in the Secret store (except public renewal details), and `.env.
 | We need another language | `next-intl` or an alternative |
 
 ## 8. Verification Checkpoints at the Start of Phase 1 (the Agent records the result in `15`)
-- [ ] The latest stable version of Next/React/Drizzle/Dexie/Serwist and their compatibility.
+- [ ] The latest stable version of Next/React/Prisma/Dexie/Serwist and their compatibility.
 - [ ] Serwist works with the current App Router (precache + offline navigation inside `/app`).
 - [ ] `set_config(..., true)` works correctly on the pooled URL.
 - [ ] Docker `standalone` builds and runs.

@@ -10,8 +10,8 @@
 # Part 1: Database Schema (Table Reference)
 > Source: formerly `docs/03-data.md`
 
-> **This is a reference design.** The source of truth in code is `src/server/infra/db/schema/*` (Drizzle) and `drizzle/*.sql`. Any divergence = update this file in the same PR.
-> The DDL is approximate (for illustration); the Agent writes it with Drizzle plus raw SQL for RLS, indexes, and triggers.
+> **This is a reference design.** The source of truth in code is `prisma/schema.prisma` and `prisma/migrations/*.sql`. Any divergence = update this file in the same PR.
+> The DDL is approximate (for illustration); the Agent writes it with Prisma plus raw SQL for RLS, indexes, and triggers.
 
 ---
 

@@ -1,0 +1,571 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("HESBA_DATABASE_URL")
+  directUrl = env("HESBA_DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum StoreMemberRole {
+  owner
+  manager
+  cashier
+
+  @@map("store_member_role")
+}
+
+enum GlobalProductType {
+  stock
+  prepaid
+  service
+
+  @@map("global_product_type")
+}
+
+enum CardSerialStatus {
+  available
+  sold
+  void
+
+  @@map("card_serial_status")
+}
+
+enum CommissionFeeType {
+  fixed
+  percent
+
+  @@map("commission_fee_type")
+}
+
+enum BillType {
+  internet
+  mobile
+  landline
+  electricity
+  gas
+  water
+  other
+
+  @@map("bill_type")
+}
+
+enum WalletProvider {
+  vodafone_cash
+  instapay
+  other
+
+  @@map("wallet_provider")
+}
+
+enum WalletTransactionKind {
+  transfer_in
+  transfer_out
+  withdrawal
+  owner_deposit
+  reversal
+
+  @@map("wallet_transaction_kind")
+}
+
+enum ContactKind {
+  customer
+  supplier
+  both
+
+  @@map("contact_kind")
+}
+
+enum DebtDirection {
+  owed_to_me
+  i_owe
+
+  @@map("debt_direction")
+}
+
+enum SalePaymentMethod {
+  cash
+  wallet
+  card
+  debt
+
+  @@map("sale_payment_method")
+}
+
+enum AlertSeverity {
+  info
+  warning
+  critical
+
+  @@map("alert_severity")
+}
+
+enum AiMessageRole {
+  user
+  assistant
+
+  @@map("ai_message_role")
+}
+
+model Store {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                String    @db.Text
+  nameAr              String?   @default("") @map("name_ar") @db.Text
+  ownerName           String?   @map("owner_name") @db.Text
+  city                String?   @db.Text
+  shopType            String    @map("shop_type") @db.Text
+  governorate         String    @db.Text
+  area                String?   @db.Text
+  openedOn            DateTime? @map("opened_on") @db.Date
+  workersCount        Int?      @map("workers_count")
+  shareCustomProducts Boolean   @default(true) @map("share_custom_products")
+  receiveSuggestions  Boolean   @default(true) @map("receive_suggestions")
+  settings            Json      @default("{}") @db.JsonB
+  createdBy           String?   @map("created_by") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  creator            User?               @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  members            StoreMember[]
+  devices            Device[]
+  storeProducts      StoreProduct[]
+  storeVariants      StoreVariant[]
+  storePrepaidPrices StorePrepaidPrice[]
+  cardSerials        CardSerial[]
+  storeBillPayments  StoreBillPayment[]
+  wallets            Wallet[]
+  walletTransactions WalletTransaction[]
+  contacts           Contact[]
+  debtEntries        DebtEntry[]
+  purchases          Purchase[]
+  purchaseLines      PurchaseLine[]
+  sales              Sale[]
+  saleLines          SaleLine[]
+  alerts             Alert[]
+  aiMessages         AiMessage[]
+  serviceItems       ServiceItem[]
+
+  @@map("stores")
+}
+
+model User {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name            String    @db.Text
+  phone           String    @unique @db.Text
+  email           String?   @db.Text
+  passwordHash    String    @map("password_hash") @db.Text
+  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz(6)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdStores Store[]       @relation("StoreCreator")
+  members       StoreMember[]
+  devices       Device[]
+
+  @@map("users")
+}
+
+model StoreMember {
+  storeId   String          @map("store_id") @db.Uuid
+  userId    String          @map("user_id") @db.Uuid
+  role      StoreMemberRole @default(owner)
+  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, userId])
+  @@map("store_members")
+}
+
+model Device {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId    String    @map("store_id") @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  label      String?   @db.Text
+  appVersion String?   @map("app_version") @db.Text
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("devices")
+}
+
+model Brand {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nameAr    String   @map("name_ar") @db.Text
+  nameEn    String?  @map("name_en") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  globalProducts GlobalProduct[]
+
+  @@map("brands")
+}
+
+model GlobalProduct {
+  id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  brandId   String?           @map("brand_id") @db.Uuid
+  nameAr    String            @map("name_ar") @db.Text
+  category  String            @db.Text
+  type      GlobalProductType
+  createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  brand          Brand?          @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  globalVariants GlobalVariant[]
+  storeProducts  StoreProduct[]
+  storeVariants  StoreVariant[]
+
+  @@map("global_products")
+}
+
+model GlobalVariant {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  globalProductId String   @map("global_product_id") @db.Uuid
+  flavor          String?  @db.Text
+  sizeValue       Decimal? @map("size_value") @db.Decimal
+  sizeUnit        String?  @map("size_unit") @db.Text
+  packQty         Int      @default(1) @map("pack_qty")
+  barcode         String?  @db.Text
+  nameNorm        String   @map("name_norm") @db.Text
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  globalProduct GlobalProduct  @relation(fields: [globalProductId], references: [id], onDelete: Cascade)
+  storeVariants StoreVariant[]
+
+  @@index([nameNorm(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_global_variants_name_trgm")
+  @@map("global_variants")
+}
+
+model StoreProduct {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String   @map("store_id") @db.Uuid
+  globalProductId   String?  @map("global_product_id") @db.Uuid
+  nameAr            String?  @map("name_ar") @db.Text
+  category          String   @db.Text
+  unit              String   @db.Text
+  sellPricePiasters BigInt   @map("sell_price_piasters")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  globalProduct GlobalProduct? @relation(fields: [globalProductId], references: [id], onDelete: SetNull)
+  storeVariants StoreVariant[]
+  purchaseLines PurchaseLine[]
+  saleLines     SaleLine[]
+
+  @@map("store_products")
+}
+
+model StoreVariant {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String   @map("store_id") @db.Uuid
+  storeProductId    String?  @map("store_product_id") @db.Uuid
+  productId         String?  @map("product_id") @db.Uuid
+  globalVariantId   String?  @map("global_variant_id") @db.Uuid
+  flavor            String?  @db.Text
+  sizeValue         Decimal? @map("size_value") @db.Decimal
+  sizeUnit          String?  @map("size_unit") @db.Text
+  packQty           Int      @default(1) @map("pack_qty")
+  barcode           String?  @db.Text
+  sellPricePiasters BigInt   @map("sell_price_piasters")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeProduct  StoreProduct?  @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
+  globalProduct GlobalProduct? @relation(fields: [productId], references: [id], onDelete: Cascade)
+  globalVariant GlobalVariant? @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
+  purchaseLines PurchaseLine[]
+  saleLines     SaleLine[]
+
+  @@map("store_variants")
+}
+
+model PrepaidProduct {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  network              String   @db.Text
+  denominationPiasters BigInt   @map("denomination_piasters")
+  dataPackageAr        String?  @map("data_package_ar") @db.Text
+  validityDays         Int?     @map("validity_days")
+  costPiasters         BigInt?  @map("cost_piasters")
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  storePrepaidPrices StorePrepaidPrice[]
+  cardSerials        CardSerial[]
+
+  @@map("prepaid_products")
+}
+
+model StorePrepaidPrice {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String   @map("store_id") @db.Uuid
+  prepaidProductId  String   @map("prepaid_product_id") @db.Uuid
+  sellPricePiasters BigInt   @map("sell_price_piasters")
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store          Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  prepaidProduct PrepaidProduct @relation(fields: [prepaidProductId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, prepaidProductId])
+  @@map("store_prepaid_prices")
+}
+
+model ServiceItem {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  category  String   @db.Text
+  labelAr   String   @map("label_ar") @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store       Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  cardSerials CardSerial[]
+
+  @@map("service_items")
+}
+
+model CardSerial {
+  id                  String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId             String           @map("store_id") @db.Uuid
+  serviceItemId       String?          @map("service_item_id") @db.Uuid
+  prepaidProductId    String?          @map("prepaid_product_id") @db.Uuid
+  cardNumberEncrypted String           @map("card_number_encrypted") @db.Text
+  pinEncrypted        String           @map("pin_encrypted") @db.Text
+  status              CardSerialStatus @default(available)
+  soldAt              DateTime?        @map("sold_at") @db.Timestamptz(6)
+  createdAt           DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt           DateTime         @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  serviceItem    ServiceItem?    @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
+  prepaidProduct PrepaidProduct? @relation(fields: [prepaidProductId], references: [id], onDelete: SetNull)
+  saleLines      SaleLine[]
+
+  @@map("card_serials")
+}
+
+model CommissionRule {
+  id                 String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  provider           String            @db.Text
+  kind               String            @db.Text
+  fromAmountPiasters BigInt            @map("from_amount_piasters")
+  toAmountPiasters   BigInt            @map("to_amount_piasters")
+  feeType            CommissionFeeType @map("fee_type")
+  feeValue           Decimal           @map("fee_value") @db.Decimal
+  effectiveFrom      DateTime          @default(now()) @map("effective_from") @db.Timestamptz(6)
+  effectiveTo        DateTime?         @map("effective_to") @db.Timestamptz(6)
+  createdAt          DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  walletTransactions WalletTransaction[]
+
+  @@map("commission_rules")
+}
+
+model BillProvider {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  nameAr    String   @map("name_ar") @db.Text
+  billType  BillType @map("bill_type")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  storeBillPayments StoreBillPayment[]
+
+  @@map("bill_providers")
+}
+
+model StoreBillPayment {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String   @map("store_id") @db.Uuid
+  billProviderId    String   @map("bill_provider_id") @db.Uuid
+  customerReference String?  @map("customer_reference") @db.Text
+  amountPiasters    BigInt   @map("amount_piasters")
+  feePiasters       BigInt   @default(0) @map("fee_piasters")
+  opId              String   @map("op_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  billProvider BillProvider @relation(fields: [billProviderId], references: [id], onDelete: Cascade)
+  saleLines    SaleLine[]
+
+  @@unique([storeId, opId])
+  @@map("store_bill_payments")
+}
+
+model Wallet {
+  id        String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String         @map("store_id") @db.Uuid
+  provider  WalletProvider
+  labelAr   String         @map("label_ar") @db.Text
+  isActive  Boolean        @default(true) @map("is_active")
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store               @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  transactions WalletTransaction[]
+
+  @@map("wallets")
+}
+
+model WalletTransaction {
+  id                   String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId              String                @map("store_id") @db.Uuid
+  walletId             String                @map("wallet_id") @db.Uuid
+  kind                 WalletTransactionKind
+  amountPiasters       BigInt                @map("amount_piasters")
+  feePiasters          BigInt                @default(0) @map("fee_piasters")
+  balanceAfterPiasters BigInt                @map("balance_after_piasters")
+  commissionRuleId     String?               @map("commission_rule_id") @db.Uuid
+  opId                 String                @map("op_id") @db.Uuid
+  createdAt            DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  wallet         Wallet          @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  commissionRule CommissionRule? @relation(fields: [commissionRuleId], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, opId])
+  @@map("wallet_transactions")
+}
+
+model Contact {
+  id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String      @map("store_id") @db.Uuid
+  kind      ContactKind
+  nameAr    String      @map("name_ar") @db.Text
+  phone     String?     @db.Text
+  createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  debtEntries DebtEntry[]
+  purchases   Purchase[]
+  sales       Sale[]
+
+  @@map("contacts")
+}
+
+model DebtEntry {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String        @map("store_id") @db.Uuid
+  contactId      String        @map("contact_id") @db.Uuid
+  direction      DebtDirection
+  amountPiasters BigInt        @map("amount_piasters")
+  noteAr         String?       @map("note_ar") @db.Text
+  settlesEntryId String?       @map("settles_entry_id") @db.Uuid
+  opId           String        @map("op_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  contact      Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  settlesEntry DebtEntry?  @relation("DebtSettlement", fields: [settlesEntryId], references: [id], onDelete: SetNull)
+  settlements  DebtEntry[] @relation("DebtSettlement")
+
+  @@unique([storeId, opId])
+  @@map("debt_entries")
+}
+
+model Purchase {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String   @map("store_id") @db.Uuid
+  supplierContactId String?  @map("supplier_contact_id") @db.Uuid
+  totalPiasters     BigInt   @map("total_piasters")
+  opId              String   @map("op_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store           Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  supplierContact Contact?       @relation(fields: [supplierContactId], references: [id], onDelete: SetNull)
+  purchaseLines   PurchaseLine[]
+
+  @@unique([storeId, opId])
+  @@map("purchases")
+}
+
+model PurchaseLine {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String    @map("store_id") @db.Uuid
+  purchaseId        String    @map("purchase_id") @db.Uuid
+  storeProductId    String?   @map("store_product_id") @db.Uuid
+  storeVariantId    String?   @map("store_variant_id") @db.Uuid
+  quantityBaseUnits Int       @map("quantity_base_units")
+  unitCostPiasters  BigInt    @map("unit_cost_piasters")
+  expiresOn         DateTime? @map("expires_on") @db.Date
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  purchase     Purchase      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  storeProduct StoreProduct? @relation(fields: [storeProductId], references: [id], onDelete: SetNull)
+  storeVariant StoreVariant? @relation(fields: [storeVariantId], references: [id], onDelete: SetNull)
+
+  @@map("purchase_lines")
+}
+
+model Sale {
+  id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String            @map("store_id") @db.Uuid
+  customerContactId String?           @map("customer_contact_id") @db.Uuid
+  paymentMethod     SalePaymentMethod @map("payment_method")
+  totalPiasters     BigInt            @map("total_piasters")
+  opId              String            @map("op_id") @db.Uuid
+  createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerContact Contact?   @relation(fields: [customerContactId], references: [id], onDelete: SetNull)
+  saleLines       SaleLine[]
+
+  @@unique([storeId, opId])
+  @@map("sales")
+}
+
+model SaleLine {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId            String   @map("store_id") @db.Uuid
+  saleId             String?  @map("sale_id") @db.Uuid
+  storeProductId     String?  @map("store_product_id") @db.Uuid
+  storeVariantId     String?  @map("store_variant_id") @db.Uuid
+  cardSerialId       String?  @map("card_serial_id") @db.Uuid
+  storeBillPaymentId String?  @map("store_bill_payment_id") @db.Uuid
+  quantityBaseUnits  Int      @map("quantity_base_units")
+  unitPricePiasters  BigInt   @map("unit_price_piasters")
+  totalPiasters      BigInt   @map("total_piasters")
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sale             Sale?             @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  storeProduct     StoreProduct?     @relation(fields: [storeProductId], references: [id], onDelete: SetNull)
+  storeVariant     StoreVariant?     @relation(fields: [storeVariantId], references: [id], onDelete: SetNull)
+  cardSerial       CardSerial?       @relation(fields: [cardSerialId], references: [id], onDelete: SetNull)
+  storeBillPayment StoreBillPayment? @relation(fields: [storeBillPaymentId], references: [id], onDelete: SetNull)
+
+  @@map("sale_lines")
+}
+
+model Alert {
+  id        String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String        @map("store_id") @db.Uuid
+  kind      String        @db.Text
+  severity  AlertSeverity
+  messageAr String        @map("message_ar") @db.Text
+  readAt    DateTime?     @map("read_at") @db.Timestamptz(6)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("alerts")
+}
+
+model AiMessage {
+  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String        @map("store_id") @db.Uuid
+  role           AiMessageRole
+  bodyText       String        @map("body_text") @db.Text
+  conversationId String?       @map("conversation_id") @db.Uuid
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("ai_messages")
+}

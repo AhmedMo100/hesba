@@ -15,7 +15,7 @@ hesba/
 │   ├── server/                 # server-only code (server-only)
 │   ├── domain/                 # pure shared logic (no DOM/Next/DB)
 │   └── schemas/                # zod: the single source of types
-├── drizzle/                    # numbered SQL migrations (Expand/Contract)
+├── prisma/                     # schema.prisma + SQL migrations (Expand/Contract)
 ├── data/catalog/               # CSVs for the public catalog + template.csv (06)
 ├── public/                     # manifest, icons, fonts/tajawal (local woff2)
 ├── scripts/                    # import-catalog.ts, seed.ts, check-env.ts, backup (05)
@@ -25,7 +25,7 @@ hesba/
 ├── Dockerfile                  # output: 'standalone' (Portability — built in CI)
 ├── docker-compose.dev.yml      # local postgres (+ minio if needed)
 ├── next.config.ts
-├── drizzle.config.ts
+├── prisma/schema.prisma
 ├── tsconfig.json
 ├── eslint.config.mjs           # import boundaries
 ├── package.json
@@ -125,9 +125,8 @@ src/server/
 ├── platform/                   # logging, errors, audit, flags (maintenance), health
 ├── infra/
 │   ├── db/
-│   │   ├── client.ts           # Drizzle + pooled URL
+│   │   ├── client.ts           # Prisma + pooled URL
 │   │   ├── tenant.ts           # withTenant(): set_config(app.store_id) inside tx
-│   │   └── schema/             # tables per module
 │   ├── storage/                # S3-compatible interface ✱
 │   ├── sms/                    # interface + providers/*
 │   ├── payments/               # interface + providers/*
@@ -175,16 +174,14 @@ src/schemas/
 
 ---
 
-## 6. `drizzle/`, `data/`, and `tests/`
+## 6. `prisma/`, `data/`, and `tests/`
 
 ```
-drizzle/
-├── 0001_init.sql                  # stores, users, store_members, devices, sessions
-├── 0002_rls_policies.sql
-├── 0003_catalog.sql               # global_products, products, candidates, suggestions, reports (+ pg_trgm)
-├── 0004_inventory_sales.sql
-├── 0005_sync_jobs.sql             # change_log, sync_ops, jobs, flags
-└── ...
+prisma/
+├── schema.prisma                  # models, relations, datasources
+├── migrations/
+│   └── 20261025000000_init/
+│       └── migration.sql          # base tables, RLS policies, append-only grants, indexes
 
 data/catalog/
 ├── template.csv                   # name, brand, size_value, size_unit, category, barcode, carton_qty, notes

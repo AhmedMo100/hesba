@@ -7,7 +7,7 @@ description: Multi-tenant data isolation using PostgreSQL Row Level Security (RL
 
 ## When to Use
 
-- Adding, modifying, or deleting database tables in `drizzle/` or `src/server/db/schema/`.
+- Adding, modifying, or deleting database tables in `prisma/` or `prisma/schema.prisma`.
 - Writing or reviewing server actions, API route handlers, repositories, or background jobs.
 - Writing integration tests (`pnpm test:int`) that touch database queries.
 
@@ -21,24 +21,21 @@ description: Multi-tenant data isolation using PostgreSQL Row Level Security (RL
 
 ## Implementation Steps
 
-### 1. Drizzle Schema & Table Setup
+### 1. Prisma Schema & Table Setup
 
-In `src/server/db/schema/`:
+In `prisma/schema.prisma`:
 
-```ts
-import { pgTable, uuid, text, timestamp } from "drizzle-orm/pg-core";
-import { stores } from "./stores";
+```prisma
+model StoreProduct {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  nameAr    String?  @map("name_ar") @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-export const products = pgTable("products", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  storeId: uuid("store_id")
-    .notNull()
-    .references(() => stores.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("store_products")
+}
 ```
 
 ### 2. SQL RLS Policy (in Migration)
@@ -46,10 +43,10 @@ export const products = pgTable("products", {
 Every tenant table must have an RLS policy checking `current_setting('app.store_id', true)`:
 
 ```sql
-ALTER TABLE products ENABLE ROW LEVEL SECURITY;
-ALTER TABLE products FORCE ROW LEVEL SECURITY;
+ALTER TABLE store_products ENABLE ROW LEVEL SECURITY;
+ALTER TABLE store_products FORCE ROW LEVEL SECURITY;
 
-CREATE POLICY products_store_isolation ON products
+CREATE POLICY tenant_isolation ON store_products
   FOR ALL
   USING (store_id = NULLIF(current_setting('app.store_id', true), '')::uuid)
   WITH CHECK (store_id = NULLIF(current_setting('app.store_id', true), '')::uuid);
@@ -57,25 +54,33 @@ CREATE POLICY products_store_isolation ON products
 
 ### 3. Executing Queries with `withTenant`
 
-In `src/server/db/tenant.ts`:
+In `src/server/infra/db/tenant.ts`:
 
 ```ts
-import { sql } from "drizzle-orm";
-import { db } from "./index";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { prisma } from "./client";
 
 export async function withTenant<T>(
   storeId: string,
   userId: string | null,
-  fn: (tx: typeof db) => Promise<T>,
+  fn: (tx: Prisma.TransactionClient) => Promise<T>,
+  customPrisma: PrismaClient = prisma,
 ): Promise<T> {
-  return await db.transaction(async (tx) => {
-    await tx.execute(sql`SELECT set_config('app.store_id', ${storeId}, true)`);
+  return await customPrisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.store_id', ${storeId}, true)`;
     if (userId) {
-      await tx.execute(sql`SELECT set_config('app.user_id', ${userId}, true)`);
+      await tx.$executeRaw`SELECT set_config('app.user_id', ${userId}, true)`;
     }
     return await fn(tx);
   });
 }
+```
+
+    return await fn(tx);
+
+});
+}
+
 ```
 
 ### 4. Writing the Cross-Tenant Integration Test
@@ -103,3 +108,4 @@ Every endpoint or service must have a cross-tenant test:
 - [docs/03-data.md](file:///Users/ahmedtarek/Desktop/Web%20Projects/Full-Stack/Hesba/docs/03-data.md) — Database schema, tenant tables, and RLS definitions.
 - [docs/06-quality.md](file:///Users/ahmedtarek/Desktop/Web%20Projects/Full-Stack/Hesba/docs/06-quality.md) — Security boundaries, RLS verification, and cross-tenant testing.
 - [docs/02-arch.md](file:///Users/ahmedtarek/Desktop/Web%20Projects/Full-Stack/Hesba/docs/02-arch.md) — Server architecture and data access boundaries.
+```

@@ -1,7 +1,5 @@
 import "server-only";
-import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
-import * as schema from "./schema";
+import { PrismaClient } from "@prisma/client";
 
 if (!process.env["HESBA_DATABASE_URL"]) {
   try {
@@ -19,23 +17,36 @@ const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";
 
-export const queryClient = postgres(databaseUrl, {
-  max: 10,
-  idle_timeout: 20,
-  connect_timeout: 10,
-});
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
 
-export const db = drizzle(queryClient, { schema });
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    datasources: {
+      db: {
+        url: databaseUrl,
+      },
+    },
+  });
 
-export type DatabaseInstance = typeof db;
+if (process.env.NODE_ENV !== "production") {
+  globalForPrisma.prisma = prisma;
+}
 
-export function createDb(
-  connectionUrl: string,
-  options?: postgres.Options<Record<string, never>>,
-) {
-  const client = postgres(connectionUrl, options);
+export type DatabaseInstance = PrismaClient;
+
+export function createDb(connectionUrl: string) {
+  const client = new PrismaClient({
+    datasources: {
+      db: {
+        url: connectionUrl,
+      },
+    },
+  });
   return {
     client,
-    db: drizzle(client, { schema }),
+    db: client,
   };
 }

@@ -95,13 +95,13 @@ Install in groups, so a failure is easy to find. Versions are pinned by the lock
 **4.1 Runtime**
 ```bash
 pnpm add zod server-only dexie dexie-react-hooks \
-  drizzle-orm postgres @node-rs/argon2 uuid pino \
+  @prisma/client @node-rs/argon2 uuid pino \
   serwist @serwist/next
 ```
 
 **4.2 Development and quality**
 ```bash
-pnpm add -D drizzle-kit tsx \
+pnpm add -D prisma tsx \
   vitest @vitest/coverage-v8 fast-check \
   @testcontainers/postgresql testcontainers \
   @playwright/test \
@@ -132,7 +132,7 @@ Create the top-level folders now. The inner folders follow `docs/03-FOLDER-STRUC
 
 ```bash
 mkdir -p src/client src/server src/domain src/schemas \
-  drizzle data/catalog scripts tests public/fonts \
+  prisma data/catalog scripts tests public/fonts \
   .github/workflows docs/runbooks
 ```
 
@@ -156,7 +156,7 @@ Phase 1 tasks create these files. Here is what each one must do, so the agent an
 | `next.config.ts` | `output: 'standalone'` · wrap with `@serwist/next` |
 | `eslint.config.mjs` | `eslint-plugin-boundaries`: `src/client` may not import `src/server`; `src/domain` and `src/schemas` import nothing from app/client/server; only files in `src/server` may use `server-only` |
 | `.prettierrc` | Defaults plus single quotes off, trailing commas `all` |
-| `drizzle.config.ts` | Migrations folder `drizzle/`, URL from `HESBA_DIRECT_URL` (direct, not pooled) |
+| `prisma/schema.prisma` | Datasource using `HESBA_DATABASE_URL` (runtime) and `HESBA_DIRECT_URL` (direct/migrations) |
 | `vitest.config.ts` | Unit + property tests (`tests/unit/**`) |
 | `vitest.int.config.ts` | Integration tests (`tests/integration/**`) on a real Postgres |
 | `playwright.config.ts` | E2E tests in `tests/e2e/**`, mobile viewport 360px as a project |
@@ -202,7 +202,7 @@ docker compose -f docker-compose.dev.yml up -d
 Create the two database roles once. Save this as `scripts/sql/00-roles.sql` and run it as the superuser of the local container:
 
 ```sql
--- Migrations owner (runs drizzle migrations, owns the tables)
+-- Migrations owner (runs prisma migrations, owns the tables)
 CREATE ROLE hesba_migrator LOGIN PASSWORD 'change-me-local';
 
 -- Application role: must NOT be superuser and must NOT bypass RLS.
@@ -231,8 +231,8 @@ These names are fixed (`AGENTS.md` section 6). Add them in P1-F-01 and P1-B-02:
     "test": "vitest run",
     "test:int": "vitest run --config vitest.int.config.ts",
     "test:e2e": "playwright test",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "tsx scripts/migrate.ts",
+    "db:generate": "prisma migrate dev --create-only",
+    "db:migrate": "prisma migrate deploy",
     "catalog:import": "tsx scripts/import-catalog.ts",
     "format": "prettier --write ."
   }

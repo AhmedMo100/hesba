@@ -123,7 +123,7 @@ src/server/modules/<module>/
   handlers.ts   handlers for Sync operations (op type → handler)
   app/          Use-cases (one Transaction, a verb: RecordSale, AddStock, VoidSale)
   domain/       pure rules (no Next/DB) — or shared from src/domain
-  infra/        Repositories (SQL via Drizzle) + external clients
+  infra/        Repositories (SQL via Prisma) + external clients
   index.ts      the module's only Public API
 ```
 **Rules:**
@@ -279,7 +279,7 @@ Unified error shape: `{ "error": { "code", "message", "details", "request_id" } 
 
 ## 8. ADRs required before code
 > The status-updated list is in `15-DECISIONS-AND-OPEN-QUESTIONS.md` section 6.
-(1) ORM: Drizzle · (2) `change_log` Trigger or Repository · (3) Router inside `/app` · (4) Serwist and the update strategy · (5) SMS provider · (6) Hosting (05) · (7) Search library in Dexie · (8) Bulk-table manager.
+(1) ORM: Prisma (ADR-0012) · (2) `change_log` Trigger or Repository · (3) Router inside `/app` · (4) Serwist and the update strategy · (5) SMS provider · (6) Hosting (05) · (7) Search library in Dexie · (8) Bulk-table manager.
 
 ## 9. Code rules (Antigravity and the team)
 1. TypeScript `strict`, `any` is forbidden.
@@ -316,7 +316,7 @@ hesba/
 │   ├── server/                 # server-only code (server-only)
 │   ├── domain/                 # pure shared logic (no DOM/Next/DB)
 │   └── schemas/                # zod: the single source of types
-├── drizzle/                    # numbered SQL migrations (Expand/Contract)
+├── prisma/                     # schema.prisma + SQL migrations (Expand/Contract)
 ├── data/catalog/               # CSVs for the public catalog + template.csv (06)
 ├── public/                     # manifest, icons, fonts/tajawal (local woff2)
 ├── scripts/                    # import-catalog.ts, seed.ts, check-env.ts, backup (05)
@@ -326,7 +326,7 @@ hesba/
 ├── Dockerfile                  # output: 'standalone' (Portability — built in CI)
 ├── docker-compose.dev.yml      # local postgres (+ minio if needed)
 ├── next.config.ts
-├── drizzle.config.ts
+├── prisma/schema.prisma
 ├── tsconfig.json
 ├── eslint.config.mjs           # import boundaries
 ├── package.json
@@ -426,9 +426,8 @@ src/server/
 ├── platform/                   # logging, errors, audit, flags (maintenance), health
 ├── infra/
 │   ├── db/
-│   │   ├── client.ts           # Drizzle + pooled URL
+│   │   ├── client.ts           # Prisma + pooled URL
 │   │   ├── tenant.ts           # withTenant(): set_config(app.store_id) inside tx
-│   │   └── schema/             # tables per module
 │   ├── storage/                # S3-compatible interface ✱
 │   ├── sms/                    # interface + providers/*
 │   ├── payments/               # interface + providers/*
@@ -476,16 +475,14 @@ src/schemas/
 
 ---
 
-## 6. `drizzle/`, `data/`, and `tests/`
+## 6. `prisma/`, `data/`, and `tests/`
 
 ```
-drizzle/
-├── 0001_init.sql                  # stores, users, store_members, devices, sessions
-├── 0002_rls_policies.sql
-├── 0003_catalog.sql               # global_products, products, candidates, suggestions, reports (+ pg_trgm)
-├── 0004_inventory_sales.sql
-├── 0005_sync_jobs.sql             # change_log, sync_ops, jobs, flags
-└── ...
+prisma/
+├── schema.prisma                  # models, relations, datasources
+├── migrations/
+│   └── 20261025000000_init/
+│       └── migration.sql          # base tables, RLS policies, append-only grants, indexes
 
 data/catalog/
 ├── template.csv                   # name, brand, size_value, size_unit, category, barcode, carton_qty, notes
@@ -576,7 +573,7 @@ docs/
 | **Framework** | **Next.js (App Router)** | One app (front end + server), Server Actions, Route Handlers, easy deployment | Vite + NestJS (two parts and more maintenance) |
 | **UI** | React | Standard, the demo is written in it | Vue/Svelte (no reason to switch) |
 | **Database** | **PostgreSQL** (Neon at first) | RLS to isolate shops, strong transactions for inventory, `pg_trgm` for search | MongoDB/Firebase (weak transactions, harder isolation), SQLite (multi-device sync is harder) |
-| **ORM/Migrations** | **Drizzle ORM** + drizzle-kit (SQL migrations) | Close to SQL, supports RLS via raw SQL easily, light on serverless | Prisma (RLS and `set_config` are harder, larger size) |
+| **ORM/Migrations** | **Prisma** (schema.prisma + migrations) | Declarative schema, type-safe client, RLS via raw SQL migrations and interactive transactions (ADR-0012) | Micro-ORMs without schema generators |
 | **Local database** | **Dexie** (IndexedDB) | Source of truth on the phone, `useLiveQuery` | localStorage (small), SQLite-WASM (heavier, less mature) |
 | **PWA / Service Worker** | **Serwist** (Workbox for Next) | Precache + Background Sync for App Router | next-pwa (unmaintained) |
 | **Validation** | **zod** | A single source of types between client and server | Yup/Joi |
@@ -658,7 +655,7 @@ Real values live in the Secret store (except public renewal details), and `.env.
 | We need another language | `next-intl` or an alternative |
 
 ## 8. Verification Checkpoints at the Start of Phase 1 (the Agent records the result in `15`)
-- [ ] The latest stable version of Next/React/Drizzle/Dexie/Serwist and their compatibility.
+- [ ] The latest stable version of Next/React/Prisma/Dexie/Serwist and their compatibility.
 - [ ] Serwist works with the current App Router (precache + offline navigation inside `/app`).
 - [ ] `set_config(..., true)` works correctly on the pooled URL.
 - [ ] Docker `standalone` builds and runs.

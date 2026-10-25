@@ -21,7 +21,7 @@
 | 2 | Session/account theft | Access to the store's data | httpOnly+Secure+SameSite cookie, session rotation, device binding, server-side revocation |
 | 3 | Brute-force / OTP abuse | SMS cost + account compromise | Limits per number/IP/device + escalating delay + CAPTCHA when suspicious |
 | 4 | CSRF on `/api/sync/*` | Forged operations | `SameSite` + `Origin` check + `X-Hesba-Client` |
-| 5 | SQL injection | Leak/corruption | Drizzle with parameters only; building SQL from inputs is forbidden |
+| 5 | SQL injection | Leak/corruption | Prisma with parameters only; building SQL from inputs is forbidden |
 | 6 | XSS | Session theft | React escaping, CSP, no `dangerouslySetInnerHTML` with user input, sanitize catalog text |
 | 7 | Leak of a store's identity/prices through the shared catalog | Privacy | The API never returns `submitted_by_store`; prices are never shared + automated test |
 | 8 | Catalog abuse (spam/offensive content) | Reputation | Filters + daily cap + reports + review (06) |

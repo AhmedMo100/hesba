@@ -158,7 +158,7 @@ Neon Free keeps only 6 hours of history ✔, so we need:
 ## 6. "Portability" rules (so upgrading stays easy)
 
 1. **Plain Postgres:** no reliance on provider-specific features (Supabase Auth/Realtime/RLS helpers, Neon-only features in the code). Branching for Dev only.
-2. **ORM + SQL migrations** (Drizzle) — without Prisma Accelerate/Data Proxy.
+2. **ORM + migrations** (Prisma) — without Prisma Accelerate/Data Proxy.
 3. **Every setting in environment variables** (`HESBA_*`) defined in `src/server/config/env.ts` (zod).
 4. **File storage** through an S3 interface — not a provider-specific SDK.
 5. **No** Vercel KV / Blob / Edge Config / provider-specific `@vercel/*`, except behind an interface we can swap.

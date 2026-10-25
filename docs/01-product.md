@@ -602,7 +602,7 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 |---|---|---|---|
 | D1 | **Single Next.js app** (no separate API/NestJS) | 02, 08 | ✅ |
 | D2 | Offline-first PWA: Dexie + Outbox + Service Worker | 02, 10 | ✅ |
-| D3 | Postgres + RLS (`store_id` on every table) + Drizzle | 08, 09 | ✅ |
+| D3 | Postgres + RLS (`store_id` on every table) + Prisma | 08, 09 | ✅ |
 | D4 | Sync = `/api/sync/*` Route Handlers (not Server Actions) | 02 section 2 | ✅ |
 | D5 | Sync is **event-driven, no polling** | 02, 10 | ✅ |
 | D6 | Inventory = batches + append-only movements, FEFO selling, reversing void | 02, 09 | ✅ |
@@ -712,7 +712,7 @@ The owner must provide the following data before Phase 3:
 | 0009 | Product variants | Accepted | Phase 0 |
 | 0010 | Services: prepaid cards, bills and transfers with commissions | Accepted | Phase 0 |
 | 0011 | Local catalog search library | **Open** (O12) | Phase 3 |
-| 0012 | Router inside `/app` | **Open** (O13) | Phase 1 |
+| 0012 | Use Prisma as primary ORM | Accepted | Phase 1 |
 | 0013 | LLM provider | **Open** (O4) | Phase 4 |
 The template is in `docs/adr/template.md`. The Agent writes the draft, and you approve.
 
@@ -727,3 +727,4 @@ The template is in `docs/adr/template.md`. The Agent writes the draft, and you a
 | 2026-10-24 | ADR-0006 (SMS, proposed), ADR-0007 (Hosting, proposed), ADR-0008 (Manual renewal via Vodafone Cash/InstaPay, accepted) | Phase 0 decisions |
 | 2026-10-24 | Switched Phase 4 billing to manual renewal (ADR-0008). Task IDs repurposed: P4-B-05 (manual admin activation and audit logging), P4-F-03 (renewal info and WhatsApp link), P4-Q-03 (manual renewal and expiry tests), S-20 (receiving accounts setup) | Owner decision (simplicity, familiar Egyptian transfer methods, zero card data stored) |
 | 2026-10-24 | ADR-0009 (Product variants, accepted), ADR-0010 (Services: prepaid cards, bills and transfers with commissions, accepted) | Phase 0 decisions (P0-D-06) |
+| 2026-10-25 | ADR-0012 (Use Prisma instead of Drizzle, accepted) | Replaced Drizzle with Prisma across the project |

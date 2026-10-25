@@ -113,7 +113,7 @@ src/server/modules/<module>/
   handlers.ts   handlers for Sync operations (op type → handler)
   app/          Use-cases (one Transaction, a verb: RecordSale, AddStock, VoidSale)
   domain/       pure rules (no Next/DB) — or shared from src/domain
-  infra/        Repositories (SQL via Drizzle) + external clients
+  infra/        Repositories (SQL via Prisma) + external clients
   index.ts      the module's only Public API
 ```
 **Rules:**
@@ -269,7 +269,7 @@ Unified error shape: `{ "error": { "code", "message", "details", "request_id" } 
 
 ## 8. ADRs required before code
 > The status-updated list is in `15-DECISIONS-AND-OPEN-QUESTIONS.md` section 6.
-(1) ORM: Drizzle · (2) `change_log` Trigger or Repository · (3) Router inside `/app` · (4) Serwist and the update strategy · (5) SMS provider · (6) Hosting (05) · (7) Search library in Dexie · (8) Bulk-table manager.
+(1) ORM: Prisma (ADR-0012) · (2) `change_log` Trigger or Repository · (3) Router inside `/app` · (4) Serwist and the update strategy · (5) SMS provider · (6) Hosting (05) · (7) Search library in Dexie · (8) Bulk-table manager.
 
 ## 9. Code rules (Antigravity and the team)
 1. TypeScript `strict`, `any` is forbidden.

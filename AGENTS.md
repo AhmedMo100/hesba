@@ -42,11 +42,11 @@
 
 ## 4. The stack (summary — details in `docs/02-arch.md`)
 
-Next.js (App Router) + TypeScript · Postgres (Neon at first) + Drizzle · Dexie (IndexedDB) · Serwist (PWA) · zod · Vitest + Playwright + fast-check + Testcontainers · Sentry · pnpm · GitHub Actions. Styling: CSS variables from the demo (not Tailwind in V1).
+Next.js (App Router) + TypeScript · Postgres (Neon at first) + Prisma · Dexie (IndexedDB) · Serwist (PWA) · zod · Vitest + Playwright + fast-check + Testcontainers · Sentry · pnpm · GitHub Actions. Styling: CSS variables from the demo (not Tailwind in V1).
 
 ## 5. Structure
 
-One package: `src/app` (routes) · `src/client` (browser only) · `src/server` (server only, starts with `import 'server-only'`) · `src/domain` (pure shared logic) · `src/schemas` (zod) · `drizzle/` (migrations) · `data/catalog/` · `tests/` · `docs/`. **No folders or files outside `docs/02-arch.md` Part 2** without an ADR in `docs/adr/`.
+One package: `src/app` (routes) · `src/client` (browser only) · `src/server` (server only, starts with `import 'server-only'`) · `src/domain` (pure shared logic) · `src/schemas` (zod) · `prisma/` (schema & migrations) · `data/catalog/` · `tests/` · `docs/`. **No folders or files outside `docs/02-arch.md` Part 2** without an ADR in `docs/adr/`.
 Import boundaries: `src/client` ❌ `src/server`. `domain` and `schemas` stay pure. `pages → features → entities → shared`. A module imports from another module only via `index.ts`.
 
 ## 6. Commands (names are fixed, created in phase 1)
@@ -59,8 +59,8 @@ pnpm typecheck      # tsc --noEmit
 pnpm test           # vitest (unit + property)
 pnpm test:int       # integration (Testcontainers) + cross-tenant
 pnpm test:e2e       # playwright (offline/sync)
-pnpm db:generate    # drizzle-kit generate
-pnpm db:migrate     # run migrations (DIRECT_URL)
+pnpm db:generate    # prisma migrate dev --create-only
+pnpm db:migrate     # prisma migrate deploy (DIRECT_URL)
 pnpm catalog:import # data/catalog/*.csv → global_products
 ```
 

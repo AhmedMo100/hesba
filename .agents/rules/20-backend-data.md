@@ -1,8 +1,8 @@
-# Server and Data Rules (when working on `src/server`, `drizzle/` or `/api`)
+# Server and Data Rules (when working on `src/server`, `prisma/` or `/api`)
 
 - Reference: `docs/09-DATABASE-SCHEMA.md` (tables), `docs/10-SYNC-PROTOCOL.md` (operations) and `docs/02` (layers).
 - Every file in `src/server` starts with `import 'server-only'`. `src/client` must not import from it.
-- Module layers: `actions.ts|handlers.ts` (thin) → `app/` (use-cases, one Transaction) → `domain/` (pure) → `infra/` (SQL via Drizzle).
+- Module layers: `actions.ts|handlers.ts` (thin) → `app/` (use-cases, one Transaction) → `domain/` (pure) → `infra/` (SQL via Prisma).
 - A module imports from another module only via `index.ts`. No querying another module's tables.
 - **RLS:** `withTenant(storeId, userId, fn)` = `set_config('app.store_id', …, true)` inside a Transaction. The app user is not a superuser and has no BYPASSRLS. Migrations run with a different user (`DIRECT_URL`).
 - Migrations: Expand/Contract. Never drop a column in the same release that stops using it. `CREATE INDEX CONCURRENTLY` on large tables.

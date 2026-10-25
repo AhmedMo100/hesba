@@ -1,6 +1,4 @@
-import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
-import { migrate } from "drizzle-orm/postgres-js/migrator";
+import { execSync } from "node:child_process";
 
 if (!process.env["HESBA_DIRECT_URL"]) {
   try {
@@ -15,26 +13,30 @@ if (!process.env["HESBA_DIRECT_URL"]) {
 }
 
 const directUrl = process.env["HESBA_DIRECT_URL"];
+const databaseUrl = process.env["HESBA_DATABASE_URL"] ?? directUrl;
 
 if (!directUrl) {
   throw new Error("Missing HESBA_DIRECT_URL environment variable.");
 }
 
-async function runMigrations(url: string) {
+async function runMigrations() {
   console.log("Connecting with migrator role...");
-  const sql = postgres(url, { max: 1 });
-  const db = drizzle(sql);
-
   try {
-    console.log("Running Drizzle migrations from ./drizzle...");
-    await migrate(db, { migrationsFolder: "./drizzle" });
+    console.log("Running Prisma migrations from ./prisma/migrations...");
+    execSync("npx prisma migrate deploy", {
+      stdio: "inherit",
+      env: {
+        ...process.env,
+        HESBA_DIRECT_URL: directUrl,
+        HESBA_DATABASE_URL: databaseUrl,
+        DATABASE_URL: directUrl,
+      },
+    });
     console.log("Migrations completed successfully.");
   } catch (error) {
     console.error("Migration failed:", error);
     process.exit(1);
-  } finally {
-    await sql.end();
   }
 }
 
-runMigrations(directUrl);
+runMigrations();

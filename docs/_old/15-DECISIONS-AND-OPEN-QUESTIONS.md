@@ -10,7 +10,7 @@
 |---|---|---|---|
 | D1 | **Single Next.js app** (no separate API/NestJS) | 02, 08 | ✅ |
 | D2 | Offline-first PWA: Dexie + Outbox + Service Worker | 02, 10 | ✅ |
-| D3 | Postgres + RLS (`store_id` on every table) + Drizzle | 08, 09 | ✅ |
+| D3 | Postgres + RLS (`store_id` on every table) + Prisma | 08, 09 | ✅ |
 | D4 | Sync = `/api/sync/*` Route Handlers (not Server Actions) | 02 section 2 | ✅ |
 | D5 | Sync is **event-driven, no polling** | 02, 10 | ✅ |
 | D6 | Inventory = batches + append-only movements, FEFO selling, reversing void | 02, 09 | ✅ |

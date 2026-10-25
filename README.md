@@ -6,7 +6,7 @@ A very simple system for managing supermarkets and small shops in Egypt: product
 
 ## Stack
 
-Next.js (App Router) + TypeScript · PostgreSQL + Drizzle · Dexie (IndexedDB) · PWA (Serwist) · zod · Vitest/Playwright.
+Next.js (App Router) + TypeScript · PostgreSQL + Prisma · Dexie (IndexedDB) · PWA (Serwist) · zod · Vitest/Playwright.
 
 ## Start here
 

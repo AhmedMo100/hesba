@@ -1,8 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
-import { drizzle } from "drizzle-orm/postgres-js";
-import { eq, sql } from "drizzle-orm";
-import * as schema from "@/server/infra/db/schema";
+import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 
 if (!process.env["HESBA_DATABASE_URL"] || !process.env["HESBA_DIRECT_URL"]) {
@@ -25,13 +23,13 @@ const directUrl =
   "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
 
 describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
-  // Migrator client for setting up test data
+  // Migrator client for setting up test data and admin operations
   let migratorClient: postgres.Sql;
-  let migratorDb: ReturnType<typeof drizzle<typeof schema>>;
+  let migratorPrisma: PrismaClient;
 
   // App client (hesba_app: non-superuser, NOBYPASSRLS) with connection pool
   let appPoolClient: postgres.Sql;
-  let appPoolDb: ReturnType<typeof drizzle<typeof schema>>;
+  let appPoolPrisma: PrismaClient;
 
   // Test entities
   let storeAId: string;
@@ -43,11 +41,15 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
 
   beforeAll(async () => {
     migratorClient = postgres(directUrl, { max: 1 });
-    migratorDb = drizzle(migratorClient, { schema });
+    migratorPrisma = new PrismaClient({
+      datasources: { db: { url: directUrl } },
+    });
 
     // App pool with multiple connections (max: 5)
     appPoolClient = postgres(databaseUrl, { max: 5, idle_timeout: 10 });
-    appPoolDb = drizzle(appPoolClient, { schema });
+    appPoolPrisma = new PrismaClient({
+      datasources: { db: { url: databaseUrl } },
+    });
 
     // Verify app role privileges and non-superuser status
     const [roleInfo] = await appPoolClient<
@@ -74,50 +76,58 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
     const phoneB = `+20102${runId}`;
 
     // Create test users via migrator (users table has no RLS)
-    await migratorDb.insert(schema.users).values([
-      {
-        id: userAId,
-        name: "Shop Owner A",
-        phone: phoneA,
-        passwordHash: "argon2id$mockhashA",
-      },
-      {
-        id: userBId,
-        name: "Shop Owner B",
-        phone: phoneB,
-        passwordHash: "argon2id$mockhashB",
-      },
-    ]);
+    await migratorPrisma.user.createMany({
+      data: [
+        {
+          id: userAId,
+          name: "Shop Owner A",
+          phone: phoneA,
+          passwordHash: "argon2id$mockhashA",
+        },
+        {
+          id: userBId,
+          name: "Shop Owner B",
+          phone: phoneB,
+          passwordHash: "argon2id$mockhashB",
+        },
+      ],
+    });
 
     // Create Store A, membership, and device under Store A tenant context
     await withTenant(
       storeAId,
       userAId,
       async (tx) => {
-        await tx.insert(schema.stores).values({
-          id: storeAId,
-          name: "Supermarket Al-Amal",
-          shopType: "سوبرماركت",
-          governorate: "Cairo",
-          area: "Nasr City",
-          createdBy: userAId,
+        await tx.store.create({
+          data: {
+            id: storeAId,
+            name: "Supermarket Al-Amal",
+            shopType: "سوبرماركت",
+            governorate: "Cairo",
+            area: "Nasr City",
+            createdBy: userAId,
+          },
         });
 
-        await tx.insert(schema.storeMembers).values({
-          storeId: storeAId,
-          userId: userAId,
-          role: "owner",
+        await tx.storeMember.create({
+          data: {
+            storeId: storeAId,
+            userId: userAId,
+            role: "owner",
+          },
         });
 
-        await tx.insert(schema.devices).values({
-          id: deviceAId,
-          storeId: storeAId,
-          userId: userAId,
-          label: "Cashier Phone A",
-          appVersion: "1.0.0",
+        await tx.device.create({
+          data: {
+            id: deviceAId,
+            storeId: storeAId,
+            userId: userAId,
+            label: "Cashier Phone A",
+            appVersion: "1.0.0",
+          },
         });
       },
-      migratorDb,
+      migratorPrisma,
     );
 
     // Create Store B, membership, and device under Store B tenant context
@@ -125,30 +135,36 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       storeBId,
       userBId,
       async (tx) => {
-        await tx.insert(schema.stores).values({
-          id: storeBId,
-          name: "Grocery Al-Nour",
-          shopType: "بقالة",
-          governorate: "Giza",
-          area: "Dokki",
-          createdBy: userBId,
+        await tx.store.create({
+          data: {
+            id: storeBId,
+            name: "Grocery Al-Nour",
+            shopType: "بقالة",
+            governorate: "Giza",
+            area: "Dokki",
+            createdBy: userBId,
+          },
         });
 
-        await tx.insert(schema.storeMembers).values({
-          storeId: storeBId,
-          userId: userBId,
-          role: "owner",
+        await tx.storeMember.create({
+          data: {
+            storeId: storeBId,
+            userId: userBId,
+            role: "owner",
+          },
         });
 
-        await tx.insert(schema.devices).values({
-          id: deviceBId,
-          storeId: storeBId,
-          userId: userBId,
-          label: "Cashier Phone B",
-          appVersion: "1.0.0",
+        await tx.device.create({
+          data: {
+            id: deviceBId,
+            storeId: storeBId,
+            userId: userBId,
+            label: "Cashier Phone B",
+            appVersion: "1.0.0",
+          },
         });
       },
-      migratorDb,
+      migratorPrisma,
     );
   });
 
@@ -171,6 +187,8 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       await migratorClient`DELETE FROM users WHERE id IN (${userAId}, ${userBId})`;
     }
 
+    await appPoolPrisma.$disconnect();
+    await migratorPrisma.$disconnect();
     await appPoolClient.end();
     await migratorClient.end();
   });
@@ -200,9 +218,9 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx.select().from(schema.devices);
+          return await tx.device.findMany();
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       // Main isolation assertions pass when RLS is enabled
@@ -215,12 +233,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.devices)
-            .where(eq(schema.devices.id, deviceBId));
+          return await tx.device.findMany({
+            where: { id: deviceBId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       expect(result).toHaveLength(0);
@@ -231,9 +248,9 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx.select().from(schema.stores);
+          return await tx.store.findMany();
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       expect(result).toHaveLength(1);
@@ -246,9 +263,9 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx.select().from(schema.storeMembers);
+          return await tx.storeMember.findMany();
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       expect(result).toHaveLength(1);
@@ -261,28 +278,26 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .update(schema.devices)
-            .set({ label: "Tampered Label" })
-            .where(eq(schema.devices.id, deviceBId))
-            .returning();
+          return await tx.device.updateMany({
+            where: { id: deviceBId },
+            data: { label: "Tampered Label" },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
-      expect(updated).toHaveLength(0);
+      expect(updated.count).toBe(0);
 
       // Verify device B remains unchanged under Store B's context
-      const [actualDeviceB] = await withTenant(
+      const actualDeviceB = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.devices)
-            .where(eq(schema.devices.id, deviceBId));
+          return await tx.device.findFirst({
+            where: { id: deviceBId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(actualDeviceB).toBeDefined();
       expect(actualDeviceB?.label).toBe("Cashier Phone B");
@@ -293,27 +308,25 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .delete(schema.devices)
-            .where(eq(schema.devices.id, deviceBId))
-            .returning();
+          return await tx.device.deleteMany({
+            where: { id: deviceBId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
-      expect(deleted).toHaveLength(0);
+      expect(deleted.count).toBe(0);
 
       // Verify device B still exists under Store B's context
-      const [actualDeviceB] = await withTenant(
+      const actualDeviceB = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.devices)
-            .where(eq(schema.devices.id, deviceBId));
+          return await tx.device.findFirst({
+            where: { id: deviceBId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(actualDeviceB).toBeDefined();
     });
@@ -325,13 +338,15 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           storeAId,
           userAId,
           async (tx) => {
-            return await tx.insert(schema.devices).values({
-              storeId: storeBId, // Attempting to insert under Store B while in Store A context
-              userId: userAId,
-              label: "Malicious Device",
+            return await tx.device.create({
+              data: {
+                storeId: storeBId, // Attempting to insert under Store B while in Store A context
+                userId: userAId,
+                label: "Malicious Device",
+              },
             });
           },
-          appPoolDb,
+          appPoolPrisma,
         );
       } catch (err) {
         thrownError = err;
@@ -353,9 +368,9 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx.select().from(schema.devices);
+          return await tx.device.findMany();
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       expect(result).toHaveLength(1);
@@ -368,12 +383,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.devices)
-            .where(eq(schema.devices.id, deviceAId));
+          return await tx.device.findMany({
+            where: { id: deviceAId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       expect(result).toHaveLength(0);
@@ -384,9 +398,9 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx.select().from(schema.stores);
+          return await tx.store.findMany();
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       expect(result).toHaveLength(1);
@@ -409,11 +423,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           targetUserId,
           async (tx) => {
             // Slight artificial jitter to interleave pool connection checkout
-            await tx.execute(sql`SELECT pg_sleep(0.005)`);
-            const rows = await tx.select().from(schema.devices);
+            await tx.$executeRaw`SELECT pg_sleep(0.005)`;
+            const rows = await tx.device.findMany();
             return { isStoreA, rows, expectedDeviceId };
           },
-          appPoolDb,
+          appPoolPrisma,
         );
       });
 
@@ -431,23 +445,25 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          const [device] = await tx.select().from(schema.devices);
-          expect(device).toBeDefined();
-          expect(device?.id).toBe(deviceAId);
+          const devices = await tx.device.findMany();
+          expect(devices).toHaveLength(1);
+          expect(devices[0]?.id).toBe(deviceAId);
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       // 2. Query connection directly on pool outside of withTenant:
       // app.store_id MUST NOT persist because set_config was local (is_local = true)
-      const [setting] = await appPoolClient<Array<{ current_store: string }>>`
+      const [setting] = await appPoolClient<
+        Array<{ current_store: string | null }>
+      >`
         SELECT current_setting('app.store_id', true) AS current_store
       `;
       expect(setting).toBeDefined();
-      expect(setting?.current_store).toBe("");
+      expect(setting?.current_store ?? "").toBe("");
 
       // 3. Direct select without tenant context returns 0 rows (RLS blocks all)
-      const directRows = await appPoolDb.select().from(schema.devices);
+      const directRows = await appPoolPrisma.device.findMany();
       expect(directRows).toHaveLength(0);
     });
   });
@@ -484,16 +500,16 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          const result = await tx.execute(
-            sql.raw(`SELECT * FROM ${unprotectedTable}`),
+          const result = await tx.$queryRawUnsafe(
+            `SELECT * FROM ${unprotectedTable}`,
           );
-          return result as unknown as Array<{
+          return result as Array<{
             id: string;
             store_id: string;
             label: string;
           }>;
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       // Execute the exact same main isolation assertions (NOT inverted):
@@ -529,49 +545,47 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       `);
 
       // Seed global brand, product, and variant using migrator
-      const [brand] = await migratorDb
-        .insert(schema.brands)
-        .values({
+      const brand = await migratorPrisma.brand.create({
+        data: {
           nameAr: `جهينة تست ${runId}`,
           nameEn: `Juhayna Test ${runId}`,
-        })
-        .returning();
-      brandId = brand!.id;
+        },
+      });
+      brandId = brand.id;
 
-      const [product] = await migratorDb
-        .insert(schema.globalProducts)
-        .values({
+      const product = await migratorPrisma.globalProduct.create({
+        data: {
           brandId,
-          name: `حليب جهينة 1 لتر ${runId}`,
-          nameNorm: `حليب جهينه 1 لتر ${runId}`,
+          nameAr: `حليب جهينة 1 لتر ${runId}`,
           category: "ألبان",
           type: "stock",
-        })
-        .returning();
-      globalProductId = product!.id;
+        },
+      });
+      globalProductId = product.id;
 
-      const [variant] = await migratorDb
-        .insert(schema.globalVariants)
-        .values({
-          productId: globalProductId,
+      const variant = await migratorPrisma.globalVariant.create({
+        data: {
+          globalProductId,
           flavor: "كامل الدسم",
-          sizeValue: "1",
+          sizeValue: 1,
           sizeUnit: "l",
           packQty: 12,
           barcode: `622100${Date.now().toString().slice(-6)}`,
           nameNorm: `حليب جهينه كامل الدسم 1 لتر ${runId}`,
-        })
-        .returning();
-      globalVariantId = variant!.id;
+        },
+      });
+      globalVariantId = variant.id;
 
       // Seed a commission rule using migrator
-      await migratorDb.insert(schema.commissionRules).values({
-        provider: `vodafone_test_${runId}`,
-        kind: "transfer",
-        fromAmountPiasters: 100,
-        toAmountPiasters: 50000,
-        feeType: "fixed",
-        feeValue: "100",
+      await migratorPrisma.commissionRule.create({
+        data: {
+          provider: `vodafone_test_${runId}`,
+          kind: "transfer",
+          fromAmountPiasters: BigInt(100),
+          toAmountPiasters: BigInt(50000),
+          feeType: "fixed",
+          feeValue: 100,
+        },
       });
     });
 
@@ -591,26 +605,24 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.globalProducts)
-            .where(eq(schema.globalProducts.id, globalProductId));
+          return await tx.globalProduct.findMany({
+            where: { id: globalProductId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(readAsStoreA).toHaveLength(1);
-      expect(readAsStoreA[0]!.name).toBe(`حليب جهينة 1 لتر ${runId}`);
+      expect(readAsStoreA[0]!.nameAr).toBe(`حليب جهينة 1 لتر ${runId}`);
 
       const readAsStoreB = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.globalVariants)
-            .where(eq(schema.globalVariants.id, globalVariantId));
+          return await tx.globalVariant.findMany({
+            where: { id: globalVariantId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(readAsStoreB).toHaveLength(1);
       expect(readAsStoreB[0]!.id).toBe(globalVariantId);
@@ -623,11 +635,13 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           storeAId,
           userAId,
           async (tx) => {
-            return await tx.insert(schema.brands).values({
-              nameAr: "ماركة غير مصرح بها",
+            return await tx.brand.create({
+              data: {
+                nameAr: "ماركة غير مصرح بها",
+              },
             });
           },
-          appPoolDb,
+          appPoolPrisma,
         );
       } catch (err) {
         insertError = err;
@@ -642,16 +656,18 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           storeAId,
           userAId,
           async (tx) => {
-            return await tx.insert(schema.commissionRules).values({
-              provider: "hacker_provider",
-              kind: "transfer",
-              fromAmountPiasters: 100,
-              toAmountPiasters: 500,
-              feeType: "fixed",
-              feeValue: "0",
+            return await tx.commissionRule.create({
+              data: {
+                provider: "hacker_provider",
+                kind: "transfer",
+                fromAmountPiasters: BigInt(100),
+                toAmountPiasters: BigInt(5000),
+                feeType: "fixed",
+                feeValue: 0,
+              },
             });
           },
-          appPoolDb,
+          appPoolPrisma,
         );
       } catch (err) {
         insertError = err;
@@ -661,23 +677,22 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
 
     it("store_variants: Store A variant is completely hidden from Store B", async () => {
       const variantBarcode = "622998877001";
-      const [storeAVariant] = await withTenant(
+      const storeAVariant = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.storeVariants)
-            .values({
+          return await tx.storeVariant.create({
+            data: {
               storeId: storeAId,
               productId: globalProductId,
               globalVariantId: globalVariantId,
               barcode: variantBarcode,
-              sellPricePiasters: 4500,
+              sellPricePiasters: BigInt(4500),
               isActive: true,
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeAVariant).toBeDefined();
 
@@ -686,12 +701,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.storeVariants)
-            .where(eq(schema.storeVariants.id, storeAVariant!.id));
+          return await tx.storeVariant.findMany({
+            where: { id: storeAVariant.id },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeAList).toHaveLength(1);
       expect(storeAList[0]!.storeId).toBe(storeAId);
@@ -701,36 +715,34 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.storeVariants)
-            .where(eq(schema.storeVariants.id, storeAVariant!.id));
+          return await tx.storeVariant.findMany({
+            where: { id: storeAVariant.id },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBList).toHaveLength(0);
 
       // Barcode uniqueness is per store: Store B CAN use the same barcode for its own store
-      const [storeBVariant] = await withTenant(
+      const storeBVariant = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .insert(schema.storeVariants)
-            .values({
+          return await tx.storeVariant.create({
+            data: {
               storeId: storeBId,
               productId: globalProductId,
               globalVariantId: globalVariantId,
               barcode: variantBarcode,
-              sellPricePiasters: 4800,
+              sellPricePiasters: BigInt(4800),
               isActive: true,
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBVariant).toBeDefined();
-      expect(storeBVariant!.storeId).toBe(storeBId);
+      expect(storeBVariant.storeId).toBe(storeBId);
 
       // But Store A inserting duplicate barcode fails unique constraint
       let dupBarcodeError: unknown;
@@ -739,14 +751,16 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           storeAId,
           userAId,
           async (tx) => {
-            return await tx.insert(schema.storeVariants).values({
-              storeId: storeAId,
-              productId: globalProductId,
-              barcode: variantBarcode,
-              sellPricePiasters: 5000,
+            return await tx.storeVariant.create({
+              data: {
+                storeId: storeAId,
+                productId: globalProductId,
+                barcode: variantBarcode,
+                sellPricePiasters: BigInt(5000),
+              },
             });
           },
-          appPoolDb,
+          appPoolPrisma,
         );
       } catch (err) {
         dupBarcodeError = err;
@@ -755,40 +769,37 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
     });
 
     it("service_items & card_serials: Store A items are completely hidden from Store B", async () => {
-      const [serviceItem] = await withTenant(
+      const serviceItem = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.serviceItems)
-            .values({
+          return await tx.serviceItem.create({
+            data: {
               storeId: storeAId,
-              name: "كارت فودافون 10",
-              provider: "vodafone",
-              type: "prepaid_card",
-            })
-            .returning();
+              category: "prepaid_card",
+              labelAr: "كارت فودافون 10",
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(serviceItem).toBeDefined();
 
-      const [serial] = await withTenant(
+      const serial = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.cardSerials)
-            .values({
+          return await tx.cardSerial.create({
+            data: {
               storeId: storeAId,
-              serviceItemId: serviceItem!.id,
+              serviceItemId: serviceItem.id,
               cardNumberEncrypted: "enc_num_test",
               pinEncrypted: "enc_pin_test",
               status: "available",
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(serial).toBeDefined();
 
@@ -797,12 +808,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.serviceItems)
-            .where(eq(schema.serviceItems.id, serviceItem!.id));
+          return await tx.serviceItem.findMany({
+            where: { id: serviceItem.id },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBService).toHaveLength(0);
 
@@ -810,12 +820,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.cardSerials)
-            .where(eq(schema.cardSerials.id, serial!.id));
+          return await tx.cardSerial.findMany({
+            where: { id: serial.id },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBSerial).toHaveLength(0);
     });
@@ -834,29 +843,37 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
 
     beforeAll(async () => {
       // Seed global prepaid product and bill provider via migrator
-      const [prepaid] = await migratorDb
-        .insert(schema.prepaidProducts)
-        .values({
+      const prepaid = await migratorPrisma.prepaidProduct.create({
+        data: {
           network: "vodafone",
-          denominationPiasters: 2500,
+          denominationPiasters: BigInt(2500),
           dataPackageAr: "باقة 25 جنيه",
           validityDays: 14,
-          costPiasters: 2400,
-        })
-        .returning();
-      testPrepaidProductId = prepaid!.id;
+          costPiasters: BigInt(2400),
+        },
+      });
+      testPrepaidProductId = prepaid.id;
 
-      const [provider] = await migratorDb
-        .insert(schema.billProviders)
-        .values({
+      const provider = await migratorPrisma.billProvider.create({
+        data: {
           nameAr: "شركة كهرباء مصر",
           billType: "electricity",
-        })
-        .returning();
-      testBillProviderId = provider!.id;
+        },
+      });
+      testBillProviderId = provider.id;
     });
 
     afterAll(async () => {
+      if (testBillProviderId || testPrepaidProductId) {
+        await migratorClient.unsafe(`
+          ALTER TABLE store_bill_payments DISABLE ROW LEVEL SECURITY;
+          ALTER TABLE store_prepaid_prices DISABLE ROW LEVEL SECURITY;
+          DELETE FROM store_bill_payments WHERE bill_provider_id = '${testBillProviderId}';
+          DELETE FROM store_prepaid_prices WHERE prepaid_product_id = '${testPrepaidProductId}';
+          ALTER TABLE store_prepaid_prices ENABLE ROW LEVEL SECURITY;
+          ALTER TABLE store_bill_payments ENABLE ROW LEVEL SECURITY;
+        `);
+      }
       if (testPrepaidProductId) {
         await migratorClient`DELETE FROM prepaid_products WHERE id = ${testPrepaidProductId}`;
       }
@@ -866,36 +883,34 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
     });
 
     it("store_products: Store A product is completely isolated from Store B", async () => {
-      const [storeProduct] = await withTenant(
+      const storeProduct = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.storeProducts)
-            .values({
+          return await tx.storeProduct.create({
+            data: {
               storeId: storeAId,
               nameAr: "جبنة بيضاء دومتي 500 جم",
               category: "جبن",
               unit: "piece",
-              sellPricePiasters: 3500,
-            })
-            .returning();
+              sellPricePiasters: BigInt(3500),
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeProduct).toBeDefined();
-      testStoreProductId = storeProduct!.id;
+      testStoreProductId = storeProduct.id;
 
       const storeBList = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.storeProducts)
-            .where(eq(schema.storeProducts.id, testStoreProductId));
+          return await tx.storeProduct.findMany({
+            where: { id: testStoreProductId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBList).toHaveLength(0);
     });
@@ -906,39 +921,39 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeAId,
         userAId,
         async (tx) => {
-          await tx.insert(schema.storePrepaidPrices).values({
-            storeId: storeAId,
-            prepaidProductId: testPrepaidProductId,
-            sellPricePiasters: 2600,
+          await tx.storePrepaidPrice.create({
+            data: {
+              storeId: storeAId,
+              prepaidProductId: testPrepaidProductId,
+              sellPricePiasters: BigInt(2600),
+            },
           });
 
-          await tx.insert(schema.storeBillPayments).values({
-            storeId: storeAId,
-            billProviderId: testBillProviderId,
-            customerReference: "CUST-REC-01",
-            amountPiasters: 15000,
-            feePiasters: 300,
-            opId,
+          await tx.storeBillPayment.create({
+            data: {
+              storeId: storeAId,
+              billProviderId: testBillProviderId,
+              customerReference: "CUST-REC-01",
+              amountPiasters: BigInt(15000),
+              feePiasters: BigInt(300),
+              opId,
+            },
           });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
 
       const storeBPrepaid = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.storePrepaidPrices)
-            .where(
-              eq(
-                schema.storePrepaidPrices.prepaidProductId,
-                testPrepaidProductId,
-              ),
-            );
+          return await tx.storePrepaidPrice.findMany({
+            where: {
+              prepaidProductId: testPrepaidProductId,
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBPrepaid).toHaveLength(0);
 
@@ -946,69 +961,65 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.storeBillPayments)
-            .where(eq(schema.storeBillPayments.opId, opId));
+          return await tx.storeBillPayment.findMany({
+            where: { opId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBBills).toHaveLength(0);
     });
 
     it("wallets & wallet_transactions: Store A ledger is isolated from Store B", async () => {
       const txOpId = crypto.randomUUID();
-      const [wallet] = await withTenant(
+      const wallet = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.wallets)
-            .values({
+          return await tx.wallet.create({
+            data: {
               storeId: storeAId,
               provider: "vodafone_cash",
               labelAr: "محفظة فودافون الكاش الرئيسية",
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(wallet).toBeDefined();
-      testWalletId = wallet!.id;
+      testWalletId = wallet.id;
 
-      const [walletTx] = await withTenant(
+      const walletTx = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.walletTransactions)
-            .values({
+          return await tx.walletTransaction.create({
+            data: {
               storeId: storeAId,
               walletId: testWalletId,
               kind: "owner_deposit",
-              amountPiasters: 500000,
-              feePiasters: 0,
-              balanceAfterPiasters: 500000,
+              amountPiasters: BigInt(500000),
+              feePiasters: BigInt(0),
+              balanceAfterPiasters: BigInt(500000),
               opId: txOpId,
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(walletTx).toBeDefined();
-      testWalletTxId = walletTx!.id;
+      testWalletTxId = walletTx.id;
 
       // Store B cannot read Store A's wallet or transaction
       const storeBWallet = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.wallets)
-            .where(eq(schema.wallets.id, testWalletId));
+          return await tx.wallet.findMany({
+            where: { id: testWalletId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBWallet).toHaveLength(0);
 
@@ -1016,68 +1027,64 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.walletTransactions)
-            .where(eq(schema.walletTransactions.id, testWalletTxId));
+          return await tx.walletTransaction.findMany({
+            where: { id: testWalletTxId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBWalletTx).toHaveLength(0);
     });
 
     it("contacts & debt_entries: Store A debts are isolated from Store B", async () => {
       const debtOpId = crypto.randomUUID();
-      const [contact] = await withTenant(
+      const contact = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.contacts)
-            .values({
+          return await tx.contact.create({
+            data: {
               storeId: storeAId,
               kind: "customer",
               nameAr: "عميل شكك أحمد",
               phone: "+201009998877",
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(contact).toBeDefined();
-      testContactId = contact!.id;
+      testContactId = contact.id;
 
-      const [debt] = await withTenant(
+      const debt = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.debtEntries)
-            .values({
+          return await tx.debtEntry.create({
+            data: {
               storeId: storeAId,
               contactId: testContactId,
               direction: "owed_to_me",
-              amountPiasters: 12500,
+              amountPiasters: BigInt(12500),
               noteAr: "باقي حساب طلبات بقالة",
               opId: debtOpId,
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(debt).toBeDefined();
-      testDebtEntryId = debt!.id;
+      testDebtEntryId = debt.id;
 
       const storeBContact = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.contacts)
-            .where(eq(schema.contacts.id, testContactId));
+          return await tx.contact.findMany({
+            where: { id: testContactId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBContact).toHaveLength(0);
 
@@ -1085,12 +1092,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.debtEntries)
-            .where(eq(schema.debtEntries.id, testDebtEntryId));
+          return await tx.debtEntry.findMany({
+            where: { id: testDebtEntryId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBDebt).toHaveLength(0);
     });
@@ -1099,71 +1105,73 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       const purchaseOpId = crypto.randomUUID();
       const saleOpId = crypto.randomUUID();
 
-      const [purchase] = await withTenant(
+      const purchase = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          const [p] = await tx
-            .insert(schema.purchases)
-            .values({
+          const p = await tx.purchase.create({
+            data: {
               storeId: storeAId,
-              totalPiasters: 100000,
+              totalPiasters: BigInt(100000),
               opId: purchaseOpId,
-            })
-            .returning();
-
-          await tx.insert(schema.purchaseLines).values({
-            storeId: storeAId,
-            purchaseId: p!.id,
-            storeProductId: testStoreProductId,
-            quantityBaseUnits: 50,
-            unitCostPiasters: 2000,
+            },
           });
-          return [p];
+
+          await tx.purchaseLine.create({
+            data: {
+              storeId: storeAId,
+              purchaseId: p.id,
+              storeProductId: testStoreProductId,
+              quantityBaseUnits: 50,
+              unitCostPiasters: BigInt(2000),
+            },
+          });
+          return p;
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(purchase).toBeDefined();
-      testPurchaseId = purchase!.id;
+      testPurchaseId = purchase.id;
 
-      const [sale] = await withTenant(
+      const sale = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          const [s] = await tx
-            .insert(schema.sales)
-            .values({
+          const s = await tx.sale.create({
+            data: {
               storeId: storeAId,
-              totalPiasters: 3500,
+              totalPiasters: BigInt(3500),
               paymentMethod: "cash",
               opId: saleOpId,
-            })
-            .returning();
-
-          await tx.insert(schema.saleLines).values({
-            storeId: storeAId,
-            saleId: s!.id,
-            storeProductId: testStoreProductId,
-            amountPiasters: 3500,
-            feePiasters: 0,
+            },
           });
-          return [s];
+
+          await tx.saleLine.create({
+            data: {
+              storeId: storeAId,
+              saleId: s.id,
+              storeProductId: testStoreProductId,
+              quantityBaseUnits: 1,
+              unitPricePiasters: BigInt(3500),
+              totalPiasters: BigInt(3500),
+            },
+          });
+          return s;
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(sale).toBeDefined();
-      testSaleId = sale!.id;
+      testSaleId = sale.id;
 
       const storeBPurchase = await withTenant(
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.purchases)
-            .where(eq(schema.purchases.id, testPurchaseId));
+          return await tx.purchase.findMany({
+            where: { id: testPurchaseId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBPurchase).toHaveLength(0);
 
@@ -1171,49 +1179,46 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.sales)
-            .where(eq(schema.sales.id, testSaleId));
+          return await tx.sale.findMany({
+            where: { id: testSaleId },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBSale).toHaveLength(0);
     });
 
     it("alerts & ai_messages: Store A alerts and AI messages are isolated from Store B", async () => {
-      const [alert] = await withTenant(
+      const alert = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.alerts)
-            .values({
+          return await tx.alert.create({
+            data: {
               storeId: storeAId,
               kind: "low_stock",
               severity: "warning",
               messageAr: "كمية الجبنة البيضاء أوشكت على النفاد",
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(alert).toBeDefined();
 
-      const [aiMsg] = await withTenant(
+      const aiMsg = await withTenant(
         storeAId,
         userAId,
         async (tx) => {
-          return await tx
-            .insert(schema.aiMessages)
-            .values({
+          return await tx.aiMessage.create({
+            data: {
               storeId: storeAId,
               role: "user",
               bodyText: "إيه أكتر صنف مبيعا الأسبوع ده؟",
-            })
-            .returning();
+            },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(aiMsg).toBeDefined();
 
@@ -1221,12 +1226,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.alerts)
-            .where(eq(schema.alerts.id, alert!.id));
+          return await tx.alert.findMany({
+            where: { id: alert.id },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBAlerts).toHaveLength(0);
 
@@ -1234,12 +1238,11 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         storeBId,
         userBId,
         async (tx) => {
-          return await tx
-            .select()
-            .from(schema.aiMessages)
-            .where(eq(schema.aiMessages.id, aiMsg!.id));
+          return await tx.aiMessage.findMany({
+            where: { id: aiMsg.id },
+          });
         },
-        appPoolDb,
+        appPoolPrisma,
       );
       expect(storeBAiMsgs).toHaveLength(0);
     });
@@ -1262,12 +1265,13 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .update(schema.walletTransactions)
-                .set({ amountPiasters: 999999 })
-                .where(eq(schema.walletTransactions.id, testWalletTxId));
+              await tx.$executeRaw`
+                UPDATE wallet_transactions
+                SET amount_piasters = 999999
+                WHERE id = ${testWalletTxId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           updateErr = err;
@@ -1280,11 +1284,12 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .delete(schema.walletTransactions)
-                .where(eq(schema.walletTransactions.id, testWalletTxId));
+              await tx.$executeRaw`
+                DELETE FROM wallet_transactions
+                WHERE id = ${testWalletTxId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           deleteErr = err;
@@ -1299,12 +1304,13 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .update(schema.debtEntries)
-                .set({ amountPiasters: 999999 })
-                .where(eq(schema.debtEntries.id, testDebtEntryId));
+              await tx.$executeRaw`
+                UPDATE debt_entries
+                SET amount_piasters = 999999
+                WHERE id = ${testDebtEntryId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           updateErr = err;
@@ -1317,11 +1323,12 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .delete(schema.debtEntries)
-                .where(eq(schema.debtEntries.id, testDebtEntryId));
+              await tx.$executeRaw`
+                DELETE FROM debt_entries
+                WHERE id = ${testDebtEntryId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           deleteErr = err;
@@ -1336,12 +1343,13 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .update(schema.purchases)
-                .set({ totalPiasters: 999999 })
-                .where(eq(schema.purchases.id, testPurchaseId));
+              await tx.$executeRaw`
+                UPDATE purchases
+                SET total_piasters = 999999
+                WHERE id = ${testPurchaseId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           updateErr = err;
@@ -1354,11 +1362,12 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .delete(schema.purchases)
-                .where(eq(schema.purchases.id, testPurchaseId));
+              await tx.$executeRaw`
+                DELETE FROM purchases
+                WHERE id = ${testPurchaseId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           deleteErr = err;
@@ -1373,12 +1382,13 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .update(schema.sales)
-                .set({ totalPiasters: 999999 })
-                .where(eq(schema.sales.id, testSaleId));
+              await tx.$executeRaw`
+                UPDATE sales
+                SET total_piasters = 999999
+                WHERE id = ${testSaleId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           updateErr = err;
@@ -1391,11 +1401,12 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
             storeAId,
             userAId,
             async (tx) => {
-              await tx
-                .delete(schema.sales)
-                .where(eq(schema.sales.id, testSaleId));
+              await tx.$executeRaw`
+                DELETE FROM sales
+                WHERE id = ${testSaleId}::uuid
+              `;
             },
-            appPoolDb,
+            appPoolPrisma,
           );
         } catch (err) {
           deleteErr = err;

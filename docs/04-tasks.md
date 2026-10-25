@@ -92,7 +92,7 @@
 
 ### Back
 - ☐ **P1-B-01** (⏱1) `src/server/config/env.ts` (zod: the app refuses to start when a variable is missing), the logger (pino), the error model, `GET /api/health` (liveness) and `GET /api/health/ready` (checks the database), `import 'server-only'` in `src/server`, and the import boundaries in ESLint. ✅ Starting without a variable fails with a clear message; a forbidden import fails `lint`.
-- ☐ **P1-B-02** (⏱1) Postgres connection (`postgres` driver) + Drizzle + the migration runner (`scripts/migrate.ts`) + `0001_init` with tables `stores`, `users`, `store_members`, `devices`. Follow `docs/09`. ✅ `pnpm db:migrate` runs twice on an empty database with no error.
+- ☐ **P1-B-02** (⏱1) Postgres connection + Prisma (`prisma/schema.prisma`) + the migration runner (`scripts/migrate.ts`) + initial migration with tables `stores`, `users`, `store_members`, `devices`. Follow `docs/09`. ✅ `pnpm db:migrate` runs twice on an empty database with no error.
 - ☐ **P1-B-03** (⏱1) `withTenant()`: `set_config(..., true)` inside a transaction. `0002_rls_policies` for the existing tables. The application role is not superuser and does not bypass RLS. Test on the **pooled** connection string as well. ✅ The cross-tenant test passes; and it **fails** when RLS is disabled (proves the test is real).
 - ☐ **P1-B-04** (⏱0.5) `src/schemas` and `src/domain`: `money.ts` (integer piasters only), `units.ts` (piece and gram as base units), `time.ts` (UTC storage, Cairo display). Unit tests. ✅ Unit tests green.
 
@@ -176,7 +176,7 @@ A new user signs up and logs in · an operation recorded offline is synced exact
 
 ### 3.0 Public catalog and custom products (`docs/06`)
 - ☐ **P3-PR-04** (⏱3) Complete the catalog: all sections, double review, similarity report between items. ✅ `seed-00x.csv` files and a `catalog_version`.
-- ☐ **P3-B-07** (⏱3) `drizzle/0003_catalog.sql`: `global_products`, `products.global_product_id`, `pg_trgm`. `scripts/import-catalog.ts` with normalization and a duplicate report. **No automatic merging.** ✅ Import runs; duplicates are listed, not merged.
+- ☐ **P3-B-07** (⏱3) Catalog migration in `prisma/migrations/`: `global_products`, `products.global_product_id`, `pg_trgm`. `scripts/import-catalog.ts` with normalization and a duplicate report. **No automatic merging.** ✅ Import runs; duplicates are listed, not merged.
 - ☐ **P3-B-08** (⏱2) `src/domain/normalize.ts` for Arabic text: hamza forms, alif maqsura, ta marbuta, Arabic-Indic digits. 30+ real-value tests. ✅ All tests green.
 - ☐ **P3-B-09** (⏱2) `GET /api/sync/catalog?cursor=` (incremental, compressed gzip/brotli, ETag, long cache). ✅ A second call with the same cursor returns 204 or 304.
 - ☐ **P3-B-11** (⏱2) Market seed import from CSV files in `data/catalog/` (`scripts/import-catalog.ts`): reference prices only, shop's own price always wins. ✅ Seed import tested. (Phase 3)
