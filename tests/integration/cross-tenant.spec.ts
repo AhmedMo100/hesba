@@ -512,4 +512,312 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       );
     });
   });
+
+  describe("5. Market Data & Services RLS Isolation and Global Read-Only Policies", () => {
+    let globalProductId: string;
+    let globalVariantId: string;
+    let brandId: string;
+
+    let runId: string;
+
+    beforeAll(async () => {
+      runId = Math.random().toString(36).substring(2, 8);
+      // Clean up any residual test records
+      await migratorClient.unsafe(`
+        DELETE FROM commission_rules WHERE provider LIKE 'vodafone_test%';
+        DELETE FROM brands WHERE name_ar LIKE 'جهينة تست%';
+      `);
+
+      // Seed global brand, product, and variant using migrator
+      const [brand] = await migratorDb
+        .insert(schema.brands)
+        .values({
+          nameAr: `جهينة تست ${runId}`,
+          nameEn: `Juhayna Test ${runId}`,
+        })
+        .returning();
+      brandId = brand!.id;
+
+      const [product] = await migratorDb
+        .insert(schema.globalProducts)
+        .values({
+          brandId,
+          name: `حليب جهينة 1 لتر ${runId}`,
+          nameNorm: `حليب جهينه 1 لتر ${runId}`,
+          category: "ألبان",
+          type: "stock",
+        })
+        .returning();
+      globalProductId = product!.id;
+
+      const [variant] = await migratorDb
+        .insert(schema.globalVariants)
+        .values({
+          productId: globalProductId,
+          flavor: "كامل الدسم",
+          sizeValue: "1",
+          sizeUnit: "l",
+          packQty: 12,
+          barcode: `622100${Date.now().toString().slice(-6)}`,
+          nameNorm: `حليب جهينه كامل الدسم 1 لتر ${runId}`,
+        })
+        .returning();
+      globalVariantId = variant!.id;
+
+      // Seed a commission rule using migrator
+      await migratorDb.insert(schema.commissionRules).values({
+        provider: `vodafone_test_${runId}`,
+        kind: "transfer",
+        fromAmountPiasters: 100,
+        toAmountPiasters: 50000,
+        feeType: "fixed",
+        feeValue: "100",
+      });
+    });
+
+    afterAll(async () => {
+      if (globalVariantId && globalProductId && brandId) {
+        await migratorClient.unsafe(`
+          DELETE FROM commission_rules WHERE provider LIKE 'vodafone_test%';
+          DELETE FROM global_variants WHERE id = '${globalVariantId}';
+          DELETE FROM global_products WHERE id = '${globalProductId}';
+          DELETE FROM brands WHERE id = '${brandId}';
+        `);
+      }
+    });
+
+    it("Store A and Store B can read global catalog tables", async () => {
+      const readAsStoreA = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.globalProducts)
+            .where(eq(schema.globalProducts.id, globalProductId));
+        },
+        appPoolDb,
+      );
+      expect(readAsStoreA).toHaveLength(1);
+      expect(readAsStoreA[0]!.name).toBe(`حليب جهينة 1 لتر ${runId}`);
+
+      const readAsStoreB = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.globalVariants)
+            .where(eq(schema.globalVariants.id, globalVariantId));
+        },
+        appPoolDb,
+      );
+      expect(readAsStoreB).toHaveLength(1);
+      expect(readAsStoreB[0]!.id).toBe(globalVariantId);
+    });
+
+    it("App role (hesba_app) cannot insert into global catalog tables (read-only RLS)", async () => {
+      let insertError: unknown;
+      try {
+        await withTenant(
+          storeAId,
+          userAId,
+          async (tx) => {
+            return await tx.insert(schema.brands).values({
+              nameAr: "ماركة غير مصرح بها",
+            });
+          },
+          appPoolDb,
+        );
+      } catch (err) {
+        insertError = err;
+      }
+      expect(insertError).toBeDefined();
+    });
+
+    it("App role cannot insert into commission_rules (read-only RLS)", async () => {
+      let insertError: unknown;
+      try {
+        await withTenant(
+          storeAId,
+          userAId,
+          async (tx) => {
+            return await tx.insert(schema.commissionRules).values({
+              provider: "hacker_provider",
+              kind: "transfer",
+              fromAmountPiasters: 100,
+              toAmountPiasters: 500,
+              feeType: "fixed",
+              feeValue: "0",
+            });
+          },
+          appPoolDb,
+        );
+      } catch (err) {
+        insertError = err;
+      }
+      expect(insertError).toBeDefined();
+    });
+
+    it("store_variants: Store A variant is completely hidden from Store B", async () => {
+      const variantBarcode = "622998877001";
+      const [storeAVariant] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.storeVariants)
+            .values({
+              storeId: storeAId,
+              productId: globalProductId,
+              globalVariantId: globalVariantId,
+              barcode: variantBarcode,
+              sellPricePiasters: 4500,
+              isActive: true,
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(storeAVariant).toBeDefined();
+
+      // Store A sees its variant
+      const storeAList = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.storeVariants)
+            .where(eq(schema.storeVariants.id, storeAVariant!.id));
+        },
+        appPoolDb,
+      );
+      expect(storeAList).toHaveLength(1);
+      expect(storeAList[0]!.storeId).toBe(storeAId);
+
+      // Store B query by ID returns empty
+      const storeBList = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.storeVariants)
+            .where(eq(schema.storeVariants.id, storeAVariant!.id));
+        },
+        appPoolDb,
+      );
+      expect(storeBList).toHaveLength(0);
+
+      // Barcode uniqueness is per store: Store B CAN use the same barcode for its own store
+      const [storeBVariant] = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .insert(schema.storeVariants)
+            .values({
+              storeId: storeBId,
+              productId: globalProductId,
+              globalVariantId: globalVariantId,
+              barcode: variantBarcode,
+              sellPricePiasters: 4800,
+              isActive: true,
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(storeBVariant).toBeDefined();
+      expect(storeBVariant!.storeId).toBe(storeBId);
+
+      // But Store A inserting duplicate barcode fails unique constraint
+      let dupBarcodeError: unknown;
+      try {
+        await withTenant(
+          storeAId,
+          userAId,
+          async (tx) => {
+            return await tx.insert(schema.storeVariants).values({
+              storeId: storeAId,
+              productId: globalProductId,
+              barcode: variantBarcode,
+              sellPricePiasters: 5000,
+            });
+          },
+          appPoolDb,
+        );
+      } catch (err) {
+        dupBarcodeError = err;
+      }
+      expect(dupBarcodeError).toBeDefined();
+    });
+
+    it("service_items & card_serials: Store A items are completely hidden from Store B", async () => {
+      const [serviceItem] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.serviceItems)
+            .values({
+              storeId: storeAId,
+              name: "كارت فودافون 10",
+              provider: "vodafone",
+              type: "prepaid_card",
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(serviceItem).toBeDefined();
+
+      const [serial] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.cardSerials)
+            .values({
+              storeId: storeAId,
+              serviceItemId: serviceItem!.id,
+              cardNumberEncrypted: "enc_num_test",
+              pinEncrypted: "enc_pin_test",
+              status: "available",
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(serial).toBeDefined();
+
+      // Store B cannot see Store A's service item or card serial
+      const storeBService = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.serviceItems)
+            .where(eq(schema.serviceItems.id, serviceItem!.id));
+        },
+        appPoolDb,
+      );
+      expect(storeBService).toHaveLength(0);
+
+      const storeBSerial = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.cardSerials)
+            .where(eq(schema.cardSerials.id, serial!.id));
+        },
+        appPoolDb,
+      );
+      expect(storeBSerial).toHaveLength(0);
+    });
+  });
 });
