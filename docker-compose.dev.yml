@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: change-me-local-root
       POSTGRES_DB: postgres
     ports:
-      - "${HESBA_POSTGRES_PORT:-5432}:5432"
+      - "${HESBA_POSTGRES_PORT:-5434}:5432"
     volumes:
       - hesba_pgdata:/var/lib/postgresql/data
       - ./scripts/sql:/docker-entrypoint-initdb.d:ro
