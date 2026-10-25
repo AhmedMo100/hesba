@@ -133,10 +133,10 @@ vodafone,1000,50000,fixed,200`;
     expect(validDataRows).toHaveLength(1);
   });
 
-  it("validates prepaid cards require positive integer piasters", () => {
-    const csv = `network,denomination_piasters,sell_price_piasters,cost_piasters
-vodafone,1000,1050,-950
-vodafone,1000,1050,950`;
+  it("validates prepaid cards require positive integer piasters and optional validity_days", () => {
+    const csv = `network,denomination_piasters,data_package_ar,validity_days,sell_price_piasters,cost_piasters
+vodafone,1000,باقة إنترنت,invalid,1050,950
+vodafone,1000,باقة إنترنت,28,1050,950`;
 
     const { report, validDataRows } = validateCatalogFile(
       "prepaid_cards.csv",
@@ -144,7 +144,20 @@ vodafone,1000,1050,950`;
     );
     expect(report.errors.length).toBe(1);
     expect(report.errors[0]!.message).toContain(
-      "must be a positive integer in piasters",
+      "validity_days must be a positive integer",
+    );
+    expect(validDataRows).toHaveLength(1);
+  });
+
+  it("validates bills requires valid bill_type enum", () => {
+    const csv = `provider,bill_type,label_ar
+we,invalid_type,فاتورة التليفون
+we,landline,فاتورة التليفون الأرضي`;
+
+    const { report, validDataRows } = validateCatalogFile("bills.csv", csv);
+    expect(report.errors.length).toBe(1);
+    expect(report.errors[0]!.message).toContain(
+      'Invalid bill_type "invalid_type"',
     );
     expect(validDataRows).toHaveLength(1);
   });

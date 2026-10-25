@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { stores } from "./stores";
+import { storeProducts } from "./store-products";
 import { globalProducts } from "./global-products";
 import { globalVariants } from "./global-variants";
 
@@ -21,9 +22,13 @@ export const storeVariants = pgTable(
     storeId: uuid("store_id")
       .notNull()
       .references(() => stores.id, { onDelete: "cascade" }),
-    productId: uuid("product_id")
-      .notNull()
-      .references(() => globalProducts.id, { onDelete: "cascade" }),
+    storeProductId: uuid("store_product_id").references(
+      () => storeProducts.id,
+      { onDelete: "cascade" },
+    ),
+    productId: uuid("product_id").references(() => globalProducts.id, {
+      onDelete: "cascade",
+    }),
     globalVariantId: uuid("global_variant_id").references(
       () => globalVariants.id,
       { onDelete: "set null" },

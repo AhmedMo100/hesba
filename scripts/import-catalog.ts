@@ -26,6 +26,15 @@ interface FileReport {
 const VALID_SIZE_UNITS = new Set(["g", "kg", "ml", "l", "piece"]);
 const VALID_PRODUCT_TYPES = new Set(["stock", "prepaid", "service"]);
 const VALID_COMMISSION_FEE_TYPES = new Set(["fixed", "percent"]);
+const VALID_BILL_TYPES = new Set([
+  "internet",
+  "mobile",
+  "landline",
+  "electricity",
+  "gas",
+  "water",
+  "other",
+]);
 
 const REQUIRED_HEADERS: Record<string, string[]> = {
   "brands.csv": ["name_ar", "name_en"],
@@ -42,10 +51,12 @@ const REQUIRED_HEADERS: Record<string, string[]> = {
   "prepaid_cards.csv": [
     "network",
     "denomination_piasters",
+    "data_package_ar",
+    "validity_days",
     "sell_price_piasters",
     "cost_piasters",
   ],
-  "bills.csv": ["provider", "label_ar"],
+  "bills.csv": ["provider", "bill_type", "label_ar"],
   "transfer_commissions.csv": [
     "provider",
     "from_amount_piasters",
@@ -282,8 +293,20 @@ export function validateCatalogFile(
           hasRowError = true;
         }
       }
+
+      const validityDaysStr = data["validity_days"] ?? "";
+      if (validityDaysStr) {
+        const val = Number(validityDaysStr);
+        if (!Number.isInteger(val) || val <= 0) {
+          report.errors.push({
+            rowNumber,
+            message: `validity_days must be a positive integer, received: "${validityDaysStr}"`,
+          });
+          hasRowError = true;
+        }
+      }
     } else if (fileName === "bills.csv") {
-      const required = ["provider", "label_ar"];
+      const required = ["provider", "bill_type", "label_ar"];
       const missing = required.filter((f) => !(data[f] ?? ""));
       if (missing.length > 0) {
         report.skippedRows.push({
@@ -291,6 +314,15 @@ export function validateCatalogFile(
           reason: `Empty value in required field(s): ${missing.join(", ")}`,
         });
         continue;
+      }
+
+      const billType = data["bill_type"] ?? "";
+      if (!VALID_BILL_TYPES.has(billType)) {
+        report.errors.push({
+          rowNumber,
+          message: `Invalid bill_type "${billType}". Must be one of: ${Array.from(VALID_BILL_TYPES).join(", ")}.`,
+        });
+        hasRowError = true;
       }
     } else if (fileName === "transfer_commissions.csv") {
       const required = [

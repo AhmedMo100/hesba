@@ -820,4 +820,588 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       expect(storeBSerial).toHaveLength(0);
     });
   });
+
+  describe("6. Real Business Model RLS Isolation & Append-Only Permissions", () => {
+    let testStoreProductId: string;
+    let testPrepaidProductId: string;
+    let testBillProviderId: string;
+    let testWalletId: string;
+    let testWalletTxId: string;
+    let testContactId: string;
+    let testDebtEntryId: string;
+    let testPurchaseId: string;
+    let testSaleId: string;
+
+    beforeAll(async () => {
+      // Seed global prepaid product and bill provider via migrator
+      const [prepaid] = await migratorDb
+        .insert(schema.prepaidProducts)
+        .values({
+          network: "vodafone",
+          denominationPiasters: 2500,
+          dataPackageAr: "باقة 25 جنيه",
+          validityDays: 14,
+          costPiasters: 2400,
+        })
+        .returning();
+      testPrepaidProductId = prepaid!.id;
+
+      const [provider] = await migratorDb
+        .insert(schema.billProviders)
+        .values({
+          nameAr: "شركة كهرباء مصر",
+          billType: "electricity",
+        })
+        .returning();
+      testBillProviderId = provider!.id;
+    });
+
+    afterAll(async () => {
+      if (testPrepaidProductId) {
+        await migratorClient`DELETE FROM prepaid_products WHERE id = ${testPrepaidProductId}`;
+      }
+      if (testBillProviderId) {
+        await migratorClient`DELETE FROM bill_providers WHERE id = ${testBillProviderId}`;
+      }
+    });
+
+    it("store_products: Store A product is completely isolated from Store B", async () => {
+      const [storeProduct] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.storeProducts)
+            .values({
+              storeId: storeAId,
+              nameAr: "جبنة بيضاء دومتي 500 جم",
+              category: "جبن",
+              unit: "piece",
+              sellPricePiasters: 3500,
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(storeProduct).toBeDefined();
+      testStoreProductId = storeProduct!.id;
+
+      const storeBList = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.storeProducts)
+            .where(eq(schema.storeProducts.id, testStoreProductId));
+        },
+        appPoolDb,
+      );
+      expect(storeBList).toHaveLength(0);
+    });
+
+    it("store_prepaid_prices & store_bill_payments: Store A cannot be read by Store B", async () => {
+      const opId = crypto.randomUUID();
+      await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          await tx.insert(schema.storePrepaidPrices).values({
+            storeId: storeAId,
+            prepaidProductId: testPrepaidProductId,
+            sellPricePiasters: 2600,
+          });
+
+          await tx.insert(schema.storeBillPayments).values({
+            storeId: storeAId,
+            billProviderId: testBillProviderId,
+            customerReference: "CUST-REC-01",
+            amountPiasters: 15000,
+            feePiasters: 300,
+            opId,
+          });
+        },
+        appPoolDb,
+      );
+
+      const storeBPrepaid = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.storePrepaidPrices)
+            .where(
+              eq(
+                schema.storePrepaidPrices.prepaidProductId,
+                testPrepaidProductId,
+              ),
+            );
+        },
+        appPoolDb,
+      );
+      expect(storeBPrepaid).toHaveLength(0);
+
+      const storeBBills = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.storeBillPayments)
+            .where(eq(schema.storeBillPayments.opId, opId));
+        },
+        appPoolDb,
+      );
+      expect(storeBBills).toHaveLength(0);
+    });
+
+    it("wallets & wallet_transactions: Store A ledger is isolated from Store B", async () => {
+      const txOpId = crypto.randomUUID();
+      const [wallet] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.wallets)
+            .values({
+              storeId: storeAId,
+              provider: "vodafone_cash",
+              labelAr: "محفظة فودافون الكاش الرئيسية",
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(wallet).toBeDefined();
+      testWalletId = wallet!.id;
+
+      const [walletTx] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.walletTransactions)
+            .values({
+              storeId: storeAId,
+              walletId: testWalletId,
+              kind: "owner_deposit",
+              amountPiasters: 500000,
+              feePiasters: 0,
+              balanceAfterPiasters: 500000,
+              opId: txOpId,
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(walletTx).toBeDefined();
+      testWalletTxId = walletTx!.id;
+
+      // Store B cannot read Store A's wallet or transaction
+      const storeBWallet = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.wallets)
+            .where(eq(schema.wallets.id, testWalletId));
+        },
+        appPoolDb,
+      );
+      expect(storeBWallet).toHaveLength(0);
+
+      const storeBWalletTx = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.walletTransactions)
+            .where(eq(schema.walletTransactions.id, testWalletTxId));
+        },
+        appPoolDb,
+      );
+      expect(storeBWalletTx).toHaveLength(0);
+    });
+
+    it("contacts & debt_entries: Store A debts are isolated from Store B", async () => {
+      const debtOpId = crypto.randomUUID();
+      const [contact] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.contacts)
+            .values({
+              storeId: storeAId,
+              kind: "customer",
+              nameAr: "عميل شكك أحمد",
+              phone: "+201009998877",
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(contact).toBeDefined();
+      testContactId = contact!.id;
+
+      const [debt] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.debtEntries)
+            .values({
+              storeId: storeAId,
+              contactId: testContactId,
+              direction: "owed_to_me",
+              amountPiasters: 12500,
+              noteAr: "باقي حساب طلبات بقالة",
+              opId: debtOpId,
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(debt).toBeDefined();
+      testDebtEntryId = debt!.id;
+
+      const storeBContact = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.contacts)
+            .where(eq(schema.contacts.id, testContactId));
+        },
+        appPoolDb,
+      );
+      expect(storeBContact).toHaveLength(0);
+
+      const storeBDebt = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.debtEntries)
+            .where(eq(schema.debtEntries.id, testDebtEntryId));
+        },
+        appPoolDb,
+      );
+      expect(storeBDebt).toHaveLength(0);
+    });
+
+    it("purchases & sales: Store A headers and lines are isolated from Store B", async () => {
+      const purchaseOpId = crypto.randomUUID();
+      const saleOpId = crypto.randomUUID();
+
+      const [purchase] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          const [p] = await tx
+            .insert(schema.purchases)
+            .values({
+              storeId: storeAId,
+              totalPiasters: 100000,
+              opId: purchaseOpId,
+            })
+            .returning();
+
+          await tx.insert(schema.purchaseLines).values({
+            storeId: storeAId,
+            purchaseId: p!.id,
+            storeProductId: testStoreProductId,
+            quantityBaseUnits: 50,
+            unitCostPiasters: 2000,
+          });
+          return [p];
+        },
+        appPoolDb,
+      );
+      expect(purchase).toBeDefined();
+      testPurchaseId = purchase!.id;
+
+      const [sale] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          const [s] = await tx
+            .insert(schema.sales)
+            .values({
+              storeId: storeAId,
+              totalPiasters: 3500,
+              paymentMethod: "cash",
+              opId: saleOpId,
+            })
+            .returning();
+
+          await tx.insert(schema.saleLines).values({
+            storeId: storeAId,
+            saleId: s!.id,
+            storeProductId: testStoreProductId,
+            amountPiasters: 3500,
+            feePiasters: 0,
+          });
+          return [s];
+        },
+        appPoolDb,
+      );
+      expect(sale).toBeDefined();
+      testSaleId = sale!.id;
+
+      const storeBPurchase = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.purchases)
+            .where(eq(schema.purchases.id, testPurchaseId));
+        },
+        appPoolDb,
+      );
+      expect(storeBPurchase).toHaveLength(0);
+
+      const storeBSale = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.sales)
+            .where(eq(schema.sales.id, testSaleId));
+        },
+        appPoolDb,
+      );
+      expect(storeBSale).toHaveLength(0);
+    });
+
+    it("alerts & ai_messages: Store A alerts and AI messages are isolated from Store B", async () => {
+      const [alert] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.alerts)
+            .values({
+              storeId: storeAId,
+              kind: "low_stock",
+              severity: "warning",
+              messageAr: "كمية الجبنة البيضاء أوشكت على النفاد",
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(alert).toBeDefined();
+
+      const [aiMsg] = await withTenant(
+        storeAId,
+        userAId,
+        async (tx) => {
+          return await tx
+            .insert(schema.aiMessages)
+            .values({
+              storeId: storeAId,
+              role: "user",
+              bodyText: "إيه أكتر صنف مبيعا الأسبوع ده؟",
+            })
+            .returning();
+        },
+        appPoolDb,
+      );
+      expect(aiMsg).toBeDefined();
+
+      const storeBAlerts = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.alerts)
+            .where(eq(schema.alerts.id, alert!.id));
+        },
+        appPoolDb,
+      );
+      expect(storeBAlerts).toHaveLength(0);
+
+      const storeBAiMsgs = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx
+            .select()
+            .from(schema.aiMessages)
+            .where(eq(schema.aiMessages.id, aiMsg!.id));
+        },
+        appPoolDb,
+      );
+      expect(storeBAiMsgs).toHaveLength(0);
+    });
+
+    describe("Grants: hesba_app has NO UPDATE and NO DELETE on append-only tables", () => {
+      function assertPermissionDenied(err: unknown) {
+        expect(err).toBeDefined();
+        const errorObj = err as {
+          message?: string;
+          cause?: { message?: string };
+        };
+        const combined = `${errorObj.message ?? ""} ${errorObj.cause?.message ?? ""}`;
+        expect(combined).toMatch(/permission denied for table/i);
+      }
+
+      it("hesba_app cannot UPDATE or DELETE wallet_transactions", async () => {
+        let updateErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .update(schema.walletTransactions)
+                .set({ amountPiasters: 999999 })
+                .where(eq(schema.walletTransactions.id, testWalletTxId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          updateErr = err;
+        }
+        assertPermissionDenied(updateErr);
+
+        let deleteErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .delete(schema.walletTransactions)
+                .where(eq(schema.walletTransactions.id, testWalletTxId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          deleteErr = err;
+        }
+        assertPermissionDenied(deleteErr);
+      });
+
+      it("hesba_app cannot UPDATE or DELETE debt_entries", async () => {
+        let updateErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .update(schema.debtEntries)
+                .set({ amountPiasters: 999999 })
+                .where(eq(schema.debtEntries.id, testDebtEntryId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          updateErr = err;
+        }
+        assertPermissionDenied(updateErr);
+
+        let deleteErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .delete(schema.debtEntries)
+                .where(eq(schema.debtEntries.id, testDebtEntryId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          deleteErr = err;
+        }
+        assertPermissionDenied(deleteErr);
+      });
+
+      it("hesba_app cannot UPDATE or DELETE purchases", async () => {
+        let updateErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .update(schema.purchases)
+                .set({ totalPiasters: 999999 })
+                .where(eq(schema.purchases.id, testPurchaseId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          updateErr = err;
+        }
+        assertPermissionDenied(updateErr);
+
+        let deleteErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .delete(schema.purchases)
+                .where(eq(schema.purchases.id, testPurchaseId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          deleteErr = err;
+        }
+        assertPermissionDenied(deleteErr);
+      });
+
+      it("hesba_app cannot UPDATE or DELETE sales", async () => {
+        let updateErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .update(schema.sales)
+                .set({ totalPiasters: 999999 })
+                .where(eq(schema.sales.id, testSaleId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          updateErr = err;
+        }
+        assertPermissionDenied(updateErr);
+
+        let deleteErr: unknown;
+        try {
+          await withTenant(
+            storeAId,
+            userAId,
+            async (tx) => {
+              await tx
+                .delete(schema.sales)
+                .where(eq(schema.sales.id, testSaleId));
+            },
+            appPoolDb,
+          );
+        } catch (err) {
+          deleteErr = err;
+        }
+        assertPermissionDenied(deleteErr);
+      });
+    });
+  });
 });
