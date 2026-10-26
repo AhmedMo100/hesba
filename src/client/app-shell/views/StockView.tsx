@@ -1,24 +1,26 @@
 "use client";
 
 import React from "react";
-import pageStyles from "../PageLayout.module.css";
+import viewStyles from "./ViewLayout.module.css";
 import { Empty, Button } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 
-export function StockPage() {
+export function StockView() {
   return (
-    <div className={pageStyles.page} data-testid="page-stock">
-      <div className={pageStyles.phead}>
+    <div className={viewStyles.view} data-testid="page-stock">
+      <div className={viewStyles.phead}>
         <div>
           <h1>{t("pages.stock.title")}</h1>
         </div>
-        <div className={pageStyles.pact}>
+        <div className={viewStyles.pact}>
           <Button icon="plus">{t("pages.stock.addGoods")}</Button>
         </div>
       </div>
-      <div className={pageStyles.card}>
+      <div className={viewStyles.card}>
         <Empty icon="layers" title={t("pages.stock.empty")} />
       </div>
     </div>
   );
 }
+
+export default StockView;

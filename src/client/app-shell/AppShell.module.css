@@ -35,3 +35,13 @@
     padding-inline: 12px;
   }
 }
+
+.viewLoading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 240px;
+  color: var(--ink2);
+  font-size: 15px;
+  font-weight: 500;
+}

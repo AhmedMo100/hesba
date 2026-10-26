@@ -1,20 +1,20 @@
 "use client";
 
 import React, { useState } from "react";
-import pageStyles from "../PageLayout.module.css";
+import viewStyles from "./ViewLayout.module.css";
 import { Empty, SearchBox, Button } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 
-export function ProductsPage() {
+export function ProductsView() {
   const [query, setQuery] = useState("");
 
   return (
-    <div className={pageStyles.page} data-testid="page-products">
-      <div className={pageStyles.phead}>
+    <div className={viewStyles.view} data-testid="page-products">
+      <div className={viewStyles.phead}>
         <div>
           <h1>{t("pages.products.title")}</h1>
         </div>
-        <div className={pageStyles.pact}>
+        <div className={viewStyles.pact}>
           <Button icon="plus">{t("pages.products.add")}</Button>
         </div>
       </div>
@@ -23,9 +23,11 @@ export function ProductsPage() {
         onChange={setQuery}
         placeholder={t("pages.products.searchPlaceholder")}
       />
-      <div className={pageStyles.card}>
+      <div className={viewStyles.card}>
         <Empty icon="box" title={t("pages.products.empty")} />
       </div>
     </div>
   );
 }
+
+export default ProductsView;

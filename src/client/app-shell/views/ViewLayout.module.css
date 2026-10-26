@@ -1,11 +1,11 @@
-.page {
+.view {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  animation: pageIn 0.36s var(--ease);
+  animation: viewIn 0.36s var(--ease);
 }
 
-@keyframes pageIn {
+@keyframes viewIn {
   from {
     opacity: 0;
     transform: translateY(10px);

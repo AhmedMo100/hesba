@@ -1,21 +1,23 @@
 "use client";
 
 import React from "react";
-import pageStyles from "../PageLayout.module.css";
+import viewStyles from "./ViewLayout.module.css";
 import { Empty } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 
-export function HomePage() {
+export function HomeView() {
   return (
-    <div className={pageStyles.page} data-testid="page-home">
-      <div className={pageStyles.phead}>
+    <div className={viewStyles.view} data-testid="page-home">
+      <div className={viewStyles.phead}>
         <div>
           <h1>{t("pages.home.title")}</h1>
         </div>
       </div>
-      <div className={pageStyles.card}>
+      <div className={viewStyles.card}>
         <Empty icon="chart" title={t("pages.home.empty")} />
       </div>
     </div>
   );
 }
+
+export default HomeView;

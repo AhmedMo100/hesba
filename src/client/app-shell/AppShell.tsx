@@ -1,22 +1,33 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import { BottomNav, type NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
 import { SyncBar, type SyncState } from "./SyncBar";
 import { ToastProvider } from "../shared/ui";
+import { t } from "../shared/i18n";
 
-// Import the 8 empty pages
-import { HomePage } from "../pages/home/HomePage";
-import { ProductsPage } from "../pages/products/ProductsPage";
-import { SalesPage } from "../pages/sales/SalesPage";
-import { StockPage } from "../pages/stock/StockPage";
-import { ExpensesPage } from "../pages/expenses/ExpensesPage";
-import { PeoplePage } from "../pages/people/PeoplePage";
-import { AlertsPage } from "../pages/alerts/AlertsPage";
-import { AiPage } from "../pages/ai/AiPage";
+// Eagerly loaded default view
+import { HomeView } from "./views/HomeView";
+
+// Lazy-loaded views
+const loadProductsView = () => import("./views/ProductsView");
+const loadSalesView = () => import("./views/SalesView");
+const loadStockView = () => import("./views/StockView");
+const loadExpensesView = () => import("./views/ExpensesView");
+const loadPeopleView = () => import("./views/PeopleView");
+const loadAlertsView = () => import("./views/AlertsView");
+const loadAiView = () => import("./views/AiView");
+
+const ProductsView = lazy(loadProductsView);
+const SalesView = lazy(loadSalesView);
+const StockView = lazy(loadStockView);
+const ExpensesView = lazy(loadExpensesView);
+const PeopleView = lazy(loadPeopleView);
+const AlertsView = lazy(loadAlertsView);
+const AiView = lazy(loadAiView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -41,6 +52,14 @@ function getRouteFromPathname(pathname: string): NavRoute {
   return "home";
 }
 
+function ViewLoading() {
+  return (
+    <div className={styles.viewLoading} role="status" aria-live="polite">
+      <span>{t("common.loading")}</span>
+    </div>
+  );
+}
+
 export function AppShell() {
   const [route, setRoute] = useState<NavRoute>(() => {
     if (typeof window !== "undefined") {
@@ -58,6 +77,22 @@ export function AppShell() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+
+    // Register service worker for offline precaching
+    if ("serviceWorker" in navigator) {
+      navigator.serviceWorker
+        .register("/sw.js", { scope: "/" })
+        .catch(() => {});
+    }
+
+    // Preload lazy view chunks on mount so they are cached for offline navigation
+    loadProductsView();
+    loadSalesView();
+    loadStockView();
+    loadExpensesView();
+    loadPeopleView();
+    loadAlertsView();
+    loadAiView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -87,26 +122,26 @@ export function AppShell() {
     }
   }, []);
 
-  const renderCurrentPage = () => {
+  const renderCurrentView = () => {
     switch (route) {
       case "home":
-        return <HomePage />;
+        return <HomeView />;
       case "products":
-        return <ProductsPage />;
+        return <ProductsView />;
       case "sales":
-        return <SalesPage />;
+        return <SalesView />;
       case "stock":
-        return <StockPage />;
+        return <StockView />;
       case "expenses":
-        return <ExpensesPage />;
+        return <ExpensesView />;
       case "people":
-        return <PeoplePage />;
+        return <PeopleView />;
       case "alerts":
-        return <AlertsPage />;
+        return <AlertsView />;
       case "ai":
-        return <AiPage />;
+        return <AiView />;
       default:
-        return <HomePage />;
+        return <HomeView />;
     }
   };
 
@@ -117,7 +152,11 @@ export function AppShell() {
         <div className={styles.main}>
           <Header />
           <SyncBar state={syncState} />
-          <main className={styles.content}>{renderCurrentPage()}</main>
+          <main className={styles.content}>
+            <Suspense fallback={<ViewLoading />}>
+              {renderCurrentView()}
+            </Suspense>
+          </main>
           <BottomNav activeRoute={route} onNavigate={navigate} />
         </div>
       </div>

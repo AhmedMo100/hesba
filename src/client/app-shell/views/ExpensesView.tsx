@@ -1,24 +1,26 @@
 "use client";
 
 import React from "react";
-import pageStyles from "../PageLayout.module.css";
+import viewStyles from "./ViewLayout.module.css";
 import { Empty, Button } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 
-export function ExpensesPage() {
+export function ExpensesView() {
   return (
-    <div className={pageStyles.page} data-testid="page-expenses">
-      <div className={pageStyles.phead}>
+    <div className={viewStyles.view} data-testid="page-expenses">
+      <div className={viewStyles.phead}>
         <div>
           <h1>{t("pages.expenses.title")}</h1>
         </div>
-        <div className={pageStyles.pact}>
+        <div className={viewStyles.pact}>
           <Button icon="plus">{t("pages.expenses.addExpense")}</Button>
         </div>
       </div>
-      <div className={pageStyles.card}>
+      <div className={viewStyles.card}>
         <Empty icon="wallet" title={t("pages.expenses.empty")} />
       </div>
     </div>
   );
 }
+
+export default ExpensesView;

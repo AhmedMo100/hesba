@@ -1,21 +1,23 @@
 "use client";
 
 import React from "react";
-import pageStyles from "../PageLayout.module.css";
+import viewStyles from "./ViewLayout.module.css";
 import { Empty } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 
-export function PeoplePage() {
+export function PeopleView() {
   return (
-    <div className={pageStyles.page} data-testid="page-people">
-      <div className={pageStyles.phead}>
+    <div className={viewStyles.view} data-testid="page-people">
+      <div className={viewStyles.phead}>
         <div>
           <h1>{t("pages.people.title")}</h1>
         </div>
       </div>
-      <div className={pageStyles.card}>
+      <div className={viewStyles.card}>
         <Empty icon="users" title={t("pages.people.empty")} />
       </div>
     </div>
   );
 }
+
+export default PeopleView;
