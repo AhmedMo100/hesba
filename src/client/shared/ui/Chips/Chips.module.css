@@ -1,0 +1,80 @@
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 2px 0 6px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.tight {
+  flex-wrap: wrap;
+  overflow: visible;
+}
+
+.center {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.chip {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px; /* Accessible touch target */
+  padding: 8px 16px;
+  border-radius: 999px;
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14px;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    background 0.18s,
+    color 0.18s,
+    border-color 0.18s,
+    transform 0.12s;
+}
+
+.chip:active:not(.static):not(:disabled) {
+  transform: scale(0.96);
+}
+
+.chip:hover:not(.on):not(.static):not(:disabled) {
+  border-color: var(--hov);
+  background: var(--sf2);
+}
+
+.on {
+  background: var(--br) !important;
+  border-color: var(--br) !important;
+  color: var(--brInk) !important;
+}
+
+.lg {
+  min-height: 48px;
+  font-size: 16px;
+  padding: 10px 20px;
+}
+
+.static {
+  pointer-events: none;
+  background: var(--sf2);
+  min-height: 36px;
+  padding: 4px 12px;
+  font-size: 13px;
+}
+
+.chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

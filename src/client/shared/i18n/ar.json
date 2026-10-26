@@ -1,0 +1,144 @@
+{
+  "common": {
+    "appName": "حسبة",
+    "save": "حفظ",
+    "cancel": "إلغاء",
+    "confirm": "تأكيد",
+    "delete": "حذف",
+    "edit": "تعديل",
+    "add": "إضافة",
+    "close": "إغلاق",
+    "undo": "تراجع",
+    "retry": "إعادة المحاولة",
+    "search": "بحث",
+    "clear": "مسح",
+    "voiceSearch": "بحث بالصوت",
+    "loading": "جاري التحميل...",
+    "error": "حصل خطأ",
+    "empty": "مفيش بيانات",
+    "back": "رجوع",
+    "currency": "ج.م",
+    "themeLight": "فاتح",
+    "themeDark": "داكن",
+    "themeAuto": "تلقائي",
+    "themeToggle": "تغيير المظهر",
+    "menu": "القائمة",
+    "store": "المحل",
+    "more": "المزيد",
+    "piece": "قطعة",
+    "kg": "كجم",
+    "gram": "جرام",
+    "carton": "كرتونة"
+  },
+  "nav": {
+    "home": "الرئيسية",
+    "products": "المنتجات",
+    "sales": "البيع",
+    "stock": "المخزون",
+    "expenses": "المصاريف",
+    "people": "الناس",
+    "alerts": "التنبيهات",
+    "ai": "المساعد",
+    "more": "المزيد"
+  },
+  "sync": {
+    "synced": "متزامن ✓",
+    "syncing": "بيزامن…",
+    "offline": "{count} عمليات مستنية (أوفلاين)",
+    "needsReview": "في عمليات محتاجة مراجعة",
+    "updating": "السيرفر بيتحدّث، شغلك محفوظ",
+    "login": "سجّل دخولك"
+  },
+  "pages": {
+    "home": {
+      "title": "الرئيسية",
+      "empty": "لسه مفيش مبيعات في الفترة دي",
+      "sales": "المبيعات",
+      "profit": "الأرباح",
+      "expenses": "المصاريف",
+      "net": "الصافي"
+    },
+    "products": {
+      "title": "المنتجات",
+      "empty": "مفيش منتجات متسجلة",
+      "searchPlaceholder": "ابحث عن منتج...",
+      "add": "إضافة منتج"
+    },
+    "sales": {
+      "title": "البيع",
+      "empty": "مفيش منتجات للبيع",
+      "searchPlaceholder": "ابحث أو امسح الباركود...",
+      "todayTotal": "إجمالي اليوم"
+    },
+    "stock": {
+      "title": "المخزون",
+      "empty": "مفيش بضاعة في المخزون",
+      "addGoods": "إضافة بضاعة"
+    },
+    "expenses": {
+      "title": "المصاريف",
+      "empty": "مفيش مصاريف مسجلة",
+      "addExpense": "تسجيل مصروف"
+    },
+    "people": {
+      "title": "الناس",
+      "empty": "مفيش حسابات مسجلة",
+      "owedToMe": "ليك",
+      "owedByMe": "عليك",
+      "suppliers": "الموردين"
+    },
+    "alerts": {
+      "title": "التنبيهات",
+      "empty": "كل حاجة تمام، مفيش تنبيهات",
+      "outOfStock": "خلصان",
+      "runningLow": "قرب يخلص",
+      "nearExpiry": "قرب ينتهي"
+    },
+    "ai": {
+      "title": "المساعد",
+      "empty": "اسأل المساعد عن مبيعاتك وأرباحك ومخزونك",
+      "placeholder": "اكتب سؤالك هنا...",
+      "quotaRemaining": "{count} رسائل متبقية النهارده",
+      "quotaLimit": "خلص حدك النهارده، ارجع بكرة",
+      "offlineNotice": "المساعد محتاج نت",
+      "notEnoughData": "مش عندي بيانات كفاية"
+    }
+  },
+  "dev": {
+    "title": "معمل المكونات",
+    "subtitle": "صفحة اختبار وتطوير مكونات الواجهة المشتركة",
+    "buttons": "الأزرار",
+    "inputs": "حقول الإدخال والأرقام",
+    "search": "صندوق البحث",
+    "seg": "التحكم المنزلق (Seg)",
+    "chips": "الرقاقات (Chips)",
+    "modal": "النافذة المنبثقة (Modal / Sheet)",
+    "toast": "الإشعارات (Toast)",
+    "openModal": "فتح النافذة التجريبية",
+    "showToastOk": "إشعار نجاح",
+    "showToastErr": "إشعار خطأ",
+    "showToastUndo": "إشعار مع تراجع",
+    "modalContent": "محتوى النافذة التجريبية يدعم التمرير والإغلاق باللمس أو الزر.",
+    "toastSold": "اتباع: بيبسي 330 مل",
+    "toastError": "فشل في حفظ البيانات",
+    "toastSuccess": "تم حفظ التعديلات بنجاح",
+    "primaryBtn": "زر رئيسي",
+    "ghostBtn": "زر شفاف",
+    "softBtn": "زر هادئ",
+    "dangerBtn": "زر خطر",
+    "smBtn": "صغير",
+    "lgBtn": "كبير",
+    "fieldLabel": "اسم الحقل",
+    "fieldPlaceholder": "اكتب هنا...",
+    "fieldHint": "معلومة توضيحية للمستخدم",
+    "fieldError": "قيمة غير صحيحة",
+    "numLabel": "السعر بالجنيه",
+    "segOpt1": "يومي",
+    "segOpt2": "أسبوعي",
+    "segOpt3": "شهري",
+    "chip1": "كل المنتجات",
+    "chip2": "مشروبات",
+    "chip3": "بقالة",
+    "chip4": "منظفات"
+  }
+}

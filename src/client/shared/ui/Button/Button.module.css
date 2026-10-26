@@ -1,0 +1,106 @@
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 800;
+  white-space: nowrap;
+  user-select: none;
+  cursor: pointer;
+  border: 0;
+  transition:
+    transform 0.12s var(--ease),
+    background 0.18s,
+    box-shadow 0.18s,
+    opacity 0.18s;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px) scale(0.985);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--br);
+  color: var(--brInk);
+  box-shadow:
+    0 2px 0 color-mix(in srgb, var(--br2) 85%, #000),
+    0 6px 16px color-mix(in srgb, var(--br) 28%, transparent);
+}
+
+.primary:hover:not(:disabled) {
+  background: var(--br2);
+}
+
+.primary:active:not(:disabled) {
+  box-shadow: 0 1px 0 var(--br2);
+}
+
+.ghost {
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  color: var(--ink);
+}
+
+.ghost:hover:not(:disabled) {
+  background: var(--sf2);
+}
+
+.soft {
+  background: var(--soft);
+  color: var(--br);
+}
+
+.soft:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--br) 20%, var(--soft));
+}
+
+.danger {
+  background: var(--red);
+  color: #ffffff;
+}
+
+.dangerghost {
+  color: var(--red);
+  background: var(--redBg);
+}
+
+.dangerghost:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--red) 18%, var(--redBg));
+}
+
+.sm {
+  min-height: 44px; /* Ensure 44px touch target on mobile */
+  padding: 0 14px;
+  font-size: 14px;
+  border-radius: 12px;
+}
+
+.lg {
+  min-height: 54px;
+  padding: 0 24px;
+  font-size: 18px;
+  border-radius: 16px;
+}
+
+.wide {
+  width: 100%;
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}

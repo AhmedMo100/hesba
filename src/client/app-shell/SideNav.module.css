@@ -1,0 +1,78 @@
+.side {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .side {
+    display: flex;
+    flex-direction: column;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    background: var(--sf);
+    border-inline-end: 1px solid var(--line);
+    padding: 16px 12px;
+    z-index: 20;
+  }
+
+  .logoSection {
+    padding: 4px 8px 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 20px;
+    font-weight: 800;
+    color: var(--br);
+  }
+
+  .nav {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  .nv {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-radius: 12px;
+    font-weight: 700;
+    font-size: 15px;
+    color: var(--ink2);
+    cursor: pointer;
+    border: 0;
+    background: none;
+    text-align: start;
+    width: 100%;
+    transition:
+      background 0.15s,
+      color 0.15s;
+    min-height: 44px;
+  }
+
+  .nv:hover {
+    background: var(--sf2);
+  }
+
+  .nv.on {
+    background: var(--soft);
+    color: var(--br);
+  }
+
+  .nv.key {
+    background: var(--br);
+    color: var(--brInk);
+    margin: 6px 0;
+  }
+
+  .nv.key:hover {
+    background: var(--br2);
+  }
+
+  .nv.key.on {
+    background: var(--br2);
+  }
+}

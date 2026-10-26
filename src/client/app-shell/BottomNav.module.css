@@ -1,0 +1,115 @@
+.bnav {
+  position: fixed;
+  bottom: 0;
+  inset-inline: 0;
+  z-index: 35;
+  height: calc(var(--nav) + env(safe-area-inset-bottom));
+  padding-bottom: env(safe-area-inset-bottom);
+  background: var(--sf);
+  border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  box-shadow: 0 -8px 24px rgba(50, 40, 15, 0.06);
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+}
+
+.bn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  color: var(--ink2);
+  font-size: 11.5px;
+  font-weight: 700;
+  position: relative;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition: color 0.2s;
+  min-height: 44px;
+}
+
+.bn .iconWrapper {
+  position: relative;
+  display: flex;
+  transition: transform 0.25s var(--ease);
+}
+
+.bn.on {
+  color: var(--br);
+}
+
+.bn.on .iconWrapper {
+  transform: translateY(-2px);
+}
+
+/* Sell button special styling */
+.bn.sell {
+  color: var(--br);
+}
+
+.sellCircle {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--br);
+  color: var(--brInk);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: -26px;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--br) 45%, transparent);
+  border: 4px solid var(--bg);
+  transition: transform 0.2s var(--ease);
+}
+
+.bn.sell:active .sellCircle {
+  transform: scale(0.93);
+}
+
+/* More menu grid inside bottom sheet */
+.moreGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.moreItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px 12px;
+  border-radius: 18px;
+  background: var(--sf2);
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 15px;
+  border: 0;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    transform 0.12s;
+}
+
+.moreItem:active {
+  transform: scale(0.96);
+}
+
+.moreIcon {
+  width: 54px;
+  height: 54px;
+  border-radius: 16px;
+  background: var(--soft);
+  color: var(--br);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (min-width: 900px) {
+  .bnav {
+    display: none;
+  }
+}

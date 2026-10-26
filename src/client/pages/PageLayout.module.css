@@ -1,0 +1,50 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: pageIn 0.36s var(--ease);
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.phead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.phead h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.phead p {
+  margin: 4px 0 0;
+  color: var(--ink2);
+  font-size: 14px;
+}
+
+.pact {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.card {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 16px;
+  box-shadow: var(--sh);
+}

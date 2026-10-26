@@ -1,0 +1,97 @@
+.fld {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 16px;
+  min-width: 0;
+}
+
+.grow {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.fl {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink2);
+  padding-inline: 2px;
+}
+
+.input {
+  width: 100%;
+  font-size: 16px;
+  min-height: 50px;
+  padding: 12px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf);
+  color: var(--ink);
+  outline: 0;
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s,
+    background 0.18s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.input:focus {
+  border-color: var(--br);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--br) 18%, transparent);
+}
+
+.bad .input {
+  border-color: var(--red);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--red) 12%, transparent);
+}
+
+.fe {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+  animation: shake 0.35s;
+}
+
+.fh {
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+.num {
+  position: relative;
+  width: 100%;
+}
+
+.numInput {
+  composes: input;
+  font-size: 18px;
+  font-weight: 700;
+  padding-inline-end: 64px;
+}
+
+.sfx {
+  position: absolute;
+  inset-inline-end: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: var(--sf2);
+  padding: 3px 9px;
+  border-radius: 8px;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 700;
+  pointer-events: none;
+}
+
+@keyframes shake {
+  25% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-4px);
+  }
+}

@@ -1,0 +1,102 @@
+.sbox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  padding: 0 8px;
+  min-height: 52px;
+  box-shadow: var(--sh);
+  color: var(--ink2);
+  transition:
+    border-color 0.18s,
+    box-shadow 0.18s;
+  width: 100%;
+}
+
+.sbox:focus-within {
+  border-color: var(--br);
+  box-shadow:
+    0 0 0 4px color-mix(in srgb, var(--br) 18%, transparent),
+    var(--sh);
+}
+
+.searchIcon {
+  color: var(--ink2);
+  flex: none;
+  margin-inline: 4px;
+}
+
+.sbox:focus-within .searchIcon {
+  color: var(--br);
+}
+
+.input {
+  flex: 1;
+  min-height: 48px;
+  font-size: 16px;
+  font-weight: 500;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  outline: 0;
+  color: var(--ink);
+  padding: 0 4px;
+}
+
+.input::placeholder {
+  color: var(--ink2);
+  opacity: 0.6;
+}
+
+.clearBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink2);
+  flex: none;
+  transition: background 0.15s;
+}
+
+.clearBtn:hover {
+  background: var(--sf2);
+}
+
+.micBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--soft);
+  color: var(--br);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  transition:
+    background 0.15s,
+    transform 0.12s;
+}
+
+.micBtn:hover {
+  background: color-mix(in srgb, var(--br) 22%, var(--soft));
+}
+
+.micBtn:active {
+  transform: scale(0.92);
+}
+
+.rec {
+  background: var(--red) !important;
+  color: #ffffff !important;
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  50% {
+    box-shadow: 0 0 0 8px color-mix(in srgb, var(--red) 25%, transparent);
+  }
+}

@@ -1,0 +1,65 @@
+.seg {
+  position: relative;
+  display: flex;
+  padding: 4px;
+  gap: 0;
+  border-radius: 14px;
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  user-select: none;
+}
+
+.thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  inset-inline-start: 4px;
+  width: calc((100% - 8px) / var(--n, 2));
+  background: var(--sf);
+  border-radius: 10px;
+  box-shadow:
+    0 1px 3px rgba(40, 30, 10, 0.14),
+    0 0 0 1px var(--line);
+  transform: translateX(calc(var(--i, 0) * -100%));
+  transition: transform 0.32s var(--ease);
+  pointer-events: none;
+}
+
+.item {
+  position: relative;
+  z-index: 1;
+  flex: 1;
+  min-height: 44px;
+  padding: 0 10px;
+  border-radius: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: color 0.2s;
+  cursor: pointer;
+  border: 0;
+  background: none;
+}
+
+.item.on {
+  color: var(--br);
+}
+
+.big .item {
+  min-height: 50px;
+  font-size: 16px;
+}
+
+.sm .item {
+  min-height: 44px; /* Ensure 44px accessible touch target */
+  font-size: 13px;
+}
+
+.sm .thumb {
+  border-radius: 8px;
+}

@@ -1,0 +1,36 @@
+.syncbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  transition:
+    background 0.2s,
+    color 0.2s;
+}
+
+.synced {
+  background: var(--soft);
+  color: var(--br);
+}
+
+.syncing {
+  background: var(--yelBg);
+  color: var(--yel);
+}
+
+.offline {
+  background: var(--redBg);
+  color: var(--red);
+}
+
+.spin {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(-360deg);
+  }
+}

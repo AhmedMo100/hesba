@@ -1,0 +1,154 @@
+.ov {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(25, 20, 8, 0.46);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fade 0.22s ease;
+}
+
+:global(.out).ov {
+  animation: fadeOut 0.22s ease forwards;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fadeOut {
+  to {
+    opacity: 0;
+  }
+}
+
+.sheet {
+  background: var(--sf);
+  width: min(540px, 100%);
+  max-height: 92dvh;
+  display: flex;
+  flex-direction: column;
+  border-radius: 26px 26px 0 0;
+  box-shadow: var(--sh2);
+  animation: sheetIn 0.38s var(--ease);
+  overflow: hidden;
+}
+
+:global(.out) .sheet {
+  animation: sheetOut 0.26s cubic-bezier(0.4, 0, 1, 1) forwards;
+}
+
+@keyframes sheetIn {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@keyframes sheetOut {
+  to {
+    transform: translateY(100%);
+  }
+}
+
+.grab {
+  width: 44px;
+  height: 5px;
+  border-radius: 3px;
+  margin: 10px auto 2px;
+  background: color-mix(in srgb, var(--ink2) 35%, transparent);
+  flex: none;
+}
+
+.shHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 18px 8px 12px;
+  padding-inline: 20px 12px;
+  flex: none;
+}
+
+.shHeader h3 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.closeBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--sf2);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  cursor: pointer;
+  border: 0;
+  transition:
+    background 0.15s,
+    transform 0.12s;
+}
+
+.closeBtn:active {
+  transform: scale(0.92);
+}
+
+.shBody {
+  padding: 12px 20px 18px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  flex: 1;
+}
+
+.shFooter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  background: var(--sf);
+  flex: none;
+}
+
+@media (min-width: 900px) {
+  .ov {
+    align-items: center;
+    padding: 24px;
+  }
+
+  .sheet {
+    border-radius: 24px;
+    max-height: 86vh;
+    animation: dlgIn 0.3s var(--ease);
+  }
+
+  :global(.out) .sheet {
+    animation: dlgOut 0.2s ease forwards;
+  }
+
+  .grab {
+    display: none;
+  }
+}
+
+@keyframes dlgIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+}
+
+@keyframes dlgOut {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
