@@ -62,28 +62,43 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
         run: pnpm build
 
-      - name: Start app and test /api/health/ready
+      - name: Start app and test /api/health/ready & Sentry telemetry
         env:
           HESBA_DATABASE_URL: ${{ secrets.HESBA_DATABASE_URL }}
           HESBA_DIRECT_URL: ${{ secrets.HESBA_DIRECT_URL }}
           HESBA_SESSION_SECRET: ${{ secrets.HESBA_SESSION_SECRET }}
           HESBA_CRON_SECRET: ${{ secrets.HESBA_CRON_SECRET }}
+          HESBA_SENTRY_DSN: ${{ secrets.HESBA_SENTRY_DSN }}
           HESBA_APP_ORIGIN: http://localhost:3000
           PORT: 3000
         run: |
-          pnpm start &
+          pnpm start > server.log 2>&1 &
           SERVER_PID=$!
           echo "App started with PID $SERVER_PID. Polling /api/health/ready..."
+          READY=0
           for i in {1..30}; do
             RESPONSE=$(curl -s http://localhost:3000/api/health/ready || true)
             if echo "$RESPONSE" | grep -q '"status":"ready"'; then
               echo "Health readiness check PASSED:"
               echo "$RESPONSE"
-              kill $SERVER_PID
-              exit 0
+              READY=1
+              break
             fi
             sleep 1
           done
-          echo "Health check failed to become ready in 30s. Last response: $RESPONSE"
+
+          if [ $READY -ne 1 ]; then
+            echo "Health check failed to become ready in 30s. Server log:"
+            cat server.log
+            kill $SERVER_PID
+            exit 1
+          fi
+
+          echo "Triggering Sentry test route /api/debug/sentry-test..."
+          SENTRY_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/debug/sentry-test || true)
+          echo "Sentry test route returned HTTP $SENTRY_HTTP_CODE (expected 500 for thrown error)"
+          sleep 4
+          echo "=== Server Log (Sentry Event Output) ==="
+          cat server.log
           kill $SERVER_PID
-          exit 1
+          exit 0
