@@ -284,6 +284,24 @@ docker build -t hesba .
 
 If `pnpm dev` shows the sample Next.js page, that is expected at this point. Phase 1 replaces it.
 
+### 11.1 Local gates
+
+Summary of sequential local gate execution and health endpoint checks:
+
+- **Date:** 2026-10-26
+- **Commit:** `6d3f9dd`
+- **Gates Sequence:**
+  1. `pnpm install --frozen-lockfile` → PASS (Lockfile frozen, Prisma Client generated)
+  2. `pnpm lint` → PASS (0 errors, 0 warnings, boundaries verified)
+  3. `pnpm typecheck` → PASS (Strict TypeScript, 0 errors)
+  4. `pnpm test` → PASS (15 test files, 78 unit/server tests passed)
+  5. `pnpm test:int` → PASS (2 test files, 29 cross-tenant integration tests passed)
+  6. `pnpm test:e2e` → PASS (Playwright desktop and mobile-360 offline navigation passed)
+  7. `pnpm build` → PASS (Standalone production build with Serwist service worker)
+- **Health Endpoints Verification (`pnpm start`):**
+  - `GET /api/health` → `HTTP 200 OK` (`{"status":"ok","timestamp":"2026-10-26T10:56:40.844Z"}`)
+  - `GET /api/health/ready` → `HTTP 200 OK` (`{"status":"ready","database":"connected","timestamp":"2026-10-26T10:56:48.379Z"}`)
+
 ---
 
 ## 12. Push to GitHub and protect `main`
