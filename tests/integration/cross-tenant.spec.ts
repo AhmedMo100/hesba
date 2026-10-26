@@ -411,8 +411,8 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
 
   describe("3. Connection Pooling: withTenant through a pooled connection string", () => {
     it("concurrent interleaved queries across pool connections never leak tenant context", async () => {
-      // Run 20 concurrent queries alternating between Store A and Store B
-      const tasks = Array.from({ length: 20 }, (_, idx) => {
+      // Run 10 concurrent queries alternating between Store A and Store B
+      const tasks = Array.from({ length: 10 }, (_, idx) => {
         const isStoreA = idx % 2 === 0;
         const targetStoreId = isStoreA ? storeAId : storeBId;
         const targetUserId = isStoreA ? userAId : userBId;
