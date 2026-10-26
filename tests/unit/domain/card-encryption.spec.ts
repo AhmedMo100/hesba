@@ -1,10 +1,18 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import {
   decryptCardSecret,
   encryptCardSecret,
 } from "@/server/infra/crypto/card-encryption";
 
 describe("server/crypto - card serial and PIN encryption (AES-256-GCM)", () => {
+  beforeAll(() => {
+    if (!process.env["HESBA_CARD_KEY"]) {
+      // Ephemeral 32-byte hex key for CI unit testing
+      process.env["HESBA_CARD_KEY"] =
+        "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    }
+  });
+
   const sampleCardNumber = "1234567890123456";
   const samplePin = "98765432109876";
 
