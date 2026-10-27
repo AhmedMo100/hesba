@@ -94,11 +94,5 @@ jobs:
             exit 1
           fi
 
-          echo "Triggering Sentry test route /api/debug/sentry-test..."
-          SENTRY_HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/api/debug/sentry-test || true)
-          echo "Sentry test route returned HTTP $SENTRY_HTTP_CODE (expected 500 for thrown error)"
-          sleep 4
-          echo "=== Server Log (Sentry Event Output) ==="
-          cat server.log
           kill $SERVER_PID
           exit 0
