@@ -6,6 +6,7 @@ RUN corepack enable
 FROM base AS deps
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
+COPY prisma ./prisma/
 RUN pnpm install --frozen-lockfile
 
 FROM base AS builder

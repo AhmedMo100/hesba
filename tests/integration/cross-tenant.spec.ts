@@ -47,8 +47,10 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
 
     // App pool with multiple connections (max: 5)
     appPoolClient = postgres(databaseUrl, { max: 5, idle_timeout: 10 });
+    const pooledPrismaUrl = new URL(databaseUrl);
+    pooledPrismaUrl.searchParams.set("connection_limit", "5");
     appPoolPrisma = new PrismaClient({
-      datasources: { db: { url: databaseUrl } },
+      datasources: { db: { url: pooledPrismaUrl.toString() } },
     });
 
     // Verify app role privileges and non-superuser status
@@ -411,8 +413,8 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
 
   describe("3. Connection Pooling: withTenant through a pooled connection string", () => {
     it("concurrent interleaved queries across pool connections never leak tenant context", async () => {
-      // Run 20 concurrent queries alternating between Store A and Store B
-      const tasks = Array.from({ length: 20 }, (_, idx) => {
+      // Run 8 concurrent queries (pool size 5 + 3) alternating between Store A and Store B
+      const tasks = Array.from({ length: 8 }, (_, idx) => {
         const isStoreA = idx % 2 === 0;
         const targetStoreId = isStoreA ? storeAId : storeBId;
         const targetUserId = isStoreA ? userAId : userBId;

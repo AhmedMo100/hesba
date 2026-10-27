@@ -5,3 +5,4 @@ export * from "./normalize";
 export * from "./commission";
 export * from "./wallet";
 export * from "./business-enums";
+export * from "./sentry-scrubber";
