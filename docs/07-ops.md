@@ -566,7 +566,7 @@ Neon Free keeps only 6 hours of history ✔, so we need:
   - `hesba_migrator`: Schema owner and migrations runner (`LOGIN` enabled; `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOBYPASSRLS`). Has `USAGE` and `CREATE` on `public` schema.
   - `hesba_app`: Application runtime pool user (`LOGIN` enabled; `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOBYPASSRLS`). Has `USAGE` on `public` schema, `SELECT, INSERT, UPDATE, DELETE` on existing tables, and default privileges on future objects created by `hesba_migrator`.
 - **Connection Configuration:**
-  - `HESBA_DATABASE_URL`: Pooled connection string with role `hesba_app`.
+  - `HESBA_DATABASE_URL`: Pooled connection string with role `hesba_app`. The test pool size is explicitly configured to `connection_limit=5` to match `appPoolClient` pool max.
   - `HESBA_DIRECT_URL`: Direct connection string with role `hesba_migrator`.
 - **Secrets Policy:** Zero connection strings and zero passwords committed or logged; stored strictly in deployment environment / secret manager.
 
