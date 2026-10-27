@@ -8,6 +8,7 @@ test.describe("App Shell Offline Navigation", () => {
     // 1. First visit online
     await page.goto("/app");
     await page.waitForLoadState("domcontentloaded");
+    await page.waitForLoadState("networkidle");
 
     // Hide Next.js dev overlay portal so it doesn't intercept clicks in test
     await page.addStyleTag({

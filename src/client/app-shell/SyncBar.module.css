@@ -25,6 +25,23 @@
   color: var(--red);
 }
 
+.login {
+  background: var(--yelBg);
+  color: var(--yel);
+  cursor: pointer;
+}
+
+.updating {
+  background: var(--soft);
+  color: var(--br);
+}
+
+.needsReview {
+  background: var(--redBg);
+  color: var(--red);
+  cursor: pointer;
+}
+
 .spin {
   animation: spin 1s linear infinite;
 }

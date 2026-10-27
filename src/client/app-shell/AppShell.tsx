@@ -60,7 +60,19 @@ function ViewLoading() {
   );
 }
 
-export function AppShell() {
+import {
+  AuthProvider,
+  useAuth,
+  ProfileModal,
+  PinLockScreen,
+  AuthScreen,
+} from "../shared/auth";
+
+function AppShellInner() {
+  const { session, isLocked, isOfflineExpired, unlock, logout } = useAuth();
+  const [showProfile, setShowProfile] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
   const [route, setRoute] = useState<NavRoute>(() => {
     if (typeof window !== "undefined") {
       return getRouteFromPathname(window.location.pathname);
@@ -145,22 +157,59 @@ export function AppShell() {
     }
   };
 
+  const effectiveSyncState: SyncState = isOfflineExpired ? "login" : syncState;
+
   return (
-    <ToastProvider>
-      <div className={styles.app} dir="rtl">
-        <SideNav activeRoute={route} onNavigate={navigate} />
-        <div className={styles.main}>
-          <Header />
-          <SyncBar state={syncState} />
-          <main className={styles.content}>
-            <Suspense fallback={<ViewLoading />}>
-              {renderCurrentView()}
-            </Suspense>
-          </main>
-          <BottomNav activeRoute={route} onNavigate={navigate} />
-        </div>
+    <div className={styles.app} dir="rtl">
+      <SideNav activeRoute={route} onNavigate={navigate} />
+      <div className={styles.main}>
+        <Header
+          storeName={session?.store?.name}
+          onStoreClick={() => setShowProfile(true)}
+        />
+        <SyncBar
+          state={effectiveSyncState}
+          onClick={() => {
+            if (isOfflineExpired) setShowAuthModal(true);
+          }}
+        />
+        <main className={styles.content}>
+          <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
+        </main>
+        <BottomNav activeRoute={route} onNavigate={navigate} />
       </div>
-    </ToastProvider>
+
+      {isLocked && <PinLockScreen onUnlock={unlock} onLogout={logout} />}
+
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+
+      {showAuthModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 999,
+            overflowY: "auto",
+          }}
+        >
+          <AuthScreen
+            initialMode="login"
+            onSuccess={() => setShowAuthModal(false)}
+            isOffline={syncState === "offline"}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AppShell() {
+  return (
+    <AuthProvider>
+      <ToastProvider>
+        <AppShellInner />
+      </ToastProvider>
+    </AuthProvider>
   );
 }
 
