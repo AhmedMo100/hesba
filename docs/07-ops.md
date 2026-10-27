@@ -572,6 +572,19 @@ Neon Free keeps only 6 hours of history ✔, so we need:
 
 ---
 
+## 11. Phase 1 Acceptance
+
+| Acceptance Item | Status | Evidence |
+|---|---|---|
+| `pnpm dev` runs locally | PASS | Local dev server running, `/api/health` returns `{"status":"ok"}` and `/api/health/ready` returns `{"status":"ready","database":"connected"}` HTTP 200. |
+| CI is green on the pull request | PASS | PR #1 (`feature/foundation` -> `main`): all jobs passed (`Code Quality & Unit Tests`, `Database Migrations & Integration Tests`, `Neon Staging Verification`). PR: https://github.com/AhmedMo100/hesba/pull/1 |
+| `/api/health/ready` answers on the Neon staging setup | PASS | Neon staging connection verified on GitHub Actions run `40411829827`: returns HTTP 200 `{"status":"ready","database":"connected","timestamp":"2026-10-26T22:23:45.885Z"}`. |
+| The shell navigates offline after the first online open | PASS | Playwright E2E suite `tests/e2e/shell-offline.spec.ts` passes (`2 passed in 8.1s`). Verified navigation across all 8 shell views while network offline. |
+| The cross-tenant test exists and fails when RLS is turned off | PASS | `tests/integration/cross-tenant.spec.ts` Section 4 ("Negative Proof: Verification that without RLS, isolation fails") executes `assertStoreIsolation` against `devices_unprotected_test`, proving failure (`AssertionError: expected rows to have a length of 1 but got 2`). |
+| The market migrations and the seed dry run work | PASS | All migrations applied on local Postgres and Neon staging (`No pending migrations to apply`). Seed validation command `pnpm catalog:import data/catalog/templates/ --dry-run` runs with 0 errors. |
+
+---
+
 # Part 3: Ready-to-Paste Prompts for Antigravity
 > Source: formerly `docs/07-ops.md`
 
