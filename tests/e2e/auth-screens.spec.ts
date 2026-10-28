@@ -2,7 +2,7 @@ import { test, expect } from "@playwright/test";
 import path from "node:path";
 import fs from "node:fs";
 
-test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
+test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
   const screenshotsDir = path.resolve(process.cwd(), "docs/screens/phase-2");
 
   test.beforeAll(() => {
@@ -11,7 +11,7 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     }
   });
 
-  test("captures 360px screenshots for all auth screens and profile modal", async ({
+  test("captures 360px screenshots for all phone + password auth screens and profile modal", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 360, height: 800 });
@@ -20,7 +20,12 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     await page.goto("/dev/auth?screen=signup-1");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
-      content: "nextjs-portal { display: none !important; }",
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
     });
 
     await expect(page.locator("h1")).toHaveText("افتح حساب حسبة");
@@ -37,6 +42,10 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     await page.fill('input[placeholder="مثال: مجدي أحمد"]', "مجدي أحمد");
     await page.fill('input[placeholder="01xxxxxxxxx"]', testPhone);
     await page.fill('input[placeholder="name@email.com"]', testEmail);
+    await page.fill(
+      'input[placeholder="6 حروف أو أرقام على الأقل"]',
+      "TestPassword@123",
+    );
     await page.click('button:has-text("التالي")');
 
     await expect(
@@ -47,24 +56,16 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
       fullPage: false,
     });
 
-    // 3. Signup Step 3 ("أمان الجهاز" - Local PIN)
-    await page.fill(
-      'input[placeholder="مثال: سوبر ماركت البركة"]',
-      "سوبر ماركت البركة",
-    );
-    await page.click('button:has-text("التالي")');
-
-    await expect(page.locator("h3")).toContainText("أمان الجهاز");
-    await page.screenshot({
-      path: path.join(screenshotsDir, "auth-signup-step3.png"),
-      fullPage: false,
-    });
-
-    // 4. Login Screen (Magic link)
+    // 3. Login Screen (Phone + Password)
     await page.goto("/dev/auth?screen=login");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
-      content: "nextjs-portal { display: none !important; }",
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
     });
     await expect(page.locator("h1")).toHaveText("أهلاً بيك تاني");
     await page.screenshot({
@@ -72,37 +73,33 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
       fullPage: false,
     });
 
-    // 5. Account Recovery Screen
-    await page.goto("/dev/auth?screen=recovery");
+    // 4. Forgot Password Screen (Email + 6-digit code request)
+    await page.goto("/dev/auth?screen=forgot-password");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
-      content: "nextjs-portal { display: none !important; }",
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
     });
-    await expect(page.locator("h1")).toHaveText(
-      "استرداد الحساب وإعادة ضبط PIN",
-    );
+    await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
     await page.screenshot({
-      path: path.join(screenshotsDir, "auth-recovery.png"),
+      path: path.join(screenshotsDir, "auth-forgot-password.png"),
       fullPage: false,
     });
 
-    // 6. PIN Lock Screen
-    await page.goto("/dev/auth?screen=pin");
-    await page.waitForLoadState("domcontentloaded");
-    await page.addStyleTag({
-      content: "nextjs-portal { display: none !important; }",
-    });
-    await expect(page.locator("h2")).toHaveText("قفل التطبيق برمز PIN");
-    await page.screenshot({
-      path: path.join(screenshotsDir, "auth-pin-lock.png"),
-      fullPage: false,
-    });
-
-    // 7. Profile Modal
+    // 5. Profile Modal
     await page.goto("/dev/auth?screen=profile");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
-      content: "nextjs-portal { display: none !important; }",
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
     });
     await expect(page.locator("role=dialog")).toBeVisible();
     await page.screenshot({

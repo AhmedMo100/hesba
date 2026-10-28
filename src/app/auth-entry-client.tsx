@@ -2,25 +2,20 @@
 
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { AuthScreen, PinLockScreen } from "@/client/shared/auth";
+import { AuthScreen } from "@/client/shared/auth";
 import { authApi } from "@/client/shared/api";
 import { ToastProvider } from "@/client/shared/ui";
 
 export function AuthEntryClient() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [isLocked, setIsLocked] = useState(false);
-  const [mode, setMode] = useState<"login" | "signup" | "recovery">("login");
+  const [mode] = useState<"login" | "signup" | "forgot-password">("login");
 
   useEffect(() => {
     authApi.getSession().then((session) => {
       if (session) {
-        if (authApi.hasLocalPin()) {
-          setIsLocked(true);
-        } else {
-          router.push("/app");
-          return;
-        }
+        router.push("/app");
+        return;
       }
       setLoading(false);
     });
@@ -41,27 +36,6 @@ export function AuthEntryClient() {
           جاري التحميل...
         </span>
       </div>
-    );
-  }
-
-  if (isLocked) {
-    return (
-      <ToastProvider>
-        <PinLockScreen
-          onUnlock={() => {
-            router.push("/app");
-          }}
-          onLogout={async () => {
-            await authApi.logout();
-            setIsLocked(false);
-            setMode("login");
-          }}
-          onTriggerRecovery={() => {
-            setIsLocked(false);
-            setMode("recovery");
-          }}
-        />
-      </ToastProvider>
     );
   }
 

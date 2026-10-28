@@ -273,4 +273,42 @@ export class ResendEmailProvider implements EmailProvider {
     const html = `<p>رابط الدخول: <a href="${magicLinkUrl}">${magicLinkUrl}</a></p>`;
     await this.sendEmail({ to, subject, html, text });
   }
+
+  async sendPasswordResetCode(to: string, code: string): Promise<void> {
+    const subject = "كود إعادة تعيين كلمة السر في حسبة";
+    const text = [
+      "مرحباً بك في حسبة،",
+      "",
+      `كود إعادة تعيين كلمة السر الخاص بك هو: ${code}`,
+      "",
+      "ملاحظات أمان هامة:",
+      "- هذا الكود صالح لمدة 10 دقائق فقط.",
+      "- هذا الكود مخصص لك ولا تشاركه مع أي شخص.",
+      "- إذا لم تطلب إعادة تعيين كلمة السر، يمكنك تجاهل هذه الرسالة.",
+      "",
+      "فريق حسبة",
+    ].join("\n");
+
+    const html = `<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+  <meta charset="utf-8">
+  <title>${subject}</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Tahoma, sans-serif; direction: rtl; text-align: right; background-color: #f7f9fc; padding: 24px; color: #1a202c;">
+  <div style="max-width: 500px; margin: 0 auto; background: #ffffff; border-radius: 16px; padding: 32px; border: 1px solid #e2e8f0;">
+    <h2 style="color: #2b2a22; margin-top: 0;">إعادة تعيين كلمة السر</h2>
+    <p>تلقينا طلباً لإعادة تعيين كلمة السر لحسابك في <b>حسبة</b>. استخدم الكود التالي لإتمام العملية:</p>
+    <div style="background: #f4f0e8; border: 2px dashed #4f6b46; border-radius: 12px; padding: 18px; text-align: center; margin: 24px 0;">
+      <span style="font-size: 32px; font-weight: bold; letter-spacing: 6px; color: #4f6b46;">${code}</span>
+    </div>
+    <p style="font-size: 13px; color: #6e6a58;">- صلاحية الكود 10 دقائق فقط للاستخدام لمرة واحدة.<br>- إذا لم تطلب هذا الكود، يمكنك تجاهل هذه الرسالة وسيبقى حسابك آمناً.</p>
+    <hr style="border: none; border-top: 1px solid #e5dfd5; margin: 24px 0;">
+    <p style="font-size: 12px; color: #9a958b; margin-bottom: 0;">فريق حسبة</p>
+  </div>
+</body>
+</html>`;
+
+    await this.sendEmail({ to, subject, html, text });
+  }
 }

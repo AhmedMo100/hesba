@@ -1,28 +1,20 @@
 "use client";
 
 import React, { useState } from "react";
-import { AuthScreen, PinLockScreen, ProfileModal } from "@/client/shared/auth";
+import { AuthScreen, ProfileModal } from "@/client/shared/auth";
 import { ToastProvider, Button } from "@/client/shared/ui";
 
 export default function DevAuthClient() {
   const [screen, setScreen] = useState<
-    | "signup-1"
-    | "signup-2"
-    | "signup-3"
-    | "login"
-    | "recovery"
-    | "pin"
-    | "profile"
+    "signup-1" | "signup-2" | "login" | "forgot-password" | "profile"
   >(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("screen");
       if (
         p === "signup-1" ||
         p === "signup-2" ||
-        p === "signup-3" ||
         p === "login" ||
-        p === "recovery" ||
-        p === "pin" ||
+        p === "forgot-password" ||
         p === "profile"
       ) {
         return p;
@@ -43,6 +35,7 @@ export default function DevAuthClient() {
         }}
       >
         <div
+          id="dev-auth-toolbar"
           style={{
             position: "fixed",
             top: 0,
@@ -70,28 +63,16 @@ export default function DevAuthClient() {
             محلك (2)
           </Button>
           <Button
-            kind={screen === "signup-3" ? "primary" : "ghost"}
-            onClick={() => setScreen("signup-3")}
-          >
-            أمان الجهاز (3)
-          </Button>
-          <Button
             kind={screen === "login" ? "primary" : "ghost"}
             onClick={() => setScreen("login")}
           >
             دخول
           </Button>
           <Button
-            kind={screen === "recovery" ? "primary" : "ghost"}
-            onClick={() => setScreen("recovery")}
+            kind={screen === "forgot-password" ? "primary" : "ghost"}
+            onClick={() => setScreen("forgot-password")}
           >
-            استرداد الحساب
-          </Button>
-          <Button
-            kind={screen === "pin" ? "primary" : "ghost"}
-            onClick={() => setScreen("pin")}
-          >
-            قفل PIN
+            نسيت كلمة السر
           </Button>
           <Button
             kind={screen === "profile" ? "primary" : "ghost"}
@@ -105,19 +86,18 @@ export default function DevAuthClient() {
         </div>
 
         <div style={{ paddingTop: "56px" }}>
-          {(screen === "signup-1" ||
-            screen === "signup-2" ||
-            screen === "signup-3") && <AuthScreen initialMode="signup" />}
+          {screen === "signup-1" && (
+            <AuthScreen initialMode="signup" initialStep={0} />
+          )}
+
+          {screen === "signup-2" && (
+            <AuthScreen initialMode="signup" initialStep={1} />
+          )}
 
           {screen === "login" && <AuthScreen initialMode="login" />}
 
-          {screen === "recovery" && <AuthScreen initialMode="recovery" />}
-
-          {screen === "pin" && (
-            <PinLockScreen
-              onUnlock={() => {}}
-              onTriggerRecovery={() => setScreen("recovery")}
-            />
+          {screen === "forgot-password" && (
+            <AuthScreen initialMode="forgot-password" />
           )}
 
           {screen === "profile" && showProfile && (

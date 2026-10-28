@@ -168,6 +168,7 @@ model User {
   passkeyChallenges       PasskeyChallenge[]
   emailVerificationTokens EmailVerificationToken[]
   accountRecoveryTokens   AccountRecoveryToken[]
+  passwordResetCodes      PasswordResetCode[]
   magicLinkTokens         MagicLinkToken[]
   sessions                Session[]
 
@@ -236,6 +237,22 @@ model AccountRecoveryToken {
 
   @@index([tokenHash])
   @@map("account_recovery_tokens")
+}
+
+model PasswordResetCode {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  codeHash  String    @map("code_hash") @db.Text
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+  attempts  Int       @default(0)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, codeHash])
+  @@index([expiresAt])
+  @@map("password_reset_codes")
 }
 
 model MagicLinkToken {

@@ -3,56 +3,73 @@ import { prisma } from "@/server/infra/db/client";
 import { type SignupInput, signupInputSchema } from "@/schemas/auth";
 import { AppError } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
-import {
-  generateRegistrationOptionsForUser,
-  verifyAndSaveRegistration,
-} from "./passkey.service";
+import { hashPassword } from "./password.service";
 import { createSession } from "./session.service";
-import { sendEmailVerification } from "./recovery.service";
-import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 import { randomUUID } from "node:crypto";
 import { withTenant } from "@/server/infra/db/tenant";
 
-export async function startSignup(rawInput: SignupInput) {
+export function normalizePhone(v: string): string {
+  let cleaned = v
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[\s\-_]/g, "")
+    .trim();
+
+  if (cleaned.startsWith("0020")) {
+    cleaned = "+20" + cleaned.slice(4);
+  } else if (cleaned.startsWith("20") && cleaned.length === 12) {
+    cleaned = "+" + cleaned;
+  } else if (cleaned.startsWith("01") && cleaned.length === 11) {
+    cleaned = "+2" + cleaned;
+  } else if (cleaned.startsWith("1") && cleaned.length === 10) {
+    cleaned = "+20" + cleaned;
+  }
+  return cleaned;
+}
+
+export async function registerUserWithPassword(rawInput: SignupInput) {
   const data = signupInputSchema.parse(rawInput);
+  const normalizedPhone = normalizePhone(data.phone);
+  const normalizedEmail = data.email.trim().toLowerCase();
 
   const existing = await prisma.user.findFirst({
     where: {
-      OR: [{ phone: data.phone }, { email: data.email }],
+      OR: [{ phone: normalizedPhone }, { email: normalizedEmail }],
     },
   });
 
   if (existing) {
-    if (existing.phone === data.phone) {
-      throw AppError.conflict("رقم الهاتف مسجل بالفعل");
+    if (existing.phone === normalizedPhone) {
+      throw AppError.conflict("رقم الموبايل مسجل بالفعل");
     }
     throw AppError.conflict("البريد الإلكتروني مسجل بالفعل");
   }
 
+  const hashedPassword = await hashPassword(data.password);
+
+  const storeId = randomUUID();
+  const openedOnDate = data.openedOn ? new Date(data.openedOn) : new Date();
+
   // 1. Create User (users table has NO RLS, accessed under service role)
   const user = await prisma.user.create({
     data: {
-      name: data.ownerName,
-      phone: data.phone,
-      email: data.email,
-      passwordHash: null,
+      name: data.ownerName.trim(),
+      phone: normalizedPhone,
+      email: normalizedEmail,
+      passwordHash: hashedPassword,
     },
   });
 
-  const storeId = randomUUID();
-  const openedOnDate = data.openedOn ? new Date(data.openedOn) : null;
-
-  // 2. Create Store, StoreMember, and Device under withTenant context (satisfies RLS on stores)
-  const { store } = await withTenant(storeId, user.id, async (tx) => {
+  // 2. Create Store, StoreMember, and Device under withTenant context
+  const { store, device } = await withTenant(storeId, user.id, async (tx) => {
     const s = await tx.store.create({
       data: {
         id: storeId,
-        name: data.storeName,
+        name: data.storeName.trim(),
         shopType: data.shopType,
         governorate: data.governorate,
         area: data.area ?? null,
         openedOn: openedOnDate,
-        workersCount: data.workersCount,
+        workersCount: data.workersCount ?? 1,
         createdBy: user.id,
       },
     });
@@ -76,69 +93,22 @@ export async function startSignup(rawInput: SignupInput) {
     return { store: s, device: d };
   });
 
-  logger.info(
-    { userId: user.id, storeId: store.id },
-    "User and store pre-registered for WebAuthn passkey registration",
+  // 3. Create initial authenticated session
+  const { rawToken: sessionToken, session } = await createSession(
+    user.id,
+    store.id,
+    device.id,
   );
 
-  // Generate Passkey Registration Options
-  const passkeyOptions = await generateRegistrationOptionsForUser({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-  });
+  logger.info(
+    { userId: user.id, storeId: store.id },
+    "User registered successfully with password",
+  );
 
   return {
     userId: user.id,
     storeId: store.id,
-    passkeyOptions,
-  };
-}
-
-export async function completeSignup(
-  userId: string,
-  storeId: string,
-  credential: RegistrationResponseJSON,
-  label = "جهاز المالك",
-) {
-  // 1. Verify and register Passkey with SimpleWebAuthn
-  await verifyAndSaveRegistration(userId, credential, label);
-
-  // 2. Send background email verification
-  sendEmailVerification(userId).catch((err) => {
-    logger.error(
-      { err, userId },
-      "Failed to send email verification during signup",
-    );
-  });
-
-  // 3. Register device if not existing or get existing device
-  let device = await prisma.device.findFirst({
-    where: { storeId, userId },
-  });
-
-  if (!device) {
-    device = await withTenant(storeId, userId, async (tx) => {
-      return await tx.device.create({
-        data: {
-          storeId,
-          userId,
-          label,
-        },
-      });
-    });
-  }
-
-  // 4. Create active session
-  const { rawToken, session } = await createSession(userId, storeId, device.id);
-
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  const store = await prisma.store.findUniqueOrThrow({
-    where: { id: storeId },
-  });
-
-  return {
-    token: rawToken,
+    sessionToken,
     session: {
       idHash: session.idHash,
       userId: user.id,
@@ -150,7 +120,6 @@ export async function completeSignup(
       name: user.name,
       phone: user.phone,
       email: user.email,
-      emailVerified: !!user.emailVerifiedAt,
     },
     store: {
       id: store.id,
@@ -162,8 +131,4 @@ export async function completeSignup(
       workersCount: store.workersCount ?? 1,
     },
   };
-}
-
-export async function signupUserAndStore(rawInput: SignupInput) {
-  return await startSignup(rawInput);
 }

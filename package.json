@@ -27,8 +27,6 @@
     "@prisma/client": "6.4.1",
     "@sentry/nextjs": "11.9.0",
     "@serwist/next": "^9.5.13",
-    "@simplewebauthn/browser": "^14.0.0",
-    "@simplewebauthn/server": "^14.0.3",
     "dexie": "^4.4.6",
     "dexie-react-hooks": "^4.4.0",
     "next": "16.4.2",

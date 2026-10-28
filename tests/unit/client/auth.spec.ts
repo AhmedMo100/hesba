@@ -2,11 +2,9 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { fixtureAuthApi } from "@/client/shared/api/auth.fixture";
 import { okPhone, okMail, normDigits } from "@/client/shared/auth/AuthScreen";
 
-describe("Hesba Authentication Client — WebAuthn Passkeys & Recovery", () => {
+describe("Hesba Authentication Client — Phone, Password & Recovery Code", () => {
   beforeEach(async () => {
     await fixtureAuthApi.logout();
-    await fixtureAuthApi.setPin(null);
-    fixtureAuthApi.resetPinAttempts();
   });
 
   describe("Input Validation & Normalization", () => {
@@ -28,7 +26,7 @@ describe("Hesba Authentication Client — WebAuthn Passkeys & Recovery", () => {
       expect(okPhone("")).toBe(false);
     });
 
-    it("validates email correctly (mandatory for account recovery)", () => {
+    it("validates email correctly", () => {
       expect(okMail("")).toBe(false);
       expect(okMail("test@example.com")).toBe(true);
       expect(okMail("invalid-email")).toBe(false);
@@ -36,12 +34,46 @@ describe("Hesba Authentication Client — WebAuthn Passkeys & Recovery", () => {
     });
   });
 
-  describe("WebAuthn Passkey Registration Flow", () => {
-    it("starts signup and returns WebAuthn registration challenge options", async () => {
+  describe("Phone & Password Login Flow", () => {
+    it("authenticates valid mobile number and password", async () => {
+      const res = await fixtureAuthApi.login({
+        phone: "01012345678",
+        password: "password123",
+      });
+
+      expect(res.success).toBe(true);
+      expect(res.data?.user.phone).toBe("01012345678");
+      expect(res.data?.token).toBeDefined();
+
+      const session = await fixtureAuthApi.getSession();
+      expect(session).not.toBeNull();
+      expect(session?.user.phone).toBe("01012345678");
+    });
+
+    it("rejects invalid phone numbers or short passwords", async () => {
+      const invalidPhoneRes = await fixtureAuthApi.login({
+        phone: "01312345678",
+        password: "validPassword123",
+      });
+      expect(invalidPhoneRes.success).toBe(false);
+      expect(invalidPhoneRes.error).toBe("رقم الموبايل غير صحيح");
+
+      const shortPassRes = await fixtureAuthApi.login({
+        phone: "01012345678",
+        password: "123",
+      });
+      expect(shortPassRes.success).toBe(false);
+      expect(shortPassRes.error).toBe("كلمة السر غير صحيحة");
+    });
+  });
+
+  describe("First-Time Registration Flow", () => {
+    it("creates account with owner and shop details", async () => {
       const res = await fixtureAuthApi.signup({
         ownerName: "أحمد علي",
         phone: "01098765432",
         email: "ahmed@example.com",
+        password: "secretPassword123",
         storeName: "بقالة الأمل",
         shopType: "بقالة",
         governorate: "الجيزة",
@@ -52,119 +84,69 @@ describe("Hesba Authentication Client — WebAuthn Passkeys & Recovery", () => {
       });
 
       expect(res.success).toBe(true);
-      expect(res.data).toBeDefined();
-      expect(res.data?.session.user.name).toContain("(TEST)");
-      expect(res.data?.session.store.name).toContain("(TEST)");
-      expect(res.data?.passkeyOptions.challenge).toBeDefined();
-      expect(res.data?.passkeyOptions.rp.id).toBe("localhost");
+      expect(res.data?.user.name).toBe("أحمد علي");
+      expect(res.data?.store.name).toBe("بقالة الأمل");
+      expect(res.data?.user.phone).toBe("01098765432");
+
+      const session = await fixtureAuthApi.getSession();
+      expect(session?.user.email).toBe("ahmed@example.com");
     });
 
-    it("completes passkey registration and persists active session", async () => {
-      await fixtureAuthApi.signup({
-        ownerName: "أحمد علي",
+    it("rejects registration with short password", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
         phone: "01098765432",
-        email: "ahmed@example.com",
-        storeName: "بقالة الأمل",
+        email: "m@example.com",
+        password: "123",
+        storeName: "محل",
         shopType: "بقالة",
-        governorate: "الجيزة",
-        openedOn: "2023-01-01",
-        workersCount: 2,
+        governorate: "القاهرة",
       });
 
-      const res = await fixtureAuthApi.completePasskeyRegistration({
-        id: "cred-test-01",
-        rawId: "raw-cred-01",
-        type: "public-key",
-        response: { clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=" },
-      });
-
-      expect(res.success).toBe(true);
-      expect(res.data?.user).toBeDefined();
-
-      const passkeys = await fixtureAuthApi.listPasskeys();
-      expect(passkeys.success).toBe(true);
-      expect(passkeys.data?.length).toBeGreaterThan(0);
-    });
-  });
-
-  describe("WebAuthn Passkey Login Flow", () => {
-    it("requests authentication options and signs in with passkey", async () => {
-      const opts = await fixtureAuthApi.getPasskeyAuthOptions("01012345678");
-      expect(opts.success).toBe(true);
-      expect(opts.data?.challenge).toBeDefined();
-
-      const loginRes = await fixtureAuthApi.loginWithPasskey();
-      expect(loginRes.success).toBe(true);
-      expect(loginRes.data?.user.phone).toBe("01012345678");
-      expect(loginRes.data?.token).toBeDefined();
-
-      const currentSession = await fixtureAuthApi.getSession();
-      expect(currentSession).not.toBeNull();
-    });
-  });
-
-  describe("Account Recovery Flow", () => {
-    it("requests recovery link with generic anti-enumeration message", async () => {
-      const res = await fixtureAuthApi.requestAccountRecovery(
-        "magdi.test@hesba.app",
-      );
-      expect(res.success).toBe(true);
-      expect(res.data?.message).toContain("إذا كان البريد مسجلاً");
-    });
-
-    it("verifies recovery token and prepares new passkey registration options", async () => {
-      const res = await fixtureAuthApi.verifyRecoveryToken("valid-token");
-      expect(res.success).toBe(true);
-      expect(res.data?.email).toBe("magdi.test@hesba.app");
-      expect(res.data?.passkeyOptions).toBeDefined();
-    });
-
-    it("rejects invalid or expired recovery token", async () => {
-      const res = await fixtureAuthApi.verifyRecoveryToken("invalid-token");
       expect(res.success).toBe(false);
-      expect(res.error).toContain("غير صالح");
+      expect(res.error).toBe("كلمة السر يجب أن تكون 6 حروف على الأقل");
+    });
+  });
+
+  describe("Forgot Password via 6-Digit Email Code Flow", () => {
+    it("dispatches reset code and allows resetting password with code", async () => {
+      const email = "owner@example.com";
+      const reqRes = await fixtureAuthApi.requestPasswordReset(email);
+      expect(reqRes.success).toBe(true);
+      expect(reqRes.data?.message).toContain("تم إرسال كود التأكيد");
+
+      // Verify and set new password
+      const resetRes = await fixtureAuthApi.resetPassword({
+        email,
+        code: "123456",
+        newPassword: "newSecurePassword123",
+      });
+      expect(resetRes.success).toBe(true);
+      expect(resetRes.data?.message).toContain("تم تغيير كلمة السر بنجاح");
     });
 
-    it("completes account recovery by registering a new passkey", async () => {
-      const res = await fixtureAuthApi.completeAccountRecovery({
-        token: "valid-token",
-        passkeyLabel: "جهاز مسترد",
+    it("rejects invalid code", async () => {
+      const res = await fixtureAuthApi.resetPassword({
+        email: "owner@example.com",
+        code: "000000",
+        newPassword: "newSecurePassword123",
       });
-      expect(res.success).toBe(true);
-      expect(res.data?.token).toBeDefined();
-      expect(res.data?.user.email).toBe("magdi.test@hesba.app");
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كود التأكيد غير صحيح");
     });
   });
 
   describe("Session Management & Logout", () => {
-    it("clears session on logout without affecting offline database", async () => {
-      await fixtureAuthApi.loginWithPasskey();
-      expect(await fixtureAuthApi.getSession()).not.toBeNull();
+    it("logs out and clears session", async () => {
+      await fixtureAuthApi.login({
+        phone: "01012345678",
+        password: "password123",
+      });
 
+      expect(await fixtureAuthApi.getSession()).not.toBeNull();
       await fixtureAuthApi.logout();
       expect(await fixtureAuthApi.getSession()).toBeNull();
-    });
-  });
-
-  describe("Optional Local Screen Lock (PIN)", () => {
-    it("sets and verifies local 6-digit device PIN", async () => {
-      await fixtureAuthApi.setPin("123456");
-      expect(fixtureAuthApi.hasLocalPin()).toBe(true);
-
-      const isOk = await fixtureAuthApi.verifyPin("123456");
-      expect(isOk).toBe(true);
-
-      const isBad = await fixtureAuthApi.verifyPin("654321");
-      expect(isBad).toBe(false);
-    });
-
-    it("enforces temporary lockout after 5 failed attempts", () => {
-      for (let i = 0; i < 4; i++) {
-        expect(fixtureAuthApi.recordFailedPinAttempt()).toBe(i + 1);
-        expect(fixtureAuthApi.getPinLockoutRemainingSeconds()).toBe(0);
-      }
-      expect(fixtureAuthApi.recordFailedPinAttempt()).toBe(5);
-      expect(fixtureAuthApi.getPinLockoutRemainingSeconds()).toBeGreaterThan(0);
     });
   });
 });

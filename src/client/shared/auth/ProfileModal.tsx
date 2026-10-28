@@ -27,12 +27,6 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
-  const [pinEnabled, setPinEnabled] = useState(false);
-  const [showPinChange, setShowPinChange] = useState(false);
-  const [newPin, setNewPin] = useState("");
-  const [confirmNewPin, setConfirmNewPin] = useState("");
-  const [pinChangeErr, setPinChangeErr] = useState("");
-
   const [profile, setProfile] = useState<StoreProfile>({
     ownerName: "مجدي أحمد (TEST)",
     phone: "01012345678",
@@ -61,7 +55,6 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
           openedOn: session.store.openedOn,
           workersCount: session.store.workersCount,
         });
-        setPinEnabled(Boolean(session.pinEnabled || authApi.hasLocalPin()));
       }
     });
   }, []);
@@ -115,38 +108,6 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
     } finally {
       setBusy(false);
     }
-  };
-
-  const handleTogglePin = async () => {
-    if (pinEnabled) {
-      await authApi.setPin(null);
-      setPinEnabled(false);
-      setShowPinChange(false);
-      toast.show({ msg: t("profile.removePinBtn") });
-    } else {
-      setShowPinChange(true);
-    }
-  };
-
-  const handleSaveNewPin = async () => {
-    const norm = normDigits(newPin).trim();
-    const normC = normDigits(confirmNewPin).trim();
-    if (norm.length !== 6) {
-      setPinChangeErr(t("errors.pinLength"));
-      return;
-    }
-    if (norm !== normC) {
-      setPinChangeErr(t("errors.pinMismatch"));
-      return;
-    }
-
-    await authApi.setPin(norm);
-    setPinEnabled(true);
-    setShowPinChange(false);
-    setNewPin("");
-    setConfirmNewPin("");
-    setPinChangeErr("");
-    toast.show({ msg: "تم تحديث رمز PIN بنجاح" });
   };
 
   const handleRevokeOtherSessions = async () => {
@@ -241,122 +202,6 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
       </div>
 
       <div className={styles.secMini}>{t("profile.securitySection")}</div>
-      <div
-        style={{
-          background: "var(--sf2)",
-          border: "1px solid var(--line)",
-          borderRadius: "14px",
-          padding: "12px 14px",
-          marginBottom: "12px",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-          }}
-        >
-          <div>
-            <b style={{ display: "block", fontSize: "13.5px" }}>
-              {t("profile.pinLockToggle")}
-            </b>
-            <small style={{ color: "var(--ink2)", fontSize: "11.5px" }}>
-              {t("profile.pinLockDesc")}
-            </small>
-          </div>
-          <input
-            type="checkbox"
-            checked={pinEnabled}
-            onChange={handleTogglePin}
-            style={{ width: "20px", height: "20px", accentColor: "var(--br)" }}
-          />
-        </div>
-
-        {pinEnabled && (
-          <button
-            type="button"
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--br)",
-              fontSize: "12.5px",
-              marginTop: "10px",
-              cursor: "pointer",
-              textDecoration: "underline",
-              display: "block",
-            }}
-            onClick={() => setShowPinChange(!showPinChange)}
-          >
-            {t("profile.changePinBtn")}
-          </button>
-        )}
-
-        {showPinChange && (
-          <div
-            style={{
-              marginTop: "12px",
-              paddingTop: "12px",
-              borderTop: "1px solid var(--line)",
-            }}
-          >
-            {pinChangeErr && (
-              <div
-                style={{
-                  color: "var(--danger, #e74c3c)",
-                  fontSize: "12px",
-                  marginBottom: "8px",
-                }}
-              >
-                {pinChangeErr}
-              </div>
-            )}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: "8px",
-                marginBottom: "8px",
-              }}
-            >
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="PIN الجديد (6 أرقام)"
-                value={newPin}
-                onChange={(e) => setNewPin(e.target.value)}
-                style={{
-                  padding: "8px 10px",
-                  fontSize: "13px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--line)",
-                  background: "var(--sf)",
-                }}
-              />
-              <input
-                type="password"
-                inputMode="numeric"
-                maxLength={6}
-                placeholder="تأكيد PIN"
-                value={confirmNewPin}
-                onChange={(e) => setConfirmNewPin(e.target.value)}
-                style={{
-                  padding: "8px 10px",
-                  fontSize: "13px",
-                  borderRadius: "8px",
-                  border: "1px solid var(--line)",
-                  background: "var(--sf)",
-                }}
-              />
-            </div>
-            <Button size="sm" onClick={handleSaveNewPin}>
-              {t("common.save")}
-            </Button>
-          </div>
-        )}
-      </div>
-
       <div
         style={{
           background: "var(--sf2)",

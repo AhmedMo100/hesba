@@ -2,19 +2,19 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 import {
-  createPasskeyChallenge,
-  consumePasskeyChallenge,
+  registerUserWithPassword,
+  loginWithPassword,
+  requestPasswordResetCode,
+  resetPasswordWithCode,
+  hashPassword,
+  verifyPassword,
   createSession,
   validateSession,
   rotateSession,
   revokeSession,
   revokeOtherUserSessions,
-  requestAccountRecovery,
-  validateRecoveryToken,
-  verifyRecoveryToken,
-  signupUserAndStore,
-  authRateLimiter,
   hashToken,
+  authRateLimiter,
 } from "@/server/modules/auth";
 import { assertStoreOwner, assertStoreAccess } from "@/server/modules/tenancy";
 import { withTenant } from "@/server/infra/db/tenant";
@@ -42,13 +42,16 @@ const directUrl =
   process.env["HESBA_DIRECT_URL"] ??
   "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
 
-describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Recovery", () => {
+describe("Hesba Authentication & Sessions Integration — Phone + Password & Reset Code", () => {
   let prisma: PrismaClient;
   let sql: postgres.Sql;
 
   // Test entities
   let testUserId: string;
   let testStoreId: string;
+  let testUserPhone: string;
+  let testUserEmail: string;
+  const testUserPassword = "TestPassword@123";
   let workerUserId: string;
 
   beforeAll(async () => {
@@ -58,15 +61,25 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
     });
 
     const runId = Math.random().toString(36).substring(2, 8);
+    const ownerDigits = Math.floor(
+      10000000 + Math.random() * 90000000,
+    ).toString();
+    const workerDigits = Math.floor(
+      10000000 + Math.random() * 90000000,
+    ).toString();
     testStoreId = crypto.randomUUID();
+    testUserPhone = `+2010${ownerDigits}`;
+    testUserEmail = `owner-${runId}@hesba.test`;
 
-    // 1. Seed Owner User
+    const hashedPassword = await hashPassword(testUserPassword);
+
+    // 1. Seed Owner User with Argon2id hashed password
     const owner = await prisma.user.create({
       data: {
         name: `مالك المتجر ${runId}`,
-        phone: `+20109${runId.padEnd(6, "0").substring(0, 6)}`,
-        email: `owner-${runId}@hesba.test`,
-        passwordHash: null,
+        phone: testUserPhone,
+        email: testUserEmail,
+        passwordHash: hashedPassword,
       },
     });
     testUserId = owner.id;
@@ -75,9 +88,9 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
     const worker = await prisma.user.create({
       data: {
         name: `عامل المتجر ${runId}`,
-        phone: `+20108${runId.padEnd(6, "0").substring(0, 6)}`,
+        phone: `+2010${workerDigits}`,
         email: `worker-${runId}@hesba.test`,
-        passwordHash: null,
+        passwordHash: hashedPassword,
       },
     });
     workerUserId = worker.id;
@@ -123,11 +136,7 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
         });
       }
       if (testUserId) {
-        await prisma.userPasskey.deleteMany({ where: { userId: testUserId } });
-        await prisma.passkeyChallenge.deleteMany({
-          where: { userId: testUserId },
-        });
-        await prisma.accountRecoveryToken.deleteMany({
+        await prisma.passwordResetCode.deleteMany({
           where: { userId: testUserId },
         });
         await prisma.user.deleteMany({ where: { id: testUserId } });
@@ -142,25 +151,45 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
     }
   });
 
-  describe("1. Database Schema & Passwordless Model", () => {
-    it("allows creating users without passwords (password_hash is NULL)", async () => {
+  describe("1. Database Schema & Password Hashing Model", () => {
+    it("hashes password with Argon2id and verifies successfully", async () => {
+      const password = "Secr3tPassword!456";
+      const hash = await hashPassword(password);
+
+      expect(hash).toMatch(/^\$argon2id\$/);
+      expect(await verifyPassword(hash, password)).toBe(true);
+      expect(await verifyPassword(hash, "WrongPassword")).toBe(false);
+    });
+
+    it("verifies user passwordHash is stored as Argon2id", async () => {
       const user = await prisma.user.findUnique({
         where: { id: testUserId },
       });
       expect(user).toBeDefined();
-      expect(user?.passwordHash).toBeNull();
+      expect(user?.passwordHash).toMatch(/^\$argon2id\$/);
       expect(user?.email).toContain("@hesba.test");
+    });
+
+    it("enforces unique phone constraint on users", async () => {
+      const duplicatePromise = prisma.user.create({
+        data: {
+          name: "Duplicate Phone User",
+          phone: testUserPhone,
+          email: `unique-${Math.random()}@hesba.test`,
+          passwordHash: await hashPassword("password123"),
+        },
+      });
+
+      await expect(duplicatePromise).rejects.toThrow();
     });
 
     it("enforces unique email constraint on users", async () => {
       const duplicatePromise = prisma.user.create({
         data: {
           name: "Duplicate Email User",
-          phone: "+201000000999",
-          email: (
-            await prisma.user.findUniqueOrThrow({ where: { id: testUserId } })
-          ).email,
-          passwordHash: null,
+          phone: `+20101${Math.floor(100000 + Math.random() * 900000)}`,
+          email: testUserEmail,
+          passwordHash: await hashPassword("password123"),
         },
       });
 
@@ -168,63 +197,18 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
     });
   });
 
-  describe("2. WebAuthn Passkey Challenges", () => {
-    it("generates and atomically consumes a passkey challenge", async () => {
-      const challenge = await createPasskeyChallenge(
-        "authentication",
-        testUserId,
-      );
-
-      expect(challenge).toBeTypeOf("string");
-
-      const consumed = await consumePasskeyChallenge(
-        challenge,
-        "authentication",
-      );
-      expect(consumed.challenge).toBe(challenge);
-      expect(consumed.purpose).toBe("authentication");
-    });
-
-    it("REPLAY PROTECTION: consumed challenge cannot be used a second time", async () => {
-      const challenge = await createPasskeyChallenge(
-        "registration",
-        testUserId,
-      );
-
-      await consumePasskeyChallenge(challenge, "registration");
-
-      await expect(
-        consumePasskeyChallenge(challenge, "registration"),
-      ).rejects.toThrow("تم استخدام رمز التحقق هذا من قبل");
-    });
-
-    it("rejects expired passkey challenges", async () => {
-      const expiredChallenge = "expired-challenge-" + Math.random();
-      await prisma.passkeyChallenge.create({
-        data: {
-          challenge: expiredChallenge,
-          purpose: "authentication",
-          expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
-        },
-      });
-
-      await expect(
-        consumePasskeyChallenge(expiredChallenge, "authentication"),
-      ).rejects.toThrow("انتهت صلاحية رمز التحقق");
-    });
-  });
-
-  describe("3. Three-Step Registration Lifecycle", () => {
-    it("creates user, store, device and session, and dispatches email verification", async () => {
+  describe("2. Two-Step Registration Lifecycle", () => {
+    it("creates user, store, device and session with phone + password", async () => {
       const runId = Math.random().toString(36).substring(2, 8);
       const email = `newowner-${runId}@hesba.test`;
-      const phone = `+2010${Math.floor(10000000 + Math.random() * 90000000)}`;
+      const localPhone = `010${Math.floor(10000000 + Math.random() * 90000000)}`;
 
-      const result = await signupUserAndStore({
+      const result = await registerUserWithPassword({
         ownerName: "صاحب المتجر الجديد",
-        phone,
+        phone: localPhone,
         email,
-        storeName: "سوبر ماركت النور",
+        password: "MySecurePassword123",
+        storeName: "سوبر ماركت الإخلاص",
         shopType: "سوبر ماركت",
         governorate: "الجيزة",
         openedOn: "2024-01-01",
@@ -234,12 +218,18 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
 
       expect(result.userId).toBeTypeOf("string");
       expect(result.storeId).toBeTypeOf("string");
-      expect(result.passkeyOptions.challenge).toBeDefined();
+      expect(result.sessionToken).toBeTypeOf("string");
+
+      // Verify user has Argon2id password hash
+      const createdUser = await prisma.user.findUnique({
+        where: { id: result.userId },
+      });
+      expect(createdUser?.passwordHash).toMatch(/^\$argon2id\$/);
+      // Normalized Egyptian phone
+      expect(createdUser?.phone).toMatch(/^\+2010/);
 
       // Clean up newly created signup data
-      await prisma.passkeyChallenge.deleteMany({
-        where: { userId: result.userId },
-      });
+      await prisma.session.deleteMany({ where: { userId: result.userId } });
       await withTenant(result.storeId, result.userId, async (tx) => {
         await tx.device.deleteMany({ where: { storeId: result.storeId } });
         await tx.storeMember.deleteMany({
@@ -251,22 +241,71 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
     });
 
     it("rejects duplicate phone or email on signup", async () => {
-      const existingUser = await prisma.user.findUniqueOrThrow({
-        where: { id: testUserId },
-      });
+      await expect(
+        registerUserWithPassword({
+          ownerName: "مكرر",
+          phone: testUserPhone,
+          email: "another-email@hesba.test",
+          password: "password123",
+          storeName: "محل مكرر",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+          openedOn: "2024-01-01",
+          workersCount: 1,
+        }),
+      ).rejects.toThrow("رقم الموبايل مسجل بالفعل");
 
       await expect(
-        signupUserAndStore({
+        registerUserWithPassword({
           ownerName: "مكرر",
-          phone: "+201000000000",
-          email: existingUser.email,
-          storeName: "محل",
+          phone: "01099999999",
+          email: testUserEmail,
+          password: "password123",
+          storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
           openedOn: "2024-01-01",
           workersCount: 1,
         }),
       ).rejects.toThrow("البريد الإلكتروني مسجل بالفعل");
+    });
+  });
+
+  describe("3. Mobile + Password Login", () => {
+    it("successfully logs in with normalized local phone (010...) and password", async () => {
+      // testUserPhone is stored as +20109xxxxxx, user can enter 0109xxxxxx
+      const localPhone = testUserPhone.replace(/^\+2/, "");
+
+      const result = await loginWithPassword(
+        { phone: localPhone, password: testUserPassword },
+        "127.0.0.1",
+      );
+
+      expect(result.userId).toBe(testUserId);
+      expect(result.storeId).toBe(testStoreId);
+      expect(result.sessionToken).toBeTypeOf("string");
+
+      const session = await validateSession(result.sessionToken);
+      expect(session?.user.id).toBe(testUserId);
+      expect(session?.store.id).toBe(testStoreId);
+    });
+
+    it("rejects invalid password with generic error message", async () => {
+      await expect(
+        loginWithPassword(
+          { phone: testUserPhone, password: "WrongPasswordHere!" },
+          "127.0.0.1",
+        ),
+      ).rejects.toThrow("رقم الموبايل أو كلمة السر غير صحيحة");
+    });
+
+    it("rejects non-existent phone with identical generic error message (timing safe)", async () => {
+      await expect(
+        loginWithPassword(
+          { phone: "01011111119", password: "AnyPassword123" },
+          "127.0.0.1",
+        ),
+      ).rejects.toThrow("رقم الموبايل أو كلمة السر غير صحيحة");
     });
   });
 
@@ -382,126 +421,161 @@ describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Re
     });
   });
 
-  describe("5. Account Recovery via Email Link", () => {
+  describe("5. Forgot Password: 6-Digit Email Verification Code Flow", () => {
     beforeAll(() => {
       authRateLimiter.clear();
       mockEmailProvider.clear();
     });
 
     it("returns generic message for non-existent email to prevent enumeration", async () => {
-      const response = await requestAccountRecovery(
-        "non-existent-user@hesba.test",
-      );
-      expect(response.message).toContain("تم إرسال رابط الاسترداد");
+      const response = await requestPasswordResetCode({
+        email: "non-existent-user@hesba.test",
+      });
+      expect(response.message).toContain("تم إرسال كود التأكيد");
       expect(mockEmailProvider.getSentEmails()).toHaveLength(0);
     });
 
-    it("dispatches recovery email with secure token link for eligible accounts", async () => {
-      const user = await prisma.user.findUniqueOrThrow({
-        where: { id: testUserId },
+    it("dispatches 6-digit code via email and stores keyed HMAC hash", async () => {
+      const response = await requestPasswordResetCode({
+        email: testUserEmail,
       });
+      expect(response.message).toContain("تم إرسال كود التأكيد");
 
-      const response = await requestAccountRecovery(user.email);
-      expect(response.message).toContain("تم إرسال رابط الاسترداد");
-
-      const lastEmail = mockEmailProvider.getLastEmailFor(user.email);
+      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
       expect(lastEmail).toBeDefined();
       expect(lastEmail?.type).toBe("recovery");
-      expect(lastEmail?.url).toContain("/auth/verify-link?token=");
+      expect(lastEmail?.code).toMatch(/^\d{6}$/);
 
-      // Ensure token is stored hashed in DB
-      const urlToken = new URL(lastEmail!.url!).searchParams.get("token")!;
-      const tokenRecord = await prisma.accountRecoveryToken.findUnique({
-        where: { tokenHash: hashToken(urlToken) },
+      // Verify code in DB
+      const codeRecord = await prisma.passwordResetCode.findFirst({
+        where: { userId: testUserId },
+        orderBy: { createdAt: "desc" },
       });
-      expect(tokenRecord).toBeDefined();
-      expect(tokenRecord?.userId).toBe(testUserId);
-      expect(tokenRecord?.usedAt).toBeNull();
+      expect(codeRecord).toBeDefined();
+      expect(codeRecord?.usedAt).toBeNull();
+      expect(codeRecord?.attempts).toBe(0);
+      expect(codeRecord?.codeHash).not.toBe(lastEmail!.code);
     });
 
-    it("validates recovery token without consuming it prematurely", async () => {
-      const rawToken = "validation-token-" + Math.random();
-      await prisma.accountRecoveryToken.create({
-        data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
-          expiresAt: new Date(Date.now() + 3600000),
-        },
-      });
+    it("rejects wrong verification code and increments attempts", async () => {
+      await expect(
+        resetPasswordWithCode({
+          email: testUserEmail,
+          code: "000000",
+          newPassword: "NewBrandPassword@123",
+        }),
+      ).rejects.toThrow("كود التأكيد غير صحيح");
 
-      const validated = await validateRecoveryToken(rawToken);
-      expect(validated.valid).toBe(true);
-      expect(validated.passkeyOptions).toBeDefined();
-
-      // Token should NOT be consumed yet!
-      const record = await prisma.accountRecoveryToken.findUnique({
-        where: { tokenHash: hashToken(rawToken) },
+      const codeRecord = await prisma.passwordResetCode.findFirst({
+        where: { userId: testUserId },
+        orderBy: { createdAt: "desc" },
       });
-      expect(record?.usedAt).toBeNull();
+      expect(codeRecord?.attempts).toBe(1);
     });
 
-    it("verifies valid recovery token and establishes authenticated session", async () => {
-      const rawToken = "recovery-token-" + Math.random();
-      await prisma.accountRecoveryToken.create({
-        data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
-          expiresAt: new Date(Date.now() + 3600000),
-        },
-      });
-
-      const verified = await verifyRecoveryToken(rawToken);
-      expect(verified.user.id).toBe(testUserId);
-      expect(verified.token).toBeTypeOf("string");
-
-      // Verify token marked used
-      const tokenRecord = await prisma.accountRecoveryToken.findUnique({
-        where: { tokenHash: hashToken(rawToken) },
-      });
-      expect(tokenRecord?.usedAt).not.toBeNull();
-    });
-
-    it("enforces single-use: second consumption fails", async () => {
-      const rawToken = "single-use-recovery-" + Math.random();
-      await prisma.accountRecoveryToken.create({
-        data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
-          expiresAt: new Date(Date.now() + 3600000),
-        },
-      });
-
-      await verifyRecoveryToken(rawToken);
-
-      await expect(verifyRecoveryToken(rawToken)).rejects.toThrow(
-        "رابط الاسترداد غير صالح أو انتهت صلاحيته",
+    it("successfully resets password with correct code and revokes all sessions", async () => {
+      // First create active session to verify revocation
+      const { rawToken: activeToken } = await createSession(
+        testUserId,
+        testStoreId,
       );
-    });
+      expect(await validateSession(activeToken)).not.toBeNull();
 
-    it("rejects expired recovery tokens", async () => {
-      const rawToken = "expired-recovery-" + Math.random();
-      await prisma.accountRecoveryToken.create({
-        data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
-          expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
-        },
+      // Retrieve the generated code from mock email provider
+      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
+      const validCode = lastEmail!.code!;
+
+      const newPassword = "BrandNewPassword#999";
+      const result = await resetPasswordWithCode({
+        email: testUserEmail,
+        code: validCode,
+        newPassword,
       });
 
-      await expect(verifyRecoveryToken(rawToken)).rejects.toThrow(
-        "رابط الاسترداد غير صالح أو انتهت صلاحيته",
-      );
+      expect(result.success).toBe(true);
+      expect(result.message).toContain("تم تغيير كلمة السر بنجاح");
+
+      // Verify code is marked as used
+      const codeRecord = await prisma.passwordResetCode.findFirst({
+        where: { userId: testUserId },
+        orderBy: { createdAt: "desc" },
+      });
+      expect(codeRecord?.usedAt).not.toBeNull();
+
+      // Verify previous session was revoked
+      const sessionDb = await prisma.session.findUnique({
+        where: { idHash: hashToken(activeToken) },
+      });
+      expect(sessionDb?.revokedAt).not.toBeNull();
+
+      // Verify user can now log in with the new password
+      const loginResult = await loginWithPassword({
+        phone: testUserPhone,
+        password: newPassword,
+      });
+      expect(loginResult.userId).toBe(testUserId);
+
+      // Verify old password no longer works
+      await expect(
+        loginWithPassword({
+          phone: testUserPhone,
+          password: testUserPassword,
+        }),
+      ).rejects.toThrow("رقم الموبايل أو كلمة السر غير صحيحة");
     });
 
-    it("enforces rate limiting on account recovery requests (max 3/hr per email)", async () => {
-      const email = `ratelimit-rec-${Math.random()}@hesba.test`;
+    it("REPLAY PROTECTION: consumed code cannot be reused", async () => {
+      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
+      const usedCode = lastEmail!.code!;
 
-      await requestAccountRecovery(email);
-      await requestAccountRecovery(email);
-      await requestAccountRecovery(email);
+      await expect(
+        resetPasswordWithCode({
+          email: testUserEmail,
+          code: usedCode,
+          newPassword: "AnotherPassword123",
+        }),
+      ).rejects.toThrow("كود التأكيد غير صحيح أو انتهت صلاحيته");
+    });
 
-      await expect(requestAccountRecovery(email)).rejects.toThrow(
-        "تجاوزت الحد الأقصى لمحاولات الاسترداد",
+    it("enforces attempt limit: locks after 5 wrong attempts", async () => {
+      mockEmailProvider.clear();
+      authRateLimiter.clear();
+
+      await requestPasswordResetCode({ email: testUserEmail });
+      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
+      const correctCode = lastEmail!.code!;
+
+      // Attempt wrong code 5 times
+      for (let i = 0; i < 5; i++) {
+        await expect(
+          resetPasswordWithCode({
+            email: testUserEmail,
+            code: "111111",
+            newPassword: "AnyPass@123",
+          }),
+        ).rejects.toThrow();
+      }
+
+      // 6th attempt with CORRECT code should fail because limit reached
+      await expect(
+        resetPasswordWithCode({
+          email: testUserEmail,
+          code: correctCode,
+          newPassword: "AnyPass@123",
+        }),
+      ).rejects.toThrow("الحد الأقصى للمحاولات الخاطئة");
+    });
+
+    it("enforces rate limiting on forgot password requests (max 3/hr per email)", async () => {
+      authRateLimiter.clear();
+      const email = `ratelimit-reset-${Math.random()}@hesba.test`;
+
+      await requestPasswordResetCode({ email });
+      await requestPasswordResetCode({ email });
+      await requestPasswordResetCode({ email });
+
+      await expect(requestPasswordResetCode({ email })).rejects.toThrow(
+        "تجاوزت الحد الأقصى لطلب الأكواد",
       );
     });
   });

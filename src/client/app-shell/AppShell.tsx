@@ -64,12 +64,11 @@ import {
   AuthProvider,
   useAuth,
   ProfileModal,
-  PinLockScreen,
   AuthScreen,
 } from "../shared/auth";
 
 function AppShellInner() {
-  const { session, isLocked, isOfflineExpired, unlock, logout } = useAuth();
+  const { session, isOfflineExpired } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
@@ -178,8 +177,6 @@ function AppShellInner() {
         </main>
         <BottomNav activeRoute={route} onNavigate={navigate} />
       </div>
-
-      {isLocked && <PinLockScreen onUnlock={unlock} onLogout={logout} />}
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
 

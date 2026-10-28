@@ -7,6 +7,7 @@ export interface SentEmailRecord {
   sentAt: Date;
   type: "verification" | "recovery" | "magic-link" | "generic";
   url?: string;
+  code?: string;
 }
 
 export class MockEmailProvider implements EmailProvider {
@@ -51,6 +52,16 @@ export class MockEmailProvider implements EmailProvider {
       sentAt: new Date(),
       type: "recovery",
       url: recoveryUrl,
+    });
+  }
+
+  async sendPasswordResetCode(to: string, code: string): Promise<void> {
+    this.sentEmails.push({
+      to,
+      subject: "كود إعادة تعيين كلمة السر في حسبة",
+      sentAt: new Date(),
+      type: "recovery",
+      code,
     });
   }
 

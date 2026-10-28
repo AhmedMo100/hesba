@@ -341,3 +341,70 @@
   font-size: 13px;
   font-weight: 600;
 }
+
+.globalSuccess {
+  background: color-mix(in srgb, var(--ok, #4f6b46) 12%, var(--sf));
+  border: 1px solid var(--ok, #4f6b46);
+  color: var(--ok, #4f6b46);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.passwordWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.passwordWrapper input {
+  width: 100%;
+  padding-left: 44px;
+}
+
+.passwordToggle {
+  position: absolute;
+  left: 10px;
+  background: none;
+  border: none;
+  color: var(--ink2);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px;
+  font-size: 13px;
+  user-select: none;
+}
+
+.passwordToggle:hover {
+  color: var(--ink);
+}
+
+.secondaryLink {
+  background: none;
+  border: none;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 500;
+  display: block;
+  margin: 8px auto 0;
+  cursor: pointer;
+  padding: 4px 8px;
+  text-decoration: none;
+}
+
+.secondaryLink:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.codeBox {
+  font-size: 24px;
+  letter-spacing: 8px;
+  text-align: center;
+  font-weight: 700;
+  direction: ltr;
+}

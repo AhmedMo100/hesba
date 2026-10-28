@@ -34,9 +34,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     authApi.getSession().then((s) => {
       setSession(s);
-      if (s?.pinEnabled) {
-        setIsLocked(true);
-      }
       if (s?.isOfflineExpired) {
         setIsOfflineExpired(true);
       }
@@ -44,13 +41,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
-  const unlock = useCallback(() => {
-    setIsLocked(false);
-  }, []);
+  const unlock = useCallback(() => {}, []);
 
-  const lock = useCallback(() => {
-    setIsLocked(true);
-  }, []);
+  const lock = useCallback(() => {}, []);
 
   const logout = useCallback(async () => {
     await authApi.logout();

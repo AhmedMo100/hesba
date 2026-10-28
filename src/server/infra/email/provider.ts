@@ -12,4 +12,5 @@ export interface EmailProvider {
   sendVerificationEmail(to: string, verificationUrl: string): Promise<void>;
   sendMagicLinkEmail(to: string, magicLinkUrl: string): Promise<void>;
   sendRecoveryEmail(to: string, recoveryUrl: string): Promise<void>;
+  sendPasswordResetCode(to: string, code: string): Promise<void>;
 }
