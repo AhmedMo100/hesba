@@ -9,6 +9,7 @@ export type ErrorCode =
   | "CONFLICT"
   | "RATE_LIMITED"
   | "MAINTENANCE"
+  | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 export interface ErrorResponsePayload {
@@ -65,6 +66,20 @@ export class AppError extends Error {
 
   static conflict(message = "يوجد تعارض في العملية"): AppError {
     return new AppError("CONFLICT", message, 409);
+  }
+
+  static rateLimited(
+    message = "تجاوزت الحد المسموح من المحاولات. يُرجى الانتظار والمحاولة لاحقاً.",
+    details?: unknown,
+  ): AppError {
+    return new AppError("RATE_LIMITED", message, 429, details);
+  }
+
+  static serviceUnavailable(
+    message = "الخدمة غير متوفرة حالياً. يُرجى المحاولة لاحقاً.",
+    details?: unknown,
+  ): AppError {
+    return new AppError("SERVICE_UNAVAILABLE", message, 503, details);
   }
 
   static internal(

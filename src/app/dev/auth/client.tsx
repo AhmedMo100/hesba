@@ -6,7 +6,12 @@ import { ToastProvider, Button } from "@/client/shared/ui";
 
 export default function DevAuthClient() {
   const [screen, setScreen] = useState<
-    "signup-1" | "signup-2" | "login" | "forgot-password" | "profile"
+    | "signup-1"
+    | "signup-2"
+    | "login"
+    | "forgot-password"
+    | "forgot-password-code"
+    | "profile"
   >(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("screen");
@@ -15,6 +20,7 @@ export default function DevAuthClient() {
         p === "signup-2" ||
         p === "login" ||
         p === "forgot-password" ||
+        p === "forgot-password-code" ||
         p === "profile"
       ) {
         return p;
@@ -72,7 +78,13 @@ export default function DevAuthClient() {
             kind={screen === "forgot-password" ? "primary" : "ghost"}
             onClick={() => setScreen("forgot-password")}
           >
-            نسيت كلمة السر
+            طلب الكود
+          </Button>
+          <Button
+            kind={screen === "forgot-password-code" ? "primary" : "ghost"}
+            onClick={() => setScreen("forgot-password-code")}
+          >
+            إدخال الكود
           </Button>
           <Button
             kind={screen === "profile" ? "primary" : "ghost"}
@@ -97,7 +109,11 @@ export default function DevAuthClient() {
           {screen === "login" && <AuthScreen initialMode="login" />}
 
           {screen === "forgot-password" && (
-            <AuthScreen initialMode="forgot-password" />
+            <AuthScreen initialMode="forgot-password" initialForgotStep={0} />
+          )}
+
+          {screen === "forgot-password-code" && (
+            <AuthScreen initialMode="forgot-password" initialForgotStep={1} />
           )}
 
           {screen === "profile" && showProfile && (

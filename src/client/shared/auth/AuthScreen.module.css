@@ -3,7 +3,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px 16px calc(20px + env(safe-area-inset-bottom));
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
   background:
     radial-gradient(
       900px 500px at 80% -10%,
@@ -12,22 +12,24 @@
     ),
     var(--bg);
   direction: rtl;
+  box-sizing: border-box;
 }
 
 .card {
   background: var(--sf);
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: 28px;
-  padding: 26px 22px 20px;
-  width: min(460px, 100%);
+  padding: 34px 28px 26px;
+  width: min(440px, 100%);
   box-shadow: var(--sh2);
-  animation: pageIn 0.5s var(--ease);
+  animation: pageIn 0.4s var(--ease);
+  box-sizing: border-box;
 }
 
 @keyframes pageIn {
   from {
     opacity: 0;
-    transform: translateY(16px);
+    transform: translateY(14px);
   }
   to {
     opacity: 1;
@@ -40,8 +42,7 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 4px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .logoBox {
@@ -50,7 +51,7 @@
   justify-content: center;
   width: 56px;
   height: 56px;
-  background: linear-gradient(135deg, var(--br), var(--br-dark, var(--br)));
+  background: linear-gradient(135deg, var(--br), var(--br2, var(--br)));
   color: var(--brInk);
   border-radius: 16px;
   box-shadow: 0 4px 12px color-mix(in srgb, var(--br) 35%, transparent);
@@ -59,28 +60,30 @@
 .logoImg {
   display: block;
   width: auto;
+  height: 52px;
   object-fit: contain;
-  margin-bottom: 6px;
+  margin-bottom: 4px;
 }
 
 .head h1 {
-  margin: 12px 0 0;
+  margin: 10px 0 4px;
   font-size: 24px;
+  font-weight: 800;
   letter-spacing: -0.2px;
   color: var(--ink);
 }
 
 .head p {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--ink2);
-  font-size: 14px;
+  font-size: 14.5px;
 }
 
 .steps {
   position: relative;
   display: flex;
   justify-content: space-between;
-  margin: 0 24px 22px;
+  margin: 0 20px 24px;
 }
 
 .st {
@@ -105,6 +108,7 @@
   align-items: center;
   justify-content: center;
   font-weight: 800;
+  font-size: 14px;
   background: var(--sf);
   transition: all 0.3s var(--ease);
 }
@@ -112,7 +116,7 @@
 .st.on .stN {
   border-color: var(--br);
   color: var(--br);
-  box-shadow: 0 0 0 5px color-mix(in srgb, var(--br) 15%, transparent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--br) 16%, transparent);
 }
 
 .st.on {
@@ -129,7 +133,7 @@
 .stLine {
   position: absolute;
   top: 16px;
-  inset-inline: 40px;
+  inset-inline: 36px;
   height: 2px;
   background: var(--line);
   border-radius: 1px;
@@ -145,16 +149,16 @@
 }
 
 .body {
-  animation: stepIn 0.38s var(--ease);
+  animation: stepIn 0.35s var(--ease);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
 }
 
 @keyframes stepIn {
   from {
     opacity: 0;
-    transform: translateX(var(--from, -22px));
+    transform: translateX(var(--from, -18px));
   }
   to {
     opacity: 1;
@@ -163,13 +167,72 @@
 }
 
 .body[data-dir="-1"] {
-  --from: 22px;
+  --from: 18px;
+}
+
+/* Base input styling for all text, tel, email, password, date and select inputs */
+.body input[type="text"],
+.body input[type="tel"],
+.body input[type="email"],
+.body input[type="password"],
+.body input[type="date"],
+.body select {
+  width: 100%;
+  height: 50px;
+  min-height: 50px;
+  padding: 12px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf2);
+  color: var(--ink);
+  font-size: 15px;
+  font-family: inherit;
+  font-weight: 500;
+  outline: 0;
+  box-sizing: border-box;
+  direction: rtl;
+  text-align: right;
+  transition:
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease),
+    background 0.2s var(--ease);
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.body input::placeholder {
+  color: color-mix(in srgb, var(--ink2) 70%, transparent);
+  font-size: 14.5px;
+  font-weight: 400;
+}
+
+.body input:focus,
+.body select:focus {
+  border-color: var(--br);
+  background: var(--sf);
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--br) 18%, transparent);
+}
+
+.body input:disabled,
+.body select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: color-mix(in srgb, var(--line) 30%, var(--sf2));
+}
+
+.body select {
+  background-image: var(--chev);
+  background-repeat: no-repeat;
+  background-position: left 14px center;
+  background-size: 16px;
+  padding-left: 38px;
+  cursor: pointer;
 }
 
 .fieldLabel {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink2);
   margin-bottom: 6px;
 }
 
@@ -177,7 +240,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
 
 .chip {
@@ -186,7 +249,7 @@
   border: 1.5px solid var(--line);
   background: var(--sf2);
   color: var(--ink);
-  font-size: 13px;
+  font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
   min-height: 44px;
@@ -196,10 +259,15 @@
   transition: all 0.15s ease;
 }
 
+.chip:hover {
+  border-color: color-mix(in srgb, var(--br) 40%, var(--line));
+}
+
 .chip.on {
   border-color: var(--br);
-  background: color-mix(in srgb, var(--br) 12%, var(--sf));
+  background: color-mix(in srgb, var(--br) 14%, var(--sf));
   color: var(--br);
+  font-weight: 700;
 }
 
 .row2 {
@@ -215,52 +283,17 @@
   }
 }
 
-.stepper {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  border: 1.5px solid var(--line);
-  border-radius: 14px;
-  background: var(--sf);
-  min-height: 50px;
-  padding: 3px;
-}
-
-.stepper button {
-  width: 44px;
-  height: 44px;
-  border-radius: 11px;
-  border: none;
-  background: var(--sf2);
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--br);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.12s;
-}
-
-.stepper button:active {
-  transform: scale(0.92);
-}
-
-.stepper b {
-  font-size: 18px;
-  color: var(--ink);
-}
-
 .chkDemo {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 12px;
+  padding: 14px;
   border-radius: 14px;
   background: color-mix(in srgb, var(--br) 6%, var(--sf2));
   border: 1px dashed color-mix(in srgb, var(--br) 35%, var(--line));
   cursor: pointer;
   margin-top: 4px;
+  box-sizing: border-box;
 }
 
 .chkDemo input {
@@ -301,14 +334,39 @@
   background: none;
   border: none;
   color: var(--br);
-  font-size: 13.5px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 700;
   display: block;
   margin: 16px auto 0;
   cursor: pointer;
   padding: 8px 12px;
+  text-decoration: none;
+  transition: opacity 0.15s;
+}
+
+.linkCenter:hover {
   text-decoration: underline;
   text-underline-offset: 4px;
+}
+
+.secondaryLink {
+  background: none;
+  border: none;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 600;
+  display: block;
+  margin: 8px auto 0;
+  cursor: pointer;
+  padding: 6px 10px;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.secondaryLink:hover {
+  color: var(--ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 
 .note {
@@ -317,39 +375,43 @@
   color: var(--ink2);
   margin-top: 16px;
   font-size: 12px;
+  line-height: 1.5;
+  opacity: 0.85;
 }
 
 .offlineNotice {
-  background: color-mix(in srgb, var(--orange, #e67e22) 10%, var(--sf));
-  border: 1px solid color-mix(in srgb, var(--orange, #e67e22) 30%, transparent);
+  background: color-mix(in srgb, var(--yel, #b8841a) 12%, var(--sf));
+  border: 1px solid color-mix(in srgb, var(--yel, #b8841a) 35%, transparent);
   border-radius: 12px;
-  padding: 8px 12px;
-  font-size: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--ink);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   display: flex;
   align-items: center;
   gap: 8px;
 }
 
 .globalErr {
-  background: color-mix(in srgb, var(--danger, #e74c3c) 12%, var(--sf));
-  border: 1px solid var(--danger, #e74c3c);
-  color: var(--danger, #e74c3c);
+  background: color-mix(in srgb, var(--red, #b3402f) 12%, var(--sf));
+  border: 1.5px solid var(--red, #b3402f);
+  color: var(--red, #b3402f);
   border-radius: 12px;
   padding: 10px 14px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
+  animation: shake 0.35s;
 }
 
 .globalSuccess {
   background: color-mix(in srgb, var(--ok, #4f6b46) 12%, var(--sf));
-  border: 1px solid var(--ok, #4f6b46);
+  border: 1.5px solid var(--ok, #4f6b46);
   color: var(--ok, #4f6b46);
   border-radius: 12px;
   padding: 10px 14px;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .passwordWrapper {
@@ -361,12 +423,15 @@
 
 .passwordWrapper input {
   width: 100%;
-  padding-left: 44px;
+  padding-left: 48px !important;
+  padding-right: 16px !important;
 }
 
 .passwordToggle {
   position: absolute;
-  left: 10px;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
   background: none;
   border: none;
   color: var(--ink2);
@@ -374,37 +439,82 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 6px;
-  font-size: 13px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  transition:
+    background 0.15s,
+    color 0.15s;
   user-select: none;
 }
 
 .passwordToggle:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
   color: var(--ink);
-}
-
-.secondaryLink {
-  background: none;
-  border: none;
-  color: var(--ink2);
-  font-size: 13px;
-  font-weight: 500;
-  display: block;
-  margin: 8px auto 0;
-  cursor: pointer;
-  padding: 4px 8px;
-  text-decoration: none;
-}
-
-.secondaryLink:hover {
-  color: var(--ink);
-  text-decoration: underline;
 }
 
 .codeBox {
-  font-size: 24px;
-  letter-spacing: 8px;
-  text-align: center;
-  font-weight: 700;
-  direction: ltr;
+  height: 56px !important;
+  min-height: 56px !important;
+  font-size: 28px !important;
+  letter-spacing: 12px !important;
+  text-align: center !important;
+  font-weight: 800 !important;
+  direction: ltr !important;
+  font-family:
+    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+  background: var(--sf) !important;
+  border: 2px dashed var(--line) !important;
+  border-radius: 14px !important;
+  transition:
+    border-color 0.2s var(--ease),
+    box-shadow 0.2s var(--ease) !important;
+}
+
+.codeBox:focus {
+  border-style: solid !important;
+  border-color: var(--br) !important;
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--br) 18%, transparent) !important;
+  background: #ffffff !important;
+}
+
+@keyframes shake {
+  25% {
+    transform: translateX(4px);
+  }
+  75% {
+    transform: translateX(-4px);
+  }
+}
+
+/* Mobile responsive polish for 360px and smaller screens */
+@media (max-width: 380px) {
+  .auth {
+    padding: 16px 12px calc(16px + env(safe-area-inset-bottom));
+  }
+
+  .card {
+    padding: 24px 18px 20px;
+    border-radius: 24px;
+  }
+
+  .head h1 {
+    font-size: 22px;
+  }
+
+  .body input[type="text"],
+  .body input[type="tel"],
+  .body input[type="email"],
+  .body input[type="password"],
+  .body input[type="date"],
+  .body select {
+    height: 48px;
+    min-height: 48px;
+    font-size: 14.5px;
+    padding: 10px 14px;
+  }
+
+  .passwordWrapper input {
+    padding-left: 44px !important;
+  }
 }

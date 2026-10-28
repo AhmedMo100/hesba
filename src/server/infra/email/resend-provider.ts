@@ -4,7 +4,10 @@ import { AppError } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
 
 const RESEND_API_URL = "https://api.resend.com/emails";
-const DEFAULT_FROM_EMAIL = "حسبة <auth@hesba.app>";
+const DEFAULT_FROM_EMAIL =
+  process.env.NODE_ENV === "development"
+    ? "حسبة <onboarding@resend.dev>"
+    : "حسبة <auth@hesba.app>";
 const REQUEST_TIMEOUT_MS = 10000;
 
 export interface ResendResponse {
@@ -62,11 +65,12 @@ export class ResendEmailProvider implements EmailProvider {
           {
             statusCode: response.status,
             errorName: data.name,
+            errorMessage: data.message,
             recipientDomain,
           },
           "Resend API rejected email dispatch request",
         );
-        throw AppError.internal(
+        throw AppError.serviceUnavailable(
           "تعذر إرسال البريد الإلكتروني حالياً. يُرجى المحاولة لاحقاً.",
         );
       }
@@ -88,7 +92,7 @@ export class ResendEmailProvider implements EmailProvider {
       }
       if (err instanceof Error && err.name === "AbortError") {
         logger.error("Resend API request timed out after 10s");
-        throw AppError.internal(
+        throw AppError.serviceUnavailable(
           "انتهت مهلة إرسال البريد الإلكتروني. يُرجى المحاولة لاحقاً.",
         );
       }
@@ -96,7 +100,9 @@ export class ResendEmailProvider implements EmailProvider {
         { err },
         "Unexpected error while sending email via Resend API",
       );
-      throw AppError.internal("فشل غير متوقع في خدمة البريد الإلكتروني.");
+      throw AppError.serviceUnavailable(
+        "تعذر إرسال البريد الإلكتروني حالياً. يُرجى المحاولة لاحقاً.",
+      );
     }
   }
 

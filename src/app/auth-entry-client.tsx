@@ -9,17 +9,25 @@ import { ToastProvider } from "@/client/shared/ui";
 export function AuthEntryClient() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [mode] = useState<"login" | "signup" | "forgot-password">("login");
+  const [redirectTo] = useState<string>(() => {
+    if (typeof window !== "undefined") {
+      const p = new URLSearchParams(window.location.search).get("redirect");
+      if (p && p.startsWith("/app")) {
+        return p;
+      }
+    }
+    return "/app";
+  });
 
   useEffect(() => {
     authApi.getSession().then((session) => {
       if (session) {
-        router.push("/app");
+        router.push(redirectTo);
         return;
       }
       setLoading(false);
     });
-  }, [router]);
+  }, [router, redirectTo]);
 
   if (loading) {
     return (
@@ -42,9 +50,9 @@ export function AuthEntryClient() {
   return (
     <ToastProvider>
       <AuthScreen
-        initialMode={mode}
+        initialMode="login"
         onSuccess={() => {
-          router.push("/app");
+          router.push(redirectTo);
         }}
       />
     </ToastProvider>

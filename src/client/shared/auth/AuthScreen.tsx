@@ -65,6 +65,7 @@ export function okMail(v: string): boolean {
 export interface AuthScreenProps {
   initialMode?: "signup" | "login" | "forgot-password";
   initialStep?: 0 | 1;
+  initialForgotStep?: 0 | 1;
   onSuccess?: (session: SessionState) => void;
   isOffline?: boolean;
 }
@@ -72,6 +73,7 @@ export interface AuthScreenProps {
 export function AuthScreen({
   initialMode = "login",
   initialStep = 0,
+  initialForgotStep = 0,
   onSuccess,
   isOffline = false,
 }: AuthScreenProps) {
@@ -80,7 +82,7 @@ export function AuthScreen({
     initialMode,
   );
   const [step, setStep] = useState<0 | 1>(initialStep); // 0 = عنك, 1 = محلك
-  const [forgotStep, setForgotStep] = useState<0 | 1>(0); // 0 = إرسال الكود, 1 = إدخال الكود وكلمة السر
+  const [forgotStep, setForgotStep] = useState<0 | 1>(initialForgotStep); // 0 = إرسال الكود, 1 = إدخال الكود وكلمة السر
   const [dir, setDir] = useState<1 | -1>(1);
   const [busy, setBusy] = useState(false);
   const [globalErr, setGlobalErr] = useState("");
@@ -366,6 +368,7 @@ export function AuthScreen({
               <input
                 type="tel"
                 inputMode="tel"
+                autoComplete="tel"
                 placeholder={t("auth.loginPhonePlaceholder")}
                 value={loginPhone}
                 onChange={(e) => {
@@ -384,6 +387,7 @@ export function AuthScreen({
               <div className={styles.passwordWrapper}>
                 <input
                   type={showPassword ? "text" : "password"}
+                  autoComplete="current-password"
                   placeholder={t("auth.passwordPlaceholder")}
                   value={loginPassword}
                   onChange={(e) => {
@@ -473,6 +477,7 @@ export function AuthScreen({
                 >
                   <input
                     type="text"
+                    autoComplete="name"
                     placeholder={t("auth.ownerPlaceholder")}
                     value={signupData.ownerName}
                     onChange={(e) =>
@@ -490,6 +495,7 @@ export function AuthScreen({
                   <input
                     type="tel"
                     inputMode="tel"
+                    autoComplete="tel"
                     placeholder={t("auth.phonePlaceholder")}
                     value={signupData.phone}
                     onChange={(e) =>
@@ -503,6 +509,7 @@ export function AuthScreen({
                   <input
                     type="email"
                     inputMode="email"
+                    autoComplete="email"
                     placeholder={t("auth.emailPlaceholder")}
                     value={signupData.email}
                     onChange={(e) =>
@@ -519,6 +526,7 @@ export function AuthScreen({
                   <div className={styles.passwordWrapper}>
                     <input
                       type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
                       placeholder={t("auth.passwordPlaceholder")}
                       value={signupData.password}
                       onChange={(e) =>
@@ -748,6 +756,7 @@ export function AuthScreen({
                   <input
                     type="email"
                     inputMode="email"
+                    autoComplete="email"
                     placeholder={t("auth.emailPlaceholder")}
                     value={forgotEmail}
                     onChange={(e) => {
@@ -787,6 +796,8 @@ export function AuthScreen({
                   <input
                     type="text"
                     inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern="[0-9]*"
                     maxLength={6}
                     placeholder={t("auth.codePlaceholder")}
                     className={styles.codeBox}
@@ -807,6 +818,7 @@ export function AuthScreen({
                   <div className={styles.passwordWrapper}>
                     <input
                       type={showNewPassword ? "text" : "password"}
+                      autoComplete="new-password"
                       placeholder={t("auth.passwordPlaceholder")}
                       value={newPassword}
                       onChange={(e) => {
@@ -837,6 +849,7 @@ export function AuthScreen({
                 >
                   <input
                     type={showNewPassword ? "text" : "password"}
+                    autoComplete="new-password"
                     placeholder={t("auth.confirmPasswordLabel")}
                     value={confirmPassword}
                     onChange={(e) => {

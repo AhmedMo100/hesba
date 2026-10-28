@@ -41,9 +41,11 @@
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--br) 18%, transparent);
 }
 
-.bad .input {
-  border-color: var(--red);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--red) 12%, transparent);
+.bad .input,
+.bad input,
+.bad select {
+  border-color: var(--red) !important;
+  box-shadow: 0 0 0 3.5px color-mix(in srgb, var(--red) 14%, transparent) !important;
 }
 
 .fe {

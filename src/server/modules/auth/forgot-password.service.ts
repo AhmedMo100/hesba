@@ -44,7 +44,7 @@ export async function requestPasswordResetCode(
       { email: normalizedEmail },
       "Password reset rate limit exceeded for email",
     );
-    throw AppError.badRequest(
+    throw AppError.rateLimited(
       "تجاوزت الحد الأقصى لطلب الأكواد. يُرجى الانتظار والمحاولة لاحقاً.",
     );
   }
@@ -55,7 +55,7 @@ export async function requestPasswordResetCode(
     !authRateLimiter.check(`pwd-reset-ip:${clientIp}`, 10, 60 * 60 * 1000)
   ) {
     logger.warn({ clientIp }, "Password reset rate limit exceeded for IP");
-    throw AppError.badRequest(
+    throw AppError.rateLimited(
       "تجاوزت الحد الأقصى للمحاولات من هذا العنوان. يُرجى الانتظار والمحاولة لاحقاً.",
     );
   }
@@ -92,7 +92,7 @@ export async function requestPasswordResetCode(
   const codeHash = computeKeyedCodeHash(user.id, code);
   const expiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
 
-  await prisma.passwordResetCode.create({
+  const newCodeRecord = await prisma.passwordResetCode.create({
     data: {
       userId: user.id,
       codeHash,
@@ -100,7 +100,18 @@ export async function requestPasswordResetCode(
     },
   });
 
-  await getEmailProvider().sendPasswordResetCode(user.email, code);
+  try {
+    await getEmailProvider().sendPasswordResetCode(user.email, code);
+  } catch (err) {
+    // If provider rejected delivery or timed out, invalidate the freshly generated code
+    await prisma.passwordResetCode
+      .update({
+        where: { id: newCodeRecord.id },
+        data: { usedAt: new Date() },
+      })
+      .catch(() => {});
+    throw err;
+  }
 
   logger.info({ userId: user.id }, "Password reset code dispatched via email");
 
@@ -120,7 +131,7 @@ export async function resetPasswordWithCode(
     clientIp &&
     !authRateLimiter.check(`pwd-verify-ip:${clientIp}`, 15, 15 * 60 * 1000)
   ) {
-    throw AppError.badRequest(
+    throw AppError.rateLimited(
       "تجاوزت الحد الأقصى للمحاولات. يُرجى الانتظار والمحاولة لاحقاً.",
     );
   }

@@ -90,6 +90,23 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
       fullPage: false,
     });
 
+    // 4b. Forgot Password Step 2 (Verification code entry + new password)
+    await page.goto("/dev/auth?screen=forgot-password-code");
+    await page.waitForLoadState("domcontentloaded");
+    await page.addStyleTag({
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
+    });
+    await expect(page.locator("h1")).toHaveText("تعيين كلمة السر الجديدة");
+    await page.screenshot({
+      path: path.join(screenshotsDir, "auth-forgot-code.png"),
+      fullPage: false,
+    });
+
     // 5. Profile Modal
     await page.goto("/dev/auth?screen=profile");
     await page.waitForLoadState("domcontentloaded");

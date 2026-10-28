@@ -135,4 +135,58 @@ describe("ResendEmailProvider", () => {
     expect(body.html).toContain(recoveryUrl);
     expect(body.html).toContain('dir="rtl"');
   });
+
+  it("handles unverified sending domain rejection by throwing 503 SERVICE_UNAVAILABLE", async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({
+        name: "validation_error",
+        message:
+          "The hesba.app domain is not verified. Please, add and verify your domain on https://resend.com/domains",
+        statusCode: 403,
+      }),
+    });
+
+    const provider = new ResendEmailProvider("re_test_key_12345678");
+
+    try {
+      await provider.sendPasswordResetCode("shopkeeper@example.com", "847291");
+      expect.fail("Expected provider to throw");
+    } catch (err: unknown) {
+      expect(err).toBeInstanceOf(AppError);
+      const appErr = err as AppError;
+      expect(appErr.statusCode).toBe(503);
+      expect(appErr.code).toBe("SERVICE_UNAVAILABLE");
+      expect(appErr.safeMessage).toBe(
+        "تعذر إرسال البريد الإلكتروني حالياً. يُرجى المحاولة لاحقاً.",
+      );
+    }
+  });
+
+  it("formats 6-digit password reset code email with high visibility and RTL direction", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "msg-pwd-777" }),
+    });
+    global.fetch = fetchMock;
+
+    const provider = new ResendEmailProvider(
+      "re_test_key_12345678",
+      "حسبة <onboarding@resend.dev>",
+    );
+
+    await provider.sendPasswordResetCode("owner@hesba.test", "123456");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const firstCall = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(firstCall[1].body as string);
+    expect(body.from).toBe("حسبة <onboarding@resend.dev>");
+    expect(body.to).toEqual(["owner@hesba.test"]);
+    expect(body.subject).toBe("كود إعادة تعيين كلمة السر في حسبة");
+    expect(body.text).toContain("123456");
+    expect(body.html).toContain("123456");
+    expect(body.html).toContain('dir="rtl"');
+  });
 });
