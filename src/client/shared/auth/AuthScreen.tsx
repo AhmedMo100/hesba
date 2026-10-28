@@ -76,7 +76,7 @@ export function AuthScreen({
   const [mode, setMode] = useState<"signup" | "login" | "recovery">(
     initialMode,
   );
-  const [step, setStep] = useState(0); // 0 = عنك, 1 = محلك, 2 = أمان الجهاز
+  const [step, setStep] = useState(0); // 0 = عنك, 1 = محلك, 2 = أمان الجهاز (Passkey)
   const [dir, setDir] = useState<1 | -1>(1);
   const [busy, setBusy] = useState(false);
   const [globalErr, setGlobalErr] = useState("");
@@ -95,12 +95,9 @@ export function AuthScreen({
     workersCount: 1,
     withDemoData: true,
   });
-  const [pin, setPin] = useState("");
-  const [confirmPin, setConfirmPin] = useState("");
 
-  // 2. Login state (Magic link)
-  const [loginEmail, setLoginEmail] = useState("");
-  const [loginSent, setLoginSent] = useState(false);
+  // 2. Login state
+  const [loginIdentifier, setLoginIdentifier] = useState("");
 
   // 3. Recovery state
   const [recoveryEmail, setRecoveryEmail] = useState("");
@@ -131,7 +128,7 @@ export function AuthScreen({
     setStep(1);
   };
 
-  const handleNextToStep3 = () => {
+  const handleNextToStep3 = async () => {
     const errs: Record<string, string> = {};
     if (!signupData.storeName.trim()) {
       errs["storeName"] = t("errors.writeStoreName");
@@ -143,26 +140,9 @@ export function AuthScreen({
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
-    setDir(1);
-    setStep(2);
-  };
-
-  const handleCreateAccount = async () => {
-    const errs: Record<string, string> = {};
-    const normPin = normDigits(pin).trim();
-    const normConfirm = normDigits(confirmPin).trim();
-
-    if (normPin.length !== 6) {
-      errs["pin"] = t("errors.pinLength");
-    } else if (normPin !== normConfirm) {
-      errs["confirmPin"] = t("errors.pinMismatch");
-    }
-
-    setFieldErrors(errs);
-    if (Object.keys(errs).length > 0) return;
-
     setBusy(true);
     setGlobalErr("");
+
     try {
       const res = await authApi.signup({
         ...signupData,
@@ -170,15 +150,13 @@ export function AuthScreen({
         email: signupData.email.trim().toLowerCase(),
       });
 
-      if (!res.success || !res.data) {
+      if (!res.success) {
         setGlobalErr(res.error || t("errors.serverError"));
         return;
       }
 
-      // Save local device PIN
-      await authApi.setPin(normPin);
-
-      onSuccess?.(res.data);
+      setDir(1);
+      setStep(2);
     } catch {
       setGlobalErr(t("errors.serverError"));
     } finally {
@@ -186,25 +164,49 @@ export function AuthScreen({
     }
   };
 
-  const handleRequestMagicLink = async () => {
-    if (!okMail(loginEmail)) {
-      setFieldErrors({ email: t("errors.invalidEmail") });
-      return;
-    }
-
+  const handleRegisterPasskey = async () => {
     setBusy(true);
     setGlobalErr("");
+
     try {
-      const res = await authApi.requestMagicLink(
-        loginEmail.trim().toLowerCase(),
-      );
-      if (res.success) {
-        setLoginSent(true);
-      } else {
-        setGlobalErr(res.error || t("errors.serverError"));
+      const res = await authApi.completePasskeyRegistration();
+      if (!res.success || !res.data) {
+        setGlobalErr(res.error || t("auth.passkeyCanceled"));
+        return;
       }
+
+      onSuccess?.(res.data);
     } catch {
-      setGlobalErr(t("errors.serverError"));
+      setGlobalErr(t("auth.passkeyCanceled"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
+    setBusy(true);
+    setGlobalErr("");
+
+    try {
+      const trimmedId = loginIdentifier
+        ? normDigits(loginIdentifier).trim()
+        : undefined;
+      const optsRes = await authApi.getPasskeyAuthOptions(trimmedId);
+
+      if (!optsRes.success) {
+        setGlobalErr(optsRes.error || t("errors.serverError"));
+        return;
+      }
+
+      const res = await authApi.loginWithPasskey();
+      if (!res.success || !res.data) {
+        setGlobalErr(res.error || t("errors.invalidCredentials"));
+        return;
+      }
+
+      onSuccess?.(res.data);
+    } catch {
+      setGlobalErr(t("errors.invalidCredentials"));
     } finally {
       setBusy(false);
     }
@@ -238,9 +240,15 @@ export function AuthScreen({
     <div className={styles.auth}>
       <div className={styles.card}>
         <div className={styles.head}>
-          <div className={styles.logoBox}>
-            <Icon n="cart" s={28} />
-          </div>
+          {/* Approved Hesba Logo Matching Demo */}
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/logo.png"
+            alt="حسبة"
+            className={styles.logoImg}
+            style={{ height: mode === "signup" ? 56 : 76 }}
+          />
+
           <h1>
             {mode === "signup"
               ? t("auth.signupTitle")
@@ -257,110 +265,106 @@ export function AuthScreen({
           </p>
         </div>
 
-        {globalErr && <div className={styles.errBox}>{globalErr}</div>}
+        {globalErr && <div className={styles.globalErr}>{globalErr}</div>}
 
         {isOffline && (
-          <div className={styles.offlineBox}>
+          <div className={styles.offlineNotice}>
             <Icon n="wifioff" s={16} />
             <span>{t("auth.offlineNotice")}</span>
           </div>
         )}
 
-        {/* ================= EXPERIENCE A: SIGNUP (3-STEP) ================= */}
+        {/* MODE: SIGNUP */}
         {mode === "signup" && (
           <>
             <div className={styles.steps}>
               <div
-                className={`${styles.st} ${step === 0 ? styles.on : step > 0 ? styles.done : ""}`}
+                className={`${styles.st} ${step === 0 ? styles.active : ""} ${step > 0 ? styles.done : ""}`}
               >
-                <div className={styles.stN}>1</div>
-                <span>{t("auth.step1")}</span>
+                <span>{step > 0 ? "✓" : "١"}</span>
+                <small>{t("auth.step1")}</small>
               </div>
               <div
-                className={`${styles.st} ${step === 1 ? styles.on : step > 1 ? styles.done : ""}`}
+                className={`${styles.st} ${step === 1 ? styles.active : ""} ${step > 1 ? styles.done : ""}`}
               >
-                <div className={styles.stN}>2</div>
-                <span>{t("auth.step2")}</span>
+                <span>{step > 1 ? "✓" : "٢"}</span>
+                <small>{t("auth.step2")}</small>
               </div>
-              <div className={`${styles.st} ${step === 2 ? styles.on : ""}`}>
-                <div className={styles.stN}>3</div>
-                <span>{t("auth.step3")}</span>
-              </div>
-              <div className={styles.stLine}>
-                <span
-                  className={styles.stLineFill}
-                  style={{
-                    transform: `scaleX(${step === 0 ? 0 : step === 1 ? 0.5 : 1})`,
-                  }}
-                />
+              <div
+                className={`${styles.st} ${step === 2 ? styles.active : ""}`}
+              >
+                <span>٣</span>
+                <small>{t("auth.step3")}</small>
               </div>
             </div>
 
-            {/* STEP 1: Owner Information */}
+            {/* STEP 0: عنك */}
             {step === 0 && (
               <div className={styles.body} data-dir={dir}>
                 <Field label={t("auth.ownerLabel")} err={fieldErrors["owner"]}>
                   <input
-                    autoFocus
-                    placeholder={t("auth.ownerPlaceholder")}
+                    type="text"
                     value={signupData.ownerName}
                     onChange={(e) =>
                       updateSignup({ ownerName: e.target.value })
                     }
+                    placeholder={t("auth.ownerPlaceholder")}
+                    autoFocus
                   />
                 </Field>
 
                 <Field label={t("auth.phoneLabel")} err={fieldErrors["phone"]}>
                   <input
+                    type="tel"
+                    inputMode="tel"
                     dir="ltr"
                     className="ltr"
-                    inputMode="tel"
-                    placeholder={t("auth.phonePlaceholder")}
                     value={signupData.phone}
                     onChange={(e) => updateSignup({ phone: e.target.value })}
+                    placeholder={t("auth.phonePlaceholder")}
                   />
                 </Field>
 
-                <Field label={t("auth.emailLabel")} err={fieldErrors["email"]}>
+                <Field
+                  label={t("auth.emailLabel")}
+                  err={fieldErrors["email"]}
+                  hint={t("auth.emailHelp")}
+                >
                   <input
+                    type="email"
+                    inputMode="email"
                     dir="ltr"
                     className="ltr"
-                    inputMode="email"
-                    placeholder={t("auth.emailPlaceholder")}
                     value={signupData.email}
                     onChange={(e) => updateSignup({ email: e.target.value })}
+                    placeholder={t("auth.emailPlaceholder")}
                   />
                 </Field>
-                <small className={styles.fieldHelp}>
-                  {t("auth.emailHelp")}
-                </small>
 
                 <div className={styles.actions}>
                   <Button
+                    kind="primary"
                     className={`lg ${styles.grow1}`}
-                    icon="left"
                     onClick={handleNextToStep2}
                   >
                     {t("auth.next")}
                   </Button>
                 </div>
 
-                <div className={styles.switchLink}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("login");
-                      setGlobalErr("");
-                      setFieldErrors({});
-                    }}
-                  >
-                    {t("auth.hasAccount")}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={styles.linkCenter}
+                  onClick={() => {
+                    setMode("login");
+                    setGlobalErr("");
+                  }}
+                >
+                  {t("auth.hasAccountLink")}
+                </button>
               </div>
             )}
 
-            {/* STEP 2: Shop Information */}
+            {/* STEP 1: محلك */}
             {step === 1 && (
               <div className={styles.body} data-dir={dir}>
                 <Field
@@ -368,34 +372,32 @@ export function AuthScreen({
                   err={fieldErrors["storeName"]}
                 >
                   <input
-                    autoFocus
-                    placeholder={t("auth.storeNamePlaceholder")}
+                    type="text"
                     value={signupData.storeName}
                     onChange={(e) =>
                       updateSignup({ storeName: e.target.value })
                     }
+                    placeholder={t("auth.storeNamePlaceholder")}
+                    autoFocus
                   />
                 </Field>
 
-                <div>
-                  <div className={styles.fieldLabel}>
-                    {t("auth.shopTypeLabel")}
-                  </div>
-                  <div className={styles.chipsWrap}>
-                    {SHOP_TYPES.map((type) => (
-                      <button
-                        type="button"
-                        key={type}
-                        className={`${styles.chip} ${signupData.shopType === type ? styles.on : ""}`}
-                        onClick={() => updateSignup({ shopType: type })}
-                      >
-                        {type}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div className={styles.row2}>
+                  <Field label={t("auth.shopTypeLabel")}>
+                    <select
+                      value={signupData.shopType}
+                      onChange={(e) =>
+                        updateSignup({ shopType: e.target.value })
+                      }
+                    >
+                      {SHOP_TYPES.map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
                   <Field label={t("auth.governorateLabel")}>
                     <select
                       value={signupData.governorate}
@@ -403,24 +405,25 @@ export function AuthScreen({
                         updateSignup({ governorate: e.target.value })
                       }
                     >
-                      {GOVERNORATES.map((gov) => (
-                        <option key={gov} value={gov}>
-                          {gov}
+                      {GOVERNORATES.map((g) => (
+                        <option key={g} value={g}>
+                          {g}
                         </option>
                       ))}
                     </select>
                   </Field>
-
-                  <Field label={t("auth.areaLabel")}>
-                    <input
-                      placeholder={t("auth.areaPlaceholder")}
-                      value={signupData.area}
-                      onChange={(e) => updateSignup({ area: e.target.value })}
-                    />
-                  </Field>
                 </div>
 
                 <div className={styles.row2}>
+                  <Field label={t("auth.areaLabel")}>
+                    <input
+                      type="text"
+                      value={signupData.area ?? ""}
+                      onChange={(e) => updateSignup({ area: e.target.value })}
+                      placeholder={t("auth.areaPlaceholder")}
+                    />
+                  </Field>
+
                   <Field
                     label={t("auth.openedDateLabel")}
                     err={fieldErrors["opened"]}
@@ -433,21 +436,38 @@ export function AuthScreen({
                       }
                     />
                   </Field>
-
-                  <Field label={t("auth.workersCountLabel")}>
-                    <input
-                      type="number"
-                      min={1}
-                      max={100}
-                      value={signupData.workersCount}
-                      onChange={(e) =>
-                        updateSignup({
-                          workersCount: parseInt(e.target.value, 10) || 1,
-                        })
-                      }
-                    />
-                  </Field>
                 </div>
+
+                <Field label={t("auth.workersCountLabel")}>
+                  <select
+                    value={signupData.workersCount}
+                    onChange={(e) =>
+                      updateSignup({
+                        workersCount: parseInt(e.target.value, 10) || 1,
+                      })
+                    }
+                  >
+                    <option value={1}>١ (أنا بس)</option>
+                    <option value={2}>٢</option>
+                    <option value={3}>٣</option>
+                    <option value={4}>٤</option>
+                    <option value={5}>٥ أو أكتر</option>
+                  </select>
+                </Field>
+
+                <label className={styles.chkDemo}>
+                  <input
+                    type="checkbox"
+                    checked={signupData.withDemoData}
+                    onChange={(e) =>
+                      updateSignup({ withDemoData: e.target.checked })
+                    }
+                  />
+                  <span className={styles.chkDemoText}>
+                    <b>{t("auth.demoData")}</b>
+                    <small>{t("auth.demoDataDesc")}</small>
+                  </span>
+                </label>
 
                 <div className={styles.actions}>
                   <Button
@@ -461,8 +481,9 @@ export function AuthScreen({
                     {t("auth.back")}
                   </Button>
                   <Button
+                    kind="primary"
                     className={`lg ${styles.grow1}`}
-                    icon="left"
+                    busy={busy}
                     onClick={handleNextToStep3}
                   >
                     {t("auth.next")}
@@ -471,273 +492,243 @@ export function AuthScreen({
               </div>
             )}
 
-            {/* STEP 3: Device Security & Local PIN */}
+            {/* STEP 2: أمان الجهاز (Passkey) */}
             {step === 2 && (
               <div className={styles.body} data-dir={dir}>
-                <div style={{ textAlign: "center", marginBottom: "8px" }}>
-                  <h3 style={{ fontSize: "16px", marginBottom: "4px" }}>
-                    {t("auth.pinStepTitle")}
+                <div style={{ textAlign: "center", padding: "16px 0 24px" }}>
+                  <div
+                    style={{
+                      width: 64,
+                      height: 64,
+                      margin: "0 auto 16px",
+                      borderRadius: "50%",
+                      background:
+                        "color-mix(in srgb, var(--br) 12%, transparent)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "var(--br)",
+                    }}
+                  >
+                    <Icon n="sparkle" s={32} />
+                  </div>
+                  <h3
+                    style={{
+                      fontSize: 18,
+                      margin: "0 0 8px",
+                      color: "var(--ink)",
+                    }}
+                  >
+                    {t("auth.passkeyStepTitle")}
                   </h3>
                   <p
                     style={{
-                      fontSize: "13px",
+                      fontSize: 14,
                       color: "var(--ink2)",
-                      lineHeight: "1.5",
+                      margin: 0,
+                      lineHeight: 1.6,
                     }}
                   >
-                    {t("auth.pinStepSub")}
+                    {t("auth.passkeyStepSub")}
                   </p>
                 </div>
 
-                <Field label={t("auth.pinLabel")} err={fieldErrors["pin"]}>
-                  <input
-                    autoFocus
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    dir="ltr"
-                    className="ltr"
-                    placeholder="******"
-                    value={pin}
-                    onChange={(e) => {
-                      setPin(normDigits(e.target.value).slice(0, 6));
-                      setFieldErrors({});
-                    }}
-                  />
-                </Field>
-
-                <Field
-                  label={t("auth.confirmPinLabel")}
-                  err={fieldErrors["confirmPin"]}
-                >
-                  <input
-                    type="password"
-                    inputMode="numeric"
-                    maxLength={6}
-                    dir="ltr"
-                    className="ltr"
-                    placeholder="******"
-                    value={confirmPin}
-                    onChange={(e) => {
-                      setConfirmPin(normDigits(e.target.value).slice(0, 6));
-                      setFieldErrors({});
-                    }}
-                  />
-                </Field>
-
                 <div className={styles.actions}>
                   <Button
-                    kind="ghost"
-                    className="lg"
-                    disabled={busy}
-                    onClick={() => {
-                      setDir(-1);
-                      setStep(1);
-                    }}
-                  >
-                    {t("auth.back")}
-                  </Button>
-                  <Button
+                    kind="primary"
                     className={`lg ${styles.grow1}`}
-                    icon="check"
-                    disabled={busy}
-                    onClick={handleCreateAccount}
+                    busy={busy}
+                    onClick={handleRegisterPasskey}
                   >
-                    {busy ? t("auth.creating") : t("auth.createAccount")}
+                    {t("auth.registerPasskeyBtn")}
                   </Button>
                 </div>
+
+                <button
+                  type="button"
+                  className={styles.linkCenter}
+                  onClick={() => {
+                    setMode("login");
+                    setGlobalErr("");
+                  }}
+                >
+                  {t("auth.hasAccountLink")}
+                </button>
               </div>
             )}
           </>
         )}
 
-        {/* ================= EXPERIENCE B: LOGIN (MAGIC LINK) ================= */}
+        {/* MODE: LOGIN (Passkey Login) */}
         {mode === "login" && (
           <div className={styles.body}>
-            {loginSent ? (
-              <div style={{ textAlign: "center", padding: "12px 0" }}>
-                <div className={styles.successIconBox}>
-                  <Icon n="check" s={32} />
-                </div>
-                <h3 style={{ fontSize: "18px", margin: "14px 0 8px" }}>
-                  {t("auth.magicLinkSentTitle")}
-                </h3>
-                <p
-                  style={{
-                    color: "var(--ink2)",
-                    fontSize: "13.5px",
-                    lineHeight: "1.6",
-                    marginBottom: "20px",
-                  }}
-                >
-                  {t("auth.magicLinkSentDesc")}
-                </p>
-                <Button
-                  kind="ghost"
-                  className="lg"
-                  onClick={() => setLoginSent(false)}
-                >
-                  {t("auth.back")}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <Field
-                  label={t("auth.loginEmailLabel")}
-                  err={fieldErrors["email"]}
-                >
-                  <input
-                    autoFocus
-                    dir="ltr"
-                    className="ltr"
-                    inputMode="email"
-                    placeholder={t("auth.emailPlaceholder")}
-                    value={loginEmail}
-                    onChange={(e) => {
-                      setLoginEmail(e.target.value);
-                      setFieldErrors({});
-                      setGlobalErr("");
-                    }}
-                  />
-                </Field>
+            <Field
+              label={t("auth.phoneLabel") + " / " + t("auth.emailLabel")}
+              hint="اختياري — لو جهازك مسجل عليه مفتاح المرور تقدر تدخل مباشرة"
+            >
+              <input
+                type="text"
+                dir="ltr"
+                className="ltr"
+                value={loginIdentifier}
+                onChange={(e) => setLoginIdentifier(e.target.value)}
+                placeholder="01xxxxxxxxx / name@email.com"
+                autoFocus
+              />
+            </Field>
 
-                <div className={styles.actions}>
-                  <Button
-                    className={`lg ${styles.grow1}`}
-                    disabled={busy}
-                    onClick={handleRequestMagicLink}
-                  >
-                    {busy ? t("auth.sendingLink") : t("auth.sendMagicLinkBtn")}
-                  </Button>
-                </div>
+            <div className={styles.actions}>
+              <Button
+                kind="primary"
+                className={`lg ${styles.grow1}`}
+                busy={busy}
+                onClick={handlePasskeyLogin}
+              >
+                {t("auth.loginPasskeyBtn")}
+              </Button>
+            </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    marginTop: "16px",
-                    fontSize: "13px",
-                  }}
-                >
-                  <button
-                    type="button"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--br)",
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                    }}
-                    onClick={() => {
-                      setMode("signup");
-                      setGlobalErr("");
-                      setFieldErrors({});
-                    }}
-                  >
-                    {t("auth.noAccount")}
-                  </button>
+            <div
+              style={{
+                marginTop: 20,
+                textAlign: "center",
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              <button
+                type="button"
+                className={styles.linkCenter}
+                onClick={() => {
+                  setMode("signup");
+                  setStep(0);
+                  setGlobalErr("");
+                }}
+              >
+                {t("auth.noAccountLink")}
+              </button>
 
-                  <button
-                    type="button"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--ink2)",
-                      cursor: "pointer",
-                      textDecoration: "underline",
-                    }}
-                    onClick={() => {
-                      setMode("recovery");
-                      setGlobalErr("");
-                      setFieldErrors({});
-                    }}
-                  >
-                    {t("auth.forgotPin")}
-                  </button>
-                </div>
-              </>
-            )}
+              <button
+                type="button"
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: "var(--ink2)",
+                  fontSize: 13,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+                onClick={() => {
+                  setMode("recovery");
+                  setRecoverySent(false);
+                  setGlobalErr("");
+                }}
+              >
+                {t("auth.forgotPasskey")}
+              </button>
+            </div>
           </div>
         )}
 
-        {/* ================= EXPERIENCE C: RECOVERY & PIN RESET ================= */}
+        {/* MODE: RECOVERY (Single-use Expiring Link via Resend) */}
         {mode === "recovery" && (
           <div className={styles.body}>
-            {recoverySent ? (
-              <div style={{ textAlign: "center", padding: "12px 0" }}>
-                <div className={styles.successIconBox}>
-                  <Icon n="check" s={32} />
-                </div>
-                <h3 style={{ fontSize: "18px", margin: "14px 0 8px" }}>
-                  {t("auth.recoverySentTitle")}
-                </h3>
-                <p
-                  style={{
-                    color: "var(--ink2)",
-                    fontSize: "13.5px",
-                    lineHeight: "1.6",
-                    marginBottom: "20px",
-                  }}
-                >
-                  {t("auth.recoverySentDesc")}
-                </p>
-                <Button
-                  kind="ghost"
-                  className="lg"
-                  onClick={() => setRecoverySent(false)}
-                >
-                  {t("auth.back")}
-                </Button>
-              </div>
-            ) : (
+            {!recoverySent ? (
               <>
                 <Field
                   label={t("auth.recoveryEmailLabel")}
                   err={fieldErrors["email"]}
+                  hint="هنبعتلك رابط استرداد آمن لمرة واحدة وصالح لمدة ساعة لإعادة تسجيل مفتاح المرور"
                 >
                   <input
-                    autoFocus
+                    type="email"
                     dir="ltr"
                     className="ltr"
-                    inputMode="email"
-                    placeholder={t("auth.emailPlaceholder")}
                     value={recoveryEmail}
-                    onChange={(e) => {
-                      setRecoveryEmail(e.target.value);
-                      setFieldErrors({});
-                      setGlobalErr("");
-                    }}
+                    onChange={(e) => setRecoveryEmail(e.target.value)}
+                    placeholder="name@email.com"
+                    autoFocus
                   />
                 </Field>
 
                 <div className={styles.actions}>
                   <Button
+                    kind="primary"
                     className={`lg ${styles.grow1}`}
-                    disabled={busy}
+                    busy={busy}
                     onClick={handleRequestRecovery}
                   >
-                    {busy
-                      ? t("auth.sendingRecovery")
-                      : t("auth.sendRecoveryLink")}
+                    {t("auth.sendRecoveryLink")}
                   </Button>
                 </div>
 
-                <div className={styles.switchLink}>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setMode("login");
-                      setGlobalErr("");
-                      setFieldErrors({});
-                    }}
-                  >
-                    {t("auth.back")}
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={styles.linkCenter}
+                  onClick={() => {
+                    setMode("login");
+                    setGlobalErr("");
+                  }}
+                >
+                  {t("auth.hasAccountLink")}
+                </button>
               </>
+            ) : (
+              <div style={{ textAlign: "center", padding: "16px 0" }}>
+                <div
+                  style={{
+                    width: 56,
+                    height: 56,
+                    borderRadius: "50%",
+                    background:
+                      "color-mix(in srgb, var(--ok, #27ae60) 12%, transparent)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "var(--ok, #27ae60)",
+                    margin: "0 auto 16px",
+                  }}
+                >
+                  <Icon n="check" s={28} />
+                </div>
+                <h2
+                  style={{
+                    fontSize: 18,
+                    color: "var(--ink)",
+                    margin: "0 0 8px",
+                  }}
+                >
+                  {t("auth.recoverySentTitle")}
+                </h2>
+                <p
+                  style={{
+                    fontSize: 14,
+                    color: "var(--ink2)",
+                    lineHeight: 1.6,
+                    margin: "0 0 24px",
+                  }}
+                >
+                  {t("auth.recoverySuccessMsg")}
+                </p>
+                <Button
+                  kind="ghost"
+                  className="lg"
+                  onClick={() => {
+                    setMode("login");
+                    setRecoverySent(false);
+                    setGlobalErr("");
+                  }}
+                >
+                  {t("auth.hasAccountLink")}
+                </Button>
+              </div>
             )}
           </div>
         )}
+
+        <small className={styles.note}>{t("auth.testNote")}</small>
       </div>
     </div>
   );

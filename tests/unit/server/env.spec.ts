@@ -6,8 +6,8 @@ describe("Environment configuration validator", () => {
     HESBA_DATABASE_URL: "postgres://hesba_app:secret-pw@localhost:5432/hesba",
     HESBA_DIRECT_URL:
       "postgres://hesba_migrator:secret-pw@localhost:5432/hesba",
-    HESBA_SESSION_SECRET: "this-is-a-very-long-secret-key-32-chars-long",
-    HESBA_CRON_SECRET: "cron-secret-key-1234",
+    HESBA_SESSION_SECRET: "test-session-secret-key-32chars",
+    HESBA_CRON_SECRET: "test-cron-secret",
     HESBA_APP_ORIGIN: "http://localhost:3000",
   };
 
@@ -18,6 +18,17 @@ describe("Environment configuration validator", () => {
     expect(validated.HESBA_POSTGRES_PORT).toBe(5432);
     expect(validated.HESBA_LLM_PROVIDER).toBe("mock");
     expect(validated.NODE_ENV).toBe("development");
+  });
+
+  it("resolves HESBA_APP_ORIGIN from VERCEL_URL when HESBA_APP_ORIGIN is absent", () => {
+    const vercelEnv = {
+      ...validMockEnv,
+      HESBA_APP_ORIGIN: undefined,
+      VERCEL_URL: "hesba-preview.vercel.app",
+    };
+
+    const validated = validateEnv(vercelEnv);
+    expect(validated.HESBA_APP_ORIGIN).toBe("https://hesba-preview.vercel.app");
   });
 
   it("refuses to start and prints missing variable names when required variables are absent", () => {

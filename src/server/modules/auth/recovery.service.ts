@@ -6,8 +6,13 @@ import { getEmailProvider } from "@/server/infra/email";
 import { env } from "@/server/config/env";
 import { AppError } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
-import { createSession } from "./session.service";
+import { createSession, revokeAllUserSessions } from "./session.service";
+import {
+  generateRegistrationOptionsForUser,
+  verifyAndSaveRegistration,
+} from "./passkey.service";
 import { withTenant } from "@/server/infra/db/tenant";
+import type { RegistrationResponseJSON } from "@simplewebauthn/server";
 
 const RECOVERY_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 const VERIFICATION_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -91,6 +96,145 @@ export async function requestAccountRecovery(email: string, clientIp?: string) {
   return genericResponse;
 }
 
+export async function validateRecoveryToken(rawToken: string) {
+  if (!rawToken || typeof rawToken !== "string") {
+    throw AppError.badRequest("رمز الاسترداد مطلوب");
+  }
+
+  const tokenHash = hashToken(rawToken);
+  const now = new Date();
+
+  const record = await prisma.accountRecoveryToken.findUnique({
+    where: { tokenHash },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!record || record.usedAt !== null || record.expiresAt < now) {
+    logger.warn("Invalid or expired account recovery token check");
+    throw AppError.badRequest("رابط الاسترداد غير صالح أو انتهت صلاحيته");
+  }
+
+  const passkeyOptions = await generateRegistrationOptionsForUser({
+    id: record.user.id,
+    name: record.user.name,
+    email: record.user.email,
+  });
+
+  return {
+    valid: true,
+    email: record.user.email,
+    passkeyOptions,
+  };
+}
+
+export async function completeAccountRecovery(
+  rawToken: string,
+  credential: RegistrationResponseJSON,
+  passkeyLabel = "مفتاح بعد الاسترداد",
+) {
+  if (!rawToken || typeof rawToken !== "string") {
+    throw AppError.badRequest("رمز الاسترداد مطلوب");
+  }
+
+  const tokenHash = hashToken(rawToken);
+  const now = new Date();
+
+  const record = await prisma.accountRecoveryToken.findUnique({
+    where: { tokenHash },
+    include: {
+      user: true,
+    },
+  });
+
+  if (!record || record.usedAt !== null || record.expiresAt < now) {
+    logger.warn("Invalid or expired account recovery token during completion");
+    throw AppError.badRequest("رابط الاسترداد غير صالح أو انتهت صلاحيته");
+  }
+
+  // Atomically mark token as used
+  await prisma.accountRecoveryToken.update({
+    where: { id: record.id },
+    data: { usedAt: now },
+  });
+
+  // Verify and register the new Passkey
+  await verifyAndSaveRegistration(record.userId, credential, passkeyLabel);
+
+  // Security Policy: Revoke all existing sessions for this user across all devices
+  await revokeAllUserSessions(record.userId);
+
+  // Mark email as verified if not already
+  if (!record.user.emailVerifiedAt) {
+    await prisma.user.update({
+      where: { id: record.userId },
+      data: { emailVerifiedAt: now },
+    });
+  }
+
+  // Find user's primary store membership under app.user_id context
+  const primaryMember = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.user_id', ${record.userId}, true)`;
+    return await tx.storeMember.findFirst({
+      where: { userId: record.userId },
+      include: { store: true },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+
+  if (!primaryMember) {
+    throw AppError.internal("لم يتم العثور على متجر مرتبط بهذا المستخدم");
+  }
+
+  // Register device for this recovery under tenant context
+  const device = await withTenant(
+    primaryMember.storeId,
+    record.userId,
+    async (tx) => {
+      return await tx.device.create({
+        data: {
+          storeId: primaryMember.storeId,
+          userId: record.userId,
+          label: passkeyLabel,
+        },
+      });
+    },
+  );
+
+  const { rawToken: newSessionToken, session } = await createSession(
+    record.userId,
+    primaryMember.storeId,
+    device.id,
+  );
+
+  return {
+    token: newSessionToken,
+    session: {
+      idHash: session.idHash,
+      userId: record.userId,
+      storeId: primaryMember.storeId,
+      expiresAt: session.expiresAt.toISOString(),
+    },
+    user: {
+      id: record.user.id,
+      name: record.user.name,
+      phone: record.user.phone,
+      email: record.user.email,
+      emailVerified: true,
+    },
+    store: {
+      id: primaryMember.store.id,
+      name: primaryMember.store.name,
+      shopType: primaryMember.store.shopType,
+      governorate: primaryMember.store.governorate,
+      area: primaryMember.store.area ?? undefined,
+      openedOn: primaryMember.store.openedOn?.toISOString() ?? "",
+      workersCount: primaryMember.store.workersCount ?? 1,
+    },
+  };
+}
+
 export async function verifyRecoveryToken(
   rawToken: string,
   deviceLabel = "جهاز مسترد",
@@ -105,15 +249,7 @@ export async function verifyRecoveryToken(
   const record = await prisma.accountRecoveryToken.findUnique({
     where: { tokenHash },
     include: {
-      user: {
-        include: {
-          members: {
-            include: {
-              store: true,
-            },
-          },
-        },
-      },
+      user: true,
     },
   });
 
@@ -129,6 +265,9 @@ export async function verifyRecoveryToken(
     where: { id: record.id },
     data: { usedAt: now },
   });
+
+  // Security Policy: Revoke all existing sessions for this user
+  await revokeAllUserSessions(record.userId);
 
   // Mark email as verified if not already
   if (!record.user.emailVerifiedAt) {

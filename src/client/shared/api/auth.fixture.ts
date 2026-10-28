@@ -1,6 +1,12 @@
 import type {
+  AccountRecoveryConfirmInput,
+  AccountRecoveryRequestInput,
   AuthApi,
   AuthApiResult,
+  PasskeyAuthenticationOptions,
+  PasskeyCredentialResponse,
+  PasskeyInfo,
+  PasskeyRegistrationOptions,
   SessionState,
   SignupInput,
   StoreProfile,
@@ -35,6 +41,14 @@ class FixtureAuthApi implements AuthApi {
   private session: SessionState | null = null;
   private pin: string | null = null;
   private memoryStorage = new Map<string, string>();
+  private passkeys: PasskeyInfo[] = [
+    {
+      id: "passkey-fixture-01",
+      label: "جهاز المالك الأساسي (TEST)",
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    },
+  ];
 
   private getItem(key: string): string | null {
     if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
@@ -88,7 +102,12 @@ class FixtureAuthApi implements AuthApi {
     }
   }
 
-  async signup(data: SignupInput): Promise<AuthApiResult<SessionState>> {
+  async signup(data: SignupInput): Promise<
+    AuthApiResult<{
+      session: SessionState;
+      passkeyOptions: PasskeyRegistrationOptions;
+    }>
+  > {
     const user: UserSession = {
       id: `user-test-${Date.now()}`,
       name: `${data.ownerName} (TEST)`,
@@ -118,10 +137,67 @@ class FixtureAuthApi implements AuthApi {
 
     this.persist();
 
+    const passkeyOptions: PasskeyRegistrationOptions = {
+      challenge: "fixture-challenge-test",
+      rp: { id: "localhost", name: "حسبة" },
+      user: { id: user.id, name: user.email, displayName: user.name },
+      pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+    };
+
     return {
       success: true,
-      data: this.session,
+      data: {
+        session: this.session,
+        passkeyOptions,
+      },
     };
+  }
+
+  async completePasskeyRegistration(
+    _credential?: PasskeyCredentialResponse,
+    label = "جهاز المالك",
+  ): Promise<AuthApiResult<SessionState>> {
+    if (!this.session) {
+      return { success: false, error: "لا توجد جلسة تسجيل نشطة" };
+    }
+    this.passkeys.push({
+      id: `passkey-${Date.now()}`,
+      label,
+      createdAt: new Date().toISOString(),
+      lastUsedAt: new Date().toISOString(),
+    });
+    return { success: true, data: this.session };
+  }
+
+  async getPasskeyAuthOptions(
+    _identifier?: string,
+  ): Promise<AuthApiResult<PasskeyAuthenticationOptions>> {
+    void _identifier;
+    return {
+      success: true,
+      data: {
+        challenge: "fixture-auth-challenge",
+        rpId: "localhost",
+        timeout: 60000,
+        userVerification: "preferred",
+      },
+    };
+  }
+
+  async loginWithPasskey(
+    _credential?: PasskeyCredentialResponse,
+  ): Promise<AuthApiResult<SessionState>> {
+    void _credential;
+    this.session = {
+      user: { ...DEFAULT_TEST_USER },
+      store: { ...DEFAULT_TEST_STORE },
+      token: `hesba-passkey-token-${Date.now()}`,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      pinEnabled: this.hasLocalPin(),
+      isOfflineExpired: false,
+    };
+    this.persist();
+    return { success: true, data: this.session };
   }
 
   async requestMagicLink(
@@ -163,7 +239,7 @@ class FixtureAuthApi implements AuthApi {
 
   async requestAccountRecovery(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _email: string,
+    _input: AccountRecoveryRequestInput | string,
   ): Promise<AuthApiResult<{ message: string }>> {
     return {
       success: true,
@@ -173,9 +249,13 @@ class FixtureAuthApi implements AuthApi {
     };
   }
 
-  async verifyRecoveryToken(
-    token: string,
-  ): Promise<AuthApiResult<SessionState>> {
+  async verifyRecoveryToken(token: string): Promise<
+    AuthApiResult<{
+      email: string;
+      passkeyOptions?: PasskeyRegistrationOptions;
+      session?: SessionState;
+    }>
+  > {
     if (token === "invalid-token") {
       return {
         success: false,
@@ -195,8 +275,56 @@ class FixtureAuthApi implements AuthApi {
 
     return {
       success: true,
-      data: this.session,
+      data: {
+        email: DEFAULT_TEST_USER.email,
+        session: this.session,
+        passkeyOptions: {
+          challenge: "fixture-recovery-challenge",
+          rp: { id: "localhost", name: "حسبة" },
+          user: {
+            id: DEFAULT_TEST_USER.id,
+            name: DEFAULT_TEST_USER.email,
+            displayName: DEFAULT_TEST_USER.name,
+          },
+          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        },
+      },
     };
+  }
+
+  async completeAccountRecovery(
+    _input: AccountRecoveryConfirmInput,
+    _credential?: PasskeyCredentialResponse,
+  ): Promise<AuthApiResult<SessionState>> {
+    void _input;
+    void _credential;
+    this.session = {
+      user: { ...DEFAULT_TEST_USER },
+      store: { ...DEFAULT_TEST_STORE },
+      token: `hesba-recovered-token-${Date.now()}`,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      pinEnabled: this.hasLocalPin(),
+      isOfflineExpired: false,
+    };
+    this.persist();
+    return { success: true, data: this.session };
+  }
+
+  async listPasskeys(): Promise<AuthApiResult<PasskeyInfo[]>> {
+    return { success: true, data: [...this.passkeys] };
+  }
+
+  async revokePasskey(
+    passkeyId: string,
+  ): Promise<AuthApiResult<{ success: boolean }>> {
+    this.passkeys = this.passkeys.filter((p) => p.id !== passkeyId);
+    return { success: true, data: { success: true } };
+  }
+
+  async reauthenticateWithPasskey(): Promise<
+    AuthApiResult<{ verified: boolean }>
+  > {
+    return { success: true, data: { verified: true } };
   }
 
   async verifyEmail(
@@ -262,14 +390,18 @@ class FixtureAuthApi implements AuthApi {
     this.setItem(ATTEMPTS_KEY, String(count));
     if (count >= 5) {
       this.setItem(LOCKOUT_KEY, String(Date.now() + 30000));
-      return 30;
     }
-    return 0;
+    return count;
   }
 
   resetPinAttempts(): void {
     this.removeItem(ATTEMPTS_KEY);
     this.removeItem(LOCKOUT_KEY);
+  }
+
+  async resetPinWithReauth(): Promise<AuthApiResult<{ allowed: boolean }>> {
+    await this.setPin(null);
+    return { success: true, data: { allowed: true } };
   }
 
   async verifyPin(pin: string): Promise<boolean> {

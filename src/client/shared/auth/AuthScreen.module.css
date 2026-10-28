@@ -56,6 +56,13 @@
   box-shadow: 0 4px 12px color-mix(in srgb, var(--br) 35%, transparent);
 }
 
+.logoImg {
+  display: block;
+  width: auto;
+  object-fit: contain;
+  margin-bottom: 6px;
+}
+
 .head h1 {
   margin: 12px 0 0;
   font-size: 24px;

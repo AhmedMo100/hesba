@@ -16,26 +16,63 @@ export const signupInputSchema = z.object({
   withDemoData: z.boolean().optional().default(false),
 });
 
-export type SignupInput = z.infer<typeof signupInputSchema>;
+export type SignupInput = z.input<typeof signupInputSchema>;
 export type SignupInputRaw = z.input<typeof signupInputSchema>;
 
 export const magicLinkRequestSchema = z.object({
   email: z.string().trim().email("بريد إلكتروني غير صحيح"),
 });
-
 export type MagicLinkRequestInput = z.infer<typeof magicLinkRequestSchema>;
 
 export const magicLinkVerifySchema = z.object({
   token: z.string().min(1, "رمز التحقق مطلوب"),
 });
-
 export type MagicLinkVerifyInput = z.infer<typeof magicLinkVerifySchema>;
 
 export const emailVerificationSchema = z.object({
   token: z.string().min(1, "رمز التأكيد مطلوب"),
 });
-
 export type EmailVerificationInput = z.infer<typeof emailVerificationSchema>;
+
+export const passkeyCredentialResponseSchema = z.object({
+  id: z.string().min(1),
+  rawId: z.string().min(1),
+  type: z.literal("public-key"),
+  response: z.object({
+    clientDataJSON: z.string(),
+    attestationObject: z.string().optional(),
+    authenticatorData: z.string().optional(),
+    signature: z.string().optional(),
+    userHandle: z.string().optional(),
+  }),
+});
+
+export type PasskeyCredentialResponse = z.infer<
+  typeof passkeyCredentialResponseSchema
+>;
+
+export const completeRegistrationInputSchema = z.object({
+  credential: passkeyCredentialResponseSchema,
+  label: z.string().trim().optional(),
+});
+
+export type CompleteRegistrationInput = z.infer<
+  typeof completeRegistrationInputSchema
+>;
+
+export const getPasskeyAuthOptionsInputSchema = z.object({
+  identifier: z.string().trim().optional(),
+});
+
+export type GetPasskeyAuthOptionsInput = z.infer<
+  typeof getPasskeyAuthOptionsInputSchema
+>;
+
+export const loginWithPasskeyInputSchema = z.object({
+  credential: passkeyCredentialResponseSchema,
+});
+
+export type LoginWithPasskeyInput = z.infer<typeof loginWithPasskeyInputSchema>;
 
 export const accountRecoveryRequestSchema = z.object({
   email: z.string().trim().email("بريد إلكتروني غير صحيح"),
@@ -52,6 +89,22 @@ export const verifyRecoveryTokenInputSchema = z.object({
 export type VerifyRecoveryTokenInput = z.infer<
   typeof verifyRecoveryTokenInputSchema
 >;
+
+export const completeAccountRecoveryInputSchema = z.object({
+  token: z.string().min(1, "رمز الاسترداد مطلوب"),
+  credential: passkeyCredentialResponseSchema,
+  passkeyLabel: z.string().trim().optional(),
+});
+
+export type CompleteAccountRecoveryInput = z.infer<
+  typeof completeAccountRecoveryInputSchema
+>;
+
+export const revokePasskeyInputSchema = z.object({
+  passkeyId: z.string().uuid("معرف المفتاح غير صحيح"),
+});
+
+export type RevokePasskeyInput = z.infer<typeof revokePasskeyInputSchema>;
 
 export const storeProfileUpdateSchema = z.object({
   ownerName: z.string().trim().min(2, "اسم المالك مطلوب"),

@@ -8,6 +8,7 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
   icon?: IconName;
   wide?: boolean;
   loading?: boolean;
+  busy?: boolean;
   children?: React.ReactNode;
 }
 
@@ -17,11 +18,13 @@ export function Button({
   icon,
   wide = false,
   loading = false,
+  busy = false,
   disabled,
   children,
   className = "",
   ...rest
 }: ButtonProps) {
+  const isLoading = loading || busy;
   const classes = [
     styles.btn,
     styles[kind],
@@ -36,10 +39,10 @@ export function Button({
     <button
       type="button"
       className={classes}
-      disabled={disabled || loading}
+      disabled={disabled || isLoading}
       {...rest}
     >
-      {loading ? (
+      {isLoading ? (
         <Icon n="refresh" s={18} className={styles.spin} />
       ) : icon ? (
         <Icon n={icon} s={size === "sm" ? 16 : 18} />

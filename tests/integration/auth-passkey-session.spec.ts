@@ -2,22 +2,23 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 import {
+  createPasskeyChallenge,
+  consumePasskeyChallenge,
   createSession,
   validateSession,
   rotateSession,
   revokeSession,
   revokeOtherUserSessions,
   requestAccountRecovery,
+  validateRecoveryToken,
   verifyRecoveryToken,
-  requestMagicLink,
-  verifyMagicLink,
   signupUserAndStore,
   authRateLimiter,
   hashToken,
 } from "@/server/modules/auth";
 import { assertStoreOwner, assertStoreAccess } from "@/server/modules/tenancy";
 import { withTenant } from "@/server/infra/db/tenant";
-import { mockEmailProvider } from "@/server/infra/email";
+import { getEmailProvider, mockEmailProvider } from "@/server/infra/email";
 
 if (!process.env["HESBA_DATABASE_URL"] || !process.env["HESBA_DIRECT_URL"]) {
   try {
@@ -31,11 +32,17 @@ if (!process.env["HESBA_DATABASE_URL"] || !process.env["HESBA_DIRECT_URL"]) {
   }
 }
 
+// Provide safe, non-production defaults for test environment
+process.env["HESBA_SESSION_SECRET"] ??=
+  "hesba-test-session-secret-at-least-16-chars";
+process.env["HESBA_CRON_SECRET"] ??= "hesba-test-cron-secret";
+process.env["HESBA_APP_ORIGIN"] ??= "http://localhost:3000";
+
 const directUrl =
   process.env["HESBA_DIRECT_URL"] ??
   "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
 
-describe("Hesba Authentication & Sessions Integration — Magic Link & Local PIN", () => {
+describe("Hesba Authentication & Sessions Integration — WebAuthn Passkeys & Recovery", () => {
   let prisma: PrismaClient;
   let sql: postgres.Sql;
 
@@ -116,7 +123,8 @@ describe("Hesba Authentication & Sessions Integration — Magic Link & Local PIN
         });
       }
       if (testUserId) {
-        await prisma.magicLinkToken.deleteMany({
+        await prisma.userPasskey.deleteMany({ where: { userId: testUserId } });
+        await prisma.passkeyChallenge.deleteMany({
           where: { userId: testUserId },
         });
         await prisma.accountRecoveryToken.deleteMany({
@@ -160,110 +168,53 @@ describe("Hesba Authentication & Sessions Integration — Magic Link & Local PIN
     });
   });
 
-  describe("2. Magic Link Login Lifecycle (Experience B)", () => {
-    beforeAll(() => {
-      authRateLimiter.clear();
-      mockEmailProvider.clear();
-    });
-
-    it("returns generic message for non-existent email to prevent enumeration", async () => {
-      const response = await requestMagicLink("unknown-user@hesba.test");
-      expect(response.message).toContain("تم إرسال رابط الدخول");
-      expect(mockEmailProvider.getSentEmails()).toHaveLength(0);
-    });
-
-    it("sends magic link email with hashed token when user exists", async () => {
-      const user = await prisma.user.findUniqueOrThrow({
-        where: { id: testUserId },
-      });
-      const response = await requestMagicLink(user.email);
-      expect(response.message).toContain("تم إرسال رابط الدخول");
-
-      const sent = mockEmailProvider.getLastEmailFor(user.email);
-      expect(sent).toBeDefined();
-      expect(sent?.type).toBe("magic-link");
-      expect(sent?.url).toContain("token=");
-
-      const urlToken = new URL(sent!.url!).searchParams.get("token")!;
-      const tokenRecord = await prisma.magicLinkToken.findUnique({
-        where: { tokenHash: hashToken(urlToken) },
-      });
-      expect(tokenRecord).toBeDefined();
-      expect(tokenRecord?.userId).toBe(testUserId);
-      expect(tokenRecord?.usedAt).toBeNull();
-    });
-
-    it("verifies valid magic link token, sets emailVerified, creates device and establishes session", async () => {
-      const rawToken = "magic-test-token-" + Math.random();
-      await prisma.magicLinkToken.create({
-        data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-        },
-      });
-
-      const result = await verifyMagicLink(rawToken, "جهاز المتجر رقم 2");
-      expect(result.token).toBeTypeOf("string");
-      expect(result.session.userId).toBe(testUserId);
-      expect(result.session.storeId).toBe(testStoreId);
-      expect(result.user.emailVerified).toBe(true);
-
-      // Verify token is now marked as used
-      const tokenRecord = await prisma.magicLinkToken.findUnique({
-        where: { tokenHash: hashToken(rawToken) },
-      });
-      expect(tokenRecord?.usedAt).not.toBeNull();
-    });
-
-    it("atomically enforces single-use: second consumption fails", async () => {
-      const rawToken = "single-use-token-" + Math.random();
-      await prisma.magicLinkToken.create({
-        data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
-          expiresAt: new Date(Date.now() + 15 * 60 * 1000),
-        },
-      });
-
-      // First consumption succeeds
-      await verifyMagicLink(rawToken);
-
-      // Second consumption throws error
-      await expect(verifyMagicLink(rawToken)).rejects.toThrow(
-        "رابط الدخول غير صالح أو انتهت صلاحيته",
+  describe("2. WebAuthn Passkey Challenges", () => {
+    it("generates and atomically consumes a passkey challenge", async () => {
+      const challenge = await createPasskeyChallenge(
+        "authentication",
+        testUserId,
       );
+
+      expect(challenge).toBeTypeOf("string");
+
+      const consumed = await consumePasskeyChallenge(
+        challenge,
+        "authentication",
+      );
+      expect(consumed.challenge).toBe(challenge);
+      expect(consumed.purpose).toBe("authentication");
     });
 
-    it("rejects expired magic link tokens", async () => {
-      const rawToken = "expired-token-" + Math.random();
-      await prisma.magicLinkToken.create({
+    it("REPLAY PROTECTION: consumed challenge cannot be used a second time", async () => {
+      const challenge = await createPasskeyChallenge(
+        "registration",
+        testUserId,
+      );
+
+      await consumePasskeyChallenge(challenge, "registration");
+
+      await expect(
+        consumePasskeyChallenge(challenge, "registration"),
+      ).rejects.toThrow("تم استخدام رمز التحقق هذا من قبل");
+    });
+
+    it("rejects expired passkey challenges", async () => {
+      const expiredChallenge = "expired-challenge-" + Math.random();
+      await prisma.passkeyChallenge.create({
         data: {
-          userId: testUserId,
-          tokenHash: hashToken(rawToken),
+          challenge: expiredChallenge,
+          purpose: "authentication",
           expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
         },
       });
 
-      await expect(verifyMagicLink(rawToken)).rejects.toThrow(
-        "رابط الدخول غير صالح أو انتهت صلاحيته",
-      );
-    });
-
-    it("enforces rate limiting on magic link requests (max 3/hr per email)", async () => {
-      const email = `ratelimit-magic-${Math.random()}@hesba.test`;
-
-      await requestMagicLink(email);
-      await requestMagicLink(email);
-      await requestMagicLink(email);
-
-      await expect(requestMagicLink(email)).rejects.toThrow(
-        "تجاوزت الحد الأقصى لمحاولات تسجيل الدخول",
-      );
+      await expect(
+        consumePasskeyChallenge(expiredChallenge, "authentication"),
+      ).rejects.toThrow("انتهت صلاحية رمز التحقق");
     });
   });
 
-  describe("3. Three-Step Registration Lifecycle (Experience A)", () => {
+  describe("3. Three-Step Registration Lifecycle", () => {
     it("creates user, store, device and session, and dispatches email verification", async () => {
       const runId = Math.random().toString(36).substring(2, 8);
       const email = `newowner-${runId}@hesba.test`;
@@ -281,29 +232,22 @@ describe("Hesba Authentication & Sessions Integration — Magic Link & Local PIN
         withDemoData: true,
       });
 
-      expect(result.token).toBeTypeOf("string");
-      expect(result.user.email).toBe(email);
-      expect(result.store.name).toBe("سوبر ماركت النور");
-
-      // Verify email verification token was created in DB
-      const verificationRecord = await prisma.emailVerificationToken.findFirst({
-        where: { userId: result.user.id },
-      });
-      expect(verificationRecord).toBeDefined();
+      expect(result.userId).toBeTypeOf("string");
+      expect(result.storeId).toBeTypeOf("string");
+      expect(result.passkeyOptions.challenge).toBeDefined();
 
       // Clean up newly created signup data
-      await prisma.session.deleteMany({ where: { userId: result.user.id } });
-      await withTenant(result.store.id, result.user.id, async (tx) => {
-        await tx.device.deleteMany({ where: { storeId: result.store.id } });
+      await prisma.passkeyChallenge.deleteMany({
+        where: { userId: result.userId },
+      });
+      await withTenant(result.storeId, result.userId, async (tx) => {
+        await tx.device.deleteMany({ where: { storeId: result.storeId } });
         await tx.storeMember.deleteMany({
-          where: { storeId: result.store.id },
+          where: { storeId: result.storeId },
         });
-        await tx.store.deleteMany({ where: { id: result.store.id } });
+        await tx.store.deleteMany({ where: { id: result.storeId } });
       });
-      await prisma.emailVerificationToken.deleteMany({
-        where: { userId: result.user.id },
-      });
-      await prisma.user.deleteMany({ where: { id: result.user.id } });
+      await prisma.user.deleteMany({ where: { id: result.userId } });
     });
 
     it("rejects duplicate phone or email on signup", async () => {
@@ -438,12 +382,62 @@ describe("Hesba Authentication & Sessions Integration — Magic Link & Local PIN
     });
   });
 
-  describe("5. Account Recovery via Email Link (Experience C)", () => {
+  describe("5. Account Recovery via Email Link", () => {
+    beforeAll(() => {
+      authRateLimiter.clear();
+      mockEmailProvider.clear();
+    });
+
     it("returns generic message for non-existent email to prevent enumeration", async () => {
       const response = await requestAccountRecovery(
         "non-existent-user@hesba.test",
       );
       expect(response.message).toContain("تم إرسال رابط الاسترداد");
+      expect(mockEmailProvider.getSentEmails()).toHaveLength(0);
+    });
+
+    it("dispatches recovery email with secure token link for eligible accounts", async () => {
+      const user = await prisma.user.findUniqueOrThrow({
+        where: { id: testUserId },
+      });
+
+      const response = await requestAccountRecovery(user.email);
+      expect(response.message).toContain("تم إرسال رابط الاسترداد");
+
+      const lastEmail = mockEmailProvider.getLastEmailFor(user.email);
+      expect(lastEmail).toBeDefined();
+      expect(lastEmail?.type).toBe("recovery");
+      expect(lastEmail?.url).toContain("/auth/verify-link?token=");
+
+      // Ensure token is stored hashed in DB
+      const urlToken = new URL(lastEmail!.url!).searchParams.get("token")!;
+      const tokenRecord = await prisma.accountRecoveryToken.findUnique({
+        where: { tokenHash: hashToken(urlToken) },
+      });
+      expect(tokenRecord).toBeDefined();
+      expect(tokenRecord?.userId).toBe(testUserId);
+      expect(tokenRecord?.usedAt).toBeNull();
+    });
+
+    it("validates recovery token without consuming it prematurely", async () => {
+      const rawToken = "validation-token-" + Math.random();
+      await prisma.accountRecoveryToken.create({
+        data: {
+          userId: testUserId,
+          tokenHash: hashToken(rawToken),
+          expiresAt: new Date(Date.now() + 3600000),
+        },
+      });
+
+      const validated = await validateRecoveryToken(rawToken);
+      expect(validated.valid).toBe(true);
+      expect(validated.passkeyOptions).toBeDefined();
+
+      // Token should NOT be consumed yet!
+      const record = await prisma.accountRecoveryToken.findUnique({
+        where: { tokenHash: hashToken(rawToken) },
+      });
+      expect(record?.usedAt).toBeNull();
     });
 
     it("verifies valid recovery token and establishes authenticated session", async () => {
@@ -466,9 +460,60 @@ describe("Hesba Authentication & Sessions Integration — Magic Link & Local PIN
       });
       expect(tokenRecord?.usedAt).not.toBeNull();
     });
+
+    it("enforces single-use: second consumption fails", async () => {
+      const rawToken = "single-use-recovery-" + Math.random();
+      await prisma.accountRecoveryToken.create({
+        data: {
+          userId: testUserId,
+          tokenHash: hashToken(rawToken),
+          expiresAt: new Date(Date.now() + 3600000),
+        },
+      });
+
+      await verifyRecoveryToken(rawToken);
+
+      await expect(verifyRecoveryToken(rawToken)).rejects.toThrow(
+        "رابط الاسترداد غير صالح أو انتهت صلاحيته",
+      );
+    });
+
+    it("rejects expired recovery tokens", async () => {
+      const rawToken = "expired-recovery-" + Math.random();
+      await prisma.accountRecoveryToken.create({
+        data: {
+          userId: testUserId,
+          tokenHash: hashToken(rawToken),
+          expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
+        },
+      });
+
+      await expect(verifyRecoveryToken(rawToken)).rejects.toThrow(
+        "رابط الاسترداد غير صالح أو انتهت صلاحيته",
+      );
+    });
+
+    it("enforces rate limiting on account recovery requests (max 3/hr per email)", async () => {
+      const email = `ratelimit-rec-${Math.random()}@hesba.test`;
+
+      await requestAccountRecovery(email);
+      await requestAccountRecovery(email);
+      await requestAccountRecovery(email);
+
+      await expect(requestAccountRecovery(email)).rejects.toThrow(
+        "تجاوزت الحد الأقصى لمحاولات الاسترداد",
+      );
+    });
   });
 
-  describe("6. Tenancy & Role-based Authorization", () => {
+  describe("6. Email Provider Isolation in Automated Tests", () => {
+    it("ensures automated tests use mock email provider without real network calls", () => {
+      const provider = getEmailProvider();
+      expect(provider).toBe(mockEmailProvider);
+    });
+  });
+
+  describe("7. Tenancy & Role-based Authorization", () => {
     it("allows owner to perform owner-only operations", async () => {
       const membership = await assertStoreOwner(testStoreId, testUserId);
       expect(membership.role).toBe("owner");

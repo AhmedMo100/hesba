@@ -30,9 +30,13 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     });
 
     // 2. Signup Step 2 ("محلك")
+    const testId = Math.random().toString(36).substring(2, 7);
+    const testPhone = `010${Math.floor(10000000 + Math.random() * 90000000)}`;
+    const testEmail = `magdy_${testId}@example.com`;
+
     await page.fill('input[placeholder="مثال: مجدي أحمد"]', "مجدي أحمد");
-    await page.fill('input[placeholder="01xxxxxxxxx"]', "01012345678");
-    await page.fill('input[placeholder="name@email.com"]', "magdy@example.com");
+    await page.fill('input[placeholder="01xxxxxxxxx"]', testPhone);
+    await page.fill('input[placeholder="name@email.com"]', testEmail);
     await page.click('button:has-text("التالي")');
 
     await expect(
