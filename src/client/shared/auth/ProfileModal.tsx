@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./ProfileModal.module.css";
-import { Modal, Button, Field, useToast } from "../ui";
+import { Modal, Button, Field, useToast, Alert } from "../ui";
 import { useTranslation } from "../i18n";
 import { authApi } from "../api";
 import type { StoreProfile } from "../api";
@@ -147,7 +147,11 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
         </>
       }
     >
-      {serverError && <div className={styles.serverErr}>{serverError}</div>}
+      {serverError && (
+        <Alert kind="error" onClose={() => setServerError("")}>
+          {serverError}
+        </Alert>
+      )}
 
       <div className={styles.secMini}>{t("profile.ownerSection")}</div>
       <Field label={t("auth.ownerLabel")} err={fieldErrors["owner"]}>

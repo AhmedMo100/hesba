@@ -6,7 +6,13 @@ import { AuthScreen } from "@/client/shared/auth";
 import { authApi } from "@/client/shared/api";
 import { ToastProvider } from "@/client/shared/ui";
 
-export function AuthEntryClient() {
+export interface AuthEntryClientProps {
+  initialMode?: "login" | "signup" | "forgot-password";
+}
+
+export function AuthEntryClient({
+  initialMode = "login",
+}: AuthEntryClientProps = {}) {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [redirectTo] = useState<string>(() => {
@@ -50,7 +56,7 @@ export function AuthEntryClient() {
   return (
     <ToastProvider>
       <AuthScreen
-        initialMode="login"
+        initialMode={initialMode}
         onSuccess={() => {
           router.push(redirectTo);
         }}

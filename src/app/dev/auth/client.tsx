@@ -12,6 +12,8 @@ export default function DevAuthClient() {
     | "forgot-password"
     | "forgot-password-code"
     | "profile"
+    | "reset-success"
+    | "error-feedback"
   >(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("screen");
@@ -21,7 +23,9 @@ export default function DevAuthClient() {
         p === "login" ||
         p === "forgot-password" ||
         p === "forgot-password-code" ||
-        p === "profile"
+        p === "profile" ||
+        p === "reset-success" ||
+        p === "error-feedback"
       ) {
         return p;
       }
@@ -87,6 +91,18 @@ export default function DevAuthClient() {
             إدخال الكود
           </Button>
           <Button
+            kind={screen === "reset-success" ? "primary" : "ghost"}
+            onClick={() => setScreen("reset-success")}
+          >
+            تأكيد النجاح
+          </Button>
+          <Button
+            kind={screen === "error-feedback" ? "primary" : "ghost"}
+            onClick={() => setScreen("error-feedback")}
+          >
+            رسالة خطأ
+          </Button>
+          <Button
             kind={screen === "profile" ? "primary" : "ghost"}
             onClick={() => {
               setScreen("profile");
@@ -114,6 +130,24 @@ export default function DevAuthClient() {
 
           {screen === "forgot-password-code" && (
             <AuthScreen initialMode="forgot-password" initialForgotStep={1} />
+          )}
+
+          {screen === "reset-success" && (
+            <AuthScreen
+              initialMode="login"
+              initialSuccessTitle="تم تغيير كلمة السر بنجاح"
+              initialSuccess="سجل دخولك الآن بكلمة السر الجديدة للاستمرار في إدارة محلك."
+            />
+          )}
+
+          {screen === "error-feedback" && (
+            <AuthScreen
+              initialMode="login"
+              initialError="رقم الموبايل أو كلمة السر غير صحيحة. تأكد من البيانات وحاول تاني."
+              initialFieldErrors={{
+                loginPhone: "رقم موبايل مصري صحيح (01xxxxxxxxx)",
+              }}
+            />
           )}
 
           {screen === "profile" && showProfile && (

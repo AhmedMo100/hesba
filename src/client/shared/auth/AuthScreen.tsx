@@ -3,7 +3,7 @@
 import React, { useState } from "react";
 import Image from "next/image";
 import styles from "./AuthScreen.module.css";
-import { Button, Field, Icon } from "../ui";
+import { Button, Field, Icon, Alert } from "../ui";
 import { useTranslation } from "../i18n";
 import { authApi } from "../api";
 import type { SessionState, SignupInput } from "../api";
@@ -66,6 +66,10 @@ export interface AuthScreenProps {
   initialMode?: "signup" | "login" | "forgot-password";
   initialStep?: 0 | 1;
   initialForgotStep?: 0 | 1;
+  initialSuccess?: string;
+  initialSuccessTitle?: string;
+  initialError?: string;
+  initialFieldErrors?: Record<string, string>;
   onSuccess?: (session: SessionState) => void;
   isOffline?: boolean;
 }
@@ -74,6 +78,10 @@ export function AuthScreen({
   initialMode = "login",
   initialStep = 0,
   initialForgotStep = 0,
+  initialSuccess = "",
+  initialSuccessTitle = "",
+  initialError = "",
+  initialFieldErrors = {},
   onSuccess,
   isOffline = false,
 }: AuthScreenProps) {
@@ -85,9 +93,12 @@ export function AuthScreen({
   const [forgotStep, setForgotStep] = useState<0 | 1>(initialForgotStep); // 0 = إرسال الكود, 1 = إدخال الكود وكلمة السر
   const [dir, setDir] = useState<1 | -1>(1);
   const [busy, setBusy] = useState(false);
-  const [globalErr, setGlobalErr] = useState("");
-  const [globalSuccess, setGlobalSuccess] = useState("");
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const [globalErr, setGlobalErr] = useState(initialError);
+  const [globalSuccess, setGlobalSuccess] = useState(initialSuccess);
+  const [globalSuccessTitle, setGlobalSuccessTitle] =
+    useState(initialSuccessTitle);
+  const [fieldErrors, setFieldErrors] =
+    useState<Record<string, string>>(initialFieldErrors);
 
   // Password visibility toggles
   const [showPassword, setShowPassword] = useState(false);
@@ -126,7 +137,18 @@ export function AuthScreen({
     setForgotStep(0);
     setGlobalErr("");
     setGlobalSuccess("");
+    setGlobalSuccessTitle("");
     setFieldErrors({});
+
+    if (typeof window !== "undefined") {
+      const targetPath = newMode === "login" ? "/login" : "/" + newMode;
+      if (
+        window.location.pathname !== targetPath &&
+        window.location.pathname !== "/"
+      ) {
+        window.history.replaceState(null, "", targetPath);
+      }
+    }
   };
 
   // --- 1. Login Handler ---
@@ -250,6 +272,7 @@ export function AuthScreen({
       }
 
       setForgotStep(1);
+      setGlobalSuccessTitle(t("auth.codeSentTitle"));
       setGlobalSuccess(res.data?.message || t("auth.forgotPasswordSub"));
       setResendCooldown(60);
       const timer = setInterval(() => {
@@ -272,6 +295,7 @@ export function AuthScreen({
     e?.preventDefault();
     setGlobalErr("");
     setGlobalSuccess("");
+    setGlobalSuccessTitle("");
     const errs: Record<string, string> = {};
 
     const cleanCode = normDigits(resetCode).replace(/\s|-/g, "");
@@ -303,6 +327,7 @@ export function AuthScreen({
 
       // Success! Switch back to login with success message
       switchMode("login");
+      setGlobalSuccessTitle(t("auth.passwordResetSuccessTitle"));
       setGlobalSuccess(t("auth.passwordResetSuccess"));
       setLoginPassword("");
     } catch {
@@ -349,16 +374,28 @@ export function AuthScreen({
 
         {/* Offline Notice if applicable */}
         {isOffline && (
-          <div className={styles.offlineNotice}>
-            <Icon n="wifioff" s={16} />
-            <span>{t("auth.offlineNotice")}</span>
-          </div>
+          <Alert kind="warning" icon="wifioff">
+            {t("auth.offlineNotice")}
+          </Alert>
         )}
 
         {/* Global Notifications */}
-        {globalErr && <div className={styles.globalErr}>{globalErr}</div>}
+        {globalErr && (
+          <Alert kind="error" onClose={() => setGlobalErr("")}>
+            {globalErr}
+          </Alert>
+        )}
         {globalSuccess && (
-          <div className={styles.globalSuccess}>{globalSuccess}</div>
+          <Alert
+            kind="success"
+            title={globalSuccessTitle || undefined}
+            onClose={() => {
+              setGlobalSuccess("");
+              setGlobalSuccessTitle("");
+            }}
+          >
+            {globalSuccess}
+          </Alert>
         )}
 
         {/* ----------------- 1. LOGIN MODE ----------------- */}
@@ -374,6 +411,7 @@ export function AuthScreen({
                 onChange={(e) => {
                   setLoginPhone(e.target.value);
                   setFieldErrors((prev) => ({ ...prev, loginPhone: "" }));
+                  setGlobalErr("");
                 }}
                 disabled={busy}
                 autoFocus
@@ -393,6 +431,7 @@ export function AuthScreen({
                   onChange={(e) => {
                     setLoginPassword(e.target.value);
                     setFieldErrors((prev) => ({ ...prev, loginPassword: "" }));
+                    setGlobalErr("");
                   }}
                   disabled={busy}
                 />
@@ -480,12 +519,14 @@ export function AuthScreen({
                     autoComplete="name"
                     placeholder={t("auth.ownerPlaceholder")}
                     value={signupData.ownerName}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setSignupData({
                         ...signupData,
                         ownerName: e.target.value,
-                      })
-                    }
+                      });
+                      setFieldErrors((prev) => ({ ...prev, ownerName: "" }));
+                      setGlobalErr("");
+                    }}
                     disabled={busy}
                     autoFocus
                   />
@@ -498,9 +539,11 @@ export function AuthScreen({
                     autoComplete="tel"
                     placeholder={t("auth.phonePlaceholder")}
                     value={signupData.phone}
-                    onChange={(e) =>
-                      setSignupData({ ...signupData, phone: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setSignupData({ ...signupData, phone: e.target.value });
+                      setFieldErrors((prev) => ({ ...prev, phone: "" }));
+                      setGlobalErr("");
+                    }}
                     disabled={busy}
                   />
                 </Field>
@@ -512,9 +555,11 @@ export function AuthScreen({
                     autoComplete="email"
                     placeholder={t("auth.emailPlaceholder")}
                     value={signupData.email}
-                    onChange={(e) =>
-                      setSignupData({ ...signupData, email: e.target.value })
-                    }
+                    onChange={(e) => {
+                      setSignupData({ ...signupData, email: e.target.value });
+                      setFieldErrors((prev) => ({ ...prev, email: "" }));
+                      setGlobalErr("");
+                    }}
                     disabled={busy}
                   />
                 </Field>
@@ -529,12 +574,14 @@ export function AuthScreen({
                       autoComplete="new-password"
                       placeholder={t("auth.passwordPlaceholder")}
                       value={signupData.password}
-                      onChange={(e) =>
+                      onChange={(e) => {
                         setSignupData({
                           ...signupData,
                           password: e.target.value,
-                        })
-                      }
+                        });
+                        setFieldErrors((prev) => ({ ...prev, password: "" }));
+                        setGlobalErr("");
+                      }}
                       disabled={busy}
                     />
                     <button
@@ -588,12 +635,14 @@ export function AuthScreen({
                     type="text"
                     placeholder={t("auth.storeNamePlaceholder")}
                     value={signupData.storeName}
-                    onChange={(e) =>
+                    onChange={(e) => {
                       setSignupData({
                         ...signupData,
                         storeName: e.target.value,
-                      })
-                    }
+                      });
+                      setFieldErrors((prev) => ({ ...prev, storeName: "" }));
+                      setGlobalErr("");
+                    }}
                     disabled={busy}
                     autoFocus
                   />
@@ -762,6 +811,7 @@ export function AuthScreen({
                     onChange={(e) => {
                       setForgotEmail(e.target.value);
                       setFieldErrors({});
+                      setGlobalErr("");
                     }}
                     disabled={busy}
                     autoFocus
@@ -805,6 +855,7 @@ export function AuthScreen({
                     onChange={(e) => {
                       setResetCode(e.target.value);
                       setFieldErrors((prev) => ({ ...prev, code: "" }));
+                      setGlobalErr("");
                     }}
                     disabled={busy}
                     autoFocus
@@ -827,6 +878,7 @@ export function AuthScreen({
                           ...prev,
                           newPassword: "",
                         }));
+                        setGlobalErr("");
                       }}
                       disabled={busy}
                     />
@@ -847,20 +899,33 @@ export function AuthScreen({
                   label={t("auth.confirmPasswordLabel")}
                   err={fieldErrors["confirmPassword"]}
                 >
-                  <input
-                    type={showNewPassword ? "text" : "password"}
-                    autoComplete="new-password"
-                    placeholder={t("auth.confirmPasswordLabel")}
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      setFieldErrors((prev) => ({
-                        ...prev,
-                        confirmPassword: "",
-                      }));
-                    }}
-                    disabled={busy}
-                  />
+                  <div className={styles.passwordWrapper}>
+                    <input
+                      type={showNewPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      placeholder={t("auth.confirmPasswordLabel")}
+                      value={confirmPassword}
+                      onChange={(e) => {
+                        setConfirmPassword(e.target.value);
+                        setFieldErrors((prev) => ({
+                          ...prev,
+                          confirmPassword: "",
+                        }));
+                        setGlobalErr("");
+                      }}
+                      disabled={busy}
+                    />
+                    <button
+                      type="button"
+                      className={styles.passwordToggle}
+                      onClick={() => setShowNewPassword(!showNewPassword)}
+                      aria-label={
+                        showNewPassword ? "إخفاء كلمة السر" : "عرض كلمة السر"
+                      }
+                    >
+                      <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
+                    </button>
+                  </div>
                 </Field>
 
                 <div style={{ marginTop: "10px" }}>
@@ -882,7 +947,10 @@ export function AuthScreen({
                     className={styles.secondaryLink}
                     style={{ cursor: "default" }}
                   >
-                    إعادة إرسال الكود خلال {resendCooldown} ثانية
+                    {t("auth.resendInSeconds").replace(
+                      "{seconds}",
+                      String(resendCooldown),
+                    )}
                   </span>
                 ) : (
                   <button

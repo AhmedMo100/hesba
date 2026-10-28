@@ -1,0 +1,132 @@
+.alert {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  direction: rtl;
+  text-align: right;
+  margin-bottom: 16px;
+  box-sizing: border-box;
+  animation: alertIn 0.2s var(--ease);
+}
+
+@keyframes alertIn {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Subtle backgrounds & clear borders */
+.error {
+  background: color-mix(in srgb, var(--red) 10%, var(--sf));
+  border: 1.5px solid color-mix(in srgb, var(--red) 35%, transparent);
+}
+
+.error .icon {
+  color: var(--red);
+}
+
+.success {
+  background: color-mix(in srgb, var(--ok) 10%, var(--sf));
+  border: 1.5px solid color-mix(in srgb, var(--ok) 35%, transparent);
+}
+
+.success .icon {
+  color: var(--ok);
+}
+
+.warning {
+  background: color-mix(in srgb, var(--yel) 12%, var(--sf));
+  border: 1.5px solid color-mix(in srgb, var(--yel) 40%, transparent);
+}
+
+.warning .icon {
+  color: var(--yel);
+}
+
+.info {
+  background: color-mix(in srgb, var(--br) 9%, var(--sf));
+  border: 1.5px solid color-mix(in srgb, var(--br) 32%, transparent);
+}
+
+.info .icon {
+  color: var(--br);
+}
+
+.icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1.5px;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.title {
+  font-weight: 800;
+  font-size: 14px;
+  margin-bottom: 3px;
+  color: var(--ink);
+}
+
+.bodyText {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.closeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: var(--ink2);
+  margin-inline-start: 4px;
+  margin-top: -2px;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    color 0.15s;
+}
+
+.closeBtn:hover {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+
+@media (max-width: 380px) {
+  .alert {
+    padding: 10px 12px;
+    gap: 8px;
+    font-size: 13px;
+    border-radius: 12px;
+  }
+
+  .title {
+    font-size: 13.5px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alert {
+    animation: none !important;
+  }
+}

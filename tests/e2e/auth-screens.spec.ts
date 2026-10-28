@@ -107,6 +107,47 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
       fullPage: false,
     });
 
+    // 4c. Password Reset Confirmation State
+    await page.goto("/dev/auth?screen=reset-success");
+    await page.waitForLoadState("domcontentloaded");
+    await page.addStyleTag({
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
+    });
+    await expect(page.locator("role=status")).toBeVisible();
+    await expect(page.locator("role=status")).toContainText(
+      "تم تغيير كلمة السر بنجاح",
+    );
+    await page.screenshot({
+      path: path.join(screenshotsDir, "auth-reset-success.png"),
+      fullPage: false,
+    });
+
+    // 4d. Form Error Feedback State
+    await page.goto("/dev/auth?screen=error-feedback");
+    await page.waitForLoadState("domcontentloaded");
+    await page.addStyleTag({
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
+    });
+    await expect(
+      page
+        .getByRole("alert")
+        .filter({ hasText: "رقم الموبايل أو كلمة السر غير صحيحة" }),
+    ).toBeVisible();
+    await page.screenshot({
+      path: path.join(screenshotsDir, "auth-error-feedback.png"),
+      fullPage: false,
+    });
+
     // 5. Profile Modal
     await page.goto("/dev/auth?screen=profile");
     await page.waitForLoadState("domcontentloaded");
@@ -123,5 +164,31 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
       path: path.join(screenshotsDir, "profile-modal.png"),
       fullPage: false,
     });
+  });
+
+  test("canonical public auth routes render correctly at 360px", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+
+    // 1. Root route / renders login
+    await page.goto("/");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("h1")).toHaveText("أهلاً بيك تاني");
+
+    // 2. /login renders canonical login
+    await page.goto("/login");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("h1")).toHaveText("أهلاً بيك تاني");
+
+    // 3. /signup renders registration flow
+    await page.goto("/signup");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("h1")).toHaveText("افتح حساب حسبة");
+
+    // 4. /forgot-password renders recovery request
+    await page.goto("/forgot-password");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
   });
 });
