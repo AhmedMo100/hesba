@@ -4,6 +4,7 @@ import path from "node:path";
 export default defineConfig({
   test: {
     environment: "node",
+    fileParallelism: false,
     include: [
       "tests/integration/**/*.spec.ts",
       "tests/integration/**/*.test.ts",

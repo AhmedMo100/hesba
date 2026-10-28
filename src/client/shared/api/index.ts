@@ -1,2 +1,3 @@
 export * from "./auth";
-export { fixtureAuthApi as authApi } from "./auth.fixture";
+export { realAuthApi as authApi } from "./auth.real";
+export { fixtureAuthApi } from "./auth.fixture";
