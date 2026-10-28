@@ -6,15 +6,22 @@ import { ToastProvider, Button } from "@/client/shared/ui";
 
 export default function DevAuthClient() {
   const [screen, setScreen] = useState<
-    "signup-1" | "signup-2" | "login" | "otp" | "pin" | "profile"
+    | "signup-1"
+    | "signup-2"
+    | "passkey-reg"
+    | "login"
+    | "recovery"
+    | "pin"
+    | "profile"
   >(() => {
     if (typeof window !== "undefined") {
       const p = new URLSearchParams(window.location.search).get("screen");
       if (
         p === "signup-1" ||
         p === "signup-2" ||
+        p === "passkey-reg" ||
         p === "login" ||
-        p === "otp" ||
+        p === "recovery" ||
         p === "pin" ||
         p === "profile"
       ) {
@@ -63,16 +70,22 @@ export default function DevAuthClient() {
             محلك (2)
           </Button>
           <Button
+            kind={screen === "passkey-reg" ? "primary" : "ghost"}
+            onClick={() => setScreen("passkey-reg")}
+          >
+            مفتاح المرور
+          </Button>
+          <Button
             kind={screen === "login" ? "primary" : "ghost"}
             onClick={() => setScreen("login")}
           >
             دخول
           </Button>
           <Button
-            kind={screen === "otp" ? "primary" : "ghost"}
-            onClick={() => setScreen("otp")}
+            kind={screen === "recovery" ? "primary" : "ghost"}
+            onClick={() => setScreen("recovery")}
           >
-            كود OTP
+            استرداد الحساب
           </Button>
           <Button
             kind={screen === "pin" ? "primary" : "ghost"}
@@ -96,11 +109,18 @@ export default function DevAuthClient() {
             <AuthScreen initialMode="signup" />
           )}
 
+          {screen === "passkey-reg" && <AuthScreen initialMode="passkey-reg" />}
+
           {screen === "login" && <AuthScreen initialMode="login" />}
 
-          {screen === "otp" && <AuthScreen initialMode="otp" />}
+          {screen === "recovery" && <AuthScreen initialMode="recovery" />}
 
-          {screen === "pin" && <PinLockScreen onUnlock={() => {}} />}
+          {screen === "pin" && (
+            <PinLockScreen
+              onUnlock={() => {}}
+              onTriggerRecovery={() => setScreen("recovery")}
+            />
+          )}
 
           {screen === "profile" && showProfile && (
             <ProfileModal onClose={() => setShowProfile(false)} />

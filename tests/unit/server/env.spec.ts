@@ -16,7 +16,6 @@ describe("Environment configuration validator", () => {
 
     expect(validated.HESBA_DATABASE_URL).toBe(validMockEnv.HESBA_DATABASE_URL);
     expect(validated.HESBA_POSTGRES_PORT).toBe(5432);
-    expect(validated.HESBA_SMS_PROVIDER).toBe("mock");
     expect(validated.HESBA_LLM_PROVIDER).toBe("mock");
     expect(validated.NODE_ENV).toBe("development");
   });

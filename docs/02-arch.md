@@ -34,7 +34,7 @@
 
 | Operation type | Tool | Why |
 |---|---|---|
-| Sign-up/login/OTP, profile, subscription and payment, AI question, admin screens | **Server Actions** | Online by nature; simplest code and built-in security |
+| Sign-up/login/passkeys/recovery, profile, subscription and payment, AI question, admin screens | **Server Actions** | Online by nature; simplest code and built-in security |
 | Reading reports and the home screen | **Server Components** (or a Server Action) | They read straight from the DB |
 | **`sync push/pull/catalog`** | **Route Handlers** (`/api/sync/*`) | **Reason below** |
 | Cron/Jobs | Secret-protected Route Handler | Called from an external scheduler |
@@ -135,7 +135,7 @@ src/server/modules/<module>/
 ### 4.2 The modules
 | Module | Responsibility |
 |---|---|
-| `auth` | OTP, password (Argon2id), sessions, devices |
+| `auth` | Passkeys (WebAuthn credentials), email verification, account recovery, sessions, devices |
 | `tenancy` | Stores, members, the active subscription, setting `store_id` for the DB |
 | `catalog` | Store products + the public catalog + filters and suggestions (06) |
 | `inventory` | Batches, movements, FEFO, balance, waste |
@@ -151,11 +151,12 @@ src/server/modules/<module>/
 | `admin` | Admin panel (catalog, reports) — later |
 
 ### 4.3 Sessions and security (same origin)
-- Password: **Argon2id** (tuned parameters because CPU is limited on serverless; measure the time and adjust). OTP with limits per number/IP/device.
+- **Primary Authentication:** **Passkeys (WebAuthn)**. Phishing-resistant, hardware/biometric authentication. No passwords stored or verified.
+- **Account Recovery:** Single-use, cryptographically secure email verification and recovery links (expiring, hashed in DB). Not equivalent to hardware Passkeys; access to email permits recovery.
+- **Local Application Lock:** Optional local 6-digit PIN on device only. Never sent to server; forgotten PIN requires Passkey re-authentication before local reset.
 - **Session cookie:** `httpOnly; Secure; SameSite=Lax`, rotating (Rotation), bound to a device (`device_id`), with `sessions` stored in the DB (revocable from the server).
 - `/api/sync/*` checks: the session + a matching `Origin` + the `X-Hesba-Client` header (CSRF protection) + `schema_v`.
 - **Offline and the session expired:** the app keeps selling locally; verification happens at sync time.
-- Optional local PIN lock.
 - Everything is `server-only`; secrets live only in environment variables.
 
 ### 4.4 Multi-tenancy and RLS (with Serverless Pooling)
@@ -225,7 +226,7 @@ POST /api/cron/tick  (secret-protected)  ←  called from a scheduler (Vercel Cr
     FOR UPDATE SKIP LOCKED  → run a small batch → update the status
 ```
 - Every job is **idempotent** + retries with backoff + a maximum number of attempts + a Dead status + a review panel.
-- Uses: sending SMS, aggregating `daily_store_stats`, choosing stores for suggestions (06), payment reconciliation, archiving.
+- Uses: sending transactional emails (verification/recovery), aggregating `daily_store_stats`, choosing stores for suggestions (06), payment reconciliation, archiving.
 - If Cron is limited (❓ 05): we batch more in each tick or use a free external scheduler.
 - **If the load grows** (Stage 3+): we move the tick to a standalone Worker or add a real queue — a decision based on measurement (01).
 
@@ -258,7 +259,7 @@ Unified error shape: `{ "error": { "code", "message", "details", "request_id" } 
 
 ## 6. Resilience
 - Domain errors → 4xx · Infra errors → 5xx + Sentry.
-- Timeouts + Retries + Circuit Breaker for any external service (SMS/payment/LLM).
+- Timeouts + Retries + Circuit Breaker for any external service (email/payment/LLM).
 - `/api/health` (live/ready: DB).
 - **Maintenance flag** in the DB (`flags`) → Sync replies 503 (for zero-downtime migration, 05).
 - Dead jobs + review.
@@ -279,7 +280,7 @@ Unified error shape: `{ "error": { "code", "message", "details", "request_id" } 
 
 ## 8. ADRs required before code
 > The status-updated list is in `15-DECISIONS-AND-OPEN-QUESTIONS.md` section 6.
-(1) ORM: Prisma (ADR-0012) · (2) `change_log` Trigger or Repository · (3) Router inside `/app` · (4) Serwist and the update strategy · (5) SMS provider · (6) Hosting (05) · (7) Search library in Dexie · (8) Bulk-table manager.
+(1) ORM: Prisma (ADR-0012) · (2) `change_log` Trigger or Repository · (3) Router inside `/app` · (4) Serwist and the update strategy · (5) Email provider for verification/recovery · (6) Hosting (05) · (7) Search library in Dexie · (8) Bulk-table manager.
 
 ## 9. Code rules (Antigravity and the team)
 1. TypeScript `strict`, `any` is forbidden.
@@ -351,8 +352,8 @@ src/app/
 ├── (auth)/                     # separate chunk
 │   ├── signup/page.tsx         # two-step wizard: "عنك" (about you) / "محلك" (your store)
 │   ├── login/page.tsx
-│   ├── verify/page.tsx         # OTP
-│   └── actions.ts              # Server Actions (signup, login, verifyOtp)
+│   ├── recovery/page.tsx       # account recovery link verification
+│   └── actions.ts              # Server Actions (signup, login, passkeys, recovery)
 ├── app/                        # the app (Client-only Shell)
 │   ├── layout.tsx              # checks the session, then loads the Shell
 │   └── [[...slug]]/page.tsx    # dynamic(() => import('@/client/app-shell'), { ssr:false })
@@ -429,7 +430,7 @@ src/server/
 │   │   ├── client.ts           # Prisma + pooled URL
 │   │   ├── tenant.ts           # withTenant(): set_config(app.store_id) inside tx
 │   ├── storage/                # S3-compatible interface ✱
-│   ├── sms/                    # interface + providers/*
+│   ├── email/                  # interface + providers/* (transactional verification & recovery)
 │   ├── payments/               # interface + providers/*
 │   └── llm/                    # interface + provider
 └── modules/
@@ -577,7 +578,7 @@ docs/
 | **Local database** | **Dexie** (IndexedDB) | Source of truth on the phone, `useLiveQuery` | localStorage (small), SQLite-WASM (heavier, less mature) |
 | **PWA / Service Worker** | **Serwist** (Workbox for Next) | Precache + Background Sync for App Router | next-pwa (unmaintained) |
 | **Validation** | **zod** | A single source of types between client and server | Yup/Joi |
-| **Sessions/Auth** | Simple custom: OTP + Argon2id (`@node-rs/argon2`) + httpOnly session cookie in the DB | Full control, same origin, no dependence on a provider | Auth0/Clerk (cost and vendor lock-in), Auth.js (complexity with OTP and devices) |
+| **Sessions/Auth** | Simple custom: Passkeys (WebAuthn credentials) + single-use email recovery links + httpOnly session cookie in the DB | Full control, phish-resistant, hardware-backed, no passwords, no dependency on Auth0/Clerk | Auth0/Clerk (cost and vendor lock-in), password/SMS auth (phishable, carrier cost/failures) |
 | **Styling (CSS)** | **CSS variables + CSS Modules**, ported from the demo | The demo is tested and polished; porting preserves quality instead of a rewrite | Tailwind (more familiar to the AI, but a rewrite loses design details) |
 | **Components** | Our own components from the demo (Modal, Seg, Combobox...) | Tuned for RTL and mobile | Off-the-shelf libraries (mostly LTR and do not match the demo) |
 | **State** | Dexie + `useState`; a small Zustand if needed | Domain data lives in Dexie only | Redux (overkill) |
@@ -586,7 +587,7 @@ docs/
 | **Dates** | `Intl` + small functions (like the demo) | No library | moment/dayjs |
 | **Jobs** | A `jobs` table in Postgres + `/api/cron/tick` | No permanent Workers on free tiers/serverless | BullMQ/Redis (we move to it when measurements justify it) |
 | **AI** | An LLM provider behind an interface + SQL tools | Numbers come from SQL, the LLM only phrases them; we can swap the provider | Relying on the LLM for calculation (hallucination) |
-| **SMS** | A provider behind an interface (to be decided — ADR-0006) | OTP for sign-up only | — |
+| **Email (Transactional)** | A provider behind an interface (to be decided in Phase 2.2 — O2) | Account recovery & email verification links | SMS OTP (carrier costs, spam route blocking in Egypt, phishable) |
 | **Subscriptions** | Manual renewal (Vodafone Cash & InstaPay) + WhatsApp confirmation (ADR-0008) | Activated manually by owner; no card data stored | Automated third-party billing (rejected in V1) |
 | **Monitoring** | Sentry + structured logs (pino) | UI and server errors | — |
 | **Testing** | Vitest + fast-check + Testcontainers + Playwright | Unit + property + real Postgres + offline | Jest (slower with ESM) |
@@ -610,13 +611,13 @@ docs/
 - **Next.js + offline:** App Router relies on RSC payloads; that is why the app after login is **Client-only** under `/app` (`02` section 3.1). Only the landing page is Server-rendered.
 - **Server Actions are not suitable for sync** (their identifiers change with every Build, and they cannot be called from the Service Worker) → `/api/sync/*` (`02` section 2).
 - **Serwist:** Confirm at creation time that it is maintained and compatible with the Next version you will pin (a verification task in Phase 1). If it is not compatible: an ADR and an alternative (a Service Worker written directly with Workbox).
-- **Argon2 on serverless:** It consumes CPU. Measure the time and tune the parameters (`12`).
+- **WebAuthn Relying Party:** Validate relying party ID (`rpID`), allowed origins (`origin`), challenge single-use status, and signature counters strictly on the server (`12`).
 - **Neon free tier:** 1 GB storage, sleeps after idle, and only 6 hours of history → a dedicated backup (`05`).
 - **Dexie on old devices:** Test on a weak Android. Browser storage limits vary (show them in Settings if we get close).
 - **iOS:** Push notifications and PWA installation need different steps (test Safari). Push is not required in V1.
 
 ## 4. What We Will Not Use in V1 (a decision)
-A separate NestJS/Express · Redis/BullMQ · Prisma · Tailwind · Redux · a Charts library · Firebase/Supabase Auth/Realtime · Vercel KV/Blob/Edge Config · GraphQL · tRPC · Microservices · WebSockets (sync is event-driven plus `pull`) · React Native/Flutter.
+A separate NestJS/Express · Redis/BullMQ · Tailwind · Redux · a Charts library · Firebase/Supabase Auth/Realtime · Vercel KV/Blob/Edge Config · GraphQL · tRPC · Microservices · WebSockets (sync is event-driven plus `pull`) · React Native/Flutter.
 **Any exception = ADR.**
 
 ## 5. Dependency Policy
@@ -632,15 +633,15 @@ HESBA_DATABASE_URL      # pooled (for the app)
 HESBA_DIRECT_URL        # direct (for migrations)
 HESBA_SESSION_SECRET
 HESBA_CRON_SECRET       # protects /api/cron/tick
-HESBA_SMS_PROVIDER / HESBA_SMS_KEY
 HESBA_LLM_PROVIDER / HESBA_LLM_KEY
 HESBA_CARD_KEY
 HESBA_SENTRY_DSN
 HESBA_STORAGE_*         # S3-compatible (if needed)
-HESBA_APP_ORIGIN        # for Origin check
+HESBA_APP_ORIGIN        # for Origin check & WebAuthn RP origin
 HESBA_RENEWAL_VODAFONE_CASH  # public: Vodafone Cash number shown to customers
 HESBA_RENEWAL_INSTAPAY       # public: InstaPay address/number shown to customers
 HESBA_RENEWAL_WHATSAPP       # public: WhatsApp contact number/link for renewal confirmation
+# Transactional email provider config deferred to Phase 2.2 implementation
 ```
 Real values live in the Secret store (except public renewal details), and `.env.example` contains dummy values only. All of them are defined in `src/server/config/env.ts` with zod, and the app fails at startup if anything is missing.
 
@@ -659,4 +660,4 @@ Real values live in the Secret store (except public renewal details), and `.env.
 - [ ] Serwist works with the current App Router (precache + offline navigation inside `/app`).
 - [ ] `set_config(..., true)` works correctly on the pooled URL.
 - [ ] Docker `standalone` builds and runs.
-- [ ] Argon2 time on the chosen hosting is acceptable.
+- [ ] WebAuthn challenge/response verification works in target server runtime.

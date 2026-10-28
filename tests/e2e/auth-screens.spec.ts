@@ -33,10 +33,7 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     // Fill step 1 inputs to proceed
     await page.fill('input[placeholder="مثال: مجدي أحمد"]', "مجدي أحمد");
     await page.fill('input[placeholder="01xxxxxxxxx"]', "01012345678");
-    await page.fill(
-      'input[placeholder="6 حروف أو أرقام على الأقل"]',
-      "pass123",
-    );
+    await page.fill('input[placeholder="name@email.com"]', "magdy@example.com");
     await page.click('button:has-text("التالي")');
 
     // Confirm Step 2 is active
@@ -48,7 +45,19 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
       fullPage: false,
     });
 
-    // 3. Login Screen
+    // 3. Passkey Registration Screen
+    await page.goto("/dev/auth?screen=passkey-reg");
+    await page.waitForLoadState("domcontentloaded");
+    await page.addStyleTag({
+      content: "nextjs-portal { display: none !important; }",
+    });
+    await expect(page.locator("h1")).toHaveText("تسجيل مفتاح المرور (Passkey)");
+    await page.screenshot({
+      path: path.join(screenshotsDir, "auth-passkey-reg.png"),
+      fullPage: false,
+    });
+
+    // 4. Login Screen (Passkey primary)
     await page.goto("/dev/auth?screen=login");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
@@ -60,19 +69,19 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
       fullPage: false,
     });
 
-    // 4. OTP Verification Screen
-    await page.goto("/dev/auth?screen=otp");
+    // 5. Account Recovery Screen
+    await page.goto("/dev/auth?screen=recovery");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
       content: "nextjs-portal { display: none !important; }",
     });
-    await expect(page.locator("h1")).toHaveText("أدخل كود التحقق");
+    await expect(page.locator("h1")).toHaveText("استرداد الحساب بالبريد");
     await page.screenshot({
-      path: path.join(screenshotsDir, "auth-otp.png"),
+      path: path.join(screenshotsDir, "auth-recovery.png"),
       fullPage: false,
     });
 
-    // 5. PIN Lock Screen
+    // 6. PIN Lock Screen
     await page.goto("/dev/auth?screen=pin");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
@@ -84,7 +93,7 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
       fullPage: false,
     });
 
-    // 6. Profile Modal
+    // 7. Profile Modal
     await page.goto("/dev/auth?screen=profile");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({

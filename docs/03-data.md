@@ -69,8 +69,11 @@ CREATE TYPE member_role     AS ENUM ('owner','cashier');
 CREATE TABLE users (
   id uuid PRIMARY KEY, name text NOT NULL,
   phone text NOT NULL UNIQUE,                 -- E.164 or normalized 01xxxxxxxxx
-  email text NULL, password_hash text NOT NULL,   -- Argon2id
-  phone_verified_at timestamptz NULL, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
+  email text NOT NULL,                        -- required for account recovery and email verification
+  email_verified_at timestamptz NULL,         -- verified email timestamp
+  phone_verified_at timestamptz NULL,
+  password_hash text NULL,                    -- deprecated (nullable, kept for migration compatibility, dropped in 2.2 cleanup)
+  created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now()
 );
 
 CREATE TABLE stores (
@@ -102,14 +105,68 @@ CREATE TABLE sessions (                       -- cookie sessions (the stored id 
   rotated_from text NULL, revoked_at timestamptz NULL
 );
 
-CREATE TABLE otp_codes (
-  id uuid PRIMARY KEY, phone text NOT NULL, purpose text NOT NULL,   -- signup | login | reset
-  code_hash text NOT NULL, attempts int NOT NULL DEFAULT 0, ip inet NULL,
-  expires_at timestamptz NOT NULL, consumed_at timestamptz NULL, created_at timestamptz DEFAULT now()
+-- Passkeys (WebAuthn credentials for passwordless primary authentication)
+CREATE TABLE user_passkeys (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  credential_id text UNIQUE NOT NULL,         -- base64url encoded WebAuthn credential ID
+  public_key bytea NOT NULL,                  -- COSE public key bytes
+  counter bigint NOT NULL DEFAULT 0,          -- replay prevention counter
+  device_name text NOT NULL DEFAULT 'جهاز',   -- friendly label ("هاتف آيفون", etc.)
+  aaguid text NULL,                           -- authenticator AAGUID
+  transports text[] NOT NULL DEFAULT '{}',    -- internal, hybrid, usb, nfc, ble
+  backup_eligible boolean NOT NULL DEFAULT false,
+  backup_status boolean NOT NULL DEFAULT false,
+  last_used_at timestamptz NULL,
+  created_at timestamptz DEFAULT now()
 );
-CREATE INDEX ON otp_codes (phone, created_at DESC);
+CREATE INDEX ON user_passkeys (user_id, created_at DESC);
+
+-- WebAuthn Challenges (single-use, short-lived 5-minute cryptographic challenges)
+CREATE TABLE passkey_challenges (
+  id uuid PRIMARY KEY,
+  user_id uuid NULL REFERENCES users(id) ON DELETE CASCADE, -- null for autofill/pre-login
+  challenge text UNIQUE NOT NULL,             -- 32+ bytes base64url random challenge
+  purpose text NOT NULL,                      -- registration | authentication | reauth
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX ON passkey_challenges (challenge);
+CREATE INDEX ON passkey_challenges (expires_at);
+
+-- Email Verification Tokens (single-use, 24h, hashed)
+CREATE TABLE email_verification_tokens (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash text UNIQUE NOT NULL,            -- SHA-256 hash of single-use URL token
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX ON email_verification_tokens (token_hash);
+
+-- Account Recovery Tokens (single-use, 1h, hashed, emergency fallback when passkeys are lost)
+CREATE TABLE account_recovery_tokens (
+  id uuid PRIMARY KEY,
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  token_hash text UNIQUE NOT NULL,            -- SHA-256 hash of single-use URL token
+  expires_at timestamptz NOT NULL,
+  used_at timestamptz NULL,
+  created_at timestamptz DEFAULT now()
+);
+CREATE INDEX ON account_recovery_tokens (token_hash);
+
+-- NOTE: otp_codes table is OBSOLETE and removed.
+-- MIGRATION CLEANUP PLAN (Phase 2.2):
+-- Initial migration 20261025000000_init defined users.password_hash and otp_codes.
+-- In Phase 2.2, a new migration will:
+-- 1. Alter users.password_hash to nullable or drop it.
+-- 2. Add users.email_verified_at.
+-- 3. Create user_passkeys, passkey_challenges, email_verification_tokens, account_recovery_tokens.
+-- 4. Drop table otp_codes.
 ```
-- `users`, `otp_codes`, `sessions`: **no store_id RLS** (accessed from the server only, via the `hesba_service` role). `store_members`/`devices`: RLS by store.
+- `users`, `user_passkeys`, `passkey_challenges`, `email_verification_tokens`, `account_recovery_tokens`, `sessions`: **no store_id RLS** (accessed from the server only, via the `hesba_service` role). `store_members`/`devices`: RLS by store.
 
 ---
 
@@ -319,7 +376,7 @@ CREATE TABLE daily_store_stats (               -- aggregate table updated by job
 ### Tables without `store_id` RLS (an explicit list; any other table without it = rejected)
 | Table | Reason | Access |
 |---|---|---|
-| `users`, `otp_codes`, `sessions` | identity | `hesba_service` (server) only |
+| `users`, `user_passkeys`, `passkey_challenges`, `email_verification_tokens`, `account_recovery_tokens`, `sessions` | identity | `hesba_service` (server) only |
 | `categories`, `plans` | global | read for the app |
 | `brands`, `global_products`, `global_variants` | global | read for the app, write by `hesba_service` |
 | `catalog_candidates`, `catalog_reports` | internal | `hesba_service` only |

@@ -57,12 +57,12 @@ export function okPhone(v: string): boolean {
 }
 
 export function okMail(v: string): boolean {
-  if (!v || !v.trim()) return true;
+  if (!v || !v.trim()) return false;
   return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
 }
 
 export interface AuthScreenProps {
-  initialMode?: "signup" | "login" | "otp";
+  initialMode?: "signup" | "login" | "passkey-reg" | "recovery";
   onSuccess?: (session: SessionState) => void;
   isOffline?: boolean;
 }
@@ -73,19 +73,20 @@ export function AuthScreen({
   isOffline = false,
 }: AuthScreenProps) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<"signup" | "login" | "otp">(initialMode);
+  const [mode, setMode] = useState<
+    "signup" | "login" | "passkey-reg" | "recovery"
+  >(initialMode);
   const [step, setStep] = useState(0);
   const [dir, setDir] = useState<1 | -1>(1);
   const [busy, setBusy] = useState(false);
   const [globalErr, setGlobalErr] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Signup state
+  // Signup state (Passwords removed, Email required for recovery)
   const [signupData, setSignupData] = useState<SignupInput>({
     ownerName: "",
     phone: "",
     email: "",
-    password: "",
     storeName: "",
     shopType: "سوبر ماركت",
     governorate: "القاهرة",
@@ -95,13 +96,18 @@ export function AuthScreen({
     withDemoData: true,
   });
 
-  // Login state
-  const [loginPhone, setLoginPhone] = useState("");
-  const [loginPassword, setLoginPassword] = useState("");
+  // Login state (Identifier optional; Passkey primary)
+  const [loginIdentifier, setLoginIdentifier] = useState("");
 
-  // OTP state
-  const [otpPhone, setOtpPhone] = useState("");
-  const [otpCode, setOtpCode] = useState("");
+  // Passkey registration state
+  const [passkeyStatus, setPasskeyStatus] = useState<
+    "idle" | "registering" | "success" | "canceled" | "unsupported"
+  >("idle");
+  const [activeSession, setActiveSession] = useState<SessionState | null>(null);
+
+  // Recovery state
+  const [recoveryEmail, setRecoveryEmail] = useState("");
+  const [recoverySent, setRecoverySent] = useState(false);
 
   const updateSignup = (patch: Partial<SignupInput>) => {
     setSignupData((prev) => ({ ...prev, ...patch }));
@@ -117,11 +123,8 @@ export function AuthScreen({
     if (!okPhone(signupData.phone)) {
       errs["phone"] = t("errors.invalidPhone");
     }
-    if (!okMail(signupData.email || "")) {
+    if (!okMail(signupData.email)) {
       errs["email"] = t("errors.invalidEmail");
-    }
-    if (!signupData.password || signupData.password.length < 6) {
-      errs["pass"] = t("errors.passwordMin");
     }
 
     setFieldErrors(errs);
@@ -149,6 +152,7 @@ export function AuthScreen({
       const res = await authApi.signup({
         ...signupData,
         phone: normDigits(signupData.phone).replace(/\s|-/g, ""),
+        email: signupData.email.trim().toLowerCase(),
       });
 
       if (!res.success || !res.data) {
@@ -156,7 +160,9 @@ export function AuthScreen({
         return;
       }
 
-      onSuccess?.(res.data);
+      setActiveSession(res.data.session);
+      setMode("passkey-reg");
+      setPasskeyStatus("idle");
     } catch {
       setGlobalErr(t("errors.serverError"));
     } finally {
@@ -164,24 +170,61 @@ export function AuthScreen({
     }
   };
 
-  const handleLogin = async () => {
-    const errs: Record<string, string> = {};
-    if (!okPhone(loginPhone)) {
-      errs["phone"] = t("errors.invalidPhone");
-    }
-    if (!loginPassword) {
-      errs["pass"] = t("errors.invalidCredentials");
-    }
+  const handleRegisterPasskey = async () => {
+    setBusy(true);
+    setPasskeyStatus("registering");
+    setGlobalErr("");
 
-    setFieldErrors(errs);
-    if (Object.keys(errs).length > 0) return;
+    try {
+      const res = await authApi.completePasskeyRegistration({
+        id: `passkey-cred-${Date.now()}-TEST`,
+        rawId: `raw-cred-${Date.now()}-TEST`,
+        type: "public-key",
+        response: {
+          clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
+          attestationObject: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVik",
+        },
+      });
 
+      if (!res.success || !res.data) {
+        setPasskeyStatus("canceled");
+        setGlobalErr(res.error || t("errors.passkeyFailed"));
+        return;
+      }
+
+      setActiveSession(res.data);
+      setPasskeyStatus("success");
+    } catch {
+      setPasskeyStatus("canceled");
+      setGlobalErr(t("errors.passkeyFailed"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handlePasskeyLogin = async () => {
     setBusy(true);
     setGlobalErr("");
+
     try {
-      const res = await authApi.login({
-        phone: normDigits(loginPhone).replace(/\s|-/g, ""),
-        password: loginPassword,
+      const optionsRes = await authApi.getPasskeyAuthOptions(
+        loginIdentifier ? normDigits(loginIdentifier).trim() : undefined,
+      );
+
+      if (!optionsRes.success) {
+        setGlobalErr(optionsRes.error || t("errors.serverError"));
+        return;
+      }
+
+      const res = await authApi.loginWithPasskey({
+        id: `passkey-auth-cred-${Date.now()}-TEST`,
+        rawId: `raw-auth-${Date.now()}-TEST`,
+        type: "public-key",
+        response: {
+          clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
+          authenticatorData: "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MBAAAA",
+          signature: "MEUCIQD1TESTSIGNATURE",
+        },
       });
 
       if (!res.success || !res.data) {
@@ -197,22 +240,25 @@ export function AuthScreen({
     }
   };
 
-  const handleRequestOtp = async () => {
-    if (!okPhone(loginPhone)) {
-      setFieldErrors({ phone: t("errors.invalidPhone") });
+  const handleRequestRecovery = async () => {
+    if (!okMail(recoveryEmail)) {
+      setFieldErrors({ email: t("errors.invalidEmail") });
       return;
     }
 
     setBusy(true);
     setGlobalErr("");
     try {
-      const res = await authApi.requestOtp(normDigits(loginPhone).trim());
+      const res = await authApi.requestAccountRecovery({
+        email: recoveryEmail.trim().toLowerCase(),
+      });
+
       if (!res.success) {
         setGlobalErr(res.error || t("errors.serverError"));
         return;
       }
-      setOtpPhone(loginPhone);
-      setMode("otp");
+
+      setRecoverySent(true);
     } catch {
       setGlobalErr(t("errors.serverError"));
     } finally {
@@ -220,28 +266,33 @@ export function AuthScreen({
     }
   };
 
-  const handleVerifyOtp = async () => {
-    if (otpCode.length < 4) {
-      setFieldErrors({ otp: t("errors.wrongCode") });
-      return;
-    }
-
+  const handleCompleteRecovery = async () => {
     setBusy(true);
     setGlobalErr("");
     try {
-      const res = await authApi.verifyOtp({
-        phone: normDigits(otpPhone).trim(),
-        code: otpCode.trim(),
-      });
+      const res = await authApi.completeAccountRecovery(
+        {
+          token: "valid-recovery-token-TEST",
+          passkeyLabel: "مفتاح مرور جديد بعد الاسترداد (TEST)",
+        },
+        {
+          id: `passkey-recovery-cred-${Date.now()}-TEST`,
+          rawId: `raw-recovery-${Date.now()}-TEST`,
+          type: "public-key",
+          response: {
+            clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
+          },
+        },
+      );
 
       if (!res.success || !res.data) {
-        setGlobalErr(res.error || t("errors.wrongCode"));
+        setGlobalErr(res.error || t("errors.recoveryTokenUsed"));
         return;
       }
 
       onSuccess?.(res.data);
     } catch {
-      setGlobalErr(t("errors.wrongCode"));
+      setGlobalErr(t("errors.recoveryTokenUsed"));
     } finally {
       setBusy(false);
     }
@@ -259,14 +310,18 @@ export function AuthScreen({
               ? t("auth.signupTitle")
               : mode === "login"
                 ? t("auth.loginTitle")
-                : t("auth.otpTitle")}
+                : mode === "passkey-reg"
+                  ? t("auth.passkeyTitle")
+                  : t("auth.recoveryTitle")}
           </h1>
           <p>
             {mode === "signup"
               ? t("auth.signupSub")
               : mode === "login"
                 ? t("auth.loginSub")
-                : t("auth.otpSub")}
+                : mode === "passkey-reg"
+                  ? t("auth.passkeySub")
+                  : t("auth.recoverySub")}
           </p>
         </div>
 
@@ -349,24 +404,17 @@ export function AuthScreen({
                       autoComplete="email"
                     />
                   </Field>
-
-                  <Field
-                    label={t("auth.passwordLabel")}
-                    err={fieldErrors["pass"]}
+                  <small
+                    style={{
+                      color: "var(--ink2)",
+                      fontSize: "12px",
+                      marginTop: "-8px",
+                      marginBottom: "4px",
+                      display: "block",
+                    }}
                   >
-                    <input
-                      type="password"
-                      value={signupData.password}
-                      onChange={(e) =>
-                        updateSignup({ password: e.target.value })
-                      }
-                      placeholder={t("auth.passwordPlaceholder")}
-                      autoComplete="new-password"
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") handleNextStep();
-                      }}
-                    />
-                  </Field>
+                    {t("auth.emailHelp")}
+                  </small>
 
                   <Button className="wide lg" onClick={handleNextStep}>
                     {t("auth.next")}
@@ -532,47 +580,134 @@ export function AuthScreen({
           </>
         )}
 
+        {mode === "passkey-reg" && (
+          <div className={styles.body}>
+            {passkeyStatus === "success" ? (
+              <div style={{ textAlign: "center", padding: "16px 8px" }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "64px",
+                    height: "64px",
+                    borderRadius: "50%",
+                    background:
+                      "color-mix(in srgb, var(--green, #2ecc71) 15%, transparent)",
+                    color: "var(--green, #2ecc71)",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <Icon n="check" s={32} />
+                </div>
+                <h2 style={{ fontSize: "20px", marginBottom: "8px" }}>
+                  {t("auth.passkeySuccessTitle")}
+                </h2>
+                <p
+                  style={{
+                    color: "var(--ink2)",
+                    fontSize: "14px",
+                    marginBottom: "24px",
+                  }}
+                >
+                  {t("auth.passkeySuccessSub")}
+                </p>
+                <Button
+                  className="wide lg"
+                  onClick={() => {
+                    if (activeSession) onSuccess?.(activeSession);
+                  }}
+                >
+                  {t("auth.enterApp")}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <div
+                  style={{
+                    background: "var(--sf2)",
+                    border: "1.5px solid var(--line)",
+                    borderRadius: "18px",
+                    padding: "20px",
+                    textAlign: "center",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "56px",
+                      height: "56px",
+                      borderRadius: "16px",
+                      background:
+                        "color-mix(in srgb, var(--br) 12%, var(--sf))",
+                      color: "var(--br)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      margin: "0 auto 12px",
+                    }}
+                  >
+                    <Icon n="check" s={28} />
+                  </div>
+                  <b
+                    style={{
+                      display: "block",
+                      fontSize: "15px",
+                      marginBottom: "6px",
+                    }}
+                  >
+                    {t("auth.passkeyPrompt")}
+                  </b>
+                  <p
+                    style={{
+                      color: "var(--ink2)",
+                      fontSize: "13px",
+                      margin: 0,
+                    }}
+                  >
+                    {t("auth.passkeySub")}
+                  </p>
+                </div>
+
+                <div className={styles.actions}>
+                  <Button
+                    className={`wide lg ${styles.grow1}`}
+                    disabled={busy}
+                    onClick={handleRegisterPasskey}
+                  >
+                    {busy
+                      ? t("auth.registeringPasskey")
+                      : t("auth.registerPasskeyBtn")}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {mode === "login" && (
           <div className={styles.body}>
-            <Field label={t("auth.phoneLabel")} err={fieldErrors["phone"]}>
+            <Field label={t("auth.phoneLabel")} err={fieldErrors["identifier"]}>
               <input
                 autoFocus
                 dir="ltr"
                 className="ltr"
                 inputMode="tel"
-                value={loginPhone}
+                value={loginIdentifier}
                 onChange={(e) => {
-                  setLoginPhone(e.target.value);
+                  setLoginIdentifier(e.target.value);
                   setFieldErrors({});
                   setGlobalErr("");
                 }}
                 placeholder={t("auth.phonePlaceholder")}
-                autoComplete="tel"
-              />
-            </Field>
-
-            <Field label={t("auth.passwordLabel")} err={fieldErrors["pass"]}>
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(e) => {
-                  setLoginPassword(e.target.value);
-                  setFieldErrors({});
-                  setGlobalErr("");
-                }}
-                placeholder={t("auth.passwordPlaceholder")}
-                autoComplete="current-password"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleLogin();
-                }}
+                autoComplete="username webauthn"
               />
             </Field>
 
             <div className={styles.actions}>
               <Button
-                className={`lg ${styles.grow1}`}
+                className={`wide lg ${styles.grow1}`}
                 disabled={busy}
-                onClick={handleLogin}
+                onClick={handlePasskeyLogin}
               >
                 {t("auth.login")}
               </Button>
@@ -581,9 +716,13 @@ export function AuthScreen({
             <button
               type="button"
               className={styles.linkCenter}
-              onClick={handleRequestOtp}
+              onClick={() => {
+                setMode("recovery");
+                setFieldErrors({});
+                setGlobalErr("");
+              }}
             >
-              {t("auth.otpTitle")}
+              {t("auth.forgotPasskey")}
             </button>
 
             <button
@@ -600,52 +739,90 @@ export function AuthScreen({
           </div>
         )}
 
-        {mode === "otp" && (
+        {mode === "recovery" && (
           <div className={styles.body}>
-            <Field label={t("auth.otpTitle")} err={fieldErrors["otp"]}>
-              <input
-                autoFocus
-                dir="ltr"
-                className="ltr"
-                inputMode="numeric"
-                maxLength={6}
-                value={otpCode}
-                onChange={(e) => {
-                  setOtpCode(e.target.value);
-                  setFieldErrors({});
-                  setGlobalErr("");
-                }}
-                placeholder={t("auth.otpPlaceholder")}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleVerifyOtp();
-                }}
-              />
-            </Field>
+            {recoverySent ? (
+              <div style={{ textAlign: "center", padding: "16px 8px" }}>
+                <div
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    width: "56px",
+                    height: "56px",
+                    borderRadius: "50%",
+                    background: "color-mix(in srgb, var(--br) 12%, var(--sf))",
+                    color: "var(--br)",
+                    marginBottom: "16px",
+                  }}
+                >
+                  <Icon n="check" s={28} />
+                </div>
+                <h2 style={{ fontSize: "18px", marginBottom: "8px" }}>
+                  {t("auth.recoverySentTitle")}
+                </h2>
+                <p
+                  style={{
+                    color: "var(--ink2)",
+                    fontSize: "13px",
+                    lineHeight: "1.6",
+                    marginBottom: "20px",
+                  }}
+                >
+                  {t("auth.recoverySentDesc")}
+                </p>
 
-            <div className={styles.actions}>
-              <Button
-                kind="ghost"
-                className="lg"
-                onClick={() => setMode("login")}
-              >
-                {t("auth.back")}
-              </Button>
-              <Button
-                className={`lg ${styles.grow1}`}
-                disabled={busy}
-                onClick={handleVerifyOtp}
-              >
-                {t("auth.verify")}
-              </Button>
-            </div>
+                {/* Developer/Test action to complete recovery flow */}
+                <Button
+                  className="wide lg"
+                  disabled={busy}
+                  onClick={handleCompleteRecovery}
+                >
+                  {t("auth.completeRecoveryBtn")}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Field
+                  label={t("auth.recoveryEmailLabel")}
+                  err={fieldErrors["email"]}
+                >
+                  <input
+                    autoFocus
+                    dir="ltr"
+                    className="ltr"
+                    inputMode="email"
+                    value={recoveryEmail}
+                    onChange={(e) => {
+                      setRecoveryEmail(e.target.value);
+                      setFieldErrors({});
+                      setGlobalErr("");
+                    }}
+                    placeholder={t("auth.emailPlaceholder")}
+                    autoComplete="email"
+                  />
+                </Field>
 
-            <button
-              type="button"
-              className={styles.linkCenter}
-              onClick={handleRequestOtp}
-            >
-              {t("auth.resendOtp")}
-            </button>
+                <div className={styles.actions}>
+                  <Button
+                    kind="ghost"
+                    className="lg"
+                    onClick={() => setMode("login")}
+                  >
+                    {t("auth.back")}
+                  </Button>
+                  <Button
+                    className={`lg ${styles.grow1}`}
+                    disabled={busy}
+                    onClick={handleRequestRecovery}
+                  >
+                    {busy
+                      ? t("auth.sendingRecovery")
+                      : t("auth.sendRecoveryLink")}
+                  </Button>
+                </div>
+              </>
+            )}
           </div>
         )}
 

@@ -125,7 +125,7 @@ Beige background `#EFE8D6` · green `#4F6B46` · **Tajawal** font (local, not fr
 5. Database: PostgreSQL 16, every table has `store_id` + Row-Level Security.
 6. Inventory = an **append-only movement log** (batches + movements), not a number that gets edited.
 7. Reports are read from daily aggregate tables (`daily_store_stats`), not from millions of raw rows.
-8. Background jobs (SMS, report aggregation, suggestions) live in a Postgres `jobs` table + `/api/cron/tick` (a real Queue later, driven by measurement).
+8. Background jobs (transactional email, report aggregation, suggestions) live in a Postgres `jobs` table + `/api/cron/tick` (a real Queue later, driven by measurement).
 9. We scale in stages (Stages 0→5), and moving between them is driven by **measurement indicators**, not by customer count alone.
 10. Each stage lists: what will break, how we detect it, and the ready-made fix.
 
@@ -217,7 +217,7 @@ If the real numbers are much higher than the assumptions → this table is recal
    └───────────┘ └─────┬──────┘ └──────────────┘
                        │ jobs
         ┌──────────────▼───────────────┐
-        │ SMS · LLM                    │
+        │ Email · LLM                  │
         └──────────────────────────────┘
 ```
 
@@ -300,7 +300,7 @@ The mobile applies the changes in Dexie and saves the `cursor`.
 > **Transition rule:** We do not move to a higher Stage because the count was reached; we move when an **indicator** exceeds its limit for 3 consecutive days (or is expected to exceed it within a month).
 
 ### Measurement indicators (the Dashboard must be ready from Stage 1)
-`p95/p99 latency` · `error rate` · `DB CPU/IO` · `DB connections %` · `slow queries (>200ms)` · `replication lag` · `queue depth & job age` · `sync lag (last successful sync per store)` · `storage growth/day` · `Redis memory` · `SMS/OTP failures` · `AI cost/day`.
+`p95/p99 latency` · `error rate` · `DB CPU/IO` · `DB connections %` · `slow queries (>200ms)` · `replication lag` · `queue depth & job age` · `sync lag (last successful sync per store)` · `storage growth/day` · `Redis memory` · `email/recovery delivery failures` · `AI cost/day`.
 
 ---
 
@@ -317,8 +317,8 @@ The mobile applies the changes in Dexie and saves the `cursor`.
 - **DB:** Managed, **Pooled** connection (necessary for serverless) + paid PITR when the indicators call for it (05 section 7).
 - **App:** One Next app (Vercel Pro or Docker `standalone`), with no permanent Workers: jobs live in the `jobs` table + cron tick.
 - **Redis:** Not required in V1 (if Rate limiting is needed: Upstash or a Postgres table).
-- **Additions:** Rate limiting for OTP (attempts + SMS cost), a separate Staging environment.
-- **What could break:** (a) Slow report queries eating the DB → the fix: `daily_store_stats` exists from the start. (b) OTP abuse → limits per number/IP/device.
+- **Additions:** Rate limiting for auth and recovery endpoints, a separate Staging environment.
+- **What could break:** (a) Slow report queries eating the DB → the fix: `daily_store_stats` exists from the start. (b) Auth/recovery abuse → limits per IP/device and email enumeration defense.
 - **Transition indicator:** Sustained DB CPU > 50–60%, or read p95 > target, or connections > 70%.
 
 ### Stage 2 — First growth (100–500 stores)
@@ -336,7 +336,7 @@ The mobile applies the changes in Dexie and saves the `cursor`.
 - **Full observability:** Tracing (OpenTelemetry) + Alerts on the indicators.
 - **Multi-AZ** for the DB (if the provider supports it) + an actual Failover test.
 - **Feature flags** to roll out features gradually.
-- **What could break:** (a) A very large store (5,000+ products and thousands of sales/day) creating a "Noisy Neighbor" → per-store limits + monitoring of the top 20 stores by consumption. (b) SMS/AI cost → limits and alerts.
+- **What could break:** (a) A very large store (5,000+ products and thousands of sales/day) creating a "Noisy Neighbor" → per-store limits + monitoring of the top 20 stores by consumption. (b) Email/AI cost → limits and alerts.
 - **Transition indicator:** Primary write load is near the machine's limit, or Replica Lag is affecting reports.
 
 ### Stage 4 — Large scale (2,000–5,000 stores)
@@ -366,10 +366,10 @@ Two options for the database, **the decision is taken by measurement, not by gue
 |---|---|---|
 | API p95 rose | Slow query / connections | `pg_stat_statements` + add an index + increase pooling |
 | DB CPU sustained high | Reports on raw tables | Move them to `daily_store_stats` or a Replica |
-| `queue age` is growing | Too few Workers | Add Workers / split the queues (SMS separate from Reports) |
+| `queue age` is growing | Too few Workers | Add Workers / split the queues (Email separate from Reports) |
 | Replica Lag is growing | High writes / a heavy Query on the Replica | Query limits + acceptable delay for reports |
 | Storage growing faster | Huge movement log | Partition + archiving + compression |
-| OTP failures | SMS provider | Fallback to another provider + limits |
+| Email delivery failures | Email provider | Retry / fallback provider + deliverability check |
 | Redis memory (if used) | Keys without TTL | Mandatory TTL + `maxmemory-policy` |
 
 ---
@@ -383,12 +383,12 @@ Two options for the database, **the decision is taken by measurement, not by gue
 | 3 | **A Migration locks a large table** | Service outage | Expand/Contract: add a column → migrate → drop the old one later, `CREATE INDEX CONCURRENTLY` | Rollback ready + Migrations tested on a copy of real data |
 | 4 | **A bug in FEFO / inventory** | Wrong numbers at stores (the most dangerous kind) | Inventory-specific Tests (Property-based), an append-only movement table that allows recalculation | A "recalculate balance from movements" script |
 | 5 | **Data leak between stores** | Legal and reputational disaster | Mandatory RLS, Cross-tenant tests that fail CI if a leak appears | Immediate shutdown + investigation + notification as required by law |
-| 6 | **OTP/SMS abuse** | High cost + blocking | Limits per number/IP/device + CAPTCHA when suspicious | Circuit breaker on sending |
+| 6 | **Auth / Email abuse** | Spam / reputation damage | Limits per IP/device + generic enumeration-resistant responses | Circuit breaker on transactional email |
 | 7 | **High AI cost** | A bill | 5 messages/day **enforced on the server** + Timeout + daily Budget | Lock the feature when the limit is reached |
 | 8 | **Wrong device clock** | Wrong operation order / wrong reports | Ordering by `server_ts` + a note if the difference is large | Alert the user "your device clock is wrong" (ساعة جهازك غلط) |
 | 9 | **An app update breaks the old version** | Stores not syncing | `schema_v` + support for two consecutive versions | An "update the app" (حدّث التطبيق) screen while preserving the queue |
 | 10 | **Stale Service Worker Cache** | The user is stuck on an old version | A clear update strategy + `skipWaiting` with the user's permission | A Kill switch from the server |
-| 11 | **Dependence on a single provider** (SMS/hosting) | Outage | Abstraction layer + a ready alternative provider for SMS | Documented manual Failover |
+| 11 | **Dependence on a single provider** (hosting/email) | Outage | Abstraction layer for transactional email and external integrations | Documented manual Failover |
 | 12 | **A huge store / Hot Tenant** | Slowness for the other stores | Per-store limits + monitoring | Move it to a dedicated Shard/Pool (Stage 5) |
 | 13 | **Subscriptions: manual renewal transfer verification** | Disputed transfer or delayed confirmation | Manual transfer confirmation via WhatsApp + audit-logged admin activation (ADR-0008) | Admin review and audit log |
 | 14 | **Law/regulation** (data/invoices) | Shutdown/fine | Lawyer review before production + a clear privacy policy | A quick hosting-change plan |
@@ -398,7 +398,7 @@ Two options for the database, **the decision is taken by measurement, not by gue
 
 ## 8. Security at scale
 
-- **Auth:** OTP + password (Argon2id) + a **rotating httpOnly cookie session** stored in the DB (same origin) + reuse detection.
+- **Auth:** Passkeys (WebAuthn) + single-use email recovery links + a **rotating httpOnly cookie session** stored in the DB (same origin) + reuse detection.
 - **Isolation:** RLS on every table + an automated Cross-tenant test in CI.
 - **Secrets:** Secret Manager (not `.env` files in Git).
 - **Encryption:** TLS everywhere + encrypted Backups + Disk encryption.
@@ -423,8 +423,8 @@ Two options for the database, **the decision is taken by measurement, not by gue
 
 ## 10. Cost management (without prices)
 
-- **The 3 biggest expected cost items:** the database, SMS, AI. Monitor them by name.
-- **Control:** Daily AI limits, SMS for registration only (not notifications), archiving of old data, Reserved/Committed instances once consumption stabilizes.
+- **The biggest expected cost items:** the database, AI, hosting. Monitor them by name.
+- **Control:** Daily AI limits, transactional email for account recovery/verification only, archiving of old data, Reserved/Committed instances once consumption stabilizes.
 - **Unit of calculation:** `cost ÷ active stores` monthly — it must be clearly lower than the subscription price. You calculate this number from your actual bills.
 
 ---
@@ -441,7 +441,7 @@ Two options for the database, **the decision is taken by measurement, not by gue
 | Cloudflare | Without it | DNS+WAF+CDN with ease |
 | `jobs` table in Postgres + cron tick | BullMQ/Redis/Kafka | No permanent Workers on free hosting; we move to a real Queue by measurement |
 
-**We agreed that the definitive answers (prices, hosting location, SMS provider) are determined after: the lawyer's replies + provider quotes.**
+**We agreed that the definitive answers (prices, hosting location, email provider) are determined after: the lawyer's replies + provider quotes.**
 
 ---
 
@@ -479,7 +479,7 @@ A feature enters the Roadmap if **all** of these conditions are met:
 2. **It does not add a step** to the core path (sell/add goods), or it removes a step of equal size.
 3. **It is done in few steps** and with a simple screen on mobile.
 4. **Works offline** or there is a clear decision on why not.
-5. **Its cost** (development + maintenance + plan/SMS/AI consumption) is known and acceptable.
+5. **Its cost** (development + maintenance + plan/AI/email consumption) is known and acceptable.
 6. **Conflicts with** a principle in `07` section 3? No.
 **Removal rule:** a feature with low usage after a measurement period = gets simplified or removed.
 
@@ -626,12 +626,13 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | D24 | **Manual subscription renewal**: subscriptions are renewed by manual transfer (Vodafone Cash or InstaPay), confirmed on WhatsApp, and activated by the owner | ADR-0008 | ✅ Accepted |
 | D25 | **Product variants**: every sellable item is a product; variants carry flavor, size, unit, pack quantity, barcode, price, stock | ADR-0009 | ✅ Accepted |
 | D26 | **Services and commissions**: serialized cards sold once (PIN encrypted with HESBA_CARD_KEY); bills/transfers non-stock with rule-based fee | ADR-0010 | ✅ Accepted |
+| D27 | **Passkeys (WebAuthn) as primary authentication, single-use email recovery links, and local PIN strictly as on-device screen lock** (SMS OTP, passwords, and server-side PIN reset completely removed) | ADR-0006, 03, 06 | ✅ Accepted |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |
 |---|---|---|---|---|
 | O1 | **Hosting** | A: Vercel Pro · D: VM + Docker · C: Cloudflare | After verifying the ❓ points in `05`: A for simplicity, or D if you are sure of the terms | Phase 1 |
-| O2 | **SMS provider (OTP)** | (to be decided from actual quotes) | One that reliably delivers to Egyptian numbers + simple API + a fallback | Phase 2 |
+| O2 | **Transactional Email Provider (Verification & Recovery)** | Unresolved dependency: Resend, Postmark, AWS SES, Brevo | Select based on inbox deliverability in Egypt, API simplicity, and dedicated IP options. Documented as explicit dependency for Phase 2.2. | Phase 2.2 |
 | O3 | **Subscription renewal** | Settled (D24 / ADR-0008: Manual renewal via Vodafone Cash & InstaPay) | Manual transfer + WhatsApp confirmation; activated by owner | Settled ✅ |
 | O4 | **LLM provider** | (compare cost and quality in Arabic) | Behind an interface; start with the cheapest that is good enough | Phase 4 |
 | O5 | **Hesba name/brand** | Check domain and trademark availability ⚖️ | Before any marketing spend | Phase 0 |
@@ -659,7 +660,7 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | V7 | **Antigravity:** reading of `AGENTS.md` and `.agents/rules/` and the 12,000-character limit | Official Google docs + a trial | Before Phase 1 |
 | V8 | **Serwist** compatible with the pinned Next version | Its docs + a trial | P1-F-01 |
 | V9 | `set_config` on the pooled URL in Neon | Actual test | P1-B-03 |
-| V10 | Argon2 timing on the chosen hosting | Measurement | P2-B-01 |
+| V10 | WebAuthn ceremony timing and relying party configuration (RP_ID, origins) on chosen hosting | Browser / Server test | P2-B-01 |
 | V11 | Function timeout and request size limit (determines the Sync batch size) | Hosting docs | P2-B-04 |
 | V12 | Government e-invoice/e-receipt requirements | ⚖️ Lawyer/official source | Before V3 |
 | V13 | iOS behavior (PWA install, IndexedDB, Push) | Device test | Phase 5 |
@@ -683,10 +684,10 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | Storage growth/store/day | ≈ 0.3 MB | Alpha | `05` section 3 |
 | Maximum operations per push request | (small value, to be tuned) | Hosting timeout + measurement | `constants.ts` |
 | Sync debounce | (a few seconds) | Usage experience | `constants.ts` |
-| OTP limits (attempts, sends/day, validity) | (determined with the SMS provider) | Provider | `constants.ts` |
+| Recovery & Passkey challenge limits (attempts, sends/hour, 5-min challenge, 1-hr recovery) | (safe defaults: 3 challenges/min, 3 recovery emails/hr, 24h verification) | Provider & security policy | `constants.ts` |
 | Daily suggestion cap, N, K | (small values) | Acceptance rate | `constants.ts` |
 | Bundle size budget | (after the first Build) | Build | CI |
-| Argon2 parameters | (after measurement) | Measurement | `config` |
+| WebAuthn timeouts & origins | (60s ceremony timeout, RP_ID matching domain) | Browser & testing | `config` |
 | Alert thresholds (3 kg, 2× carton, 10, 7 days) | From the demo | Store feedback | `09` section 8 |
 | Performance targets (p95…) | `01` section 1 (preliminary) | Load test | `01` |
 **The Agent:** any new value you guess is added here and flagged in the code with a comment `// ASSUMPTION: see docs/15`.
@@ -706,7 +707,7 @@ The owner must provide the following data before Phase 3:
 | 0003 | `change_log`: Trigger or Repository | **Open** | Phase 2 |
 | 0004 | Session storage (rotating cookie) | Settled (D8) — to be documented | Phase 2 |
 | 0005 | Service Worker update strategy + Kill switch | **Open** | Phase 1–2 |
-| 0006 | SMS provider | Proposed | Phase 0 |
+| 0006 | SMS provider | Superseded (Passkeys & Email) | Phase 0 |
 | 0007 | Hosting and data residency | Proposed | Phase 0 |
 | 0008 | Manual renewal via Vodafone Cash and InstaPay | Accepted | Phase 0 |
 | 0009 | Product variants | Accepted | Phase 0 |

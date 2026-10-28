@@ -15,8 +15,6 @@ export const envSchema = z.object({
 
   // Optional / Defaults
   HESBA_POSTGRES_PORT: z.coerce.number().optional().default(5432),
-  HESBA_SMS_PROVIDER: z.string().optional().default("mock"),
-  HESBA_SMS_KEY: z.string().optional(),
   HESBA_LLM_PROVIDER: z.string().optional().default("mock"),
   HESBA_LLM_KEY: z.string().optional(),
   HESBA_SENTRY_DSN: z.string().optional(),
