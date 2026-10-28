@@ -1,26 +1,15 @@
 import type {
-  AccountRecoveryConfirmInput,
-  AccountRecoveryRequestInput,
   AuthApi,
   AuthApiResult,
-  PasskeyAuthenticationOptions,
-  PasskeyCredentialResponse,
-  PasskeyInfo,
-  PasskeyRegistrationOptions,
   SessionState,
   SignupInput,
   StoreProfile,
 } from "./auth";
-import {
-  startRegistration,
-  startAuthentication,
-  browserSupportsWebAuthn,
-  type PublicKeyCredentialCreationOptionsJSON,
-  type PublicKeyCredentialRequestOptionsJSON,
-} from "@simplewebauthn/browser";
 
 const STORAGE_SESSION_KEY = "hesba_auth_session";
 const STORAGE_PIN_KEY = "hesba_screen_lock_pin_hash";
+const STORAGE_LOCKOUT_KEY = "hesba_pin_lockout_until";
+const STORAGE_ATTEMPTS_KEY = "hesba_pin_failed_attempts";
 
 async function hashPinLocally(pin: string): Promise<string> {
   const encoder = new TextEncoder();
@@ -32,13 +21,6 @@ async function hashPinLocally(pin: string): Promise<string> {
 
 export class RealAuthApi implements AuthApi {
   private session: SessionState | null = null;
-  private pendingSignupContext: {
-    userId: string;
-    storeId: string;
-    passkeyOptions: PasskeyRegistrationOptions;
-  } | null = null;
-  private pendingAuthOptions: PasskeyAuthenticationOptions | null = null;
-  private pendingRecoveryOptions: PasskeyRegistrationOptions | null = null;
 
   constructor() {
     if (typeof window !== "undefined") {
@@ -68,12 +50,7 @@ export class RealAuthApi implements AuthApi {
     }
   }
 
-  async signup(data: SignupInput): Promise<
-    AuthApiResult<{
-      session: SessionState;
-      passkeyOptions: PasskeyRegistrationOptions;
-    }>
-  > {
+  async signup(data: SignupInput): Promise<AuthApiResult<SessionState>> {
     try {
       const res = await fetch("/api/auth/signup", {
         method: "POST",
@@ -89,38 +66,18 @@ export class RealAuthApi implements AuthApi {
         };
       }
 
-      const { userId, storeId, passkeyOptions } = json.data;
-      this.pendingSignupContext = { userId, storeId, passkeyOptions };
-
-      const initialSession: SessionState = {
-        user: {
-          id: userId,
-          name: data.ownerName,
-          phone: data.phone,
-          email: data.email,
-          emailVerified: false,
-        },
-        store: {
-          id: storeId,
-          name: data.storeName,
-          shopType: data.shopType,
-          governorate: data.governorate,
-          area: data.area,
-          openedOn: data.openedOn,
-          workersCount: data.workersCount,
-        },
-        token: "",
-        expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      const hasPin = this.hasLocalPin();
+      const sessionState: SessionState = {
+        ...json.data.session,
+        pinEnabled: hasPin,
         isOfflineExpired: false,
-        pinEnabled: false,
       };
+
+      this.persistSession(sessionState);
 
       return {
         success: true,
-        data: {
-          session: initialSession,
-          passkeyOptions,
-        },
+        data: sessionState,
       };
     } catch {
       return {
@@ -130,111 +87,24 @@ export class RealAuthApi implements AuthApi {
     }
   }
 
-  async completePasskeyRegistration(
-    credential?: PasskeyCredentialResponse,
-    label = "جهاز المالك",
-  ): Promise<AuthApiResult<SessionState>> {
+  async requestMagicLink(
+    email: string,
+  ): Promise<AuthApiResult<{ message: string }>> {
     try {
-      if (!this.pendingSignupContext) {
-        return {
-          success: false,
-          error: "جلسة التسجيل غير موجودة أو انتهت صلاحيتها",
-        };
-      }
-
-      let credToSubmit = credential;
-
-      // If no mock/manual credential passed and WebAuthn is supported, launch browser ceremony
-      if (!credToSubmit && browserSupportsWebAuthn()) {
-        try {
-          const resp = await startRegistration({
-            optionsJSON: this.pendingSignupContext
-              .passkeyOptions as unknown as PublicKeyCredentialCreationOptionsJSON,
-          });
-          credToSubmit = resp as unknown as PasskeyCredentialResponse;
-        } catch (webAuthnErr: unknown) {
-          const isCancel =
-            webAuthnErr instanceof Error &&
-            webAuthnErr.name === "NotAllowedError";
-          return {
-            success: false,
-            error: isCancel
-              ? "تم إلغاء عملية مفتاح المرور"
-              : "فشل التحقق من مفتاح المرور على هذا الجهاز",
-          };
-        }
-      }
-
-      if (!credToSubmit) {
-        return {
-          success: false,
-          error: "بيانات مفتاح المرور مطلوبة",
-        };
-      }
-
-      const res = await fetch("/api/auth/register-passkey", {
+      const res = await fetch("/api/auth/magic-link/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          userId: this.pendingSignupContext.userId,
-          storeId: this.pendingSignupContext.storeId,
-          credential: credToSubmit,
-          label,
-        }),
+        body: JSON.stringify({ email }),
       });
 
       const json = await res.json();
       if (!res.ok || !json.success) {
         return {
           success: false,
-          error: json?.error?.message || "فشل تسجيل مفتاح المرور",
+          error: json?.error?.message || "فشل طلب رابط الدخول",
         };
       }
 
-      const hasPin =
-        typeof window !== "undefined" &&
-        !!localStorage.getItem(STORAGE_PIN_KEY);
-
-      const sessionState: SessionState = {
-        ...json.data,
-        pinEnabled: hasPin,
-        isOfflineExpired: false,
-      };
-
-      this.persistSession(sessionState);
-      this.pendingSignupContext = null;
-
-      return {
-        success: true,
-        data: sessionState,
-      };
-    } catch {
-      return {
-        success: false,
-        error: "حصل خطأ غير متوقع في الخادم",
-      };
-    }
-  }
-
-  async getPasskeyAuthOptions(
-    identifier?: string,
-  ): Promise<AuthApiResult<PasskeyAuthenticationOptions>> {
-    try {
-      const res = await fetch("/api/auth/login-options", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ identifier }),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        return {
-          success: false,
-          error: json?.error?.message || "فشل طلب خيارات تسجيل الدخول",
-        };
-      }
-
-      this.pendingAuthOptions = json.data;
       return {
         success: true,
         data: json.data,
@@ -247,69 +117,31 @@ export class RealAuthApi implements AuthApi {
     }
   }
 
-  async loginWithPasskey(
-    credential?: PasskeyCredentialResponse,
-  ): Promise<AuthApiResult<SessionState>> {
+  async verifyMagicLink(token: string): Promise<AuthApiResult<SessionState>> {
     try {
-      let credToSubmit = credential;
-
-      if (
-        !credToSubmit &&
-        this.pendingAuthOptions &&
-        browserSupportsWebAuthn()
-      ) {
-        try {
-          const resp = await startAuthentication({
-            optionsJSON: this
-              .pendingAuthOptions as unknown as PublicKeyCredentialRequestOptionsJSON,
-          });
-          credToSubmit = resp as unknown as PasskeyCredentialResponse;
-        } catch (webAuthnErr: unknown) {
-          const isCancel =
-            webAuthnErr instanceof Error &&
-            webAuthnErr.name === "NotAllowedError";
-          return {
-            success: false,
-            error: isCancel
-              ? "تم إلغاء تسجيل الدخول بمفتاح المرور"
-              : "فشل التعرف على مفتاح المرور",
-          };
-        }
-      }
-
-      if (!credToSubmit) {
-        return {
-          success: false,
-          error: "بيانات مفتاح المرور مطلوبة",
-        };
-      }
-
-      const res = await fetch("/api/auth/login", {
+      const res = await fetch("/api/auth/magic-link/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ credential: credToSubmit }),
+        body: JSON.stringify({ token }),
       });
 
       const json = await res.json();
       if (!res.ok || !json.success) {
         return {
           success: false,
-          error: json?.error?.message || "فشل تسجيل الدخول",
+          error:
+            json?.error?.message || "رابط الدخول غير صالح أو انتهت صلاحيته",
         };
       }
 
-      const hasPin =
-        typeof window !== "undefined" &&
-        !!localStorage.getItem(STORAGE_PIN_KEY);
-
+      const hasPin = this.hasLocalPin();
       const sessionState: SessionState = {
-        ...json.data,
+        ...json.data.session,
         pinEnabled: hasPin,
         isOfflineExpired: false,
       };
 
       this.persistSession(sessionState);
-      this.pendingAuthOptions = null;
 
       return {
         success: true,
@@ -324,13 +156,13 @@ export class RealAuthApi implements AuthApi {
   }
 
   async requestAccountRecovery(
-    input: AccountRecoveryRequestInput,
+    email: string,
   ): Promise<AuthApiResult<{ message: string }>> {
     try {
       const res = await fetch("/api/auth/recovery/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(input),
+        body: JSON.stringify({ email }),
       });
 
       const json = await res.json();
@@ -355,9 +187,7 @@ export class RealAuthApi implements AuthApi {
 
   async verifyRecoveryToken(
     token: string,
-  ): Promise<
-    AuthApiResult<{ email: string; passkeyOptions: PasskeyRegistrationOptions }>
-  > {
+  ): Promise<AuthApiResult<SessionState>> {
     try {
       const res = await fetch("/api/auth/recovery/verify", {
         method: "POST",
@@ -370,15 +200,22 @@ export class RealAuthApi implements AuthApi {
         return {
           success: false,
           error:
-            json?.error?.message || "رمز الاسترداد غير صالح أو انتهت صلاحيته",
+            json?.error?.message || "رابط الاسترداد غير صالح أو انتهت صلاحيته",
         };
       }
 
-      this.pendingRecoveryOptions = json.data.passkeyOptions;
+      const hasPin = this.hasLocalPin();
+      const sessionState: SessionState = {
+        ...json.data.session,
+        pinEnabled: hasPin,
+        isOfflineExpired: false,
+      };
+
+      this.persistSession(sessionState);
 
       return {
         success: true,
-        data: json.data,
+        data: sessionState,
       };
     } catch {
       return {
@@ -388,134 +225,30 @@ export class RealAuthApi implements AuthApi {
     }
   }
 
-  async completeAccountRecovery(
-    input: AccountRecoveryConfirmInput,
-    credential?: PasskeyCredentialResponse,
-  ): Promise<AuthApiResult<SessionState>> {
-    try {
-      let credToSubmit = credential;
-
-      if (
-        !credToSubmit &&
-        this.pendingRecoveryOptions &&
-        browserSupportsWebAuthn()
-      ) {
-        try {
-          const resp = await startRegistration({
-            optionsJSON: this
-              .pendingRecoveryOptions as unknown as PublicKeyCredentialCreationOptionsJSON,
-          });
-          credToSubmit = resp as unknown as PasskeyCredentialResponse;
-        } catch {
-          return {
-            success: false,
-            error: "فشل التحقق من مفتاح المرور الجديد",
-          };
-        }
-      }
-
-      if (!credToSubmit) {
-        return {
-          success: false,
-          error: "بيانات مفتاح المرور الجديد مطلوبة",
-        };
-      }
-
-      const res = await fetch("/api/auth/recovery/complete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          token: input.token,
-          credential: credToSubmit,
-          passkeyLabel: input.passkeyLabel,
-        }),
-      });
-
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        return {
-          success: false,
-          error: json?.error?.message || "فشل إتمام استرداد الحساب",
-        };
-      }
-
-      const hasPin =
-        typeof window !== "undefined" &&
-        !!localStorage.getItem(STORAGE_PIN_KEY);
-
-      const sessionState: SessionState = {
-        ...json.data,
-        pinEnabled: hasPin,
-        isOfflineExpired: false,
-      };
-
-      this.persistSession(sessionState);
-      this.pendingRecoveryOptions = null;
-
-      return {
-        success: true,
-        data: sessionState,
-      };
-    } catch {
-      return {
-        success: false,
-        error: "حصل خطأ غير متوقع",
-      };
-    }
-  }
-
-  async listPasskeys(): Promise<AuthApiResult<PasskeyInfo[]>> {
-    try {
-      const res = await fetch("/api/auth/passkeys");
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        return {
-          success: false,
-          error: json?.error?.message || "فشل جلب قائمة المفاتيح",
-        };
-      }
-      return { success: true, data: json.data };
-    } catch {
-      return { success: false, error: "تعذر الاتصال بالسيرفر" };
-    }
-  }
-
-  async revokePasskey(
-    passkeyId: string,
+  async verifyEmail(
+    token: string,
   ): Promise<AuthApiResult<{ success: boolean }>> {
     try {
-      const res = await fetch("/api/auth/passkeys", {
-        method: "DELETE",
+      const res = await fetch("/api/auth/verify-email", {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ passkeyId }),
+        body: JSON.stringify({ token }),
       });
+
       const json = await res.json();
       if (!res.ok || !json.success) {
         return {
           success: false,
-          error: json?.error?.message || "فشل حذف المفتاح",
+          error:
+            json?.error?.message ||
+            "رمز تأكيد البريد غير صالح أو منتهي الصلاحية",
         };
       }
+
       return { success: true, data: { success: true } };
     } catch {
       return { success: false, error: "تعذر الاتصال بالسيرفر" };
     }
-  }
-
-  async reauthenticateWithPasskey(): Promise<
-    AuthApiResult<{ verified: boolean }>
-  > {
-    const optsRes = await this.getPasskeyAuthOptions();
-    if (!optsRes.success || !optsRes.data) {
-      return { success: false, error: optsRes.error || "فشل خيارات المصادقة" };
-    }
-
-    const loginRes = await this.loginWithPasskey();
-    return {
-      success: loginRes.success,
-      data: { verified: loginRes.success },
-      error: loginRes.error,
-    };
   }
 
   async getSession(): Promise<SessionState | null> {
@@ -536,12 +269,12 @@ export class RealAuthApi implements AuthApi {
 
       const json = await res.json();
       if (res.ok && json.success && json.data) {
-        const hasPin =
-          typeof window !== "undefined" &&
-          !!localStorage.getItem(STORAGE_PIN_KEY);
+        const hasPin = this.hasLocalPin();
 
         const sessionState: SessionState = {
-          ...json.data,
+          ...json.data.session,
+          user: json.data.user,
+          store: json.data.store,
           pinEnabled: hasPin,
           isOfflineExpired: false,
         };
@@ -608,14 +341,83 @@ export class RealAuthApi implements AuthApi {
     }
   }
 
+  async revokeOtherSessions(): Promise<AuthApiResult<{ message: string }>> {
+    try {
+      const res = await fetch("/api/auth/revoke-other-sessions", {
+        method: "POST",
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        return {
+          success: false,
+          error: json?.error?.message || "فشل تسجيل الخروج من الأجهزة الأخرى",
+        };
+      }
+      return { success: true, data: json.data };
+    } catch {
+      return { success: false, error: "تعذر الاتصال بالسيرفر" };
+    }
+  }
+
   // Local device screen lock (PIN)
+  hasLocalPin(): boolean {
+    if (typeof window === "undefined") return false;
+    return !!localStorage.getItem(STORAGE_PIN_KEY);
+  }
+
+  getPinLockoutRemainingSeconds(): number {
+    if (typeof window === "undefined") return 0;
+    const untilStr = localStorage.getItem(STORAGE_LOCKOUT_KEY);
+    if (!untilStr) return 0;
+    const until = parseInt(untilStr, 10);
+    const now = Date.now();
+    if (until > now) {
+      return Math.ceil((until - now) / 1000);
+    }
+    localStorage.removeItem(STORAGE_LOCKOUT_KEY);
+    return 0;
+  }
+
+  recordFailedPinAttempt(): number {
+    if (typeof window === "undefined") return 0;
+    const countStr = localStorage.getItem(STORAGE_ATTEMPTS_KEY) || "0";
+    const nextCount = parseInt(countStr, 10) + 1;
+    localStorage.setItem(STORAGE_ATTEMPTS_KEY, String(nextCount));
+
+    if (nextCount >= 5) {
+      const lockoutSeconds = 30;
+      const lockoutUntil = Date.now() + lockoutSeconds * 1000;
+      localStorage.setItem(STORAGE_LOCKOUT_KEY, String(lockoutUntil));
+      return lockoutSeconds;
+    }
+    return 0;
+  }
+
+  resetPinAttempts(): void {
+    if (typeof window === "undefined") return;
+    localStorage.removeItem(STORAGE_ATTEMPTS_KEY);
+    localStorage.removeItem(STORAGE_LOCKOUT_KEY);
+  }
+
   async verifyPin(pin: string): Promise<boolean> {
     if (typeof window === "undefined") return false;
+    if (this.getPinLockoutRemainingSeconds() > 0) {
+      return false;
+    }
+
     const storedHash = localStorage.getItem(STORAGE_PIN_KEY);
     if (!storedHash) return true; // No PIN set
 
     const enteredHash = await hashPinLocally(pin);
-    return enteredHash === storedHash;
+    const matches = enteredHash === storedHash;
+
+    if (matches) {
+      this.resetPinAttempts();
+      return true;
+    } else {
+      this.recordFailedPinAttempt();
+      return false;
+    }
   }
 
   async setPin(pin: string | null): Promise<void> {
@@ -623,29 +425,19 @@ export class RealAuthApi implements AuthApi {
     if (pin && pin.trim().length === 6) {
       const hash = await hashPinLocally(pin.trim());
       localStorage.setItem(STORAGE_PIN_KEY, hash);
+      this.resetPinAttempts();
       if (this.session) {
         this.session.pinEnabled = true;
         this.persistSession(this.session);
       }
     } else {
       localStorage.removeItem(STORAGE_PIN_KEY);
+      this.resetPinAttempts();
       if (this.session) {
         this.session.pinEnabled = false;
         this.persistSession(this.session);
       }
     }
-  }
-
-  async resetPinWithReauth(): Promise<AuthApiResult<{ allowed: boolean }>> {
-    const reauth = await this.reauthenticateWithPasskey();
-    if (reauth.success && reauth.data?.verified) {
-      await this.setPin(null);
-      return { success: true, data: { allowed: true } };
-    }
-    return {
-      success: false,
-      error: "يجب تأكيد هويتك بمفتاح المرور لإلغاء قفل الشاشة",
-    };
   }
 
   async simulateOfflineExpiry(): Promise<void> {

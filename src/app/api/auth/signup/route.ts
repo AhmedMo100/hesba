@@ -1,6 +1,9 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import { startSignup } from "@/server/modules/auth";
+import {
+  signupUserAndStore,
+  getSessionCookieOptions,
+} from "@/server/modules/auth";
 import { toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
@@ -8,12 +11,23 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const result = await startSignup(body);
+    const result = await signupUserAndStore(body);
 
-    return NextResponse.json({
+    const response = NextResponse.json({
       success: true,
-      data: result,
+      data: {
+        session: {
+          ...result.session,
+          user: result.user,
+          store: result.store,
+        },
+      },
     });
+
+    const cookieOpts = getSessionCookieOptions();
+    response.cookies.set(cookieOpts.name, result.token, cookieOpts);
+
+    return response;
   } catch (err) {
     return toSafeErrorResponse(err);
   }

@@ -62,7 +62,7 @@ export function okMail(v: string): boolean {
 }
 
 export interface AuthScreenProps {
-  initialMode?: "signup" | "login" | "passkey-reg" | "recovery";
+  initialMode?: "signup" | "login" | "recovery";
   onSuccess?: (session: SessionState) => void;
   isOffline?: boolean;
 }
@@ -73,16 +73,16 @@ export function AuthScreen({
   isOffline = false,
 }: AuthScreenProps) {
   const { t } = useTranslation();
-  const [mode, setMode] = useState<
-    "signup" | "login" | "passkey-reg" | "recovery"
-  >(initialMode);
-  const [step, setStep] = useState(0);
+  const [mode, setMode] = useState<"signup" | "login" | "recovery">(
+    initialMode,
+  );
+  const [step, setStep] = useState(0); // 0 = عنك, 1 = محلك, 2 = أمان الجهاز
   const [dir, setDir] = useState<1 | -1>(1);
   const [busy, setBusy] = useState(false);
   const [globalErr, setGlobalErr] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // Signup state (Passwords removed, Email required for recovery)
+  // 1. Signup state
   const [signupData, setSignupData] = useState<SignupInput>({
     ownerName: "",
     phone: "",
@@ -95,17 +95,14 @@ export function AuthScreen({
     workersCount: 1,
     withDemoData: true,
   });
+  const [pin, setPin] = useState("");
+  const [confirmPin, setConfirmPin] = useState("");
 
-  // Login state (Identifier optional; Passkey primary)
-  const [loginIdentifier, setLoginIdentifier] = useState("");
+  // 2. Login state (Magic link)
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginSent, setLoginSent] = useState(false);
 
-  // Passkey registration state
-  const [passkeyStatus, setPasskeyStatus] = useState<
-    "idle" | "registering" | "success" | "canceled" | "unsupported"
-  >("idle");
-  const [activeSession, setActiveSession] = useState<SessionState | null>(null);
-
-  // Recovery state
+  // 3. Recovery state
   const [recoveryEmail, setRecoveryEmail] = useState("");
   const [recoverySent, setRecoverySent] = useState(false);
 
@@ -115,7 +112,7 @@ export function AuthScreen({
     setGlobalErr("");
   };
 
-  const handleNextStep = () => {
+  const handleNextToStep2 = () => {
     const errs: Record<string, string> = {};
     if (signupData.ownerName.trim().length < 2) {
       errs["owner"] = t("errors.writeName");
@@ -134,13 +131,31 @@ export function AuthScreen({
     setStep(1);
   };
 
-  const handleCreateAccount = async () => {
+  const handleNextToStep3 = () => {
     const errs: Record<string, string> = {};
     if (!signupData.storeName.trim()) {
       errs["storeName"] = t("errors.writeStoreName");
     }
     if (!signupData.openedOn) {
       errs["opened"] = t("errors.chooseOpenedDate");
+    }
+
+    setFieldErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setDir(1);
+    setStep(2);
+  };
+
+  const handleCreateAccount = async () => {
+    const errs: Record<string, string> = {};
+    const normPin = normDigits(pin).trim();
+    const normConfirm = normDigits(confirmPin).trim();
+
+    if (normPin.length !== 6) {
+      errs["pin"] = t("errors.pinLength");
+    } else if (normPin !== normConfirm) {
+      errs["confirmPin"] = t("errors.pinMismatch");
     }
 
     setFieldErrors(errs);
@@ -160,9 +175,10 @@ export function AuthScreen({
         return;
       }
 
-      setActiveSession(res.data.session);
-      setMode("passkey-reg");
-      setPasskeyStatus("idle");
+      // Save local device PIN
+      await authApi.setPin(normPin);
+
+      onSuccess?.(res.data);
     } catch {
       setGlobalErr(t("errors.serverError"));
     } finally {
@@ -170,71 +186,25 @@ export function AuthScreen({
     }
   };
 
-  const handleRegisterPasskey = async () => {
-    setBusy(true);
-    setPasskeyStatus("registering");
-    setGlobalErr("");
-
-    try {
-      const res = await authApi.completePasskeyRegistration({
-        id: `passkey-cred-${Date.now()}-TEST`,
-        rawId: `raw-cred-${Date.now()}-TEST`,
-        type: "public-key",
-        response: {
-          clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
-          attestationObject: "o2NmbXRkbm9uZWdhdHRTdG10oGhhdXRoRGF0YVik",
-        },
-      });
-
-      if (!res.success || !res.data) {
-        setPasskeyStatus("canceled");
-        setGlobalErr(res.error || t("errors.passkeyFailed"));
-        return;
-      }
-
-      setActiveSession(res.data);
-      setPasskeyStatus("success");
-    } catch {
-      setPasskeyStatus("canceled");
-      setGlobalErr(t("errors.passkeyFailed"));
-    } finally {
-      setBusy(false);
+  const handleRequestMagicLink = async () => {
+    if (!okMail(loginEmail)) {
+      setFieldErrors({ email: t("errors.invalidEmail") });
+      return;
     }
-  };
 
-  const handlePasskeyLogin = async () => {
     setBusy(true);
     setGlobalErr("");
-
     try {
-      const optionsRes = await authApi.getPasskeyAuthOptions(
-        loginIdentifier ? normDigits(loginIdentifier).trim() : undefined,
+      const res = await authApi.requestMagicLink(
+        loginEmail.trim().toLowerCase(),
       );
-
-      if (!optionsRes.success) {
-        setGlobalErr(optionsRes.error || t("errors.serverError"));
-        return;
+      if (res.success) {
+        setLoginSent(true);
+      } else {
+        setGlobalErr(res.error || t("errors.serverError"));
       }
-
-      const res = await authApi.loginWithPasskey({
-        id: `passkey-auth-cred-${Date.now()}-TEST`,
-        rawId: `raw-auth-${Date.now()}-TEST`,
-        type: "public-key",
-        response: {
-          clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
-          authenticatorData: "SZYN5YgOjGh0NBcPZHZgW4_krrmihjLHmVzzuoMdl2MBAAAA",
-          signature: "MEUCIQD1TESTSIGNATURE",
-        },
-      });
-
-      if (!res.success || !res.data) {
-        setGlobalErr(res.error || t("errors.invalidCredentials"));
-        return;
-      }
-
-      onSuccess?.(res.data);
     } catch {
-      setGlobalErr(t("errors.invalidCredentials"));
+      setGlobalErr(t("errors.serverError"));
     } finally {
       setBusy(false);
     }
@@ -249,50 +219,16 @@ export function AuthScreen({
     setBusy(true);
     setGlobalErr("");
     try {
-      const res = await authApi.requestAccountRecovery({
-        email: recoveryEmail.trim().toLowerCase(),
-      });
-
-      if (!res.success) {
+      const res = await authApi.requestAccountRecovery(
+        recoveryEmail.trim().toLowerCase(),
+      );
+      if (res.success) {
+        setRecoverySent(true);
+      } else {
         setGlobalErr(res.error || t("errors.serverError"));
-        return;
       }
-
-      setRecoverySent(true);
     } catch {
       setGlobalErr(t("errors.serverError"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleCompleteRecovery = async () => {
-    setBusy(true);
-    setGlobalErr("");
-    try {
-      const res = await authApi.completeAccountRecovery(
-        {
-          token: "valid-recovery-token-TEST",
-          passkeyLabel: "مفتاح مرور جديد بعد الاسترداد (TEST)",
-        },
-        {
-          id: `passkey-recovery-cred-${Date.now()}-TEST`,
-          rawId: `raw-recovery-${Date.now()}-TEST`,
-          type: "public-key",
-          response: {
-            clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
-          },
-        },
-      );
-
-      if (!res.success || !res.data) {
-        setGlobalErr(res.error || t("errors.recoveryTokenUsed"));
-        return;
-      }
-
-      onSuccess?.(res.data);
-    } catch {
-      setGlobalErr(t("errors.recoveryTokenUsed"));
     } finally {
       setBusy(false);
     }
@@ -303,482 +239,454 @@ export function AuthScreen({
       <div className={styles.card}>
         <div className={styles.head}>
           <div className={styles.logoBox}>
-            <Icon n="store" s={28} />
+            <Icon n="cart" s={28} />
           </div>
           <h1>
             {mode === "signup"
               ? t("auth.signupTitle")
               : mode === "login"
                 ? t("auth.loginTitle")
-                : mode === "passkey-reg"
-                  ? t("auth.passkeyTitle")
-                  : t("auth.recoveryTitle")}
+                : t("auth.recoveryTitle")}
           </h1>
           <p>
             {mode === "signup"
               ? t("auth.signupSub")
               : mode === "login"
                 ? t("auth.loginSub")
-                : mode === "passkey-reg"
-                  ? t("auth.passkeySub")
-                  : t("auth.recoverySub")}
+                : t("auth.recoverySub")}
           </p>
         </div>
 
+        {globalErr && <div className={styles.errBox}>{globalErr}</div>}
+
         {isOffline && (
-          <div className={styles.offlineNotice}>
-            <Icon n="alert" s={16} />
+          <div className={styles.offlineBox}>
+            <Icon n="wifioff" s={16} />
             <span>{t("auth.offlineNotice")}</span>
           </div>
         )}
 
-        {globalErr && <div className={styles.globalErr}>{globalErr}</div>}
-
+        {/* ================= EXPERIENCE A: SIGNUP (3-STEP) ================= */}
         {mode === "signup" && (
           <>
-            <div className={styles.steps} aria-label={`خطوة ${step + 1} من 2`}>
+            <div className={styles.steps}>
               <div
-                className={`${styles.st} ${step === 0 ? styles.on : styles.done}`}
+                className={`${styles.st} ${step === 0 ? styles.on : step > 0 ? styles.done : ""}`}
               >
-                <span className={styles.stN}>
-                  {step > 0 ? <Icon n="check" s={14} /> : 1}
-                </span>
-                <b>{t("auth.step1")}</b>
+                <div className={styles.stN}>1</div>
+                <span>{t("auth.step1")}</span>
               </div>
-              <div className={`${styles.st} ${step === 1 ? styles.on : ""}`}>
-                <span className={styles.stN}>2</span>
-                <b>{t("auth.step2")}</b>
+              <div
+                className={`${styles.st} ${step === 1 ? styles.on : step > 1 ? styles.done : ""}`}
+              >
+                <div className={styles.stN}>2</div>
+                <span>{t("auth.step2")}</span>
               </div>
-              <i className={styles.stLine}>
-                <i
+              <div className={`${styles.st} ${step === 2 ? styles.on : ""}`}>
+                <div className={styles.stN}>3</div>
+                <span>{t("auth.step3")}</span>
+              </div>
+              <div className={styles.stLine}>
+                <span
                   className={styles.stLineFill}
-                  style={{ transform: `scaleX(${step})` }}
+                  style={{
+                    transform: `scaleX(${step === 0 ? 0 : step === 1 ? 0.5 : 1})`,
+                  }}
                 />
-              </i>
+              </div>
             </div>
 
-            <div className={styles.body} key={step} data-dir={dir}>
-              {step === 0 ? (
-                <>
-                  <Field
-                    label={t("auth.ownerLabel")}
-                    err={fieldErrors["owner"]}
-                  >
-                    <input
-                      autoFocus
-                      value={signupData.ownerName}
-                      onChange={(e) =>
-                        updateSignup({ ownerName: e.target.value })
-                      }
-                      placeholder={t("auth.ownerPlaceholder")}
-                      autoComplete="name"
-                    />
-                  </Field>
+            {/* STEP 1: Owner Information */}
+            {step === 0 && (
+              <div className={styles.body} data-dir={dir}>
+                <Field label={t("auth.ownerLabel")} err={fieldErrors["owner"]}>
+                  <input
+                    autoFocus
+                    placeholder={t("auth.ownerPlaceholder")}
+                    value={signupData.ownerName}
+                    onChange={(e) =>
+                      updateSignup({ ownerName: e.target.value })
+                    }
+                  />
+                </Field>
 
-                  <Field
-                    label={t("auth.phoneLabel")}
-                    err={fieldErrors["phone"]}
-                  >
-                    <input
-                      dir="ltr"
-                      className="ltr"
-                      inputMode="tel"
-                      value={signupData.phone}
-                      onChange={(e) => updateSignup({ phone: e.target.value })}
-                      placeholder={t("auth.phonePlaceholder")}
-                      autoComplete="tel"
-                    />
-                  </Field>
+                <Field label={t("auth.phoneLabel")} err={fieldErrors["phone"]}>
+                  <input
+                    dir="ltr"
+                    className="ltr"
+                    inputMode="tel"
+                    placeholder={t("auth.phonePlaceholder")}
+                    value={signupData.phone}
+                    onChange={(e) => updateSignup({ phone: e.target.value })}
+                  />
+                </Field>
 
-                  <Field
-                    label={t("auth.emailLabel")}
-                    err={fieldErrors["email"]}
-                  >
-                    <input
-                      dir="ltr"
-                      className="ltr"
-                      inputMode="email"
-                      value={signupData.email}
-                      onChange={(e) => updateSignup({ email: e.target.value })}
-                      placeholder={t("auth.emailPlaceholder")}
-                      autoComplete="email"
-                    />
-                  </Field>
-                  <small
-                    style={{
-                      color: "var(--ink2)",
-                      fontSize: "12px",
-                      marginTop: "-8px",
-                      marginBottom: "4px",
-                      display: "block",
-                    }}
-                  >
-                    {t("auth.emailHelp")}
-                  </small>
+                <Field label={t("auth.emailLabel")} err={fieldErrors["email"]}>
+                  <input
+                    dir="ltr"
+                    className="ltr"
+                    inputMode="email"
+                    placeholder={t("auth.emailPlaceholder")}
+                    value={signupData.email}
+                    onChange={(e) => updateSignup({ email: e.target.value })}
+                  />
+                </Field>
+                <small className={styles.fieldHelp}>
+                  {t("auth.emailHelp")}
+                </small>
 
-                  <Button className="wide lg" onClick={handleNextStep}>
+                <div className={styles.actions}>
+                  <Button
+                    className={`lg ${styles.grow1}`}
+                    icon="left"
+                    onClick={handleNextToStep2}
+                  >
                     {t("auth.next")}
                   </Button>
-                </>
-              ) : (
-                <>
+                </div>
+
+                <div className={styles.switchLink}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("login");
+                      setGlobalErr("");
+                      setFieldErrors({});
+                    }}
+                  >
+                    {t("auth.hasAccount")}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 2: Shop Information */}
+            {step === 1 && (
+              <div className={styles.body} data-dir={dir}>
+                <Field
+                  label={t("auth.storeNameLabel")}
+                  err={fieldErrors["storeName"]}
+                >
+                  <input
+                    autoFocus
+                    placeholder={t("auth.storeNamePlaceholder")}
+                    value={signupData.storeName}
+                    onChange={(e) =>
+                      updateSignup({ storeName: e.target.value })
+                    }
+                  />
+                </Field>
+
+                <div>
+                  <div className={styles.fieldLabel}>
+                    {t("auth.shopTypeLabel")}
+                  </div>
+                  <div className={styles.chipsWrap}>
+                    {SHOP_TYPES.map((type) => (
+                      <button
+                        type="button"
+                        key={type}
+                        className={`${styles.chip} ${signupData.shopType === type ? styles.on : ""}`}
+                        onClick={() => updateSignup({ shopType: type })}
+                      >
+                        {type}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className={styles.row2}>
+                  <Field label={t("auth.governorateLabel")}>
+                    <select
+                      value={signupData.governorate}
+                      onChange={(e) =>
+                        updateSignup({ governorate: e.target.value })
+                      }
+                    >
+                      {GOVERNORATES.map((gov) => (
+                        <option key={gov} value={gov}>
+                          {gov}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label={t("auth.areaLabel")}>
+                    <input
+                      placeholder={t("auth.areaPlaceholder")}
+                      value={signupData.area}
+                      onChange={(e) => updateSignup({ area: e.target.value })}
+                    />
+                  </Field>
+                </div>
+
+                <div className={styles.row2}>
                   <Field
-                    label={t("auth.storeNameLabel")}
-                    err={fieldErrors["storeName"]}
+                    label={t("auth.openedDateLabel")}
+                    err={fieldErrors["opened"]}
                   >
                     <input
-                      autoFocus
-                      value={signupData.storeName}
+                      type="date"
+                      value={signupData.openedOn}
                       onChange={(e) =>
-                        updateSignup({ storeName: e.target.value })
+                        updateSignup({ openedOn: e.target.value })
                       }
-                      placeholder={t("auth.storeNamePlaceholder")}
-                      autoComplete="organization"
                     />
                   </Field>
 
-                  <div>
-                    <div className={styles.fieldLabel}>
-                      {t("auth.shopTypeLabel")}
-                    </div>
-                    <div className={styles.chipsWrap}>
-                      {SHOP_TYPES.map((type) => (
-                        <button
-                          type="button"
-                          key={type}
-                          className={`${styles.chip} ${signupData.shopType === type ? styles.on : ""}`}
-                          onClick={() => updateSignup({ shopType: type })}
-                        >
-                          {type}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className={styles.row2}>
-                    <Field label={t("auth.governorateLabel")}>
-                      <select
-                        value={signupData.governorate}
-                        onChange={(e) =>
-                          updateSignup({ governorate: e.target.value })
-                        }
-                      >
-                        {GOVERNORATES.map((gov) => (
-                          <option key={gov} value={gov}>
-                            {gov}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-
-                    <Field label={t("auth.areaLabel")}>
-                      <input
-                        value={signupData.area}
-                        onChange={(e) => updateSignup({ area: e.target.value })}
-                        placeholder={t("auth.areaPlaceholder")}
-                      />
-                    </Field>
-                  </div>
-
-                  <div className={styles.row2}>
-                    <Field
-                      label={t("auth.openedDateLabel")}
-                      err={fieldErrors["opened"]}
-                    >
-                      <input
-                        type="date"
-                        value={signupData.openedOn}
-                        onChange={(e) =>
-                          updateSignup({ openedOn: e.target.value })
-                        }
-                      />
-                    </Field>
-
-                    <Field label={t("auth.workersCountLabel")}>
-                      <div className={styles.stepper}>
-                        <button
-                          type="button"
-                          aria-label="أقل"
-                          onClick={() =>
-                            updateSignup({
-                              workersCount: Math.max(
-                                0,
-                                signupData.workersCount - 1,
-                              ),
-                            })
-                          }
-                        >
-                          −
-                        </button>
-                        <b>{signupData.workersCount}</b>
-                        <button
-                          type="button"
-                          aria-label="أكتر"
-                          onClick={() =>
-                            updateSignup({
-                              workersCount: Math.min(
-                                99,
-                                signupData.workersCount + 1,
-                              ),
-                            })
-                          }
-                        >
-                          +
-                        </button>
-                      </div>
-                    </Field>
-                  </div>
-
-                  <label className={styles.chkDemo}>
+                  <Field label={t("auth.workersCountLabel")}>
                     <input
-                      type="checkbox"
-                      checked={signupData.withDemoData}
+                      type="number"
+                      min={1}
+                      max={100}
+                      value={signupData.workersCount}
                       onChange={(e) =>
-                        updateSignup({ withDemoData: e.target.checked })
+                        updateSignup({
+                          workersCount: parseInt(e.target.value, 10) || 1,
+                        })
                       }
                     />
-                    <div className={styles.chkDemoText}>
-                      <b>{t("auth.demoData")}</b>
-                      <small>{t("auth.demoDataDesc")}</small>
-                    </div>
-                  </label>
-
-                  <div className={styles.actions}>
-                    <Button
-                      kind="ghost"
-                      className="lg"
-                      onClick={() => {
-                        setDir(-1);
-                        setStep(0);
-                      }}
-                    >
-                      {t("auth.back")}
-                    </Button>
-                    <Button
-                      className={`lg ${styles.grow1}`}
-                      disabled={busy}
-                      onClick={handleCreateAccount}
-                    >
-                      {busy ? t("auth.creating") : t("auth.createAccount")}
-                    </Button>
-                  </div>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className={styles.linkCenter}
-              onClick={() => {
-                setMode("login");
-                setFieldErrors({});
-                setGlobalErr("");
-              }}
-            >
-              {t("auth.hasAccount")}
-            </button>
-          </>
-        )}
-
-        {mode === "passkey-reg" && (
-          <div className={styles.body}>
-            {passkeyStatus === "success" ? (
-              <div style={{ textAlign: "center", padding: "16px 8px" }}>
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "64px",
-                    height: "64px",
-                    borderRadius: "50%",
-                    background:
-                      "color-mix(in srgb, var(--green, #2ecc71) 15%, transparent)",
-                    color: "var(--green, #2ecc71)",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <Icon n="check" s={32} />
-                </div>
-                <h2 style={{ fontSize: "20px", marginBottom: "8px" }}>
-                  {t("auth.passkeySuccessTitle")}
-                </h2>
-                <p
-                  style={{
-                    color: "var(--ink2)",
-                    fontSize: "14px",
-                    marginBottom: "24px",
-                  }}
-                >
-                  {t("auth.passkeySuccessSub")}
-                </p>
-                <Button
-                  className="wide lg"
-                  onClick={() => {
-                    if (activeSession) onSuccess?.(activeSession);
-                  }}
-                >
-                  {t("auth.enterApp")}
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div
-                  style={{
-                    background: "var(--sf2)",
-                    border: "1.5px solid var(--line)",
-                    borderRadius: "18px",
-                    padding: "20px",
-                    textAlign: "center",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "56px",
-                      height: "56px",
-                      borderRadius: "16px",
-                      background:
-                        "color-mix(in srgb, var(--br) 12%, var(--sf))",
-                      color: "var(--br)",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      margin: "0 auto 12px",
-                    }}
-                  >
-                    <Icon n="check" s={28} />
-                  </div>
-                  <b
-                    style={{
-                      display: "block",
-                      fontSize: "15px",
-                      marginBottom: "6px",
-                    }}
-                  >
-                    {t("auth.passkeyPrompt")}
-                  </b>
-                  <p
-                    style={{
-                      color: "var(--ink2)",
-                      fontSize: "13px",
-                      margin: 0,
-                    }}
-                  >
-                    {t("auth.passkeySub")}
-                  </p>
+                  </Field>
                 </div>
 
                 <div className={styles.actions}>
                   <Button
-                    className={`wide lg ${styles.grow1}`}
-                    disabled={busy}
-                    onClick={handleRegisterPasskey}
+                    kind="ghost"
+                    className="lg"
+                    onClick={() => {
+                      setDir(-1);
+                      setStep(0);
+                    }}
                   >
-                    {busy
-                      ? t("auth.registeringPasskey")
-                      : t("auth.registerPasskeyBtn")}
+                    {t("auth.back")}
                   </Button>
+                  <Button
+                    className={`lg ${styles.grow1}`}
+                    icon="left"
+                    onClick={handleNextToStep3}
+                  >
+                    {t("auth.next")}
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {/* STEP 3: Device Security & Local PIN */}
+            {step === 2 && (
+              <div className={styles.body} data-dir={dir}>
+                <div style={{ textAlign: "center", marginBottom: "8px" }}>
+                  <h3 style={{ fontSize: "16px", marginBottom: "4px" }}>
+                    {t("auth.pinStepTitle")}
+                  </h3>
+                  <p
+                    style={{
+                      fontSize: "13px",
+                      color: "var(--ink2)",
+                      lineHeight: "1.5",
+                    }}
+                  >
+                    {t("auth.pinStepSub")}
+                  </p>
+                </div>
+
+                <Field label={t("auth.pinLabel")} err={fieldErrors["pin"]}>
+                  <input
+                    autoFocus
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    dir="ltr"
+                    className="ltr"
+                    placeholder="******"
+                    value={pin}
+                    onChange={(e) => {
+                      setPin(normDigits(e.target.value).slice(0, 6));
+                      setFieldErrors({});
+                    }}
+                  />
+                </Field>
+
+                <Field
+                  label={t("auth.confirmPinLabel")}
+                  err={fieldErrors["confirmPin"]}
+                >
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    maxLength={6}
+                    dir="ltr"
+                    className="ltr"
+                    placeholder="******"
+                    value={confirmPin}
+                    onChange={(e) => {
+                      setConfirmPin(normDigits(e.target.value).slice(0, 6));
+                      setFieldErrors({});
+                    }}
+                  />
+                </Field>
+
+                <div className={styles.actions}>
+                  <Button
+                    kind="ghost"
+                    className="lg"
+                    disabled={busy}
+                    onClick={() => {
+                      setDir(-1);
+                      setStep(1);
+                    }}
+                  >
+                    {t("auth.back")}
+                  </Button>
+                  <Button
+                    className={`lg ${styles.grow1}`}
+                    icon="check"
+                    disabled={busy}
+                    onClick={handleCreateAccount}
+                  >
+                    {busy ? t("auth.creating") : t("auth.createAccount")}
+                  </Button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ================= EXPERIENCE B: LOGIN (MAGIC LINK) ================= */}
+        {mode === "login" && (
+          <div className={styles.body}>
+            {loginSent ? (
+              <div style={{ textAlign: "center", padding: "12px 0" }}>
+                <div className={styles.successIconBox}>
+                  <Icon n="check" s={32} />
+                </div>
+                <h3 style={{ fontSize: "18px", margin: "14px 0 8px" }}>
+                  {t("auth.magicLinkSentTitle")}
+                </h3>
+                <p
+                  style={{
+                    color: "var(--ink2)",
+                    fontSize: "13.5px",
+                    lineHeight: "1.6",
+                    marginBottom: "20px",
+                  }}
+                >
+                  {t("auth.magicLinkSentDesc")}
+                </p>
+                <Button
+                  kind="ghost"
+                  className="lg"
+                  onClick={() => setLoginSent(false)}
+                >
+                  {t("auth.back")}
+                </Button>
+              </div>
+            ) : (
+              <>
+                <Field
+                  label={t("auth.loginEmailLabel")}
+                  err={fieldErrors["email"]}
+                >
+                  <input
+                    autoFocus
+                    dir="ltr"
+                    className="ltr"
+                    inputMode="email"
+                    placeholder={t("auth.emailPlaceholder")}
+                    value={loginEmail}
+                    onChange={(e) => {
+                      setLoginEmail(e.target.value);
+                      setFieldErrors({});
+                      setGlobalErr("");
+                    }}
+                  />
+                </Field>
+
+                <div className={styles.actions}>
+                  <Button
+                    className={`lg ${styles.grow1}`}
+                    disabled={busy}
+                    onClick={handleRequestMagicLink}
+                  >
+                    {busy ? t("auth.sendingLink") : t("auth.sendMagicLinkBtn")}
+                  </Button>
+                </div>
+
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    marginTop: "16px",
+                    fontSize: "13px",
+                  }}
+                >
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--br)",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                    onClick={() => {
+                      setMode("signup");
+                      setGlobalErr("");
+                      setFieldErrors({});
+                    }}
+                  >
+                    {t("auth.noAccount")}
+                  </button>
+
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--ink2)",
+                      cursor: "pointer",
+                      textDecoration: "underline",
+                    }}
+                    onClick={() => {
+                      setMode("recovery");
+                      setGlobalErr("");
+                      setFieldErrors({});
+                    }}
+                  >
+                    {t("auth.forgotPin")}
+                  </button>
                 </div>
               </>
             )}
           </div>
         )}
 
-        {mode === "login" && (
-          <div className={styles.body}>
-            <Field label={t("auth.phoneLabel")} err={fieldErrors["identifier"]}>
-              <input
-                autoFocus
-                dir="ltr"
-                className="ltr"
-                inputMode="tel"
-                value={loginIdentifier}
-                onChange={(e) => {
-                  setLoginIdentifier(e.target.value);
-                  setFieldErrors({});
-                  setGlobalErr("");
-                }}
-                placeholder={t("auth.phonePlaceholder")}
-                autoComplete="username webauthn"
-              />
-            </Field>
-
-            <div className={styles.actions}>
-              <Button
-                className={`wide lg ${styles.grow1}`}
-                disabled={busy}
-                onClick={handlePasskeyLogin}
-              >
-                {t("auth.login")}
-              </Button>
-            </div>
-
-            <button
-              type="button"
-              className={styles.linkCenter}
-              onClick={() => {
-                setMode("recovery");
-                setFieldErrors({});
-                setGlobalErr("");
-              }}
-            >
-              {t("auth.forgotPasskey")}
-            </button>
-
-            <button
-              type="button"
-              className={styles.linkCenter}
-              onClick={() => {
-                setMode("signup");
-                setFieldErrors({});
-                setGlobalErr("");
-              }}
-            >
-              {t("auth.noAccount")}
-            </button>
-          </div>
-        )}
-
+        {/* ================= EXPERIENCE C: RECOVERY & PIN RESET ================= */}
         {mode === "recovery" && (
           <div className={styles.body}>
             {recoverySent ? (
-              <div style={{ textAlign: "center", padding: "16px 8px" }}>
-                <div
-                  style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    width: "56px",
-                    height: "56px",
-                    borderRadius: "50%",
-                    background: "color-mix(in srgb, var(--br) 12%, var(--sf))",
-                    color: "var(--br)",
-                    marginBottom: "16px",
-                  }}
-                >
-                  <Icon n="check" s={28} />
+              <div style={{ textAlign: "center", padding: "12px 0" }}>
+                <div className={styles.successIconBox}>
+                  <Icon n="check" s={32} />
                 </div>
-                <h2 style={{ fontSize: "18px", marginBottom: "8px" }}>
+                <h3 style={{ fontSize: "18px", margin: "14px 0 8px" }}>
                   {t("auth.recoverySentTitle")}
-                </h2>
+                </h3>
                 <p
                   style={{
                     color: "var(--ink2)",
-                    fontSize: "13px",
+                    fontSize: "13.5px",
                     lineHeight: "1.6",
                     marginBottom: "20px",
                   }}
                 >
                   {t("auth.recoverySentDesc")}
                 </p>
-
-                {/* Developer/Test action to complete recovery flow */}
                 <Button
-                  className="wide lg"
-                  disabled={busy}
-                  onClick={handleCompleteRecovery}
+                  kind="ghost"
+                  className="lg"
+                  onClick={() => setRecoverySent(false)}
                 >
-                  {t("auth.completeRecoveryBtn")}
+                  {t("auth.back")}
                 </Button>
               </div>
             ) : (
@@ -792,25 +700,17 @@ export function AuthScreen({
                     dir="ltr"
                     className="ltr"
                     inputMode="email"
+                    placeholder={t("auth.emailPlaceholder")}
                     value={recoveryEmail}
                     onChange={(e) => {
                       setRecoveryEmail(e.target.value);
                       setFieldErrors({});
                       setGlobalErr("");
                     }}
-                    placeholder={t("auth.emailPlaceholder")}
-                    autoComplete="email"
                   />
                 </Field>
 
                 <div className={styles.actions}>
-                  <Button
-                    kind="ghost"
-                    className="lg"
-                    onClick={() => setMode("login")}
-                  >
-                    {t("auth.back")}
-                  </Button>
                   <Button
                     className={`lg ${styles.grow1}`}
                     disabled={busy}
@@ -821,12 +721,23 @@ export function AuthScreen({
                       : t("auth.sendRecoveryLink")}
                   </Button>
                 </div>
+
+                <div className={styles.switchLink}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode("login");
+                      setGlobalErr("");
+                      setFieldErrors({});
+                    }}
+                  >
+                    {t("auth.back")}
+                  </button>
+                </div>
               </>
             )}
           </div>
         )}
-
-        <small className={styles.note}>{t("auth.testNote")}</small>
       </div>
     </div>
   );

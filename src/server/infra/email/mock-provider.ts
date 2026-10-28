@@ -5,7 +5,7 @@ export interface SentEmailRecord {
   to: string;
   subject: string;
   sentAt: Date;
-  type: "verification" | "recovery" | "generic";
+  type: "verification" | "recovery" | "magic-link" | "generic";
   url?: string;
 }
 
@@ -31,6 +31,16 @@ export class MockEmailProvider implements EmailProvider {
       sentAt: new Date(),
       type: "verification",
       url: verificationUrl,
+    });
+  }
+
+  async sendMagicLinkEmail(to: string, magicLinkUrl: string): Promise<void> {
+    this.sentEmails.push({
+      to,
+      subject: "رابط الدخول الآمن إلى حسبة",
+      sentAt: new Date(),
+      type: "magic-link",
+      url: magicLinkUrl,
     });
   }
 

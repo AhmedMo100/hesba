@@ -5,7 +5,18 @@ test.describe("App Shell Offline Navigation", () => {
     page,
     context,
   }) => {
-    // 1. First visit online
+    // 1. First visit online with authenticated session cookie
+    await context.addCookies([
+      {
+        name: "hesba_session",
+        value: "e2e-offline-token",
+        domain: "localhost",
+        path: "/",
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+
     await page.goto("/app");
     await page.waitForLoadState("domcontentloaded");
     await page.waitForLoadState("networkidle");

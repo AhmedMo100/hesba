@@ -30,13 +30,11 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     });
 
     // 2. Signup Step 2 ("محلك")
-    // Fill step 1 inputs to proceed
     await page.fill('input[placeholder="مثال: مجدي أحمد"]', "مجدي أحمد");
     await page.fill('input[placeholder="01xxxxxxxxx"]', "01012345678");
     await page.fill('input[placeholder="name@email.com"]', "magdy@example.com");
     await page.click('button:has-text("التالي")');
 
-    // Confirm Step 2 is active
     await expect(
       page.locator('input[placeholder="مثال: سوبر ماركت البركة"]'),
     ).toBeVisible();
@@ -45,19 +43,20 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
       fullPage: false,
     });
 
-    // 3. Passkey Registration Screen
-    await page.goto("/dev/auth?screen=passkey-reg");
-    await page.waitForLoadState("domcontentloaded");
-    await page.addStyleTag({
-      content: "nextjs-portal { display: none !important; }",
-    });
-    await expect(page.locator("h1")).toHaveText("تسجيل مفتاح المرور (Passkey)");
+    // 3. Signup Step 3 ("أمان الجهاز" - Local PIN)
+    await page.fill(
+      'input[placeholder="مثال: سوبر ماركت البركة"]',
+      "سوبر ماركت البركة",
+    );
+    await page.click('button:has-text("التالي")');
+
+    await expect(page.locator("h3")).toContainText("أمان الجهاز");
     await page.screenshot({
-      path: path.join(screenshotsDir, "auth-passkey-reg.png"),
+      path: path.join(screenshotsDir, "auth-signup-step3.png"),
       fullPage: false,
     });
 
-    // 4. Login Screen (Passkey primary)
+    // 4. Login Screen (Magic link)
     await page.goto("/dev/auth?screen=login");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({
@@ -75,7 +74,9 @@ test.describe("Auth & Profile UI at 360px (P2-F-01, P2-F-02, P2-F-06)", () => {
     await page.addStyleTag({
       content: "nextjs-portal { display: none !important; }",
     });
-    await expect(page.locator("h1")).toHaveText("استرداد الحساب بالبريد");
+    await expect(page.locator("h1")).toHaveText(
+      "استرداد الحساب وإعادة ضبط PIN",
+    );
     await page.screenshot({
       path: path.join(screenshotsDir, "auth-recovery.png"),
       fullPage: false,

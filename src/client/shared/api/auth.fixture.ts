@@ -1,12 +1,6 @@
 import type {
-  AccountRecoveryConfirmInput,
-  AccountRecoveryRequestInput,
   AuthApi,
   AuthApiResult,
-  PasskeyAuthenticationOptions,
-  PasskeyCredentialResponse,
-  PasskeyInfo,
-  PasskeyRegistrationOptions,
   SessionState,
   SignupInput,
   StoreProfile,
@@ -32,73 +26,74 @@ const DEFAULT_TEST_STORE: StoreSession = {
   workersCount: 2,
 };
 
-const DEFAULT_TEST_PASSKEYS: PasskeyInfo[] = [
-  {
-    id: "passkey-test-device-1",
-    label: "موبايل سامسونج (TEST)",
-    createdAt: new Date(Date.now() - 86400000 * 7).toISOString(),
-    lastUsedAt: new Date().toISOString(),
-  },
-];
-
 const STORAGE_KEY = "hesba_test_session";
 const PIN_KEY = "hesba_test_pin";
-const PASSKEYS_KEY = "hesba_test_passkeys";
+const LOCKOUT_KEY = "hesba_test_lockout";
+const ATTEMPTS_KEY = "hesba_test_attempts";
 
 class FixtureAuthApi implements AuthApi {
   private session: SessionState | null = null;
   private pin: string | null = null;
-  private passkeys: PasskeyInfo[] = [...DEFAULT_TEST_PASSKEYS];
+  private memoryStorage = new Map<string, string>();
+
+  private getItem(key: string): string | null {
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      return localStorage.getItem(key);
+    }
+    return this.memoryStorage.get(key) ?? null;
+  }
+
+  private setItem(key: string, val: string): void {
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      localStorage.setItem(key, val);
+    } else {
+      this.memoryStorage.set(key, val);
+    }
+  }
+
+  private removeItem(key: string): void {
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      localStorage.removeItem(key);
+    } else {
+      this.memoryStorage.delete(key);
+    }
+  }
 
   constructor() {
-    if (typeof window !== "undefined") {
-      try {
-        const stored = localStorage.getItem(STORAGE_KEY);
-        if (stored) {
-          this.session = JSON.parse(stored);
-        }
-        this.pin = localStorage.getItem(PIN_KEY);
-        const storedPasskeys = localStorage.getItem(PASSKEYS_KEY);
-        if (storedPasskeys) {
-          this.passkeys = JSON.parse(storedPasskeys);
-        }
-      } catch {
-        // Fallback to in-memory state
+    try {
+      const stored = this.getItem(STORAGE_KEY);
+      if (stored) {
+        this.session = JSON.parse(stored);
       }
+      this.pin = this.getItem(PIN_KEY);
+    } catch {
+      // Fallback to in-memory state
     }
   }
 
   private persist() {
-    if (typeof window !== "undefined") {
-      try {
-        if (this.session) {
-          localStorage.setItem(STORAGE_KEY, JSON.stringify(this.session));
-        } else {
-          localStorage.removeItem(STORAGE_KEY);
-        }
-        if (this.pin) {
-          localStorage.setItem(PIN_KEY, this.pin);
-        } else {
-          localStorage.removeItem(PIN_KEY);
-        }
-        localStorage.setItem(PASSKEYS_KEY, JSON.stringify(this.passkeys));
-      } catch {
-        // Ignore storage errors in test environment
+    try {
+      if (this.session) {
+        this.setItem(STORAGE_KEY, JSON.stringify(this.session));
+      } else {
+        this.removeItem(STORAGE_KEY);
       }
+      if (this.pin) {
+        this.setItem(PIN_KEY, this.pin);
+      } else {
+        this.removeItem(PIN_KEY);
+      }
+    } catch {
+      // Ignore storage errors in test environment
     }
   }
 
-  async signup(data: SignupInput): Promise<
-    AuthApiResult<{
-      session: SessionState;
-      passkeyOptions: PasskeyRegistrationOptions;
-    }>
-  > {
+  async signup(data: SignupInput): Promise<AuthApiResult<SessionState>> {
     const user: UserSession = {
       id: `user-test-${Date.now()}`,
       name: `${data.ownerName} (TEST)`,
       phone: data.phone,
-      email: `${data.email} (TEST)`,
+      email: data.email,
       emailVerified: false,
     };
 
@@ -107,7 +102,7 @@ class FixtureAuthApi implements AuthApi {
       name: `${data.storeName} (TEST)`,
       shopType: data.shopType,
       governorate: data.governorate,
-      area: data.area ? `${data.area} (TEST)` : undefined,
+      area: data.area,
       openedOn: data.openedOn,
       workersCount: data.workersCount,
     };
@@ -115,246 +110,109 @@ class FixtureAuthApi implements AuthApi {
     this.session = {
       user,
       store,
-      token: `jwt-token-test-${Date.now()}-TEST`,
-      expiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
+      token: `hesba-token-${Date.now()}-TEST`,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      pinEnabled: this.hasLocalPin(),
       isOfflineExpired: false,
-      pinEnabled: false,
     };
 
-    const passkeyOptions: PasskeyRegistrationOptions = {
-      challenge: `challenge-test-signup-${Date.now()}-TEST`,
-      rp: {
-        id: "hesba.app",
-        name: "حسبة (TEST)",
-      },
-      user: {
-        id: user.id,
-        name: user.email,
-        displayName: user.name,
-      },
-      pubKeyCredParams: [
-        { type: "public-key", alg: -7 }, // ES256
-        { type: "public-key", alg: -257 }, // RS256
-      ],
-      timeout: 60000,
-      authenticatorSelection: {
-        residentKey: "required",
-        userVerification: "preferred",
-      },
-    };
-
-    this.persist();
-    return {
-      success: true,
-      data: {
-        session: this.session,
-        passkeyOptions,
-      },
-    };
-  }
-
-  async completePasskeyRegistration(
-    credential: PasskeyCredentialResponse,
-    label = "مفتاح مرور جديد (TEST)",
-  ): Promise<AuthApiResult<SessionState>> {
-    if (credential.id.includes("fail") || credential.id.includes("error")) {
-      return {
-        success: false,
-        error: "فشل تسجيل مفتاح المرور على الجهاز (TEST)",
-      };
-    }
-
-    const newPasskey: PasskeyInfo = {
-      id: credential.id,
-      label,
-      createdAt: new Date().toISOString(),
-      lastUsedAt: new Date().toISOString(),
-    };
-
-    this.passkeys.push(newPasskey);
-    if (this.session) {
-      this.session.user.emailVerified = true;
-    }
     this.persist();
 
     return {
       success: true,
-      data: this.session ?? {
-        user: DEFAULT_TEST_USER,
-        store: DEFAULT_TEST_STORE,
-        token: `jwt-token-test-${Date.now()}-TEST`,
-        expiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
-        isOfflineExpired: false,
-        pinEnabled: Boolean(this.pin),
-      },
+      data: this.session,
     };
   }
 
-  async getPasskeyAuthOptions(
-    _identifier?: string,
-  ): Promise<AuthApiResult<PasskeyAuthenticationOptions>> {
-    void _identifier;
-    return {
-      success: true,
-      data: {
-        challenge: `challenge-test-auth-${Date.now()}-TEST`,
-        rpId: "hesba.app",
-        timeout: 60000,
-        userVerification: "preferred",
-      },
-    };
-  }
-
-  async loginWithPasskey(
-    credential: PasskeyCredentialResponse,
-  ): Promise<AuthApiResult<SessionState>> {
-    if (credential.id === "canceled" || credential.id === "cancelled") {
-      return {
-        success: false,
-        error: "تم إلغاء تسجيل الدخول بمفتاح المرور (TEST)",
-      };
-    }
-
-    if (credential.id === "expired") {
-      return {
-        success: false,
-        error: "انتهت صلاحية طلب التحقق، برجاء المحاولة مجدداً (TEST)",
-      };
-    }
-
-    if (credential.id === "unsupported") {
-      return {
-        success: false,
-        error: "جهازك لا يدعم مفاتيح المرور Passkeys (TEST)",
-      };
-    }
-
-    this.session = {
-      user: DEFAULT_TEST_USER,
-      store: DEFAULT_TEST_STORE,
-      token: `jwt-login-passkey-TEST-${Date.now()}`,
-      expiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
-      isOfflineExpired: false,
-      pinEnabled: Boolean(this.pin),
-    };
-
-    this.persist();
-    return { success: true, data: this.session };
-  }
-
-  async requestAccountRecovery(
-    input: AccountRecoveryRequestInput,
+  async requestMagicLink(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _email: string,
   ): Promise<AuthApiResult<{ message: string }>> {
-    if (!input.email || !input.email.includes("@")) {
-      return {
-        success: false,
-        error: "برجاء كتابة بريد إلكتروني صحيح (TEST)",
-      };
-    }
-
-    // Generic response resisting account enumeration
     return {
       success: true,
       data: {
         message:
-          "لو الإيميل مسجل عندنا، بعتنا رابط استرداد الحساب صالح لمدة 30 دقيقة (TEST)",
+          "تم إرسال رابط الدخول الآمن إلى بريدك الإلكتروني إذا كان مسجلاً لدينا.",
+      },
+    };
+  }
+
+  async verifyMagicLink(token: string): Promise<AuthApiResult<SessionState>> {
+    if (token === "invalid-token") {
+      return {
+        success: false,
+        error: "رابط الدخول غير صالح أو انتهت صلاحيته",
+      };
+    }
+
+    this.session = {
+      user: { ...DEFAULT_TEST_USER },
+      store: { ...DEFAULT_TEST_STORE },
+      token: `hesba-magic-token-${Date.now()}`,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      pinEnabled: this.hasLocalPin(),
+      isOfflineExpired: false,
+    };
+    this.persist();
+
+    return {
+      success: true,
+      data: this.session,
+    };
+  }
+
+  async requestAccountRecovery(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _email: string,
+  ): Promise<AuthApiResult<{ message: string }>> {
+    return {
+      success: true,
+      data: {
+        message: "إذا كان البريد مسجلاً لدينا، تم إرسال رابط الاسترداد.",
       },
     };
   }
 
   async verifyRecoveryToken(
     token: string,
-  ): Promise<
-    AuthApiResult<{ email: string; passkeyOptions: PasskeyRegistrationOptions }>
-  > {
-    if (token === "expired") {
+  ): Promise<AuthApiResult<SessionState>> {
+    if (token === "invalid-token") {
       return {
         success: false,
-        error: "رابط استرداد الحساب منتهي الصلاحية (TEST)",
+        error: "رابط الاسترداد غير صالح أو انتهت صلاحيته",
       };
     }
 
-    if (token === "used" || token === "invalid") {
-      return {
-        success: false,
-        error: "رابط استرداد الحساب تم استخدامه مسبقاً أو غير صالح (TEST)",
-      };
-    }
+    this.session = {
+      user: { ...DEFAULT_TEST_USER },
+      store: { ...DEFAULT_TEST_STORE },
+      token: `hesba-recovery-token-${Date.now()}`,
+      expiresAt: new Date(Date.now() + 30 * 86400000).toISOString(),
+      pinEnabled: this.hasLocalPin(),
+      isOfflineExpired: false,
+    };
+    this.persist();
 
     return {
       success: true,
-      data: {
-        email: "magdi.test@hesba.app",
-        passkeyOptions: {
-          challenge: `challenge-recovery-${Date.now()}-TEST`,
-          rp: { id: "hesba.app", name: "حسبة (TEST)" },
-          user: {
-            id: "user-test-01",
-            name: "magdi.test@hesba.app",
-            displayName: "مجدي أحمد (TEST)",
-          },
-          pubKeyCredParams: [{ type: "public-key", alg: -7 }],
-          timeout: 60000,
-        },
-      },
+      data: this.session,
     };
   }
 
-  async completeAccountRecovery(
-    input: AccountRecoveryConfirmInput,
-    credential: PasskeyCredentialResponse,
-  ): Promise<AuthApiResult<SessionState>> {
-    if (input.token === "expired" || input.token === "invalid") {
+  async verifyEmail(
+    token: string,
+  ): Promise<AuthApiResult<{ success: boolean }>> {
+    if (token === "invalid-token") {
       return {
         success: false,
-        error: "فشل استرداد الحساب: رمز التحقق غير صالح (TEST)",
+        error: "رمز تأكيد البريد غير صالح أو منتهي الصلاحية",
       };
     }
-
-    // Register new passkey
-    this.passkeys = [
-      {
-        id: credential.id || `passkey-recovery-${Date.now()}-TEST`,
-        label: input.passkeyLabel || "مفتاح مرور جديد بعد الاسترداد (TEST)",
-        createdAt: new Date().toISOString(),
-        lastUsedAt: new Date().toISOString(),
-      },
-    ];
-
-    // Establish fresh session, revoking older sessions
-    this.session = {
-      user: {
-        ...DEFAULT_TEST_USER,
-        emailVerified: true,
-      },
-      store: DEFAULT_TEST_STORE,
-      token: `jwt-recovered-token-${Date.now()}-TEST`,
-      expiresAt: new Date(Date.now() + 86400000 * 30).toISOString(),
-      isOfflineExpired: false,
-      pinEnabled: false, // Reset local PIN after recovery
-    };
-    this.pin = null;
-
-    this.persist();
-    return { success: true, data: this.session };
-  }
-
-  async listPasskeys(): Promise<AuthApiResult<PasskeyInfo[]>> {
-    return { success: true, data: [...this.passkeys] };
-  }
-
-  async revokePasskey(
-    passkeyId: string,
-  ): Promise<AuthApiResult<{ success: boolean }>> {
-    this.passkeys = this.passkeys.filter((p) => p.id !== passkeyId);
-    this.persist();
+    if (this.session) {
+      this.session.user.emailVerified = true;
+      this.persist();
+    }
     return { success: true, data: { success: true } };
-  }
-
-  async reauthenticateWithPasskey(): Promise<
-    AuthApiResult<{ verified: boolean }>
-  > {
-    return { success: true, data: { verified: true } };
   }
 
   async getSession(): Promise<SessionState | null> {
@@ -369,16 +227,6 @@ class FixtureAuthApi implements AuthApi {
   async updateProfile(
     profile: StoreProfile,
   ): Promise<AuthApiResult<StoreProfile>> {
-    if (
-      profile.ownerName.includes("خطأ") ||
-      profile.ownerName.includes("FAIL")
-    ) {
-      return {
-        success: false,
-        error: "فشل في حفظ بيانات الحساب من السيرفر (TEST)",
-      };
-    }
-
     if (this.session) {
       this.session.user.name = profile.ownerName;
       this.session.user.phone = profile.phone;
@@ -387,42 +235,61 @@ class FixtureAuthApi implements AuthApi {
       this.session.store.shopType = profile.shopType;
       this.session.store.governorate = profile.governorate;
       this.session.store.area = profile.area;
-      this.session.store.openedOn = profile.openedOn;
-      this.session.store.workersCount = profile.workersCount;
       this.persist();
     }
-
     return { success: true, data: profile };
   }
 
+  async revokeOtherSessions(): Promise<AuthApiResult<{ message: string }>> {
+    return {
+      success: true,
+      data: { message: "تم تسجيل الخروج من الأجهزة الأخرى" },
+    };
+  }
+
+  hasLocalPin(): boolean {
+    return !!this.pin;
+  }
+
+  getPinLockoutRemainingSeconds(): number {
+    const until = parseInt(this.getItem(LOCKOUT_KEY) || "0", 10);
+    const now = Date.now();
+    return until > now ? Math.ceil((until - now) / 1000) : 0;
+  }
+
+  recordFailedPinAttempt(): number {
+    const count = parseInt(this.getItem(ATTEMPTS_KEY) || "0", 10) + 1;
+    this.setItem(ATTEMPTS_KEY, String(count));
+    if (count >= 5) {
+      this.setItem(LOCKOUT_KEY, String(Date.now() + 30000));
+      return 30;
+    }
+    return 0;
+  }
+
+  resetPinAttempts(): void {
+    this.removeItem(ATTEMPTS_KEY);
+    this.removeItem(LOCKOUT_KEY);
+  }
+
   async verifyPin(pin: string): Promise<boolean> {
+    if (this.getPinLockoutRemainingSeconds() > 0) return false;
     if (!this.pin) return true;
-    return this.pin === pin;
+    if (pin === this.pin) {
+      this.resetPinAttempts();
+      return true;
+    }
+    this.recordFailedPinAttempt();
+    return false;
   }
 
   async setPin(pin: string | null): Promise<void> {
     this.pin = pin;
+    this.resetPinAttempts();
     if (this.session) {
-      this.session.pinEnabled = Boolean(pin);
+      this.session.pinEnabled = !!pin;
     }
     this.persist();
-  }
-
-  async resetPinWithReauth(): Promise<AuthApiResult<{ allowed: boolean }>> {
-    // Requires successful Passkey re-authentication before clearing PIN
-    const authCheck = await this.reauthenticateWithPasskey();
-    if (!authCheck.success || !authCheck.data?.verified) {
-      return {
-        success: false,
-        error: "يلزم تأكيد الهوية بمفتاح المرور لإعادة ضبط رمز PIN (TEST)",
-      };
-    }
-    this.pin = null;
-    if (this.session) {
-      this.session.pinEnabled = false;
-    }
-    this.persist();
-    return { success: true, data: { allowed: true } };
   }
 
   async simulateOfflineExpiry(): Promise<void> {

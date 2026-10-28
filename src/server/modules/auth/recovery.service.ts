@@ -6,12 +6,8 @@ import { getEmailProvider } from "@/server/infra/email";
 import { env } from "@/server/config/env";
 import { AppError } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
-import {
-  generateRegistrationOptionsForUser,
-  verifyAndSaveRegistration,
-} from "./passkey.service";
-import { createSession, revokeAllUserSessions } from "./session.service";
-import type { RegistrationResponseJSON } from "@simplewebauthn/server";
+import { createSession } from "./session.service";
+import { withTenant } from "@/server/infra/db/tenant";
 
 const RECOVERY_TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 1 hour
 const VERIFICATION_TOKEN_EXPIRY_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -47,12 +43,10 @@ export async function requestAccountRecovery(email: string, clientIp?: string) {
     );
   }
 
-  // Find user
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
   });
 
-  // Generic anti-enumeration response: Always return success message
   const genericResponse = {
     message: "إذا كان البريد مسجلاً لدينا، تم إرسال رابط الاسترداد.",
   };
@@ -60,7 +54,7 @@ export async function requestAccountRecovery(email: string, clientIp?: string) {
   if (!user) {
     logger.info(
       { email: normalizedEmail },
-      "Recovery requested for non-existent email (enumeration resistant)",
+      "Recovery requested for non-existent email (anti-enumeration)",
     );
     return genericResponse;
   }
@@ -68,6 +62,17 @@ export async function requestAccountRecovery(email: string, clientIp?: string) {
   const rawToken = generateSecureToken(32);
   const tokenHash = hashToken(rawToken);
   const expiresAt = new Date(Date.now() + RECOVERY_TOKEN_EXPIRY_MS);
+
+  // Invalidate previous unused recovery tokens
+  await prisma.accountRecoveryToken.updateMany({
+    where: {
+      userId: user.id,
+      usedAt: null,
+    },
+    data: {
+      usedAt: new Date(),
+    },
+  });
 
   await prisma.accountRecoveryToken.create({
     data: {
@@ -77,9 +82,8 @@ export async function requestAccountRecovery(email: string, clientIp?: string) {
     },
   });
 
-  const recoveryUrl = `${env.HESBA_APP_ORIGIN}/app/auth/recovery?token=${rawToken}`;
+  const recoveryUrl = `${env.HESBA_APP_ORIGIN}/auth/verify-link?token=${rawToken}&type=recovery`;
 
-  // Send recovery email via provider (Mock in development/tests)
   await getEmailProvider().sendRecoveryEmail(user.email, recoveryUrl);
 
   logger.info({ userId: user.id }, "Account recovery email dispatched");
@@ -87,7 +91,10 @@ export async function requestAccountRecovery(email: string, clientIp?: string) {
   return genericResponse;
 }
 
-export async function verifyRecoveryToken(rawToken: string) {
+export async function verifyRecoveryToken(
+  rawToken: string,
+  deviceLabel = "جهاز مسترد",
+) {
   if (!rawToken || typeof rawToken !== "string") {
     throw AppError.badRequest("رمز الاسترداد مطلوب");
   }
@@ -97,7 +104,17 @@ export async function verifyRecoveryToken(rawToken: string) {
 
   const record = await prisma.accountRecoveryToken.findUnique({
     where: { tokenHash },
-    include: { user: true },
+    include: {
+      user: {
+        include: {
+          members: {
+            include: {
+              store: true,
+            },
+          },
+        },
+      },
+    },
   });
 
   if (!record || record.usedAt !== null || record.expiresAt < now) {
@@ -107,55 +124,11 @@ export async function verifyRecoveryToken(rawToken: string) {
     throw AppError.badRequest("رابط الاسترداد غير صالح أو انتهت صلاحيته");
   }
 
-  // Generate Passkey registration options so user can add a new Passkey right now
-  const passkeyOptions = await generateRegistrationOptionsForUser({
-    id: record.user.id,
-    name: record.user.name,
-    email: record.user.email,
-  });
-
-  return {
-    email: record.user.email,
-    passkeyOptions,
-  };
-}
-
-export async function completeAccountRecovery(
-  rawToken: string,
-  credential: RegistrationResponseJSON,
-  passkeyLabel = "مفتاح بعد الاسترداد",
-) {
-  const tokenHash = hashToken(rawToken);
-  const now = new Date();
-
-  const record = await prisma.accountRecoveryToken.findUnique({
-    where: { tokenHash },
-    include: {
-      user: {
-        include: {
-          members: {
-            include: { store: true },
-          },
-        },
-      },
-    },
-  });
-
-  if (!record || record.usedAt !== null || record.expiresAt < now) {
-    throw AppError.badRequest("رابط الاسترداد غير صالح أو منتهي الصلاحية");
-  }
-
   // Atomically mark token as used
   await prisma.accountRecoveryToken.update({
     where: { id: record.id },
     data: { usedAt: now },
   });
-
-  // Verify and register the new Passkey
-  await verifyAndSaveRegistration(record.userId, credential, passkeyLabel);
-
-  // Security Policy: Revoke all existing sessions for this user (security revocation)
-  await revokeAllUserSessions(record.userId);
 
   // Mark email as verified if not already
   if (!record.user.emailVerifiedAt) {
@@ -165,15 +138,39 @@ export async function completeAccountRecovery(
     });
   }
 
-  // Find store to create initial session
-  const primaryMember = record.user.members[0];
+  // Find user's primary store membership under app.user_id context
+  const primaryMember = await prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT set_config('app.user_id', ${record.userId}, true)`;
+    return await tx.storeMember.findFirst({
+      where: { userId: record.userId },
+      include: { store: true },
+      orderBy: { createdAt: "asc" },
+    });
+  });
+
   if (!primaryMember) {
     throw AppError.internal("لم يتم العثور على متجر مرتبط بهذا المستخدم");
   }
 
+  // Register device for this recovery under tenant context
+  const device = await withTenant(
+    primaryMember.storeId,
+    record.userId,
+    async (tx) => {
+      return await tx.device.create({
+        data: {
+          storeId: primaryMember.storeId,
+          userId: record.userId,
+          label: deviceLabel,
+        },
+      });
+    },
+  );
+
   const { rawToken: newSessionToken, session } = await createSession(
     record.userId,
     primaryMember.storeId,
+    device.id,
   );
 
   return {
@@ -224,7 +221,7 @@ export async function sendEmailVerification(userId: string) {
     },
   });
 
-  const verificationUrl = `${env.HESBA_APP_ORIGIN}/app/auth/verify-email?token=${rawToken}`;
+  const verificationUrl = `${env.HESBA_APP_ORIGIN}/auth/verify-link?token=${rawToken}&type=verify_email`;
   await getEmailProvider().sendVerificationEmail(user.email, verificationUrl);
 }
 

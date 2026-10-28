@@ -8,3 +8,4 @@ export * from "./passkey.service";
 export * from "./session.service";
 export * from "./recovery.service";
 export * from "./signup.service";
+export * from "./magic-link.service";

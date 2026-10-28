@@ -10,5 +10,6 @@ export interface SendEmailOptions {
 export interface EmailProvider {
   sendEmail(options: SendEmailOptions): Promise<void>;
   sendVerificationEmail(to: string, verificationUrl: string): Promise<void>;
+  sendMagicLinkEmail(to: string, magicLinkUrl: string): Promise<void>;
   sendRecoveryEmail(to: string, recoveryUrl: string): Promise<void>;
 }

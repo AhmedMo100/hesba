@@ -226,6 +226,21 @@ export async function revokeAllUserSessions(userId: string) {
   });
 }
 
+export async function revokeOtherUserSessions(
+  userId: string,
+  currentSessionToken: string,
+) {
+  const currentIdHash = hashToken(currentSessionToken);
+  await prisma.session.updateMany({
+    where: {
+      userId,
+      revokedAt: null,
+      idHash: { not: currentIdHash },
+    },
+    data: { revokedAt: new Date() },
+  });
+}
+
 export async function getSessionFromRequest(
   req: Request,
 ): Promise<SessionContext | null> {

@@ -1,20 +1,14 @@
 import "server-only";
 import { prisma } from "@/server/infra/db/client";
-import { type SignupInput, signupInputSchema } from "@/schemas/auth";
+import { type SignupInputRaw, signupInputSchema } from "@/schemas/auth";
 import { AppError } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
-import {
-  generateRegistrationOptionsForUser,
-  verifyAndSaveRegistration,
-} from "./passkey.service";
 import { createSession } from "./session.service";
 import { sendEmailVerification } from "./recovery.service";
-import type { RegistrationResponseJSON } from "@simplewebauthn/server";
-
 import { randomUUID } from "node:crypto";
 import { withTenant } from "@/server/infra/db/tenant";
 
-export async function startSignup(rawInput: SignupInput) {
+export async function signupUserAndStore(rawInput: SignupInputRaw) {
   const data = signupInputSchema.parse(rawInput);
 
   const existing = await prisma.user.findFirst({
@@ -30,7 +24,7 @@ export async function startSignup(rawInput: SignupInput) {
     throw AppError.conflict("البريد الإلكتروني مسجل بالفعل");
   }
 
-  // 1. Create User (users table has NO RLS, accessed under service role)
+  // 1. Create User
   const user = await prisma.user.create({
     data: {
       name: data.ownerName,
@@ -44,7 +38,7 @@ export async function startSignup(rawInput: SignupInput) {
   const openedOnDate = data.openedOn ? new Date(data.openedOn) : null;
 
   // 2. Create Store, StoreMember, and Device under withTenant context (satisfies RLS on stores)
-  const { store } = await withTenant(storeId, user.id, async (tx) => {
+  const { store, device } = await withTenant(storeId, user.id, async (tx) => {
     const s = await tx.store.create({
       data: {
         id: storeId,
@@ -77,49 +71,25 @@ export async function startSignup(rawInput: SignupInput) {
     return { store: s, device: d };
   });
 
-  logger.info(
-    { userId: user.id, storeId: store.id },
-    "User and store registered",
+  // 3. Create active session
+  const { rawToken, session } = await createSession(
+    user.id,
+    store.id,
+    device.id,
   );
 
-  // Generate Passkey Registration Options
-  const passkeyOptions = await generateRegistrationOptionsForUser({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-  });
-
-  return {
-    userId: user.id,
-    storeId: store.id,
-    passkeyOptions,
-  };
-}
-
-export async function completeSignup(
-  userId: string,
-  storeId: string,
-  credential: RegistrationResponseJSON,
-  label = "جهاز المالك",
-) {
-  // Verify and register Passkey
-  await verifyAndSaveRegistration(userId, credential, label);
-
-  // Send background email verification
-  sendEmailVerification(userId).catch((err) => {
+  // 4. Send background email verification link
+  sendEmailVerification(user.id).catch((err) => {
     logger.error(
-      { err, userId },
+      { err, userId: user.id },
       "Failed to send email verification during signup",
     );
   });
 
-  // Create active session
-  const { rawToken, session } = await createSession(userId, storeId);
-
-  const user = await prisma.user.findUniqueOrThrow({ where: { id: userId } });
-  const store = await prisma.store.findUniqueOrThrow({
-    where: { id: storeId },
-  });
+  logger.info(
+    { userId: user.id, storeId: store.id },
+    "User, store and device successfully created and authenticated",
+  );
 
   return {
     token: rawToken,
@@ -134,7 +104,7 @@ export async function completeSignup(
       name: user.name,
       phone: user.phone,
       email: user.email,
-      emailVerified: !!user.emailVerifiedAt,
+      emailVerified: false,
     },
     store: {
       id: store.id,

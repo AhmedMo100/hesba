@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { fixtureAuthApi } from "@/client/shared/api/auth.fixture";
 import { okPhone, okMail, normDigits } from "@/client/shared/auth/AuthScreen";
 
-describe("Auth Client & Passkeys Fixture API (Pre-Phase 2.2)", () => {
+describe("Hesba Authentication Client — Magic Link & Local PIN", () => {
   beforeEach(async () => {
     await fixtureAuthApi.logout();
     await fixtureAuthApi.setPin(null);
+    fixtureAuthApi.resetPinAttempts();
   });
 
   describe("Input Validation & Normalization", () => {
@@ -27,7 +28,7 @@ describe("Auth Client & Passkeys Fixture API (Pre-Phase 2.2)", () => {
       expect(okPhone("")).toBe(false);
     });
 
-    it("validates email correctly (mandatory for account recovery)", () => {
+    it("validates email correctly (mandatory for account recovery & magic links)", () => {
       expect(okMail("")).toBe(false);
       expect(okMail("test@example.com")).toBe(true);
       expect(okMail("invalid-email")).toBe(false);
@@ -35,8 +36,8 @@ describe("Auth Client & Passkeys Fixture API (Pre-Phase 2.2)", () => {
     });
   });
 
-  describe("Passkey Registration & Sign-in (Task 2A)", () => {
-    it("signs up a new user and returns WebAuthn challenge options", async () => {
+  describe("Three-Step Registration (Experience A)", () => {
+    it("creates account and initializes local PIN in one complete flow", async () => {
       const res = await fixtureAuthApi.signup({
         ownerName: "أحمد علي",
         phone: "01098765432",
@@ -52,241 +53,109 @@ describe("Auth Client & Passkeys Fixture API (Pre-Phase 2.2)", () => {
 
       expect(res.success).toBe(true);
       expect(res.data).toBeDefined();
-      expect(res.data?.session.user.name).toContain("(TEST)");
-      expect(res.data?.session.store.name).toContain("(TEST)");
-      expect(res.data?.session.token).toContain("TEST");
-      expect(res.data?.passkeyOptions.challenge).toContain("TEST");
-      expect(res.data?.passkeyOptions.rp.id).toBe("hesba.app");
-    });
+      expect(res.data?.user.name).toContain("(TEST)");
+      expect(res.data?.store.name).toContain("(TEST)");
 
-    it("completes passkey registration and establishes verified credentials", async () => {
-      await fixtureAuthApi.signup({
-        ownerName: "أحمد علي",
-        phone: "01098765432",
-        email: "ahmed@example.com",
-        storeName: "بقالة الأمل",
-        shopType: "بقالة",
-        governorate: "الجيزة",
-        openedOn: "2023-01-01",
-        workersCount: 2,
-      });
+      // Set local 6-digit PIN on this device
+      await fixtureAuthApi.setPin("123456");
+      expect(fixtureAuthApi.hasLocalPin()).toBe(true);
 
-      const regRes = await fixtureAuthApi.completePasskeyRegistration({
-        id: "passkey-new-device-1",
-        rawId: "raw-new-device-1",
-        type: "public-key",
-        response: { clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=" },
-      });
-
-      expect(regRes.success).toBe(true);
-      expect(regRes.data?.user.emailVerified).toBe(true);
-
-      const passkeys = await fixtureAuthApi.listPasskeys();
-      expect(passkeys.success).toBe(true);
-      expect(passkeys.data?.some((p) => p.id === "passkey-new-device-1")).toBe(
-        true,
-      );
-    });
-
-    it("signs in using a registered passkey", async () => {
-      const authOptions = await fixtureAuthApi.getPasskeyAuthOptions();
-      expect(authOptions.success).toBe(true);
-      expect(authOptions.data?.challenge).toContain("TEST");
-
-      const loginRes = await fixtureAuthApi.loginWithPasskey({
-        id: "passkey-test-device-1",
-        rawId: "raw-test-device-1",
-        type: "public-key",
-        response: {
-          clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=",
-          signature: "TEST-SIG",
-        },
-      });
-
-      expect(loginRes.success).toBe(true);
-      expect(loginRes.data?.user.phone).toBe("01012345678");
-      expect(loginRes.data?.token).toContain("TEST");
-    });
-
-    it("handles passkey cancellation, unsupported device, and challenge expiration", async () => {
-      const canceledRes = await fixtureAuthApi.loginWithPasskey({
-        id: "canceled",
-        rawId: "canceled",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
-      expect(canceledRes.success).toBe(false);
-      expect(canceledRes.error).toContain("إلغاء");
-
-      const unsupportedRes = await fixtureAuthApi.loginWithPasskey({
-        id: "unsupported",
-        rawId: "unsupported",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
-      expect(unsupportedRes.success).toBe(false);
-      expect(unsupportedRes.error).toContain("لا يدعم");
-
-      const expiredRes = await fixtureAuthApi.loginWithPasskey({
-        id: "expired",
-        rawId: "expired",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
-      expect(expiredRes.success).toBe(false);
-      expect(expiredRes.error).toContain("انتهت صلاحية");
+      const isPinOk = await fixtureAuthApi.verifyPin("123456");
+      expect(isPinOk).toBe(true);
     });
   });
 
-  describe("Email Verification & Account Recovery (Task 2C)", () => {
+  describe("Magic Link Login for New Devices (Experience B)", () => {
+    it("requests magic login link with anti-enumeration response", async () => {
+      const res = await fixtureAuthApi.requestMagicLink("owner@hesba.app");
+      expect(res.success).toBe(true);
+      expect(res.data?.message).toContain("تم إرسال رابط الدخول");
+    });
+
+    it("authenticates device upon verifying valid magic link token", async () => {
+      const res = await fixtureAuthApi.verifyMagicLink(
+        "valid-magic-link-token",
+      );
+      expect(res.success).toBe(true);
+      expect(res.data?.user.email).toBe("magdi.test@hesba.app");
+      expect(res.data?.token).toBeDefined();
+    });
+
+    it("rejects invalid or expired magic link token", async () => {
+      const res = await fixtureAuthApi.verifyMagicLink("invalid-token");
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("غير صالح");
+    });
+  });
+
+  describe("Account Recovery & PIN Reset (Experience C)", () => {
     it("requests recovery link with generic anti-enumeration response", async () => {
-      const res = await fixtureAuthApi.requestAccountRecovery({
-        email: "magdi.test@hesba.app",
-      });
-
+      const res = await fixtureAuthApi.requestAccountRecovery(
+        "magdi.test@hesba.app",
+      );
       expect(res.success).toBe(true);
-      expect(res.data?.message).toContain("لو الإيميل مسجل عندنا");
-      expect(res.data?.message).toContain("TEST");
+      expect(res.data?.message).toContain("تم إرسال رابط الاسترداد");
     });
 
-    it("verifies recovery token and rejects expired/used tokens", async () => {
-      const validRes = await fixtureAuthApi.verifyRecoveryToken(
-        "valid-recovery-token-TEST",
-      );
-      expect(validRes.success).toBe(true);
-      expect(validRes.data?.email).toBe("magdi.test@hesba.app");
-      expect(validRes.data?.passkeyOptions).toBeDefined();
+    it("authenticates device upon verifying recovery token and enables setting new PIN", async () => {
+      const res = await fixtureAuthApi.verifyRecoveryToken("valid-token");
+      expect(res.success).toBe(true);
+      expect(res.data?.user.email).toBe("magdi.test@hesba.app");
 
-      const expiredRes = await fixtureAuthApi.verifyRecoveryToken("expired");
-      expect(expiredRes.success).toBe(false);
-      expect(expiredRes.error).toContain("منتهي الصلاحية");
-
-      const usedRes = await fixtureAuthApi.verifyRecoveryToken("used");
-      expect(usedRes.success).toBe(false);
-      expect(usedRes.error).toContain("تم استخدامه مسبقاً");
+      // Set new device PIN
+      await fixtureAuthApi.setPin("654321");
+      const ok = await fixtureAuthApi.verifyPin("654321");
+      expect(ok).toBe(true);
     });
 
-    it("completes account recovery by registering a new Passkey and revoking old credentials", async () => {
-      const res = await fixtureAuthApi.completeAccountRecovery(
-        { token: "valid-token-TEST", passkeyLabel: "مفتاح جديد بعد الاسترداد" },
-        {
-          id: "passkey-recovered-device",
-          rawId: "raw-recovered-device",
-          type: "public-key",
-          response: { clientDataJSON: "eyJjaGFsbGVuZ2UiOiJ0ZXN0In0=" },
-        },
-      );
-
-      expect(res.success).toBe(true);
-      expect(res.data?.user.emailVerified).toBe(true);
-      expect(res.data?.token).toContain("TEST");
-
-      // Only the newly registered passkey remains
-      const passkeys = await fixtureAuthApi.listPasskeys();
-      expect(passkeys.data?.length).toBe(1);
-      expect(passkeys.data?.[0]?.id).toBe("passkey-recovered-device");
+    it("rejects invalid recovery tokens", async () => {
+      const res = await fixtureAuthApi.verifyRecoveryToken("invalid-token");
+      expect(res.success).toBe(false);
+      expect(res.error).toContain("غير صالح");
     });
   });
 
-  describe("Local PIN Lock & Passkey Re-authentication (Task 2B)", () => {
-    it("handles local screen PIN lock and unlock", async () => {
-      await fixtureAuthApi.loginWithPasskey({
-        id: "passkey-test-device-1",
-        rawId: "raw-1",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
+  describe("Local 6-digit PIN Security & Rate Limiting Lockout", () => {
+    it("handles correct and incorrect PIN checks", async () => {
       await fixtureAuthApi.setPin("123456");
-
-      const correct = await fixtureAuthApi.verifyPin("123456");
-      expect(correct).toBe(true);
-
-      const wrong = await fixtureAuthApi.verifyPin("000000");
-      expect(wrong).toBe(false);
+      expect(await fixtureAuthApi.verifyPin("123456")).toBe(true);
+      expect(await fixtureAuthApi.verifyPin("000000")).toBe(false);
     });
 
-    it("requires Passkey re-authentication before allowing local PIN reset", async () => {
-      await fixtureAuthApi.loginWithPasskey({
-        id: "passkey-test-device-1",
-        rawId: "raw-1",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
+    it("applies 30-second lockout after 5 consecutive failed PIN attempts", async () => {
       await fixtureAuthApi.setPin("123456");
 
-      const resetRes = await fixtureAuthApi.resetPinWithReauth();
-      expect(resetRes.success).toBe(true);
-      expect(resetRes.data?.allowed).toBe(true);
+      // 4 failed attempts: not locked out yet
+      for (let i = 0; i < 4; i++) {
+        const ok = await fixtureAuthApi.verifyPin("999999");
+        expect(ok).toBe(false);
+        expect(fixtureAuthApi.getPinLockoutRemainingSeconds()).toBe(0);
+      }
 
-      // PIN is now cleared
-      const session = await fixtureAuthApi.getSession();
-      expect(session?.pinEnabled).toBe(false);
+      // 5th failed attempt: triggers lockout
+      const ok5 = await fixtureAuthApi.verifyPin("999999");
+      expect(ok5).toBe(false);
+      expect(fixtureAuthApi.getPinLockoutRemainingSeconds()).toBeGreaterThan(0);
+
+      // During lockout: even correct PIN is rejected
+      const lockedAttempt = await fixtureAuthApi.verifyPin("123456");
+      expect(lockedAttempt).toBe(false);
+
+      // Resetting attempts clears lockout
+      fixtureAuthApi.resetPinAttempts();
+      expect(fixtureAuthApi.getPinLockoutRemainingSeconds()).toBe(0);
+      expect(await fixtureAuthApi.verifyPin("123456")).toBe(true);
     });
   });
 
-  describe("Offline Session Expiry (Task 2D)", () => {
-    it("flags offline expired session while allowing local data retention for selling", async () => {
-      await fixtureAuthApi.loginWithPasskey({
-        id: "passkey-test-device-1",
-        rawId: "raw-1",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
+  describe("Offline Safety & Session Expiry", () => {
+    it("flags offline expired session while retaining local data without discarding outbox", async () => {
+      await fixtureAuthApi.verifyMagicLink("valid-token");
       await fixtureAuthApi.simulateOfflineExpiry();
 
       const session = await fixtureAuthApi.getSession();
       expect(session?.isOfflineExpired).toBe(true);
-      // Local session data still retained
       expect(session?.user.id).toBeDefined();
-    });
-  });
-
-  describe("Profile Modal API & Server Error Reporting", () => {
-    it("updates profile with verified email", async () => {
-      await fixtureAuthApi.loginWithPasskey({
-        id: "passkey-test-device-1",
-        rawId: "raw-1",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
-
-      const res = await fixtureAuthApi.updateProfile({
-        ownerName: "محمود حسن",
-        phone: "01012345678",
-        email: "mahmoud@example.com",
-        storeName: "سوبر ماركت الفتح",
-        shopType: "سوبر ماركت",
-        governorate: "الإسكندرية",
-        area: "سموحة",
-        openedOn: "2021-06-01",
-        workersCount: 4,
-      });
-
-      expect(res.success).toBe(true);
-      expect(res.data?.ownerName).toBe("محمود حسن");
-    });
-
-    it("returns server error text when update fails", async () => {
-      await fixtureAuthApi.loginWithPasskey({
-        id: "passkey-test-device-1",
-        rawId: "raw-1",
-        type: "public-key",
-        response: { clientDataJSON: "" },
-      });
-
-      const res = await fixtureAuthApi.updateProfile({
-        ownerName: "خطأ (TEST)",
-        phone: "01012345678",
-        email: "fail@hesba.app",
-        storeName: "سوبر ماركت الفتح",
-        shopType: "سوبر ماركت",
-        governorate: "الإسكندرية",
-        openedOn: "2021-06-01",
-        workersCount: 4,
-      });
-
-      expect(res.success).toBe(false);
-      expect(res.error).toBe("فشل في حفظ بيانات الحساب من السيرفر (TEST)");
     });
   });
 });

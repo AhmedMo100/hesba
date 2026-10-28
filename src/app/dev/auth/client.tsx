@@ -8,7 +8,7 @@ export default function DevAuthClient() {
   const [screen, setScreen] = useState<
     | "signup-1"
     | "signup-2"
-    | "passkey-reg"
+    | "signup-3"
     | "login"
     | "recovery"
     | "pin"
@@ -19,7 +19,7 @@ export default function DevAuthClient() {
       if (
         p === "signup-1" ||
         p === "signup-2" ||
-        p === "passkey-reg" ||
+        p === "signup-3" ||
         p === "login" ||
         p === "recovery" ||
         p === "pin" ||
@@ -70,10 +70,10 @@ export default function DevAuthClient() {
             محلك (2)
           </Button>
           <Button
-            kind={screen === "passkey-reg" ? "primary" : "ghost"}
-            onClick={() => setScreen("passkey-reg")}
+            kind={screen === "signup-3" ? "primary" : "ghost"}
+            onClick={() => setScreen("signup-3")}
           >
-            مفتاح المرور
+            أمان الجهاز (3)
           </Button>
           <Button
             kind={screen === "login" ? "primary" : "ghost"}
@@ -105,11 +105,9 @@ export default function DevAuthClient() {
         </div>
 
         <div style={{ paddingTop: "56px" }}>
-          {(screen === "signup-1" || screen === "signup-2") && (
-            <AuthScreen initialMode="signup" />
-          )}
-
-          {screen === "passkey-reg" && <AuthScreen initialMode="passkey-reg" />}
+          {(screen === "signup-1" ||
+            screen === "signup-2" ||
+            screen === "signup-3") && <AuthScreen initialMode="signup" />}
 
           {screen === "login" && <AuthScreen initialMode="login" />}
 

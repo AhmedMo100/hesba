@@ -11,72 +11,6 @@ export interface SignupInput {
   withDemoData?: boolean;
 }
 
-export interface LoginInput {
-  identifier?: string; // phone or email (optional when using discoverable passkeys)
-}
-
-export interface PasskeyInfo {
-  id: string;
-  label: string;
-  createdAt: string;
-  lastUsedAt?: string;
-}
-
-export interface PasskeyRegistrationOptions {
-  challenge: string;
-  rp: {
-    id: string;
-    name: string;
-  };
-  user: {
-    id: string;
-    name: string;
-    displayName: string;
-  };
-  pubKeyCredParams: Array<{ type: string; alg: number }>;
-  timeout?: number;
-  attestation?: string;
-  authenticatorSelection?: {
-    authenticatorAttachment?: "platform" | "cross-platform";
-    residentKey?: "required" | "preferred" | "discouraged";
-    userVerification?: "required" | "preferred" | "discouraged";
-  };
-}
-
-export interface PasskeyAuthenticationOptions {
-  challenge: string;
-  rpId: string;
-  timeout?: number;
-  userVerification?: "required" | "preferred" | "discouraged";
-  allowCredentials?: Array<{
-    id: string;
-    type: "public-key";
-    transports?: string[];
-  }>;
-}
-
-export interface PasskeyCredentialResponse {
-  id: string;
-  rawId: string;
-  type: string;
-  response: {
-    clientDataJSON: string;
-    attestationObject?: string;
-    authenticatorData?: string;
-    signature?: string;
-    userHandle?: string;
-  };
-}
-
-export interface AccountRecoveryRequestInput {
-  email: string;
-}
-
-export interface AccountRecoveryConfirmInput {
-  token: string;
-  passkeyLabel?: string;
-}
-
 export interface UserSession {
   id: string;
   name: string;
@@ -121,62 +55,38 @@ export interface AuthApiResult<T> {
   success: boolean;
   data?: T;
   error?: string;
-  requiresPasskeyRegistration?: boolean;
 }
 
 export interface AuthApi {
-  // Passkey Registration & Signup
-  signup(data: SignupInput): Promise<
-    AuthApiResult<{
-      session: SessionState;
-      passkeyOptions: PasskeyRegistrationOptions;
-    }>
-  >;
-  completePasskeyRegistration(
-    credential: PasskeyCredentialResponse,
-    label?: string,
-  ): Promise<AuthApiResult<SessionState>>;
+  // Registration (3-step)
+  signup(data: SignupInput): Promise<AuthApiResult<SessionState>>;
 
-  // Passkey Authentication & Login
-  getPasskeyAuthOptions(
-    identifier?: string,
-  ): Promise<AuthApiResult<PasskeyAuthenticationOptions>>;
-  loginWithPasskey(
-    credential: PasskeyCredentialResponse,
-  ): Promise<AuthApiResult<SessionState>>;
+  // Magic Link Login for New Devices
+  requestMagicLink(email: string): Promise<AuthApiResult<{ message: string }>>;
+  verifyMagicLink(token: string): Promise<AuthApiResult<SessionState>>;
 
   // Account Recovery via Email Link
   requestAccountRecovery(
-    input: AccountRecoveryRequestInput,
+    email: string,
   ): Promise<AuthApiResult<{ message: string }>>;
-  verifyRecoveryToken(
-    token: string,
-  ): Promise<
-    AuthApiResult<{ email: string; passkeyOptions: PasskeyRegistrationOptions }>
-  >;
-  completeAccountRecovery(
-    input: AccountRecoveryConfirmInput,
-    credential: PasskeyCredentialResponse,
-  ): Promise<AuthApiResult<SessionState>>;
+  verifyRecoveryToken(token: string): Promise<AuthApiResult<SessionState>>;
 
-  // Passkey Management
-  listPasskeys(): Promise<AuthApiResult<PasskeyInfo[]>>;
-  revokePasskey(
-    passkeyId: string,
-  ): Promise<AuthApiResult<{ success: boolean }>>;
-
-  // Re-authentication for Security Sensitive Actions (e.g. Local PIN Reset)
-  reauthenticateWithPasskey(): Promise<AuthApiResult<{ verified: boolean }>>;
+  // Email Verification
+  verifyEmail(token: string): Promise<AuthApiResult<{ success: boolean }>>;
 
   // Session & Profile
   getSession(): Promise<SessionState | null>;
   logout(): Promise<void>;
   updateProfile(profile: StoreProfile): Promise<AuthApiResult<StoreProfile>>;
+  revokeOtherSessions(): Promise<AuthApiResult<{ message: string }>>;
 
-  // Local Application Screen Lock (PIN)
+  // Local Device Screen Lock (PIN)
   verifyPin(pin: string): Promise<boolean>;
   setPin(pin: string | null): Promise<void>;
-  resetPinWithReauth(): Promise<AuthApiResult<{ allowed: boolean }>>;
+  hasLocalPin(): boolean;
+  getPinLockoutRemainingSeconds(): number;
+  recordFailedPinAttempt(): number;
+  resetPinAttempts(): void;
 
   // Offline Simulation
   simulateOfflineExpiry(): Promise<void>;
