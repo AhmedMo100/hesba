@@ -30,6 +30,19 @@ describe("i18n and formatting utilities", () => {
       "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
     );
     expect(t("auth.loginPasswordPlaceholder")).toBe("كلمة السر");
+    expect(t("auth.passwordHint")).toBe(
+      "كلمة السر لازم تكون 12 حرف على الأقل، وتحتوي على حرف ورقم.",
+    );
+    expect(t("auth.passwordMissingLetter")).toBe(
+      "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
+    );
+    expect(t("auth.passwordMissingNumber")).toBe(
+      "كلمة السر يجب أن تحتوي على رقم واحد على الأقل",
+    );
+    expect(t("auth.reqMinLength")).toBe("12 حرفًا على الأقل");
+    expect(t("auth.reqLetter")).toBe("حرف واحد على الأقل");
+    expect(t("auth.reqNumber")).toBe("رقم واحد على الأقل");
+    expect(t("auth.reqMatch")).toBe("تطابق كلمتي السر");
   });
 
   it("formats piasters as Egyptian Pounds with ج.م suffix", () => {

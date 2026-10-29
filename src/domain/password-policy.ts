@@ -123,13 +123,61 @@ export function isCommonPassword(password: string): boolean {
 }
 
 export type PasswordPolicyErrorReason =
-  "empty" | "too_short" | "too_long" | "too_common";
+  | "empty"
+  | "too_short"
+  | "too_long"
+  | "missing_letter"
+  | "missing_number"
+  | "too_common";
 
 export type PasswordPolicyResult =
   { valid: true } | { valid: false; reason: PasswordPolicyErrorReason };
 
+export interface PasswordRequirementsStatus {
+  hasMinLength: boolean;
+  hasLetter: boolean;
+  hasNumber: boolean;
+  isNotTooLong: boolean;
+  isNotCommon: boolean;
+  allValid: boolean;
+}
+
+/**
+ * Live evaluator for password requirements status to render clear UI indicators.
+ * - Minimum 12 characters
+ * - At least one letter (Unicode letter / Arabic / Latin)
+ * - At least one number (0-9 or ٠-٩)
+ * - Maximum 128 characters
+ * - Not in common blocklist
+ */
+export function checkPasswordRequirements(
+  password: string,
+): PasswordRequirementsStatus {
+  const hasMinLength = password.length >= PASSWORD_MIN_LENGTH;
+  const isNotTooLong = password.length <= PASSWORD_MAX_LENGTH;
+  const hasLetter = /\p{L}/u.test(password);
+  const hasNumber = /[0-9\u0660-\u0669]/.test(password);
+  const isNotCommon = !isCommonPassword(password);
+
+  return {
+    hasMinLength,
+    hasLetter,
+    hasNumber,
+    isNotTooLong,
+    isNotCommon,
+    allValid:
+      hasMinLength && isNotTooLong && hasLetter && hasNumber && isNotCommon,
+  };
+}
+
 /**
  * Validates a password against the Hesba security policy without modifying the input string.
+ * Requires:
+ * - Length: 12 to 128 characters
+ * - At least one letter
+ * - At least one number
+ * - Allows spaces and symbols without requiring them
+ * - Rejects common/trivial passwords
  */
 export function validatePasswordPolicy(password: string): PasswordPolicyResult {
   if (!password || password.length === 0) {
@@ -142,6 +190,14 @@ export function validatePasswordPolicy(password: string): PasswordPolicyResult {
 
   if (password.length > PASSWORD_MAX_LENGTH) {
     return { valid: false, reason: "too_long" };
+  }
+
+  if (!/\p{L}/u.test(password)) {
+    return { valid: false, reason: "missing_letter" };
+  }
+
+  if (!/[0-9\u0660-\u0669]/.test(password)) {
+    return { valid: false, reason: "missing_number" };
   }
 
   if (isCommonPassword(password)) {

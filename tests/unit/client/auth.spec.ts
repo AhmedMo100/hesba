@@ -124,12 +124,42 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
       );
     });
 
+    it("rejects registration with password lacking letters", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "m@example.com",
+        password: "1234567890123", // numbers only, >= 12 chars
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كلمة السر يجب أن تحتوي على حرف واحد على الأقل");
+    });
+
+    it("rejects registration with password lacking numbers", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "m@example.com",
+        password: "LongPasswordWithoutNumbers", // letters only, >= 12 chars
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كلمة السر يجب أن تحتوي على رقم واحد على الأقل");
+    });
+
     it("rejects registration with password exceeding 128 chars", async () => {
       const res = await fixtureAuthApi.signup({
         ownerName: "محمود",
         phone: "01098765432",
         email: "m@example.com",
-        password: "A".repeat(129),
+        password: "A1".repeat(65),
         storeName: "محل",
         shopType: "بقالة",
         governorate: "القاهرة",
@@ -177,6 +207,28 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
 
       expect(res.success).toBe(false);
       expect(res.error).toBe("كلمة السر الجديدة يجب أن تكون 12 حرف على الأقل");
+    });
+
+    it("rejects reset with password lacking letters", async () => {
+      const res = await fixtureAuthApi.resetPassword({
+        email: "owner@example.com",
+        code: "123456",
+        newPassword: "1234567890123",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كلمة السر يجب أن تحتوي على حرف واحد على الأقل");
+    });
+
+    it("rejects reset with password lacking numbers", async () => {
+      const res = await fixtureAuthApi.resetPassword({
+        email: "owner@example.com",
+        code: "123456",
+        newPassword: "LongPasswordWithoutNumbers",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كلمة السر يجب أن تحتوي على رقم واحد على الأقل");
     });
 
     it("rejects reset with common password", async () => {

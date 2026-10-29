@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 import {
@@ -314,7 +315,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
     });
 
     it("accepts signup with a valid passphrase containing spaces without trimming", async () => {
-      const passphrase = "el ahly fe el alb ya masr";
+      const passphrase = "el ahly fe el alb ya masr 2026";
       const result = await registerUserWithPassword({
         ownerName: "صاحب المحل",
         phone: "01088888884",
@@ -338,6 +339,34 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       await prisma.store.deleteMany({ where: { id: result.storeId } });
       await prisma.user.deleteMany({ where: { id: result.userId } });
     });
+
+    it("rejects signup when password lacks letters", async () => {
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب المحل",
+          phone: "01088888885",
+          email: "noletters-owner@hesba.test",
+          password: "1234567890123",
+          storeName: "محل",
+          shopType: "سوبر ماركت",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("كلمة السر يجب أن تحتوي على حرف واحد على الأقل");
+    });
+
+    it("rejects signup when password lacks numbers", async () => {
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب المحل",
+          phone: "01088888886",
+          email: "nonumbers-owner@hesba.test",
+          password: "LongPasswordWithoutNumbers",
+          storeName: "محل",
+          shopType: "سوبر ماركت",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("كلمة السر يجب أن تحتوي على رقم واحد على الأقل");
+    });
   });
 
   describe("3. Mobile + Password Login", () => {
@@ -357,6 +386,66 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       const session = await validateSession(result.sessionToken);
       expect(session?.user.id).toBe(testUserId);
       expect(session?.store.id).toBe(testStoreId);
+    });
+
+    it("allows existing legacy accounts with simple or short passwords to log in without 12-char/letter/number enforcement", async () => {
+      // Create a legacy user directly with a short password hash (e.g. 6 chars "old123")
+      const legacyHashed = await hashPassword("old123");
+      const runId = Math.random().toString(36).substring(2, 8);
+      const randomDigits = Math.floor(10000000 + Math.random() * 90000000);
+      const localPhone = `010${randomDigits}`;
+      const legacyPhone = `+2010${randomDigits}`;
+      const legacyEmail = `legacy-${runId}@hesba.test`;
+      const legacyStoreId = randomUUID();
+
+      const legacyUser = await prisma.user.create({
+        data: {
+          name: "صاحب حساب قديم",
+          phone: legacyPhone,
+          email: legacyEmail,
+          passwordHash: legacyHashed,
+        },
+      });
+
+      try {
+        // Create store and membership under withTenant context
+        await withTenant(legacyStoreId, legacyUser.id, async (tx) => {
+          await tx.store.create({
+            data: {
+              id: legacyStoreId,
+              name: "محل قديم",
+              shopType: "بقالة",
+              governorate: "القاهرة",
+            },
+          });
+          await tx.storeMember.create({
+            data: {
+              storeId: legacyStoreId,
+              userId: legacyUser.id,
+              role: "owner",
+            },
+          });
+        });
+
+        // Verify the legacy user logs in successfully with their old 6-char password
+        const loginRes = await loginWithPassword({
+          phone: localPhone,
+          password: "old123",
+        });
+        expect(loginRes.userId).toBe(legacyUser.id);
+        expect(loginRes.storeId).toBe(legacyStoreId);
+      } finally {
+        // Clean up
+        await prisma.session.deleteMany({ where: { userId: legacyUser.id } });
+        await withTenant(legacyStoreId, legacyUser.id, async (tx) => {
+          await tx.device.deleteMany({ where: { storeId: legacyStoreId } });
+          await tx.storeMember.deleteMany({
+            where: { storeId: legacyStoreId },
+          });
+          await tx.store.deleteMany({ where: { id: legacyStoreId } });
+        });
+        await prisma.user.deleteMany({ where: { id: legacyUser.id } });
+      }
     });
 
     it("rejects invalid password with generic error message", async () => {

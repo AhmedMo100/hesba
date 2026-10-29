@@ -86,6 +86,18 @@ class FixtureAuthApi implements AuthApi {
           error: "كلمة السر يجب أن تكون 12 حرف على الأقل",
         };
       }
+      if (pwdCheck.reason === "missing_letter") {
+        return {
+          success: false,
+          error: "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
+        };
+      }
+      if (pwdCheck.reason === "missing_number") {
+        return {
+          success: false,
+          error: "كلمة السر يجب أن تحتوي على رقم واحد على الأقل",
+        };
+      }
       if (pwdCheck.reason === "too_long") {
         return {
           success: false,
@@ -153,6 +165,18 @@ class FixtureAuthApi implements AuthApi {
         return {
           success: false,
           error: "كلمة السر الجديدة يجب أن تكون 12 حرف على الأقل",
+        };
+      }
+      if (pwdCheck.reason === "missing_letter") {
+        return {
+          success: false,
+          error: "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
+        };
+      }
+      if (pwdCheck.reason === "missing_number") {
+        return {
+          success: false,
+          error: "كلمة السر يجب أن تحتوي على رقم واحد على الأقل",
         };
       }
       if (pwdCheck.reason === "too_long") {

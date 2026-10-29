@@ -1,4 +1,5 @@
 .auth {
+  position: relative;
   min-height: 100dvh;
   display: flex;
   align-items: center;
@@ -13,6 +14,63 @@
     var(--bg);
   direction: rtl;
   box-sizing: border-box;
+}
+
+.themeToggle {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: var(--sh);
+  transition: all 0.2s var(--ease);
+  z-index: 10;
+}
+
+.themeToggle:hover {
+  background: var(--sf2);
+  transform: scale(1.05);
+}
+
+.themeToggle:active {
+  transform: scale(0.96);
+}
+
+.reqList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 12.5px;
+}
+
+.reqItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink2);
+  transition: color 0.2s ease;
+}
+
+.reqMet {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.reqUnmet {
+  color: var(--ink2);
 }
 
 .card {

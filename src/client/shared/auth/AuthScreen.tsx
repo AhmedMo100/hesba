@@ -7,7 +7,8 @@ import { Button, Field, Icon, Alert } from "../ui";
 import { useTranslation } from "../i18n";
 import { authApi } from "../api";
 import type { SessionState, SignupInput } from "../api";
-import { validatePasswordPolicy } from "@/domain";
+import { validatePasswordPolicy, checkPasswordRequirements } from "@/domain";
+import { useTheme } from "../theme";
 
 export const GOVERNORATES = [
   "القاهرة",
@@ -87,6 +88,16 @@ export function AuthScreen({
   isOffline = false,
 }: AuthScreenProps) {
   const { t } = useTranslation();
+  const { theme, cycleTheme } = useTheme();
+  const themeIcon =
+    theme === "dark" ? "moon" : theme === "light" ? "sun" : "auto";
+  const themeLabel =
+    theme === "dark"
+      ? t("common.themeDark")
+      : theme === "light"
+        ? t("common.themeLight")
+        : t("common.themeAuto");
+
   const [mode, setMode] = useState<"signup" | "login" | "forgot-password">(
     initialMode,
   );
@@ -130,6 +141,10 @@ export function AuthScreen({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Live password requirements evaluation
+  const signupPwdReqs = checkPasswordRequirements(signupData.password);
+  const resetPwdReqs = checkPasswordRequirements(newPassword);
 
   // Clear errors when switching modes
   const switchMode = (newMode: "signup" | "login" | "forgot-password") => {
@@ -211,6 +226,10 @@ export function AuthScreen({
     if (!pwdRes.valid) {
       if (pwdRes.reason === "too_short" || pwdRes.reason === "empty") {
         errs["password"] = t("auth.passwordLength");
+      } else if (pwdRes.reason === "missing_letter") {
+        errs["password"] = t("auth.passwordMissingLetter");
+      } else if (pwdRes.reason === "missing_number") {
+        errs["password"] = t("auth.passwordMissingNumber");
       } else if (pwdRes.reason === "too_long") {
         errs["password"] = t("auth.passwordTooLong");
       } else if (pwdRes.reason === "too_common") {
@@ -314,6 +333,10 @@ export function AuthScreen({
     if (!pwdRes.valid) {
       if (pwdRes.reason === "too_short" || pwdRes.reason === "empty") {
         errs["newPassword"] = t("auth.passwordLength");
+      } else if (pwdRes.reason === "missing_letter") {
+        errs["newPassword"] = t("auth.passwordMissingLetter");
+      } else if (pwdRes.reason === "missing_number") {
+        errs["newPassword"] = t("auth.passwordMissingNumber");
       } else if (pwdRes.reason === "too_long") {
         errs["newPassword"] = t("auth.passwordTooLong");
       } else if (pwdRes.reason === "too_common") {
@@ -354,6 +377,16 @@ export function AuthScreen({
 
   return (
     <div className={styles.auth} dir="rtl">
+      <button
+        type="button"
+        className={styles.themeToggle}
+        onClick={cycleTheme}
+        aria-label={`${t("common.themeToggle")} (${themeLabel})`}
+        title={`${t("common.themeToggle")} (${themeLabel})`}
+      >
+        <Icon n={themeIcon} s={18} />
+      </button>
+
       <div className={styles.card}>
         {/* Header */}
         <div className={styles.head}>
@@ -608,6 +641,36 @@ export function AuthScreen({
                     >
                       <Icon n={showPassword ? "eyeoff" : "eye"} s={18} />
                     </button>
+                  </div>
+
+                  <div className={styles.reqList}>
+                    <div
+                      className={`${styles.reqItem} ${signupPwdReqs.hasMinLength ? styles.reqMet : styles.reqUnmet}`}
+                    >
+                      <Icon
+                        n={signupPwdReqs.hasMinLength ? "check" : "dots"}
+                        s={14}
+                      />
+                      <span>{t("auth.reqMinLength")}</span>
+                    </div>
+                    <div
+                      className={`${styles.reqItem} ${signupPwdReqs.hasLetter ? styles.reqMet : styles.reqUnmet}`}
+                    >
+                      <Icon
+                        n={signupPwdReqs.hasLetter ? "check" : "dots"}
+                        s={14}
+                      />
+                      <span>{t("auth.reqLetter")}</span>
+                    </div>
+                    <div
+                      className={`${styles.reqItem} ${signupPwdReqs.hasNumber ? styles.reqMet : styles.reqUnmet}`}
+                    >
+                      <Icon
+                        n={signupPwdReqs.hasNumber ? "check" : "dots"}
+                        s={14}
+                      />
+                      <span>{t("auth.reqNumber")}</span>
+                    </div>
                   </div>
                 </Field>
 
@@ -902,6 +965,36 @@ export function AuthScreen({
                       <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
                     </button>
                   </div>
+
+                  <div className={styles.reqList}>
+                    <div
+                      className={`${styles.reqItem} ${resetPwdReqs.hasMinLength ? styles.reqMet : styles.reqUnmet}`}
+                    >
+                      <Icon
+                        n={resetPwdReqs.hasMinLength ? "check" : "dots"}
+                        s={14}
+                      />
+                      <span>{t("auth.reqMinLength")}</span>
+                    </div>
+                    <div
+                      className={`${styles.reqItem} ${resetPwdReqs.hasLetter ? styles.reqMet : styles.reqUnmet}`}
+                    >
+                      <Icon
+                        n={resetPwdReqs.hasLetter ? "check" : "dots"}
+                        s={14}
+                      />
+                      <span>{t("auth.reqLetter")}</span>
+                    </div>
+                    <div
+                      className={`${styles.reqItem} ${resetPwdReqs.hasNumber ? styles.reqMet : styles.reqUnmet}`}
+                    >
+                      <Icon
+                        n={resetPwdReqs.hasNumber ? "check" : "dots"}
+                        s={14}
+                      />
+                      <span>{t("auth.reqNumber")}</span>
+                    </div>
+                  </div>
                 </Field>
 
                 <Field
@@ -935,6 +1028,20 @@ export function AuthScreen({
                       <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
                     </button>
                   </div>
+
+                  {confirmPassword.length > 0 && (
+                    <div className={styles.reqList}>
+                      <div
+                        className={`${styles.reqItem} ${confirmPassword === newPassword ? styles.reqMet : styles.reqUnmet}`}
+                      >
+                        <Icon
+                          n={confirmPassword === newPassword ? "check" : "dots"}
+                          s={14}
+                        />
+                        <span>{t("auth.reqMatch")}</span>
+                      </div>
+                    </div>
+                  )}
                 </Field>
 
                 <div style={{ marginTop: "10px" }}>

@@ -220,4 +220,59 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     );
     await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
   });
+
+  test("persists theme between auth pages and defaults to light when unset", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+
+    // 1. Visit /login without saved theme -> defaults to light
+    await page.goto("/login");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
+
+    // 2. Click theme toggle button to switch to dark
+    const toggleBtn = page.locator("button[aria-label*='المظهر']");
+    await expect(toggleBtn).toBeVisible();
+    await toggleBtn.click();
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+    // Check localStorage
+    const saved = await page.evaluate(() =>
+      localStorage.getItem("hesba-theme"),
+    );
+    expect(saved).toBe("dark");
+
+    // 3. Navigate to /signup -> retains dark theme
+    await page.goto("/signup");
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+
+    // 4. Reload page -> retains dark theme (zero flicker)
+    await page.reload();
+    await page.waitForLoadState("domcontentloaded");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  });
+
+  test("renders live password requirements indicator as user types", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto("/signup");
+    await page.waitForLoadState("domcontentloaded");
+
+    // Check that requirement indicators exist
+    await expect(page.locator("text=12 حرفًا على الأقل")).toBeVisible();
+    await expect(page.locator("text=حرف واحد على الأقل")).toBeVisible();
+    await expect(page.locator("text=رقم واحد على الأقل")).toBeVisible();
+
+    const passwordInput = page.locator("input[autocomplete='new-password']");
+    await passwordInput.fill("OnlyLettersNoDigitsHere");
+    // Length is 23, has letters, but no digits
+    await expect(page.locator("text=رقم واحد على الأقل")).toBeVisible();
+
+    // Fill with letters and digits >= 12
+    await passwordInput.fill("SecurePass2026!");
+    await expect(page.locator("text=12 حرفًا على الأقل")).toBeVisible();
+  });
 });

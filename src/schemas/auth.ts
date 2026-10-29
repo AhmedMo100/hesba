@@ -7,13 +7,20 @@ import {
 
 /**
  * Shared password policy schema for new accounts and password resets.
- * Enforces 12-128 characters, permits passphrases and spaces, without silent trimming,
+ * Enforces 12-128 characters, at least one letter, at least one number,
+ * permits passphrases, spaces, and symbols without silent trimming,
  * and rejects common or easily guessed passwords.
  */
 export const passwordPolicySchema = z
   .string()
   .min(PASSWORD_MIN_LENGTH, "كلمة السر يجب أن تكون 12 حرف على الأقل")
   .max(PASSWORD_MAX_LENGTH, "كلمة السر لا يجب أن تتجاوز 128 حرف")
+  .refine((val) => /\p{L}/u.test(val), {
+    message: "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
+  })
+  .refine((val) => /[0-9\u0660-\u0669]/.test(val), {
+    message: "كلمة السر يجب أن تحتوي على رقم واحد على الأقل",
+  })
   .refine((val) => !isCommonPassword(val), {
     message: "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
   });
