@@ -441,7 +441,7 @@ export function AuthScreen({
                 <input
                   type={showPassword ? "text" : "password"}
                   autoComplete="current-password"
-                  placeholder={t("auth.passwordPlaceholder")}
+                  placeholder={t("auth.loginPasswordPlaceholder")}
                   value={loginPassword}
                   onChange={(e) => {
                     setLoginPassword(e.target.value);
@@ -490,8 +490,6 @@ export function AuthScreen({
             >
               {t("auth.forgotPasswordLink")}
             </button>
-
-            <small className={styles.note}>{t("auth.testNote")}</small>
           </form>
         )}
 
@@ -631,8 +629,6 @@ export function AuthScreen({
                 >
                   {t("auth.hasAccount")}
                 </button>
-
-                <small className={styles.note}>{t("auth.testNote")}</small>
               </div>
             )}
 
@@ -802,8 +798,6 @@ export function AuthScreen({
                 >
                   {t("auth.hasAccount")}
                 </button>
-
-                <small className={styles.note}>{t("auth.testNote")}</small>
               </form>
             )}
           </div>
@@ -853,8 +847,6 @@ export function AuthScreen({
                 >
                   {t("auth.backToLogin")}
                 </button>
-
-                <small className={styles.note}>{t("auth.testNote")}</small>
               </form>
             ) : (
               <form onSubmit={handleResetPassword} className={styles.body}>
@@ -987,8 +979,6 @@ export function AuthScreen({
                 >
                   {t("auth.backToLogin")}
                 </button>
-
-                <small className={styles.note}>{t("auth.testNote")}</small>
               </form>
             )}
           </div>

@@ -29,6 +29,10 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     });
 
     await expect(page.locator("h1")).toHaveText("افتح حساب حسبة");
+    await expect(page.locator("p").first()).toContainText(
+      "ابدأ تنظيم حسابات محلك ومخزونه مع حِسبة.",
+    );
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
     await page.screenshot({
       path: path.join(screenshotsDir, "auth-signup-step1.png"),
       fullPage: false,
@@ -48,6 +52,7 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     await expect(
       page.locator('input[placeholder="مثال: سوبر ماركت البركة"]'),
     ).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
     await page.screenshot({
       path: path.join(screenshotsDir, "auth-signup-step2.png"),
       fullPage: false,
@@ -65,6 +70,11 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
       `,
     });
     await expect(page.locator("h1")).toHaveText("أهلاً بيك تاني");
+    await expect(page.locator("p").first()).toContainText(
+      "أهلاً بعودتك، خلّي إدارة محلك أسهل مع حِسبة.",
+    );
+    await expect(page.locator('input[placeholder="كلمة السر"]')).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
     await page.screenshot({
       path: path.join(screenshotsDir, "auth-login.png"),
       fullPage: false,
@@ -82,6 +92,10 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
       `,
     });
     await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
+    await expect(page.locator("p").first()).toContainText(
+      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
+    );
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
     await page.screenshot({
       path: path.join(screenshotsDir, "auth-forgot-password.png"),
       fullPage: false,
@@ -172,20 +186,38 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     await page.goto("/");
     await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1")).toHaveText("أهلاً بيك تاني");
+    await expect(page.locator("p").first()).toContainText(
+      "أهلاً بعودتك، خلّي إدارة محلك أسهل مع حِسبة.",
+    );
+    await expect(page.locator('input[placeholder="كلمة السر"]')).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
 
     // 2. /login renders canonical login
     await page.goto("/login");
     await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1")).toHaveText("أهلاً بيك تاني");
+    await expect(page.locator("p").first()).toContainText(
+      "أهلاً بعودتك، خلّي إدارة محلك أسهل مع حِسبة.",
+    );
+    await expect(page.locator('input[placeholder="كلمة السر"]')).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
 
     // 3. /signup renders registration flow
     await page.goto("/signup");
     await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1")).toHaveText("افتح حساب حسبة");
+    await expect(page.locator("p").first()).toContainText(
+      "ابدأ تنظيم حسابات محلك ومخزونه مع حِسبة.",
+    );
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
 
     // 4. /forgot-password renders recovery request
     await page.goto("/forgot-password");
     await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
+    await expect(page.locator("p").first()).toContainText(
+      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
+    );
+    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
   });
 });

@@ -19,6 +19,19 @@ describe("i18n and formatting utilities", () => {
     expect(t("non.existent.key")).toBe("non.existent.key");
   });
 
+  it("contains clean marketing copy without demo version claims in auth strings", () => {
+    expect(t("auth.loginSub")).toBe(
+      "أهلاً بعودتك، خلّي إدارة محلك أسهل مع حِسبة.",
+    );
+    expect(t("auth.signupSub")).toBe(
+      "ابدأ تنظيم حسابات محلك ومخزونه مع حِسبة.",
+    );
+    expect(t("auth.forgotPasswordSub")).toBe(
+      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
+    );
+    expect(t("auth.loginPasswordPlaceholder")).toBe("كلمة السر");
+  });
+
   it("formats piasters as Egyptian Pounds with ج.م suffix", () => {
     expect(formatMoney(1550)).toBe("15.50 ج.م");
     expect(formatMoney(1500)).toBe("15 ج.م");
