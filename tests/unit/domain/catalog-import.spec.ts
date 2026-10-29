@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeArabic } from "@/domain/normalize";
 import { validateCatalogFile } from "../../../scripts/import-catalog";
 
 describe("Catalog Import Tooling & Validation", () => {
@@ -148,6 +149,59 @@ we,landline,فاتورة التليفون الأرضي`;
     expect(report.errors[0]!.message).toContain(
       'Invalid bill_type "invalid_type"',
     );
+    expect(validDataRows).toHaveLength(1);
+  });
+
+  it("handles empty template files with headers only without error", () => {
+    const csv = `name_ar,name_en`;
+    const { report, validDataRows } = validateCatalogFile("brands.csv", csv);
+    expect(report.errors).toHaveLength(0);
+    expect(report.validRows).toBe(0);
+    expect(report.totalRows).toBe(0);
+    expect(validDataRows).toHaveLength(0);
+  });
+
+  it("reports duplicate brand names with exact row numbers and never merges", () => {
+    const csv = `name_ar,name_en
+الضحى,El Doha
+ريحانة,Rehana
+الضحى,El Doha Duplicate`;
+
+    const { report } = validateCatalogFile("brands.csv", csv);
+    expect(report.duplicates).toHaveLength(1);
+    expect(report.duplicates[0]!.type).toBe("brand");
+    expect(report.duplicates[0]!.identifier).toBe(normalizeArabic("الضحى"));
+    expect(report.duplicates[0]!.rows).toEqual([2, 4]);
+    expect(report.errors.some((e) => e.message.includes("NEVER merged"))).toBe(
+      true,
+    );
+  });
+
+  it("reports duplicate product names under same brand with exact row numbers", () => {
+    const csv = `brand_name_ar,product_name_ar,category,type
+الضحى,أرز مصري,أرز,stock
+الضحى,عدس أصفر,بقوليات,stock
+الضحى,أرز مصري,أرز,stock`;
+
+    const { report } = validateCatalogFile("products.csv", csv);
+    expect(report.duplicates).toHaveLength(1);
+    expect(report.duplicates[0]!.type).toBe("product");
+    expect(report.duplicates[0]!.rows).toEqual([2, 4]);
+    expect(report.errors.some((e) => e.message.includes("NEVER merged"))).toBe(
+      true,
+    );
+  });
+
+  it("validates prepaid cards with standard 4-column format", () => {
+    const csv = `network,denomination_piasters,sell_price_piasters,cost_piasters
+vodafone,1000,1050,950`;
+
+    const { report, validDataRows } = validateCatalogFile(
+      "prepaid_cards.csv",
+      csv,
+    );
+    expect(report.errors).toHaveLength(0);
+    expect(report.validRows).toBe(1);
     expect(validDataRows).toHaveLength(1);
   });
 });

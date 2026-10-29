@@ -50,8 +50,6 @@ const REQUIRED_HEADERS: Record<string, string[]> = {
   "prepaid_cards.csv": [
     "network",
     "denomination_piasters",
-    "data_package_ar",
-    "validity_days",
     "sell_price_piasters",
     "cost_piasters",
   ],
@@ -458,12 +456,21 @@ async function applyFileTransaction(
         const nameNorm = normalizeArabic(name);
         const category = row["category"] ?? "";
         const type = row["type"] ?? "stock";
-        const res = await tx`
-          INSERT INTO global_products (brand_id, name, name_norm, category, type)
-          VALUES (${brandId}, ${name}, ${nameNorm}, ${category}, ${type}::product_type)
-          RETURNING id;
+
+        const existing = await tx`
+          SELECT id FROM global_products
+          WHERE (brand_id = ${brandId} OR (brand_id IS NULL AND ${brandId} IS NULL))
+            AND name_ar = ${name}
+          LIMIT 1;
         `;
-        if (res.length > 0) insertedCount++;
+        if (existing.length === 0) {
+          const res = await tx`
+            INSERT INTO global_products (brand_id, name_ar, name_norm, category, type)
+            VALUES (${brandId}, ${name}, ${nameNorm}, ${category}, ${type}::global_product_type)
+            RETURNING id;
+          `;
+          if (res.length > 0) insertedCount++;
+        }
       }
     } else if (fileName === "variants.csv") {
       for (const row of rows) {
@@ -483,12 +490,67 @@ async function applyFileTransaction(
           [prodName, flavor, sizeValue, sizeUnit].filter(Boolean).join(" "),
         );
 
-        const res = await tx`
-          INSERT INTO global_variants (global_product_id, flavor, size_value, size_unit, pack_qty, name_norm)
-          VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${nameNorm})
-          RETURNING id;
+        const existing = await tx`
+          SELECT id FROM global_variants
+          WHERE global_product_id = ${productId}
+            AND (flavor = ${flavor} OR (flavor IS NULL AND ${flavor} IS NULL))
+            AND (size_value = ${sizeValue}::numeric OR (size_value IS NULL AND ${sizeValue} IS NULL))
+            AND (size_unit = ${sizeUnit} OR (size_unit IS NULL AND ${sizeUnit} IS NULL))
+            AND pack_qty = ${packQty}
+          LIMIT 1;
         `;
-        if (res.length > 0) insertedCount++;
+        if (existing.length === 0) {
+          const res = await tx`
+            INSERT INTO global_variants (global_product_id, flavor, size_value, size_unit, pack_qty, name_norm)
+            VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${nameNorm})
+            RETURNING id;
+          `;
+          if (res.length > 0) insertedCount++;
+        }
+      }
+    } else if (fileName === "prepaid_cards.csv") {
+      for (const row of rows) {
+        const network = row["network"] ?? "";
+        const denominationStr = row["denomination_piasters"] ?? "0";
+        const costPiastersStr = row["cost_piasters"]
+          ? row["cost_piasters"]
+          : null;
+        const dataPackage = row["data_package_ar"] || null;
+        const validityDays = row["validity_days"]
+          ? parseInt(row["validity_days"], 10)
+          : null;
+
+        const existing = await tx`
+          SELECT id FROM prepaid_products
+          WHERE network = ${network} AND denomination_piasters = ${denominationStr}::bigint
+          LIMIT 1;
+        `;
+        if (existing.length === 0) {
+          await tx`
+            INSERT INTO prepaid_products (network, denomination_piasters, data_package_ar, validity_days, cost_piasters)
+            VALUES (${network}, ${denominationStr}::bigint, ${dataPackage}, ${validityDays}, ${costPiastersStr ? `${costPiastersStr}::bigint` : null});
+          `;
+          insertedCount++;
+        }
+      }
+    } else if (fileName === "bills.csv") {
+      for (const row of rows) {
+        const labelAr = row["label_ar"] ?? "";
+        const billType = row["bill_type"] ?? "other";
+        if (!labelAr) continue;
+
+        const existing = await tx`
+          SELECT id FROM bill_providers
+          WHERE name_ar = ${labelAr} AND bill_type = ${billType}::bill_type
+          LIMIT 1;
+        `;
+        if (existing.length === 0) {
+          await tx`
+            INSERT INTO bill_providers (name_ar, bill_type)
+            VALUES (${labelAr}, ${billType}::bill_type);
+          `;
+          insertedCount++;
+        }
       }
     } else if (fileName === "transfer_commissions.csv") {
       for (const row of rows) {
