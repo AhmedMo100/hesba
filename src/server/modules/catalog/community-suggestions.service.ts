@@ -58,13 +58,14 @@ export class CommunitySuggestionsService {
    */
   async submitCandidate(
     input: CandidateSubmissionInput,
-    options?: { now?: Date },
+    options?: { now?: Date; tx?: unknown },
   ): Promise<CandidateSubmissionResult> {
+    const db = (options?.tx ? options.tx : this.prisma) as PrismaClient;
     const now = options?.now ?? new Date();
     const nameNorm = normalizeArabic(input.nameAr);
 
     // 1. Search for existing active or pending candidates in the same category
-    const existingCandidates = await this.prisma.catalogCandidate.findMany({
+    const existingCandidates = await db.catalogCandidate.findMany({
       where: {
         category: input.category,
         status: { in: ["suggestable", "pending"] },
@@ -124,10 +125,11 @@ export class CommunitySuggestionsService {
         input.submittingStoreId,
         {
           now,
+          tx: options?.tx,
         },
       );
 
-      const updated = await this.prisma.catalogCandidate.findUnique({
+      const updated = await db.catalogCandidate.findUnique({
         where: { id: exactCandidateMatchId },
         select: { status: true, acceptsCount: true },
       });
@@ -145,7 +147,7 @@ export class CommunitySuggestionsService {
     // 3. If there is an ambiguous potential match, flag for internal review (status='pending')
     const initialStatus = potentialMatchFound ? "pending" : "suggestable";
 
-    const candidate = await this.prisma.catalogCandidate.create({
+    const candidate = await db.catalogCandidate.create({
       data: {
         submittedByStoreId: input.submittingStoreId,
         nameAr: input.nameAr,
@@ -166,7 +168,7 @@ export class CommunitySuggestionsService {
     });
 
     // Record initial submitting shop adoption
-    await this.prisma.candidateAdoption.create({
+    await db.candidateAdoption.create({
       data: {
         candidateId: candidate.id,
         storeId: input.submittingStoreId,
@@ -191,13 +193,14 @@ export class CommunitySuggestionsService {
   async recordAdoption(
     candidateId: string,
     storeId: string,
-    options?: { now?: Date },
+    options?: { now?: Date; tx?: unknown },
   ): Promise<{ added: boolean; totalUniqueAdoptions: number }> {
+    const db = (options?.tx ? options.tx : this.prisma) as PrismaClient;
     const now = options?.now ?? new Date();
 
     // Idempotent upsert on candidate_adoptions
     try {
-      await this.prisma.candidateAdoption.create({
+      await db.candidateAdoption.create({
         data: {
           candidateId,
           storeId,
@@ -218,11 +221,11 @@ export class CommunitySuggestionsService {
     }
 
     // Recalculate distinct adopting stores count accurately
-    const totalCount = await this.prisma.candidateAdoption.count({
+    const totalCount = await db.candidateAdoption.count({
       where: { candidateId },
     });
 
-    await this.prisma.catalogCandidate.update({
+    await db.catalogCandidate.update({
       where: { id: candidateId },
       data: {
         acceptsCount: totalCount,

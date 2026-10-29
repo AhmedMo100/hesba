@@ -192,4 +192,221 @@ export class CatalogService {
       suggestedToCommunity,
     };
   }
+
+  /**
+   * Retrieves all products and variants for a store under tenant isolation.
+   */
+  async getStoreProducts(storeId: string, userId: string | null = null) {
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        return tx.storeProduct.findMany({
+          where: { storeId, isActive: true },
+          include: {
+            storeVariants: {
+              where: { isActive: true },
+            },
+          },
+          orderBy: { createdAt: "desc" },
+        });
+      },
+      this.prisma,
+    );
+  }
+
+  /**
+   * Upserts a store product and its variants transactionally.
+   * Enforces RLS and tenant ownership.
+   */
+  async upsertStoreProduct(
+    storeId: string,
+    userId: string | null,
+    input: {
+      id?: string;
+      opId?: string;
+      nameAr: string;
+      category: string;
+      unit: "piece" | "kg" | "g" | "ml" | "l";
+      sellPricePiasters: number;
+      isCustom?: boolean;
+      globalProductId?: string | null;
+      brandName?: string | null;
+      variants: Array<{
+        id?: string;
+        flavor?: string | null;
+        sizeValue?: number | null;
+        sizeUnit?: string | null;
+        packQty?: number;
+        sellPricePiasters: number;
+        globalVariantId?: string | null;
+        isActive?: boolean;
+      }>;
+    },
+  ) {
+    const nameNorm = normalizeArabic(input.nameAr);
+    const now = new Date();
+
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const store = await tx.store.findUnique({
+          where: { id: storeId },
+          select: { shareCustomProducts: true },
+        });
+
+        let storeProductId = input.id;
+        let isNewProduct = false;
+
+        if (storeProductId) {
+          // Verify ownership
+          const existing = await tx.storeProduct.findFirst({
+            where: { id: storeProductId, storeId },
+          });
+          if (!existing) {
+            throw new Error("Product not found or unauthorized");
+          }
+
+          await tx.storeProduct.update({
+            where: { id: storeProductId },
+            data: {
+              nameAr: input.nameAr,
+              nameNorm,
+              category: input.category,
+              unit: input.unit,
+              sellPricePiasters: BigInt(input.sellPricePiasters),
+              isCustom: input.isCustom ?? existing.isCustom,
+              globalProductId:
+                input.globalProductId ?? existing.globalProductId,
+              updatedAt: now,
+            },
+          });
+        } else {
+          isNewProduct = true;
+          const created = await tx.storeProduct.create({
+            data: {
+              storeId,
+              nameAr: input.nameAr,
+              nameNorm,
+              category: input.category,
+              unit: input.unit,
+              sellPricePiasters: BigInt(input.sellPricePiasters),
+              isCustom: input.isCustom ?? true,
+              globalProductId: input.globalProductId ?? null,
+              isActive: true,
+              createdAt: now,
+              updatedAt: now,
+            },
+          });
+          storeProductId = created.id;
+        }
+
+        // Upsert variants
+        const variantResults = [];
+        for (const v of input.variants) {
+          if (v.id) {
+            const updatedVar = await tx.storeVariant.update({
+              where: { id: v.id },
+              data: {
+                flavor: v.flavor ?? null,
+                sizeValue: v.sizeValue ? v.sizeValue : null,
+                sizeUnit: v.sizeUnit ?? null,
+                packQty: v.packQty ?? 1,
+                sellPricePiasters: BigInt(v.sellPricePiasters),
+                globalVariantId: v.globalVariantId ?? null,
+                isActive: v.isActive ?? true,
+                updatedAt: now,
+              },
+            });
+            variantResults.push(updatedVar);
+          } else {
+            const createdVar = await tx.storeVariant.create({
+              data: {
+                storeId,
+                storeProductId,
+                productId: input.globalProductId ?? null,
+                flavor: v.flavor ?? null,
+                sizeValue: v.sizeValue ? v.sizeValue : null,
+                sizeUnit: v.sizeUnit ?? null,
+                packQty: v.packQty ?? 1,
+                sellPricePiasters: BigInt(v.sellPricePiasters),
+                globalVariantId: v.globalVariantId ?? null,
+                isActive: v.isActive ?? true,
+                createdAt: now,
+                updatedAt: now,
+              },
+            });
+            variantResults.push(createdVar);
+          }
+        }
+
+        // If custom and newly created, check community suggestions
+        let candidateId: string | null = null;
+        if (
+          isNewProduct &&
+          (input.isCustom ?? true) &&
+          (store?.shareCustomProducts ?? true)
+        ) {
+          const firstVariant = input.variants[0];
+          const submission = await this.communityService.submitCandidate(
+            {
+              submittingStoreId: storeId,
+              nameAr: input.nameAr,
+              brandName: input.brandName ?? null,
+              category: input.category,
+              flavor: firstVariant?.flavor ?? null,
+              sizeValue: firstVariant?.sizeValue ?? null,
+              sizeUnit: firstVariant?.sizeUnit ?? null,
+              packQty: firstVariant?.packQty ?? 1,
+            },
+            { now, tx },
+          );
+          candidateId = submission.candidateId;
+        }
+
+        return {
+          storeProductId,
+          variants: variantResults,
+          candidateId,
+        };
+      },
+      this.prisma,
+    );
+  }
+
+  /**
+   * Deactivates / deletes a store product and its variants.
+   */
+  async deleteStoreProduct(
+    storeId: string,
+    userId: string | null,
+    productId: string,
+  ) {
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const product = await tx.storeProduct.findFirst({
+          where: { id: productId, storeId },
+        });
+        if (!product) {
+          throw new Error("Product not found or unauthorized");
+        }
+
+        await tx.storeVariant.updateMany({
+          where: { storeProductId: productId, storeId },
+          data: { isActive: false },
+        });
+
+        await tx.storeProduct.update({
+          where: { id: productId },
+          data: { isActive: false },
+        });
+
+        return { success: true };
+      },
+      this.prisma,
+    );
+  }
 }

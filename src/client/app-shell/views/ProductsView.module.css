@@ -1,0 +1,275 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: viewIn 0.36s var(--ease);
+}
+
+@keyframes viewIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.phead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.phead h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.2px;
+  color: var(--ink);
+}
+
+.phead p {
+  margin: 4px 0 0;
+  color: var(--ink2);
+  font-size: 14px;
+}
+
+.pact {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, 1fr);
+}
+
+@media (min-width: 640px) {
+  .grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+
+@media (min-width: 1100px) {
+  .grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
+}
+
+.pcard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px 12px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--sh);
+  min-width: 0;
+}
+
+.pch {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.iconBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 6px;
+  border-radius: 8px;
+  color: var(--ink2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.iconBtn:hover {
+  background: var(--sf2, #fbf7ef);
+  color: var(--ink);
+}
+
+.deleteBtn:hover {
+  color: var(--red, #cf3c3c);
+}
+
+.pcn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pcn b {
+  font-size: 15px;
+  line-height: 1.3;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pcn small {
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.pcp {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pr {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px;
+  align-items: center;
+  background: var(--sf2, #fbf7ef);
+  border-radius: 9px;
+  padding: 5px 8px;
+  font-size: 13px;
+}
+
+.prl {
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.prv {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+
+.prv small {
+  font-size: 10px;
+  color: var(--ink2);
+}
+
+.prv b {
+  font-size: 14px;
+  color: var(--br, #c8651b);
+}
+
+.pcs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink2);
+  font-weight: 700;
+  margin-top: auto;
+}
+
+.pcs i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok, #108e5c);
+  flex: none;
+  display: inline-block;
+}
+
+.pcs.low i {
+  background: var(--yelLine, #d9822b);
+}
+
+.pcs.out i {
+  background: var(--red, #cf3c3c);
+}
+
+.pcs.out {
+  color: var(--red, #cf3c3c);
+}
+
+.catalogMatches {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--sf2, #fbf7ef);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+
+.catalogMatchesTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.matchCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.matchCard:hover {
+  border-color: var(--br, #c8651b);
+}
+
+.matchInfo {
+  display: flex;
+  flex-direction: column;
+}
+
+.matchName {
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.matchCategory {
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+.variantsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.variantItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--sf);
+}
+
+.variantDetails {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.priceInput {
+  max-width: 120px;
+}
