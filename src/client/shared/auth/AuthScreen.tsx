@@ -7,7 +7,7 @@ import { Button, Field, Icon, Alert } from "../ui";
 import { useTranslation } from "../i18n";
 import { authApi } from "../api";
 import type { SessionState, SignupInput } from "../api";
-import { validatePasswordPolicy, checkPasswordRequirements } from "@/domain";
+import { validatePasswordPolicy } from "@/domain";
 import { useTheme } from "../theme";
 
 export const GOVERNORATES = [
@@ -141,10 +141,6 @@ export function AuthScreen({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
-
-  // Live password requirements evaluation
-  const signupPwdReqs = checkPasswordRequirements(signupData.password);
-  const resetPwdReqs = checkPasswordRequirements(newPassword);
 
   // Clear errors when switching modes
   const switchMode = (newMode: "signup" | "login" | "forgot-password") => {
@@ -387,7 +383,9 @@ export function AuthScreen({
         <Icon n={themeIcon} s={18} />
       </button>
 
-      <div className={styles.card}>
+      <div
+        className={`${styles.card} ${mode === "signup" ? styles.signupCard : ""}`}
+      >
         {/* Header */}
         <div className={styles.head}>
           <Image
@@ -578,37 +576,47 @@ export function AuthScreen({
                   />
                 </Field>
 
-                <Field label={t("auth.phoneLabel")} err={fieldErrors["phone"]}>
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    autoComplete="tel"
-                    placeholder={t("auth.phonePlaceholder")}
-                    value={signupData.phone}
-                    onChange={(e) => {
-                      setSignupData({ ...signupData, phone: e.target.value });
-                      setFieldErrors((prev) => ({ ...prev, phone: "" }));
-                      setGlobalErr("");
-                    }}
-                    disabled={busy}
-                  />
-                </Field>
+                <div className={styles.signupContactRow}>
+                  <Field
+                    label={t("auth.phoneLabel")}
+                    err={fieldErrors["phone"]}
+                    grow
+                  >
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      autoComplete="tel"
+                      placeholder={t("auth.phonePlaceholder")}
+                      value={signupData.phone}
+                      onChange={(e) => {
+                        setSignupData({ ...signupData, phone: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, phone: "" }));
+                        setGlobalErr("");
+                      }}
+                      disabled={busy}
+                    />
+                  </Field>
 
-                <Field label={t("auth.emailLabel")} err={fieldErrors["email"]}>
-                  <input
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    placeholder={t("auth.emailPlaceholder")}
-                    value={signupData.email}
-                    onChange={(e) => {
-                      setSignupData({ ...signupData, email: e.target.value });
-                      setFieldErrors((prev) => ({ ...prev, email: "" }));
-                      setGlobalErr("");
-                    }}
-                    disabled={busy}
-                  />
-                </Field>
+                  <Field
+                    label={t("auth.emailLabel")}
+                    err={fieldErrors["email"]}
+                    grow
+                  >
+                    <input
+                      type="email"
+                      inputMode="email"
+                      autoComplete="email"
+                      placeholder={t("auth.emailPlaceholder")}
+                      value={signupData.email}
+                      onChange={(e) => {
+                        setSignupData({ ...signupData, email: e.target.value });
+                        setFieldErrors((prev) => ({ ...prev, email: "" }));
+                        setGlobalErr("");
+                      }}
+                      disabled={busy}
+                    />
+                  </Field>
+                </div>
 
                 <Field
                   label={t("auth.passwordLabel")}
@@ -641,36 +649,6 @@ export function AuthScreen({
                     >
                       <Icon n={showPassword ? "eyeoff" : "eye"} s={18} />
                     </button>
-                  </div>
-
-                  <div className={styles.reqList}>
-                    <div
-                      className={`${styles.reqItem} ${signupPwdReqs.hasMinLength ? styles.reqMet : styles.reqUnmet}`}
-                    >
-                      <Icon
-                        n={signupPwdReqs.hasMinLength ? "check" : "dots"}
-                        s={14}
-                      />
-                      <span>{t("auth.reqMinLength")}</span>
-                    </div>
-                    <div
-                      className={`${styles.reqItem} ${signupPwdReqs.hasLetter ? styles.reqMet : styles.reqUnmet}`}
-                    >
-                      <Icon
-                        n={signupPwdReqs.hasLetter ? "check" : "dots"}
-                        s={14}
-                      />
-                      <span>{t("auth.reqLetter")}</span>
-                    </div>
-                    <div
-                      className={`${styles.reqItem} ${signupPwdReqs.hasNumber ? styles.reqMet : styles.reqUnmet}`}
-                    >
-                      <Icon
-                        n={signupPwdReqs.hasNumber ? "check" : "dots"}
-                        s={14}
-                      />
-                      <span>{t("auth.reqNumber")}</span>
-                    </div>
                   </div>
                 </Field>
 
@@ -965,36 +943,6 @@ export function AuthScreen({
                       <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
                     </button>
                   </div>
-
-                  <div className={styles.reqList}>
-                    <div
-                      className={`${styles.reqItem} ${resetPwdReqs.hasMinLength ? styles.reqMet : styles.reqUnmet}`}
-                    >
-                      <Icon
-                        n={resetPwdReqs.hasMinLength ? "check" : "dots"}
-                        s={14}
-                      />
-                      <span>{t("auth.reqMinLength")}</span>
-                    </div>
-                    <div
-                      className={`${styles.reqItem} ${resetPwdReqs.hasLetter ? styles.reqMet : styles.reqUnmet}`}
-                    >
-                      <Icon
-                        n={resetPwdReqs.hasLetter ? "check" : "dots"}
-                        s={14}
-                      />
-                      <span>{t("auth.reqLetter")}</span>
-                    </div>
-                    <div
-                      className={`${styles.reqItem} ${resetPwdReqs.hasNumber ? styles.reqMet : styles.reqUnmet}`}
-                    >
-                      <Icon
-                        n={resetPwdReqs.hasNumber ? "check" : "dots"}
-                        s={14}
-                      />
-                      <span>{t("auth.reqNumber")}</span>
-                    </div>
-                  </div>
                 </Field>
 
                 <Field
@@ -1028,20 +976,6 @@ export function AuthScreen({
                       <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
                     </button>
                   </div>
-
-                  {confirmPassword.length > 0 && (
-                    <div className={styles.reqList}>
-                      <div
-                        className={`${styles.reqItem} ${confirmPassword === newPassword ? styles.reqMet : styles.reqUnmet}`}
-                      >
-                        <Icon
-                          n={confirmPassword === newPassword ? "check" : "dots"}
-                          s={14}
-                        />
-                        <span>{t("auth.reqMatch")}</span>
-                      </div>
-                    </div>
-                  )}
                 </Field>
 
                 <div style={{ marginTop: "10px" }}>

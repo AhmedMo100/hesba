@@ -158,7 +158,7 @@
     "passwordLabel": "كلمة السر",
     "loginPasswordPlaceholder": "كلمة السر",
     "passwordPlaceholder": "12 حرف أو كلمة سر قوية",
-    "passwordHint": "كلمة السر لازم تكون 12 حرف على الأقل، وتحتوي على حرف ورقم.",
+    "passwordHint": "12 حرفًا على الأقل، ويشمل حرفًا ورقمًا، مثال: Cairo2026Pass",
     "confirmPasswordLabel": "تأكيد كلمة السر",
     "newPasswordLabel": "كلمة السر الجديدة",
     "codeLabel": "كود التأكيد (6 أرقام)",

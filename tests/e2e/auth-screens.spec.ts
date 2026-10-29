@@ -254,25 +254,112 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   });
 
-  test("renders live password requirements indicator as user types", async ({
+  test("renders simplified password hint without checklist box", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 360, height: 800 });
     await page.goto("/signup");
     await page.waitForLoadState("domcontentloaded");
 
-    // Check that requirement indicators exist
-    await expect(page.locator("text=12 حرفًا على الأقل")).toBeVisible();
-    await expect(page.locator("text=حرف واحد على الأقل")).toBeVisible();
-    await expect(page.locator("text=رقم واحد على الأقل")).toBeVisible();
+    // Check that simplified single-line hint is visible
+    await expect(
+      page.locator(
+        "text=12 حرفًا على الأقل، ويشمل حرفًا ورقمًا، مثال: Cairo2026Pass",
+      ),
+    ).toBeVisible();
 
-    const passwordInput = page.locator("input[autocomplete='new-password']");
-    await passwordInput.fill("OnlyLettersNoDigitsHere");
-    // Length is 23, has letters, but no digits
-    await expect(page.locator("text=رقم واحد على الأقل")).toBeVisible();
+    // Verify checklist box (.reqList) is not rendered
+    await expect(page.locator("div[class*='reqList']")).toHaveCount(0);
+  });
 
-    // Fill with letters and digits >= 12
-    await passwordInput.fill("SecurePass2026!");
-    await expect(page.locator("text=12 حرفًا على الأقل")).toBeVisible();
+  test("widens signup card and aligns phone and email side-by-side on large screens and stacked on small", async ({
+    page,
+  }) => {
+    // 1. Desktop viewport (1024px)
+    await page.setViewportSize({ width: 1024, height: 768 });
+    await page.goto("/signup");
+    await page.waitForLoadState("domcontentloaded");
+
+    const phoneInput = page.locator("input[type='tel']");
+    const emailInput = page.locator("input[type='email']");
+    await expect(phoneInput).toBeVisible();
+    await expect(emailInput).toBeVisible();
+
+    const phoneBox = await phoneInput.boundingBox();
+    const emailBox = await emailInput.boundingBox();
+    expect(phoneBox).not.toBeNull();
+    expect(emailBox).not.toBeNull();
+
+    // On large screens, phone and email are side by side in one row (same Y coordinate)
+    expect(Math.abs((phoneBox?.y ?? 0) - (emailBox?.y ?? 0))).toBeLessThan(10);
+    expect(phoneBox?.x).not.toEqual(emailBox?.x);
+
+    // 2. Mobile viewport (360px)
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.waitForTimeout(100);
+
+    const mobilePhoneBox = await phoneInput.boundingBox();
+    const mobileEmailBox = await emailInput.boundingBox();
+    expect(mobilePhoneBox).not.toBeNull();
+    expect(mobileEmailBox).not.toBeNull();
+
+    // On small screens, phone and email are stacked vertically
+    expect(mobileEmailBox?.y ?? 0).toBeGreaterThan(
+      (mobilePhoneBox?.y ?? 0) + 30,
+    );
+
+    // Ensure zero horizontal overflow
+    const hasHorizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+    expect(hasHorizontalOverflow).toBe(false);
+  });
+
+  test("underlines navigation links in all auth forms while preserving accessibility", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+
+    // 1. Login page: «حساب جديد» and «نسيت كلمة السر؟»
+    await page.goto("/login");
+    await page.waitForLoadState("domcontentloaded");
+    const newAccountLink = page.locator("button:has-text('حساب جديد')");
+    const forgotPwdLink = page.locator("button:has-text('نسيت كلمة السر؟')");
+    await expect(newAccountLink).toBeVisible();
+    await expect(forgotPwdLink).toBeVisible();
+
+    const newAccountUnderline = await newAccountLink.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationLine,
+    );
+    expect(newAccountUnderline).toContain("underline");
+
+    const forgotUnderline = await forgotPwdLink.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationLine,
+    );
+    expect(forgotUnderline).toContain("underline");
+
+    // 2. Signup page: «عندي حساب — دخول»
+    await page.goto("/signup");
+    await page.waitForLoadState("domcontentloaded");
+    const hasAccountLink = page.locator("button:has-text('عندي حساب — دخول')");
+    await expect(hasAccountLink).toBeVisible();
+
+    const hasAccountUnderline = await hasAccountLink.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationLine,
+    );
+    expect(hasAccountUnderline).toContain("underline");
+
+    // 3. Forgot Password page: «رجوع لتسجيل الدخول»
+    await page.goto("/forgot-password");
+    await page.waitForLoadState("domcontentloaded");
+    const backToLoginLink = page.locator(
+      "button:has-text('رجوع لتسجيل الدخول')",
+    );
+    await expect(backToLoginLink).toBeVisible();
+
+    const backUnderline = await backToLoginLink.evaluate(
+      (el) => window.getComputedStyle(el).textDecorationLine,
+    );
+    expect(backUnderline).toContain("underline");
   });
 });

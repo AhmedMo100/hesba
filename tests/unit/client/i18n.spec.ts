@@ -31,7 +31,7 @@ describe("i18n and formatting utilities", () => {
     );
     expect(t("auth.loginPasswordPlaceholder")).toBe("كلمة السر");
     expect(t("auth.passwordHint")).toBe(
-      "كلمة السر لازم تكون 12 حرف على الأقل، وتحتوي على حرف ورقم.",
+      "12 حرفًا على الأقل، ويشمل حرفًا ورقمًا، مثال: Cairo2026Pass",
     );
     expect(t("auth.passwordMissingLetter")).toBe(
       "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
