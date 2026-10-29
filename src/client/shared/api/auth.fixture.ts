@@ -8,6 +8,7 @@ import type {
   StoreSession,
   UserSession,
 } from "./auth";
+import { validatePasswordPolicy } from "@/domain";
 
 const DEFAULT_TEST_USER: UserSession = {
   id: "user-test-01",
@@ -77,11 +78,26 @@ class FixtureAuthApi implements AuthApi {
     if (!cleanPhone.startsWith("01") || cleanPhone.length !== 11) {
       return { success: false, error: "رقم الموبايل غير صحيح" };
     }
-    if (!data.password || data.password.length < 6) {
-      return {
-        success: false,
-        error: "كلمة السر يجب أن تكون 6 حروف على الأقل",
-      };
+    const pwdCheck = validatePasswordPolicy(data.password);
+    if (!pwdCheck.valid) {
+      if (pwdCheck.reason === "too_short" || pwdCheck.reason === "empty") {
+        return {
+          success: false,
+          error: "كلمة السر يجب أن تكون 12 حرف على الأقل",
+        };
+      }
+      if (pwdCheck.reason === "too_long") {
+        return {
+          success: false,
+          error: "كلمة السر لا يجب أن تتجاوز 128 حرف",
+        };
+      }
+      if (pwdCheck.reason === "too_common") {
+        return {
+          success: false,
+          error: "كلمة السر شائعة وسهلة التخمين، اختار كلمة أصعب أو جملة سرية",
+        };
+      }
     }
 
     const state: SessionState = {
@@ -131,11 +147,26 @@ class FixtureAuthApi implements AuthApi {
     if (data.code !== expected) {
       return { success: false, error: "كود التأكيد غير صحيح" };
     }
-    if (!data.newPassword || data.newPassword.length < 6) {
-      return {
-        success: false,
-        error: "كلمة السر الجديدة يجب أن تكون 6 حروف على الأقل",
-      };
+    const pwdCheck = validatePasswordPolicy(data.newPassword);
+    if (!pwdCheck.valid) {
+      if (pwdCheck.reason === "too_short" || pwdCheck.reason === "empty") {
+        return {
+          success: false,
+          error: "كلمة السر الجديدة يجب أن تكون 12 حرف على الأقل",
+        };
+      }
+      if (pwdCheck.reason === "too_long") {
+        return {
+          success: false,
+          error: "كلمة السر لا يجب أن تتجاوز 128 حرف",
+        };
+      }
+      if (pwdCheck.reason === "too_common") {
+        return {
+          success: false,
+          error: "كلمة السر شائعة وسهلة التخمين، اختار كلمة أصعب أو جملة سرية",
+        };
+      }
     }
 
     this.activeResetCodes.delete(data.email.toLowerCase());

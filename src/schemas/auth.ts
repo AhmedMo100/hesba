@@ -1,4 +1,22 @@
 import { z } from "zod";
+import {
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  isCommonPassword,
+} from "@/domain";
+
+/**
+ * Shared password policy schema for new accounts and password resets.
+ * Enforces 12-128 characters, permits passphrases and spaces, without silent trimming,
+ * and rejects common or easily guessed passwords.
+ */
+export const passwordPolicySchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, "كلمة السر يجب أن تكون 12 حرف على الأقل")
+  .max(PASSWORD_MAX_LENGTH, "كلمة السر لا يجب أن تتجاوز 128 حرف")
+  .refine((val) => !isCommonPassword(val), {
+    message: "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
+  });
 
 export const signupInputSchema = z.object({
   ownerName: z.string().trim().min(2, "اسم صاحب المحل مطلوب"),
@@ -7,9 +25,7 @@ export const signupInputSchema = z.object({
     .trim()
     .regex(/^(01[0125]\d{8}|\+201[0125]\d{8})$/, "رقم هاتف مصري غير صحيح"),
   email: z.string().trim().email("بريد إلكتروني غير صحيح"),
-  password: z
-    .string()
-    .min(6, "كلمة السر يجب أن تكون 6 حروف أو أرقام على الأقل"),
+  password: passwordPolicySchema,
   storeName: z.string().trim().min(2, "اسم المحل مطلوب"),
   shopType: z.string().trim().min(2, "نوع المحل مطلوب"),
   governorate: z.string().trim().min(2, "المحافظة مطلوبة"),
@@ -47,9 +63,7 @@ export const resetPasswordWithCodeSchema = z.object({
     .string()
     .trim()
     .regex(/^\d{6}$/, "كود التأكيد يتكون من 6 أرقام"),
-  newPassword: z
-    .string()
-    .min(6, "كلمة السر الجديدة يجب أن تكون 6 حروف أو أرقام على الأقل"),
+  newPassword: passwordPolicySchema,
 });
 
 export type ResetPasswordWithCodeInput = z.input<

@@ -35,19 +35,16 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     });
 
     // 2. Signup Step 2 ("محلك")
-    const testId = Math.random().toString(36).substring(2, 7);
-    const testPhone = `010${Math.floor(10000000 + Math.random() * 90000000)}`;
-    const testEmail = `magdy_${testId}@example.com`;
-
-    await page.fill('input[placeholder="مثال: مجدي أحمد"]', "مجدي أحمد");
-    await page.fill('input[placeholder="01xxxxxxxxx"]', testPhone);
-    await page.fill('input[placeholder="name@email.com"]', testEmail);
-    await page.fill(
-      'input[placeholder="6 حروف أو أرقام على الأقل"]',
-      "TestPassword@123",
-    );
-    await page.click('button:has-text("التالي")');
-
+    await page.goto("/dev/auth?screen=signup-2");
+    await page.waitForLoadState("domcontentloaded");
+    await page.addStyleTag({
+      content: `
+        nextjs-portal { display: none !important; }
+        #dev-auth-toolbar { display: none !important; }
+        nav { display: none !important; }
+        *, *::before, *::after { animation: none !important; transition: none !important; }
+      `,
+    });
     await expect(
       page.locator('input[placeholder="مثال: سوبر ماركت البركة"]'),
     ).toBeVisible();

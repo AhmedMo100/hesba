@@ -27,6 +27,9 @@ const SENSITIVE_EMAIL_KEY_REGEX = /^(email|email_?address)$/i;
 const SENSITIVE_CARD_KEY_REGEX =
   /^(card|card_?number|pan|credit_?card|debit_?card|cvv|cvc)$/i;
 
+const SENSITIVE_PASSWORD_KEY_REGEX =
+  /^(password|new_?password|confirm_?password|passwd|pwd|secret|token|session_?token)$/i;
+
 /**
  * Scrubs PII from a freeform text string.
  */
@@ -71,7 +74,9 @@ export function scrubData(data: unknown): unknown {
   if (typeof data === "object") {
     const scrubbedObj: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(data as Record<string, unknown>)) {
-      if (SENSITIVE_PHONE_KEY_REGEX.test(key)) {
+      if (SENSITIVE_PASSWORD_KEY_REGEX.test(key)) {
+        scrubbedObj[key] = "[PASSWORD_REDACTED]";
+      } else if (SENSITIVE_PHONE_KEY_REGEX.test(key)) {
         scrubbedObj[key] = "[PHONE_REDACTED]";
       } else if (SENSITIVE_EMAIL_KEY_REGEX.test(key)) {
         scrubbedObj[key] = "[EMAIL_REDACTED]";

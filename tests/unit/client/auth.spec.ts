@@ -92,19 +92,51 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
       expect(session?.user.email).toBe("ahmed@example.com");
     });
 
-    it("rejects registration with short password", async () => {
+    it("rejects registration with short password (< 12 chars)", async () => {
       const res = await fixtureAuthApi.signup({
         ownerName: "محمود",
         phone: "01098765432",
         email: "m@example.com",
-        password: "123",
+        password: "short1234", // 9 chars
         storeName: "محل",
         shopType: "بقالة",
         governorate: "القاهرة",
       });
 
       expect(res.success).toBe(false);
-      expect(res.error).toBe("كلمة السر يجب أن تكون 6 حروف على الأقل");
+      expect(res.error).toBe("كلمة السر يجب أن تكون 12 حرف على الأقل");
+    });
+
+    it("rejects registration with common password", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "m@example.com",
+        password: "password1234", // in blocklist
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe(
+        "كلمة السر شائعة وسهلة التخمين، اختار كلمة أصعب أو جملة سرية",
+      );
+    });
+
+    it("rejects registration with password exceeding 128 chars", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "m@example.com",
+        password: "A".repeat(129),
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كلمة السر لا يجب أن تتجاوز 128 حرف");
     });
   });
 
@@ -134,6 +166,30 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
 
       expect(res.success).toBe(false);
       expect(res.error).toBe("كود التأكيد غير صحيح");
+    });
+
+    it("rejects reset with short password (< 12 chars)", async () => {
+      const res = await fixtureAuthApi.resetPassword({
+        email: "owner@example.com",
+        code: "123456",
+        newPassword: "short1234",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("كلمة السر الجديدة يجب أن تكون 12 حرف على الأقل");
+    });
+
+    it("rejects reset with common password", async () => {
+      const res = await fixtureAuthApi.resetPassword({
+        email: "owner@example.com",
+        code: "123456",
+        newPassword: "password1234",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe(
+        "كلمة السر شائعة وسهلة التخمين، اختار كلمة أصعب أو جملة سرية",
+      );
     });
   });
 

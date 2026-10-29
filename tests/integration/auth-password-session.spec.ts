@@ -246,7 +246,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           ownerName: "مكرر",
           phone: testUserPhone,
           email: "another-email@hesba.test",
-          password: "password123",
+          password: "ValidPass1234",
           storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
@@ -260,7 +260,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           ownerName: "مكرر",
           phone: "01099999999",
           email: testUserEmail,
-          password: "password123",
+          password: "ValidPass1234",
           storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
@@ -268,6 +268,75 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           workersCount: 1,
         }),
       ).rejects.toThrow("البريد الإلكتروني مسجل بالفعل");
+    });
+
+    it("rejects signup when password does not meet security policy (short, too long, common)", async () => {
+      // 1. Password too short (< 12)
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب",
+          phone: "01088888881",
+          email: "short-pass@hesba.test",
+          password: "shortpass12", // 11 chars
+          storeName: "محل",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("كلمة السر يجب أن تكون 12 حرف على الأقل");
+
+      // 2. Password too long (> 128)
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب",
+          phone: "01088888882",
+          email: "long-pass@hesba.test",
+          password: "A".repeat(129),
+          storeName: "محل",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("كلمة السر لا يجب أن تتجاوز 128 حرف");
+
+      // 3. Common / easily guessed password
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب",
+          phone: "01088888883",
+          email: "common-pass@hesba.test",
+          password: "password1234",
+          storeName: "محل",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow(
+        "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
+      );
+    });
+
+    it("accepts signup with a valid passphrase containing spaces without trimming", async () => {
+      const passphrase = "el ahly fe el alb ya masr";
+      const result = await registerUserWithPassword({
+        ownerName: "صاحب المحل",
+        phone: "01088888884",
+        email: "passphrase-owner@hesba.test",
+        password: passphrase,
+        storeName: "محل الأهلي",
+        shopType: "سوبر ماركت",
+        governorate: "القاهرة",
+      });
+
+      expect(result.userId).toBeDefined();
+
+      // Verify the user can log in with the exact passphrase
+      const loginRes = await loginWithPassword({
+        phone: "01088888884",
+        password: passphrase,
+      });
+      expect(loginRes.userId).toBe(result.userId);
+
+      // Clean up created user and store
+      await prisma.store.deleteMany({ where: { id: result.storeId } });
+      await prisma.user.deleteMany({ where: { id: result.userId } });
     });
   });
 
@@ -537,6 +606,32 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       ).rejects.toThrow("كود التأكيد غير صحيح أو انتهت صلاحيته");
     });
 
+    it("rejects password reset when newPassword does not meet security policy (short or common)", async () => {
+      await requestPasswordResetCode({ email: testUserEmail });
+      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
+      const code = lastEmail!.code!;
+
+      // 1. Too short (< 12)
+      await expect(
+        resetPasswordWithCode({
+          email: testUserEmail,
+          code,
+          newPassword: "shortpass12",
+        }),
+      ).rejects.toThrow("كلمة السر يجب أن تكون 12 حرف على الأقل");
+
+      // 2. Common password
+      await expect(
+        resetPasswordWithCode({
+          email: testUserEmail,
+          code,
+          newPassword: "password1234",
+        }),
+      ).rejects.toThrow(
+        "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
+      );
+    });
+
     it("enforces attempt limit: locks after 5 wrong attempts", async () => {
       mockEmailProvider.clear();
       authRateLimiter.clear();
@@ -551,7 +646,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           resetPasswordWithCode({
             email: testUserEmail,
             code: "111111",
-            newPassword: "AnyPass@123",
+            newPassword: "ValidNewPass@123",
           }),
         ).rejects.toThrow();
       }
@@ -561,7 +656,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
         resetPasswordWithCode({
           email: testUserEmail,
           code: correctCode,
-          newPassword: "AnyPass@123",
+          newPassword: "ValidNewPass@123",
         }),
       ).rejects.toThrow("الحد الأقصى للمحاولات الخاطئة");
     });

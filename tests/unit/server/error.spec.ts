@@ -51,4 +51,27 @@ describe("AppError model and safe error response", () => {
     expect(raw).not.toContain("relation 'users' does not exist");
     expect(raw).not.toContain("postgres.internal.execute");
   });
+
+  it("converts ZodError into 400 VALIDATION_ERROR with safe Arabic message and field name", async () => {
+    const { z } = await import("zod");
+    const testSchema = z.object({
+      password: z.string().min(12, "كلمة السر يجب أن تكون 12 حرف على الأقل"),
+    });
+
+    let caughtError: unknown;
+    try {
+      testSchema.parse({ password: "short" });
+    } catch (e) {
+      caughtError = e;
+    }
+
+    const response = toSafeErrorResponse(caughtError, "req_val_1");
+    expect(response.status).toBe(400);
+
+    const body = await response.json();
+    expect(body.error.code).toBe("VALIDATION_ERROR");
+    expect(body.error.message).toBe("كلمة السر يجب أن تكون 12 حرف على الأقل");
+    expect(body.error.details).toEqual({ field: "password" });
+    expect(body.error.request_id).toBe("req_val_1");
+  });
 });

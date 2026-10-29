@@ -3,6 +3,8 @@ import pino, { type LoggerOptions, type DestinationStream } from "pino";
 
 export const REDACTED_PATHS = [
   "password",
+  "newPassword",
+  "confirmPassword",
   "secret",
   "token",
   "sessionToken",
@@ -24,6 +26,8 @@ export const REDACTED_PATHS = [
   "authorization",
   "cookie",
   "*.password",
+  "*.newPassword",
+  "*.confirmPassword",
   "*.secret",
   "*.token",
   "*.sessionToken",
@@ -39,6 +43,8 @@ export const REDACTED_PATHS = [
   "*.authorization",
   "*.cookie",
   "*.*.password",
+  "*.*.newPassword",
+  "*.*.confirmPassword",
   "*.*.token",
   "*.*.secret",
   "*.*.phone",

@@ -7,6 +7,7 @@ import { Button, Field, Icon, Alert } from "../ui";
 import { useTranslation } from "../i18n";
 import { authApi } from "../api";
 import type { SessionState, SignupInput } from "../api";
+import { validatePasswordPolicy } from "@/domain";
 
 export const GOVERNORATES = [
   "القاهرة",
@@ -206,8 +207,15 @@ export function AuthScreen({
     if (signupData.email.trim() && !okMail(signupData.email)) {
       errs["email"] = t("errors.invalidEmail");
     }
-    if (!signupData.password || signupData.password.length < 6) {
-      errs["password"] = t("auth.passwordLength");
+    const pwdRes = validatePasswordPolicy(signupData.password);
+    if (!pwdRes.valid) {
+      if (pwdRes.reason === "too_short" || pwdRes.reason === "empty") {
+        errs["password"] = t("auth.passwordLength");
+      } else if (pwdRes.reason === "too_long") {
+        errs["password"] = t("auth.passwordTooLong");
+      } else if (pwdRes.reason === "too_common") {
+        errs["password"] = t("auth.passwordTooCommon");
+      }
     }
 
     setFieldErrors(errs);
@@ -302,8 +310,15 @@ export function AuthScreen({
     if (cleanCode.length !== 6) {
       errs["code"] = t("auth.codeLabel");
     }
-    if (!newPassword || newPassword.length < 6) {
-      errs["newPassword"] = t("auth.passwordLength");
+    const pwdRes = validatePasswordPolicy(newPassword);
+    if (!pwdRes.valid) {
+      if (pwdRes.reason === "too_short" || pwdRes.reason === "empty") {
+        errs["newPassword"] = t("auth.passwordLength");
+      } else if (pwdRes.reason === "too_long") {
+        errs["newPassword"] = t("auth.passwordTooLong");
+      } else if (pwdRes.reason === "too_common") {
+        errs["newPassword"] = t("auth.passwordTooCommon");
+      }
     }
     if (newPassword !== confirmPassword) {
       errs["confirmPassword"] = t("auth.passwordMismatch");
@@ -566,6 +581,7 @@ export function AuthScreen({
 
                 <Field
                   label={t("auth.passwordLabel")}
+                  hint={t("auth.passwordHint")}
                   err={fieldErrors["password"]}
                 >
                   <div className={styles.passwordWrapper}>
@@ -864,6 +880,7 @@ export function AuthScreen({
 
                 <Field
                   label={t("auth.newPasswordLabel")}
+                  hint={t("auth.passwordHint")}
                   err={fieldErrors["newPassword"]}
                 >
                   <div className={styles.passwordWrapper}>

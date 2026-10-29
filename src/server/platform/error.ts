@@ -1,4 +1,5 @@
 import "server-only";
+import { z } from "zod";
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -119,6 +120,15 @@ export function toSafeErrorResponse(
 ): Response {
   if (error instanceof AppError) {
     return error.toResponse(requestId);
+  }
+
+  if (error instanceof z.ZodError) {
+    const firstIssue = error.issues[0];
+    const safeMessage = firstIssue?.message || "البيانات المدخلة غير صحيحة";
+    const field = firstIssue?.path ? firstIssue.path.join(".") : undefined;
+    return new AppError("VALIDATION_ERROR", safeMessage, 400, {
+      field,
+    }).toResponse(requestId);
   }
 
   return AppError.internal().toResponse(requestId);
