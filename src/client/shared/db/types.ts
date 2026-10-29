@@ -40,7 +40,6 @@ export interface LocalStoreVariant {
   store_product_id: string;
   name: string;
   sku?: string | null;
-  barcode?: string | null;
   sell_price_minor: number; // integer piasters
   carton_price_minor?: number | null; // integer piasters
   pack_quantity_base: number; // integer base units

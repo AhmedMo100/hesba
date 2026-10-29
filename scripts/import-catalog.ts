@@ -46,7 +46,6 @@ const REQUIRED_HEADERS: Record<string, string[]> = {
     "size_value",
     "size_unit",
     "pack_qty",
-    "barcode",
   ],
   "prepaid_cards.csv": [
     "network",
@@ -148,7 +147,7 @@ export function validateCatalogFile(
     return { report, validDataRows: [] };
   }
 
-  const barcodeMap = new Map<string, number[]>();
+  const variantKeyMap = new Map<string, number[]>();
   const productKeyMap = new Map<string, number[]>();
   const brandNameMap = new Map<string, number[]>();
   const validDataRows: Array<Record<string, string>> = [];
@@ -247,20 +246,12 @@ export function validateCatalogFile(
         }
       }
 
-      const barcodeStr = data["barcode"] ?? "";
-      if (barcodeStr) {
-        if (!/^\d+$/.test(barcodeStr)) {
-          report.errors.push({
-            rowNumber,
-            message: `barcode must contain digits only, received: "${barcodeStr}"`,
-          });
-          hasRowError = true;
-        } else {
-          const existing = barcodeMap.get(barcodeStr) || [];
-          existing.push(rowNumber);
-          barcodeMap.set(barcodeStr, existing);
-        }
-      }
+      const brandName = data["brand_name_ar"] ?? "";
+      const flavorStr = data["flavor"] ?? "";
+      const variantKey = `${brandName}::${prodName}::${flavorStr}::${sizeValStr}::${sizeUnitStr}::${packQtyStr || "1"}`;
+      const existing = variantKeyMap.get(variantKey) || [];
+      existing.push(rowNumber);
+      variantKeyMap.set(variantKey, existing);
     } else if (fileName === "prepaid_cards.csv") {
       const required = [
         "network",
@@ -385,16 +376,16 @@ export function validateCatalogFile(
   }
 
   // Check duplicates and report them - NEVER MERGE!
-  for (const [barcode, rowNums] of barcodeMap.entries()) {
+  for (const [variantKey, rowNums] of variantKeyMap.entries()) {
     if (rowNums.length > 1) {
       report.duplicates.push({
-        type: "barcode",
-        identifier: barcode,
+        type: "variant",
+        identifier: variantKey,
         rows: rowNums,
       });
       report.errors.push({
         rowNumber: rowNums[0] ?? 0,
-        message: `Duplicate barcode "${barcode}" found on rows: ${rowNums.join(", ")}. Duplicates are NEVER merged.`,
+        message: `Duplicate variant "${variantKey}" found on rows: ${rowNums.join(", ")}. Duplicates are NEVER merged.`,
       });
     }
   }
@@ -479,7 +470,7 @@ async function applyFileTransaction(
         const prodName = row["product_name_ar"] ?? "";
         if (!prodName) continue;
         const prodRes = await tx`
-          SELECT id FROM global_products WHERE name = ${prodName} LIMIT 1;
+          SELECT id FROM global_products WHERE name_ar = ${prodName} LIMIT 1;
         `;
         if (prodRes.length === 0 || !prodRes[0]) continue;
         const productId = prodRes[0].id;
@@ -488,27 +479,16 @@ async function applyFileTransaction(
         const sizeUnit = row["size_unit"] ? row["size_unit"] : null;
         const packQtyStr = row["pack_qty"] ?? "";
         const packQty = packQtyStr ? parseInt(packQtyStr, 10) : 1;
-        const barcode = row["barcode"] ? row["barcode"] : null;
         const nameNorm = normalizeArabic(
           [prodName, flavor, sizeValue, sizeUnit].filter(Boolean).join(" "),
         );
 
-        if (barcode) {
-          const res = await tx`
-            INSERT INTO global_variants (product_id, flavor, size_value, size_unit, pack_qty, barcode, name_norm)
-            VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${barcode}, ${nameNorm})
-            ON CONFLICT (barcode) DO NOTHING
-            RETURNING id;
-          `;
-          if (res.length > 0) insertedCount++;
-        } else {
-          const res = await tx`
-            INSERT INTO global_variants (product_id, flavor, size_value, size_unit, pack_qty, barcode, name_norm)
-            VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${barcode}, ${nameNorm})
-            RETURNING id;
-          `;
-          if (res.length > 0) insertedCount++;
-        }
+        const res = await tx`
+          INSERT INTO global_variants (global_product_id, flavor, size_value, size_unit, pack_qty, name_norm)
+          VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${nameNorm})
+          RETURNING id;
+        `;
+        if (res.length > 0) insertedCount++;
       }
     } else if (fileName === "transfer_commissions.csv") {
       for (const row of rows) {

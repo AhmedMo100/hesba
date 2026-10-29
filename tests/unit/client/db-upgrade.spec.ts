@@ -30,7 +30,7 @@ describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () 
       stores: "id, shop_type",
       store_products:
         "id, store_id, name_norm, category_id, is_active, deleted_at",
-      store_variants: "id, store_id, store_product_id, barcode, deleted_at",
+      store_variants: "id, store_id, store_product_id, deleted_at",
       store_stock_batches: "id, store_id, store_variant_id, expiry_date",
       sales: "id, store_id, created_at, is_voided",
       sale_lines: "id, sale_id, store_variant_id",
@@ -75,7 +75,6 @@ describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () 
       store_id: "store-01",
       store_product_id: "prod-01",
       name: "علبة 500 جرام",
-      barcode: "6221234567890",
       sell_price_minor: 4500, // 45.00 EGP in integer piasters
       carton_price_minor: 50000, // 500.00 EGP in integer piasters
       pack_quantity_base: 12, // 12 base units per carton
@@ -151,7 +150,7 @@ describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () 
 
     const variant = await upgradedDb.store_variants.get("var-01");
     expect(variant).toBeDefined();
-    expect(variant?.barcode).toBe("6221234567890");
+    expect(variant?.name).toBe("علبة 500 جرام");
     expect(variant?.sell_price_minor).toBe(4500);
 
     const batch = await upgradedDb.store_stock_batches.get("batch-01");

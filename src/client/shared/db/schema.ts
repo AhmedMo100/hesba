@@ -38,7 +38,7 @@ export class HesbaDatabase extends Dexie {
       stores: "id, shop_type",
       store_products:
         "id, store_id, name_norm, category_id, is_active, deleted_at",
-      store_variants: "id, store_id, store_product_id, barcode, deleted_at",
+      store_variants: "id, store_id, store_product_id, deleted_at",
       store_stock_batches: "id, store_id, store_variant_id, expiry_date",
       sales: "id, store_id, created_at, is_voided",
       sale_lines: "id, sale_id, store_variant_id",
@@ -54,8 +54,7 @@ export class HesbaDatabase extends Dexie {
     // Schema Version 2: Adds SKU index to store_variants and updated_at index + upgrade function for sync_meta
     this.version(2)
       .stores({
-        store_variants:
-          "id, store_id, store_product_id, barcode, sku, deleted_at",
+        store_variants: "id, store_id, store_product_id, sku, deleted_at",
         sync_meta: "key, updated_at",
       })
       .upgrade((tx) => {
