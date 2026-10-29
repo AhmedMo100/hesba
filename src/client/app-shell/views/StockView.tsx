@@ -165,15 +165,17 @@ export function StockView() {
         </div>
       </div>
 
-      {/* Tabs */}
-      <Seg
-        value={tab}
-        onChange={(v) => setTab(v as "qty" | "log")}
-        options={[
-          ["qty", "الكميات الحالية", "layers"],
-          ["log", "سجل الإضافات", "list"],
-        ]}
-      />
+      {/* Tabs (Mobile only) */}
+      <div className={styles.onlyM}>
+        <Seg
+          value={tab}
+          onChange={(v) => setTab(v as "qty" | "log")}
+          options={[
+            ["qty", "الكميات الحالية", "layers"],
+            ["log", "سجل الإضافات", "list"],
+          ]}
+        />
+      </div>
 
       {error && (
         <div
@@ -197,175 +199,188 @@ export function StockView() {
         >
           جارٍ تحميل المخزون...
         </div>
-      ) : tab === "qty" ? (
-        <div className={styles.col}>
-          {/* Search box */}
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="دوّر في المخزون… اكتب اسم المنتج"
-          />
+      ) : (
+        <div className={styles.twoCol}>
+          {/* Section 1: Quantities */}
+          <section
+            className={`${styles.col} ${tab === "qty" ? "" : styles.hideM}`}
+          >
+            <h2 className={`${styles.secTitle} ${styles.onlyD}`}>
+              الكميات الحالية
+            </h2>
+            {/* Search box */}
+            <SearchBox
+              value={query}
+              onChange={setQuery}
+              placeholder="دوّر في المخزون… اكتب اسم المنتج"
+            />
 
-          {/* Filter Chips */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "all" ? styles.active : ""}`}
-              onClick={() => setFilter("all")}
-            >
-              الكل ({inventory.length})
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "low" ? styles.active : ""}`}
-              onClick={() => setFilter("low")}
-            >
-              قرب يخلص ({counts.low})
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "out" ? styles.active : ""}`}
-              onClick={() => setFilter("out")}
-            >
-              خلصان ({counts.out})
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "expiry" ? styles.active : ""}`}
-              onClick={() => setFilter("expiry")}
-            >
-              صلاحية قريبة ({counts.expiry})
-            </button>
-          </div>
-
-          {/* Stock list */}
-          {filteredInventory.length === 0 ? (
-            <div className={styles.lrow}>
-              <Empty
-                icon="layers"
-                title={query ? "مفيش نتائج تطابق البحث" : "المخزون فاضي"}
-                sub="اضغط على زرار الإضافة لتسجيل أول بضاعة دخلت المحل"
-                action={
-                  <Button
-                    kind="primary"
-                    icon="plus"
-                    onClick={() => setIsAdding(true)}
-                  >
-                    إضافة بضاعة
-                  </Button>
-                }
-              />
+            {/* Filter Chips */}
+            <div className={styles.chips}>
+              <button
+                type="button"
+                className={`${styles.chip} ${filter === "all" ? styles.active : ""}`}
+                onClick={() => setFilter("all")}
+              >
+                الكل ({inventory.length})
+              </button>
+              <button
+                type="button"
+                className={`${styles.chip} ${filter === "low" ? styles.active : ""}`}
+                onClick={() => setFilter("low")}
+              >
+                قرب يخلص ({counts.low})
+              </button>
+              <button
+                type="button"
+                className={`${styles.chip} ${filter === "out" ? styles.active : ""}`}
+                onClick={() => setFilter("out")}
+              >
+                خلصان ({counts.out})
+              </button>
+              <button
+                type="button"
+                className={`${styles.chip} ${filter === "expiry" ? styles.active : ""}`}
+                onClick={() => setFilter("expiry")}
+              >
+                صلاحية قريبة ({counts.expiry})
+              </button>
             </div>
-          ) : (
-            <div className={styles.list}>
-              {filteredInventory.map((item) => (
-                <div
-                  className={styles.lrow}
-                  key={item.variantId}
-                  data-testid={`stock-row-${item.variantId}`}
-                >
-                  <div className={styles.lrowLeft}>
-                    <div
-                      className={`${styles.dot} ${
-                        item.status === "out"
-                          ? styles.out
-                          : item.status === "low"
-                            ? styles.low
-                            : ""
-                      }`}
-                    />
-                    <div className={styles.lrn}>
-                      <b>
-                        {item.productName}{" "}
-                        {item.flavor ? `(${item.flavor})` : ""}
-                      </b>
-                      {item.unitMode !== "weight" && item.packQty > 1 && (
-                        <small>الكرتونة {item.packQty} قطعة</small>
+
+            {/* Stock list */}
+            {filteredInventory.length === 0 ? (
+              <div className={styles.lrow}>
+                <Empty
+                  icon="layers"
+                  title={query ? "مفيش نتائج تطابق البحث" : "المخزون فاضي"}
+                  sub="اضغط على زرار الإضافة لتسجيل أول بضاعة دخلت المحل"
+                  action={
+                    <Button
+                      kind="primary"
+                      icon="plus"
+                      onClick={() => setIsAdding(true)}
+                    >
+                      إضافة بضاعة
+                    </Button>
+                  }
+                />
+              </div>
+            ) : (
+              <div className={styles.list}>
+                {filteredInventory.map((item) => (
+                  <div
+                    className={styles.lrow}
+                    key={item.variantId}
+                    data-testid={`stock-row-${item.variantId}`}
+                  >
+                    <div className={styles.lrowLeft}>
+                      <div
+                        className={`${styles.dot} ${
+                          item.status === "out"
+                            ? styles.out
+                            : item.status === "low"
+                              ? styles.low
+                              : ""
+                        }`}
+                      />
+                      <div className={styles.lrn}>
+                        <b>
+                          {item.productName}{" "}
+                          {item.flavor ? `(${item.flavor})` : ""}
+                        </b>
+                        {item.unitMode !== "weight" && item.packQty > 1 && (
+                          <small>الكرتونة {item.packQty} قطعة</small>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className={styles.lrq}>
+                      {item.currentStockBase <= 0 ? (
+                        <span className={`${styles.badge} ${styles.out}`}>
+                          خلصان
+                        </span>
+                      ) : (
+                        <b>{formatQuantity(item)}</b>
+                      )}
+                      {item.hasNearExpiry && (
+                        <span className={`${styles.badge} ${styles.warn}`}>
+                          صلاحية قريبة
+                        </span>
                       )}
                     </div>
                   </div>
+                ))}
+              </div>
+            )}
+          </section>
 
-                  <div className={styles.lrq}>
-                    {item.currentStockBase <= 0 ? (
-                      <span className={`${styles.badge} ${styles.out}`}>
-                        خلصان
-                      </span>
-                    ) : (
-                      <b>{formatQuantity(item)}</b>
-                    )}
-                    {item.hasNearExpiry && (
-                      <span className={`${styles.badge} ${styles.warn}`}>
-                        صلاحية قريبة
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
+          {/* Section 2: Movements Log */}
+          <section
+            className={`${styles.col} ${tab === "log" ? "" : styles.hideM}`}
+          >
+            <h2 className={`${styles.secTitle} ${styles.onlyD}`}>
+              سجل الإضافات والحركات
+            </h2>
+            <div className={styles.sumline}>
+              <span>{movements.length} حركة مسجلة</span>
             </div>
-          )}
-        </div>
-      ) : (
-        /* Log tab */
-        <div className={styles.col}>
-          <div className={styles.sumline}>
-            <span>{movements.length} حركة مسجلة</span>
-          </div>
 
-          {movements.length === 0 ? (
-            <div className={styles.lrow}>
-              <Empty
-                icon="truck"
-                title="مفيش حركات مخزون مسجلة"
-                sub="سجل البضاعة اللي دخلت أو خرجت من المحل"
-              />
-            </div>
-          ) : (
-            <div className={styles.list}>
-              {movements.map((m) => (
-                <div className={styles.lgi} key={m.id}>
-                  <div className={styles.lgTop}>
-                    <b>{m.productName}</b>
-                    <span
-                      className={styles.lgq}
-                      style={{
-                        color:
-                          m.quantityBase > 0
-                            ? "var(--ok, #108e5c)"
-                            : "var(--red, #cf3c3c)",
-                      }}
-                    >
-                      {m.quantityBase > 0
-                        ? `+${m.quantityBase}`
-                        : m.quantityBase}
-                    </span>
-                  </div>
-                  <div className={styles.lgMeta}>
-                    <span>
-                      نوع الحركة:{" "}
-                      {m.type === "purchase"
-                        ? "شراء"
-                        : m.type === "sale"
-                          ? "بيع"
-                          : "هالك/تالف"}
-                    </span>
-                    {m.costPricePiasters ? (
-                      <span>{formatMoney(m.costPricePiasters)}</span>
-                    ) : null}
-                    {m.batchCode && <span>تشغيلة: {m.batchCode}</span>}
-                    {m.expiryDate && (
+            {movements.length === 0 ? (
+              <div className={styles.lrow}>
+                <Empty
+                  icon="truck"
+                  title="مفيش حركات مخزون مسجلة"
+                  sub="سجل البضاعة اللي دخلت أو خرجت من المحل"
+                />
+              </div>
+            ) : (
+              <div className={styles.list}>
+                {movements.map((m) => (
+                  <div className={styles.lgi} key={m.id}>
+                    <div className={styles.lgTop}>
+                      <b>{m.productName}</b>
+                      <span
+                        className={styles.lgq}
+                        style={{
+                          color:
+                            m.quantityBase > 0
+                              ? "var(--ok, #108e5c)"
+                              : "var(--red, #cf3c3c)",
+                        }}
+                      >
+                        {m.quantityBase > 0
+                          ? `+${m.quantityBase}`
+                          : m.quantityBase}
+                      </span>
+                    </div>
+                    <div className={styles.lgMeta}>
                       <span>
-                        صلاحية:{" "}
-                        {new Date(m.expiryDate).toLocaleDateString("ar-EG")}
+                        نوع الحركة:{" "}
+                        {m.type === "purchase"
+                          ? "شراء"
+                          : m.type === "sale"
+                            ? "بيع"
+                            : "هالك/تالف"}
                       </span>
-                    )}
-                    <span>
-                      {new Date(m.createdAt).toLocaleDateString("ar-EG")}
-                    </span>
+                      {m.costPricePiasters ? (
+                        <span>{formatMoney(m.costPricePiasters)}</span>
+                      ) : null}
+                      {m.batchCode && <span>تشغيلة: {m.batchCode}</span>}
+                      {m.expiryDate && (
+                        <span>
+                          صلاحية:{" "}
+                          {new Date(m.expiryDate).toLocaleDateString("ar-EG")}
+                        </span>
+                      )}
+                      <span>
+                        {new Date(m.createdAt).toLocaleDateString("ar-EG")}
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
+          </section>
         </div>
       )}
 

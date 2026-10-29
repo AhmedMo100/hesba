@@ -431,13 +431,17 @@ async function applyFileTransaction(
         const nameAr = row["name_ar"] ?? "";
         if (!nameAr) continue;
         const nameEn = row["name_en"] ? row["name_en"] : null;
-        const res = await tx`
-          INSERT INTO brands (name_ar, name_en)
-          VALUES (${nameAr}, ${nameEn})
-          ON CONFLICT (name_ar) DO NOTHING
-          RETURNING id;
+        const existing = await tx`
+          SELECT id FROM brands WHERE name_ar = ${nameAr} LIMIT 1;
         `;
-        if (res.length > 0) insertedCount++;
+        if (existing.length === 0) {
+          const res = await tx`
+            INSERT INTO brands (name_ar, name_en)
+            VALUES (${nameAr}, ${nameEn})
+            RETURNING id;
+          `;
+          if (res.length > 0) insertedCount++;
+        }
       }
     } else if (fileName === "products.csv") {
       for (const row of rows) {
@@ -459,14 +463,14 @@ async function applyFileTransaction(
 
         const existing = await tx`
           SELECT id FROM global_products
-          WHERE (brand_id = ${brandId} OR (brand_id IS NULL AND ${brandId} IS NULL))
+          WHERE (brand_id IS NOT DISTINCT FROM ${brandId}::uuid)
             AND name_ar = ${name}
           LIMIT 1;
         `;
         if (existing.length === 0) {
           const res = await tx`
             INSERT INTO global_products (brand_id, name_ar, name_norm, category, type)
-            VALUES (${brandId}, ${name}, ${nameNorm}, ${category}, ${type}::global_product_type)
+            VALUES (${brandId ? brandId : null}, ${name}, ${nameNorm}, ${category}, ${type}::global_product_type)
             RETURNING id;
           `;
           if (res.length > 0) insertedCount++;
@@ -493,9 +497,9 @@ async function applyFileTransaction(
         const existing = await tx`
           SELECT id FROM global_variants
           WHERE global_product_id = ${productId}
-            AND (flavor = ${flavor} OR (flavor IS NULL AND ${flavor} IS NULL))
-            AND (size_value = ${sizeValue}::numeric OR (size_value IS NULL AND ${sizeValue} IS NULL))
-            AND (size_unit = ${sizeUnit} OR (size_unit IS NULL AND ${sizeUnit} IS NULL))
+            AND (flavor IS NOT DISTINCT FROM ${flavor}::text)
+            AND (size_value IS NOT DISTINCT FROM ${sizeValue}::numeric)
+            AND (size_unit IS NOT DISTINCT FROM ${sizeUnit}::text)
             AND pack_qty = ${packQty}
           LIMIT 1;
         `;

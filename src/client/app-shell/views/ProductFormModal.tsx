@@ -25,16 +25,24 @@ export interface ProductFormModalProps {
       sell_price_piasters: number;
     }>;
   } | null;
+  initialCatalogProduct?: CatalogSearchResult | null;
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
 }
 
 export function ProductFormModal({
   product,
+  initialCatalogProduct,
   onClose,
   onSaved,
 }: ProductFormModalProps) {
-  const [name, setName] = useState(product ? product.name_ar : "");
+  const [name, setName] = useState(
+    product
+      ? product.name_ar
+      : initialCatalogProduct
+        ? initialCatalogProduct.product.nameAr
+        : "",
+  );
   const [unit, setUnit] = useState<"piece" | "weight">(
     product?.unit === "weight" ? "weight" : "piece",
   );
@@ -42,28 +50,44 @@ export function ProductFormModal({
     product ? (product.sell_price_piasters / 100).toString() : "",
   );
   const [category, setCategory] = useState(
-    product ? product.category : "السلع الاستهلاكية",
+    product
+      ? product.category
+      : initialCatalogProduct
+        ? initialCatalogProduct.product.category
+        : "السلع الاستهلاكية",
   );
-  const [brandName, setBrandName] = useState("");
-  const [flavor, setFlavor] = useState(product?.variants[0]?.flavor ?? "");
+  const [brandName, setBrandName] = useState(
+    initialCatalogProduct?.brand?.nameAr ?? "",
+  );
+  const [flavor, setFlavor] = useState(
+    product?.variants[0]?.flavor ??
+      initialCatalogProduct?.variants[0]?.flavor ??
+      "",
+  );
   const [sizeValue, setSizeValue] = useState(
-    product?.variants[0]?.size_value?.toString() ?? "",
+    product?.variants[0]?.size_value?.toString() ??
+      initialCatalogProduct?.variants[0]?.sizeValue?.toString() ??
+      "",
   );
   const [sizeUnit, setSizeUnit] = useState<"g" | "kg" | "ml" | "l" | "piece">(
     (product?.variants[0]?.size_unit as "g" | "kg" | "ml" | "l" | "piece") ??
+      (initialCatalogProduct?.variants[0]?.sizeUnit as
+        "g" | "kg" | "ml" | "l" | "piece") ??
       "piece",
   );
   const [packQty, setPackQty] = useState(
     product?.variants[0]?.pack_qty
       ? product.variants[0].pack_qty.toString()
-      : "1",
+      : initialCatalogProduct?.variants[0]?.packQty
+        ? initialCatalogProduct.variants[0].packQty.toString()
+        : "1",
   );
 
   const [matches, setMatches] = useState<CatalogSearchResult[]>([]);
   const [selectedGlobalProduct, setSelectedGlobalProduct] =
-    useState<CatalogSearchResult | null>(null);
+    useState<CatalogSearchResult | null>(initialCatalogProduct ?? null);
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
-    null,
+    initialCatalogProduct?.variants[0]?.id ?? null,
   );
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -168,7 +192,7 @@ export function ProductFormModal({
             sizeUnit: sizeValue ? sizeUnit : null,
             packQty: packQty ? parseInt(packQty, 10) : 1,
             sellPricePiasters: pricePiasters,
-            globalVariantId: selectedVariantId,
+            globalVariantId: selectedVariantId || null,
           },
         ],
       };

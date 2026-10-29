@@ -4,6 +4,7 @@ import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { CatalogService } from "@/server/modules/catalog";
 import { upsertProductInputSchema } from "@/schemas/product";
+import { normalizeArabic } from "@/domain/normalize";
 import { toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
@@ -66,7 +67,38 @@ export async function POST(req: Request) {
       input,
     );
 
-    return NextResponse.json({ success: true, data: result }, { status: 200 });
+    // Format BigInt and Decimal values safely to avoid JSON.stringify crash
+    const formattedVariants = result.variants.map((v) => ({
+      id: v.id,
+      flavor: v.flavor,
+      size_value: v.sizeValue ? Number(v.sizeValue) : null,
+      size_unit: v.sizeUnit,
+      pack_qty: v.packQty,
+      sell_price_piasters: Number(v.sellPricePiasters),
+      global_variant_id: v.globalVariantId,
+      is_active: v.isActive,
+    }));
+
+    const formattedProduct = {
+      id: result.storeProductId,
+      name_ar: input.nameAr,
+      name_norm: normalizeArabic(input.nameAr),
+      category: input.category,
+      unit: input.unit,
+      sell_price_piasters: input.sellPricePiasters,
+      is_custom: input.isCustom ?? true,
+      global_product_id: input.globalProductId ?? null,
+      variants: formattedVariants,
+    };
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: formattedProduct,
+        candidateId: result.candidateId,
+      },
+      { status: 200 },
+    );
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }

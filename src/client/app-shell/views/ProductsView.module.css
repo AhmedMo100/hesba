@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
   animation: viewIn 0.36s var(--ease);
 }
 
@@ -18,6 +20,7 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .phead h1 {
@@ -41,10 +44,58 @@
   align-items: center;
 }
 
+.segWrap {
+  width: 100%;
+}
+
+.offlineBanner {
+  background: var(--sf2, #fbf7ef);
+  border: 1px solid var(--line);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chip.active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
 .grid {
   display: grid;
   gap: 10px;
   grid-template-columns: repeat(2, 1fr);
+  width: 100%;
 }
 
 @media (min-width: 640px) {
@@ -69,6 +120,8 @@
   gap: 8px;
   box-shadow: var(--sh);
   min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .pch {
@@ -113,6 +166,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
 .pcn b {
@@ -127,6 +181,52 @@
 .pcn small {
   color: var(--ink2);
   font-size: 12px;
+}
+
+.brandBadge {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--br, #c8651b);
+  background: color-mix(in srgb, var(--br, #c8651b) 10%, transparent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  align-self: flex-start;
+  margin-bottom: 2px;
+}
+
+.badgeAdded {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ok, #108e5c);
+  background: color-mix(in srgb, var(--ok, #108e5c) 12%, transparent);
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.addBtnSmall {
+  background: var(--br, #c8651b);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  margin-top: auto;
+  transition: opacity 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.addBtnSmall:hover {
+  opacity: 0.9;
 }
 
 .pcp {
@@ -199,77 +299,17 @@
   color: var(--red, #cf3c3c);
 }
 
-.catalogMatches {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--sf2, #fbf7ef);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 10px;
-  margin-bottom: 12px;
-}
-
-.catalogMatchesTitle {
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--ink);
-}
-
-.matchCard {
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 8px 10px;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  cursor: pointer;
-}
-
-.matchCard:hover {
-  border-color: var(--br, #c8651b);
-}
-
-.matchInfo {
-  display: flex;
-  flex-direction: column;
-}
-
-.matchName {
-  font-weight: 700;
-  font-size: 14px;
-  color: var(--ink);
-}
-
-.matchCategory {
+.catVariants {
   font-size: 12px;
   color: var(--ink2);
-}
-
-.variantsList {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.variantItem {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--sf);
-}
-
-.variantDetails {
-  font-size: 13px;
-  font-weight: 700;
-}
-
-.priceInput {
-  max-width: 120px;
+.variantTag {
+  background: var(--sf2, #fbf7ef);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
 }

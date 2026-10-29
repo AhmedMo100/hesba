@@ -2,6 +2,8 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
   animation: viewIn 0.36s var(--ease);
 }
 
@@ -18,6 +20,7 @@
   justify-content: space-between;
   gap: 12px;
   flex-wrap: wrap;
+  width: 100%;
 }
 
 .phead h1 {
@@ -39,17 +42,37 @@
   align-items: center;
 }
 
+.onlyM {
+  display: flex;
+  width: 100%;
+}
+
+.onlyD {
+  display: none;
+}
+
 .twoCol {
   display: flex;
   flex-direction: column;
   gap: 20px;
+  width: 100%;
 }
 
 @media (min-width: 900px) {
+  .onlyM {
+    display: none !important;
+  }
+
+  .onlyD {
+    display: block;
+  }
+
   .twoCol {
     display: grid;
     grid-template-columns: 1fr 1fr;
+    gap: 20px;
     align-items: start;
+    width: 100%;
   }
 }
 
@@ -57,23 +80,26 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .hideM {
-  display: none;
+  display: none !important;
 }
 
 @media (min-width: 900px) {
   .hideM {
-    display: flex;
+    display: flex !important;
   }
 }
 
 .secTitle {
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 800;
   color: var(--ink);
-  margin: 0;
+  margin: 0 0 4px;
 }
 
 .chips {
@@ -81,6 +107,8 @@
   gap: 8px;
   overflow-x: auto;
   padding-bottom: 4px;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 .chip {
@@ -94,6 +122,7 @@
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .chip.active {
@@ -106,6 +135,7 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .lrow {
@@ -116,15 +146,18 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
   box-shadow: var(--sh);
 }
 
 .lrowLeft {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+  flex: 1;
 }
 
 .dot {
@@ -147,6 +180,7 @@
   display: flex;
   flex-direction: column;
   min-width: 0;
+  flex: 1;
 }
 
 .lrn b {
@@ -168,6 +202,8 @@
   align-items: flex-end;
   gap: 4px;
   flex-shrink: 0;
+  margin-inline-start: auto;
+  text-align: end;
 }
 
 .lrq b {
@@ -202,12 +238,15 @@
   font-size: 13px;
   font-weight: 700;
   color: var(--ink);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .dgroup {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: 100%;
 }
 
 .dgh {
@@ -225,12 +264,15 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .lgTop {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
 }
 
 .lgTop b {
@@ -250,4 +292,5 @@
   font-size: 12px;
   color: var(--ink2);
   flex-wrap: wrap;
+  width: 100%;
 }
