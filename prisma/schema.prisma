@@ -154,6 +154,7 @@ model Store {
   stockMovements       StockMovement[]
   stockLevels          StockLevel[]
   wasteRecords         WasteRecord[]
+  expenses             Expense[]
 
   @@map("stores")
 }
@@ -885,3 +886,21 @@ model WasteRecord {
 
   @@map("waste_records")
 }
+
+model Expense {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String    @map("store_id") @db.Uuid
+  category       String    @db.Text
+  amountPiasters BigInt    @map("amount_piasters")
+  note           String?   @db.Text
+  spentAt        DateTime  @default(now()) @map("spent_at") @db.Timestamptz(6)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, spentAt(sort: Desc)], map: "idx_expenses_store_spent_at")
+  @@map("expenses")
+}
+

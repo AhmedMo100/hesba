@@ -76,9 +76,44 @@
       "addGoods": "إضافة بضاعة"
     },
     "expenses": {
-      "title": "المصاريف",
-      "empty": "مفيش مصاريف مسجلة",
-      "addExpense": "تسجيل مصروف"
+      "title": "المصروفات",
+      "sub": "أي مصروف على المحل ما عدا شراء البضاعة (دي بتتسجل في المخزون)",
+      "empty": "مفيش مصروفات في الفترة دي",
+      "addExpense": "سجّل",
+      "register": "+ سجّل",
+      "amount": "المبلغ",
+      "amountPlaceholder": "0",
+      "currency": "ج.م",
+      "noteLinkOpen": "ملاحظة أو يوم تاني؟",
+      "noteLinkClose": "إخفاء",
+      "noteLabel": "ملاحظة (اختياري)",
+      "notePlaceholder": "مثال: فاتورة الشهر",
+      "dayLabel": "اليوم",
+      "totalPrefix": "إجمالي المصروفات – ",
+      "deleteConfirm": "هل أنت متأكد من حذف هذا المصروف؟",
+      "deleteAriaLabel": "حذف",
+      "successAdd": "اتسجل مصروف {category} — {amount}",
+      "successDelete": "اتحذف المصروف",
+      "errorRequiredAmount": "اكتب المبلغ",
+      "customFrom": "من",
+      "customTo": "إلى",
+      "periods": {
+        "today": "النهارده",
+        "yesterday": "امبارح",
+        "7days": "آخر 7 أيام",
+        "month": "الشهر ده",
+        "year": "السنة دي",
+        "custom": "فترة محددة"
+      },
+      "categories": {
+        "كهرباء": "كهرباء",
+        "إنترنت": "إنترنت",
+        "إيجار": "إيجار",
+        "مرتبات": "مرتبات",
+        "نقل": "نقل",
+        "صيانة": "صيانة",
+        "أخرى": "أخرى"
+      }
     },
     "people": {
       "title": "الناس",

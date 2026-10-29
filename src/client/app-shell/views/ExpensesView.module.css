@@ -1,0 +1,472 @@
+/* Container and Header */
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.head {
+  margin-bottom: 14px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 4px 0;
+  line-height: 1.25;
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--ink2);
+  margin: 0;
+  line-height: 1.4;
+}
+
+/* Form Card */
+.formCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px;
+  box-shadow: var(--sh);
+  margin-bottom: 14px;
+}
+
+/* Category Chips */
+.catGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 600px) {
+  .catGrid {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 8px;
+  }
+
+  .catChip:nth-child(1),
+  .catChip:nth-child(2),
+  .catChip:nth-child(3) {
+    grid-column: span 2;
+  }
+
+  .catChip:nth-child(4),
+  .catChip:nth-child(5) {
+    grid-column: span 3;
+  }
+
+  .catChip:nth-child(6),
+  .catChip:nth-child(7) {
+    grid-column: span 3;
+  }
+}
+
+.catChip {
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.catChip:hover {
+  border-color: var(--ink2);
+}
+
+.catChip.active {
+  background: var(--br);
+  color: #ffffff;
+  border-color: var(--br);
+}
+
+/* Amount Row */
+.amountFieldGroup {
+  display: flex;
+  flex-direction: column;
+  margin-top: 8px;
+}
+
+.amountLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+  margin-bottom: 6px;
+  text-align: start;
+}
+
+.amountRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.inputWrapper {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 4px 10px;
+  min-height: 48px;
+  transition: border-color 0.15s ease;
+}
+
+.inputWrapper:focus-within {
+  border-color: var(--br);
+}
+
+.currencyBadge {
+  background: color-mix(in srgb, var(--line) 65%, transparent);
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 800;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.amountInput {
+  flex: 1;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 18px;
+  font-weight: 800;
+  padding: 0 8px;
+  outline: none;
+  width: 100%;
+  text-align: start;
+  font-family: inherit;
+}
+
+.amountInput::placeholder {
+  color: var(--ink2);
+  opacity: 0.6;
+}
+
+.registerBtn {
+  background: var(--br);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 0 18px;
+  min-height: 48px;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+  font-family: inherit;
+}
+
+.registerBtn:hover {
+  opacity: 0.9;
+}
+
+.registerBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Note Link & Expandable Fields */
+.noteToggle {
+  background: none;
+  border: none;
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 0 0 0;
+  cursor: pointer;
+  text-align: start;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  align-self: flex-start;
+  font-family: inherit;
+}
+
+.noteToggle:hover {
+  color: var(--ink);
+}
+
+.extraFields {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+@media (max-width: 500px) {
+  .extraFields {
+    grid-template-columns: 1fr;
+  }
+}
+
+.fieldItem {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.textInput {
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--ink);
+  outline: none;
+  font-family: inherit;
+  min-height: 42px;
+}
+
+.textInput:focus {
+  border-color: var(--br);
+}
+
+/* Period Filters */
+.periodRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 4px 2px 10px 2px;
+  margin-bottom: 4px;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.periodRow::-webkit-scrollbar {
+  display: none;
+}
+
+.periodChip {
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  white-space: nowrap;
+  cursor: pointer;
+  min-height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.periodChip:hover {
+  border-color: var(--ink2);
+}
+
+.periodChip.active {
+  background: var(--br);
+  color: #ffffff;
+  border-color: var(--br);
+}
+
+/* Custom Date Range */
+.customRange {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  background: var(--sf);
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.customDateItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.customDateLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.customDateInput {
+  flex: 1;
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--ink);
+  font-family: inherit;
+}
+
+/* Summary Bar */
+.totalBanner {
+  background: var(--soft);
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.totalLabel {
+  color: var(--br);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.totalAmount {
+  color: var(--br);
+  font-size: 22px;
+  font-weight: 800;
+}
+
+/* Category breakdown */
+.breakdownBar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.breakdownChip {
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+/* Expenses List */
+.listCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--sh);
+  overflow: hidden;
+  margin-bottom: 24px;
+}
+
+.expenseRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+
+.expenseRow:first-child {
+  border-top: none;
+}
+
+.itemInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.itemCategory {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.itemMeta {
+  font-size: 13px;
+  color: var(--ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.itemActions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.itemAmount {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.deleteBtn {
+  background: none;
+  border: none;
+  color: var(--ink2);
+  cursor: pointer;
+  padding: 8px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  transition: all 0.15s ease;
+}
+
+.deleteBtn:hover {
+  color: var(--red);
+  background: var(--redBg);
+}
+
+/* Empty & Loading States */
+.emptyCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.errorMessage {
+  background: var(--redBg);
+  color: var(--red);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 12px;
+}
