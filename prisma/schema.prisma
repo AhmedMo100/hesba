@@ -126,30 +126,34 @@ model Store {
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  creator            User?               @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
-  members            StoreMember[]
-  devices            Device[]
-  storeProducts      StoreProduct[]
-  storeVariants      StoreVariant[]
-  storePrepaidPrices StorePrepaidPrice[]
-  cardSerials        CardSerial[]
-  storeBillPayments  StoreBillPayment[]
-  wallets            Wallet[]
-  walletTransactions WalletTransaction[]
-  contacts           Contact[]
-  debtEntries        DebtEntry[]
-  purchases          Purchase[]
-  purchaseLines      PurchaseLine[]
-  sales              Sale[]
-  saleLines          SaleLine[]
-  alerts             Alert[]
-  aiMessages         AiMessage[]
-  serviceItems       ServiceItem[]
-  sessions           Session[]
-  catalogSuggestions CatalogSuggestion[]
-  candidateAdoptions CandidateAdoption[]
-  catalogReports     CatalogReport[]
+  creator              User?                 @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  members              StoreMember[]
+  devices              Device[]
+  storeProducts        StoreProduct[]
+  storeVariants        StoreVariant[]
+  storePrepaidPrices   StorePrepaidPrice[]
+  cardSerials          CardSerial[]
+  storeBillPayments    StoreBillPayment[]
+  wallets              Wallet[]
+  walletTransactions   WalletTransaction[]
+  contacts             Contact[]
+  debtEntries          DebtEntry[]
+  purchases            Purchase[]
+  purchaseLines        PurchaseLine[]
+  sales                Sale[]
+  saleLines            SaleLine[]
+  alerts               Alert[]
+  aiMessages           AiMessage[]
+  serviceItems         ServiceItem[]
+  sessions             Session[]
+  catalogSuggestions   CatalogSuggestion[]
+  candidateAdoptions   CandidateAdoption[]
+  catalogReports       CatalogReport[]
   catalogNotifications CatalogNotification[]
+  storeStockBatches    StoreStockBatch[]
+  stockMovements       StockMovement[]
+  stockLevels          StockLevel[]
+  wasteRecords         WasteRecord[]
 
   @@map("stores")
 }
@@ -347,10 +351,10 @@ model GlobalProduct {
   createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  brand                 Brand?              @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  globalVariants        GlobalVariant[]
-  storeProducts         StoreProduct[]
-  storeVariants         StoreVariant[]
+  brand                  Brand?             @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  globalVariants         GlobalVariant[]
+  storeProducts          StoreProduct[]
+  storeVariants          StoreVariant[]
   promotedFromCandidates CatalogCandidate[]
 
   @@index([nameNorm(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_global_products_name_trgm")
@@ -414,12 +418,16 @@ model StoreVariant {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  storeProduct  StoreProduct?  @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
-  globalProduct GlobalProduct? @relation(fields: [productId], references: [id], onDelete: Cascade)
-  globalVariant GlobalVariant? @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
-  purchaseLines PurchaseLine[]
-  saleLines     SaleLine[]
+  store             Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeProduct      StoreProduct?     @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
+  globalProduct     GlobalProduct?    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  globalVariant     GlobalVariant?    @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
+  purchaseLines     PurchaseLine[]
+  saleLines         SaleLine[]
+  storeStockBatches StoreStockBatch[]
+  stockMovements    StockMovement[]
+  stockLevels       StockLevel[]
+  wasteRecords      WasteRecord[]
 
   @@map("store_variants")
 }
@@ -798,4 +806,82 @@ model CatalogNotification {
   @@unique([storeId, candidateId], map: "idx_catalog_notifications_store_candidate")
   @@index([storeId, isRead], map: "idx_catalog_notifications_store_unread")
   @@map("catalog_notifications")
+}
+
+model StoreStockBatch {
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId               String    @map("store_id") @db.Uuid
+  storeVariantId        String    @map("store_variant_id") @db.Uuid
+  storeProductId        String?   @map("store_product_id") @db.Uuid
+  batchCode             String?   @map("batch_code") @db.Text
+  receivedQuantityBase  BigInt    @map("received_quantity_base")
+  remainingQuantityBase BigInt    @map("remaining_quantity_base")
+  costPriceMinor        BigInt    @map("cost_price_minor")
+  costTotalMinor        BigInt?   @map("cost_total_minor")
+  expiryDate            DateTime? @map("expiry_date") @db.Date
+  supplierId            String?   @map("supplier_id") @db.Uuid
+  receivedAt            DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  paid                  Boolean   @default(true)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeVariant   StoreVariant    @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
+  stockMovements StockMovement[]
+
+  @@index([storeId, storeVariantId, expiryDate, receivedAt], map: "idx_store_stock_batches_fefo")
+  @@map("store_stock_batches")
+}
+
+model StockMovement {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String   @map("store_id") @db.Uuid
+  storeVariantId   String   @map("store_variant_id") @db.Uuid
+  storeProductId   String?  @map("store_product_id") @db.Uuid
+  batchId          String?  @map("batch_id") @db.Uuid
+  type             String   @db.Text
+  quantityBase     BigInt   @map("quantity_base")
+  costPriceMinor   BigInt?  @map("cost_price_minor")
+  balanceAfterBase BigInt?  @map("balance_after_base")
+  negative         Boolean  @default(false)
+  opId             String?  @map("op_id") @db.Uuid
+  saleLineId       String?  @map("sale_line_id") @db.Uuid
+  wasteId          String?  @map("waste_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeVariant    StoreVariant     @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
+  storeStockBatch StoreStockBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+
+  @@index([storeId, storeVariantId, createdAt], map: "idx_stock_movements_store_variant")
+  @@map("stock_movements")
+}
+
+model StockLevel {
+  storeId        String   @map("store_id") @db.Uuid
+  storeVariantId String   @map("store_variant_id") @db.Uuid
+  quantityBase   BigInt   @default(0) @map("quantity_base")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeVariant StoreVariant @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
+
+  @@id([storeId, storeVariantId], map: "stock_levels_pkey")
+  @@map("stock_levels")
+}
+
+model WasteRecord {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @map("store_id") @db.Uuid
+  storeVariantId String   @map("store_variant_id") @db.Uuid
+  batchId        String?  @map("batch_id") @db.Uuid
+  quantityBase   BigInt   @map("quantity_base")
+  costMinor      BigInt   @map("cost_minor")
+  reason         String   @default("expired") @db.Text
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeVariant StoreVariant @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
+
+  @@map("waste_records")
 }

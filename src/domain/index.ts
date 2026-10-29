@@ -8,3 +8,4 @@ export * from "./business-enums";
 export * from "./sentry-scrubber";
 export * from "./password-policy";
 export * from "./product-matcher";
+export * from "./stock/stock-engine";
