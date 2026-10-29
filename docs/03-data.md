@@ -1066,13 +1066,16 @@ Order: most active stores first (last use)  ← limited to a max count per candi
 - All of it works offline: the decision is saved in the Outbox (`suggestion.accept` / `suggestion.dismiss`).
 - Grouping: if there is more than one suggestion, a single card "3 منتجات جديدة" (3 new products) that opens up.
 
-### 4.5 Promotion to the public catalog
+### 4.5 Promotion to the public catalog (ADR-0016)
 ```
-On suggestion.accept: accepts_count++
-If accepts_count ≥ N (from different stores)  OR  the admin approved:
-     create global_products(source='promoted') + link the candidate (merged)
-     Stores that already added it are switched to global_product_id automatically (Job)
-If reports_count ≥ K or the admin rejected it: status='hidden'
+On candidate adoption: unique_stores++ (tracked via candidate_adoptions)
+Strict promotion invariant:
+If age >= 7 days (MIN_PROMOTION_AGE_DAYS) AND unique_stores >= 10 (MIN_ADOPTING_STORES_FOR_PROMOTION) OR admin approved:
+     promote candidate -> status='approved'
+     create global_products(source='promoted') + global_variants
+     stores that adopted it are automatically linked to the new global variant
+If reports_count >= 5 (REPORT_HIDE_THRESHOLD) or admin rejected: status='hidden'
+Note: Barcode is completely eliminated per ADR-0016; matching relies on Arabic normalization, brand, flavor, pack quantity, and physical unit equality.
 ```
 
 ### 4.6 Admin panel (simple, later phase)

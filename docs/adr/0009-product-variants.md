@@ -19,7 +19,8 @@ Previously, products were modeled flatly, causing duplication of product definit
 ## Decision
 We chose **Option B: Product variants**.
 
-Every sellable item is a product. A product can have variants (flavor, size value, size unit, pack quantity, barcode). Stock, selling price, and barcode belong strictly to the variant, not the parent product. A shop either links a variant to the global catalog or creates its own custom variant.
+Every sellable item is a product. A product can have variants (flavor, size value, size unit, pack quantity). Stock and selling price belong strictly to the variant, not the parent product. A shop either links a variant to the global catalog or creates its own custom variant.
+*(Note: Barcode was removed across all variants per ADR-0016).*
 
 ## Consequences
 - **Positive:**
