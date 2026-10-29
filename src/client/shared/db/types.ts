@@ -165,3 +165,30 @@ export interface LocalSyncMeta {
   value: string;
   updated_at?: string;
 }
+
+export interface LocalGlobalBrand {
+  id: string;
+  name_ar: string;
+  name_en?: string | null;
+}
+
+export interface LocalGlobalProduct {
+  id: string;
+  brand_id?: string | null;
+  name_ar: string;
+  name_en?: string | null;
+  name_norm: string;
+  category: string;
+  type: string;
+  updated_at: string;
+}
+
+export interface LocalGlobalVariant {
+  id: string;
+  global_product_id: string;
+  flavor?: string | null;
+  size_value?: number | null;
+  size_unit?: string | null;
+  pack_qty: number;
+  name_norm: string;
+}

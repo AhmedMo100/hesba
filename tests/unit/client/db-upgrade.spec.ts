@@ -132,11 +132,11 @@ describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () 
     // Close v1 database
     v1Db.close();
 
-    // 2. Open upgraded Database using HesbaDatabase (which declares v1 and v2 with upgrade)
+    // 2. Open upgraded Database using HesbaDatabase (which declares v1, v2, and v3)
     const upgradedDb = new HesbaDatabase(DB_NAME);
     await upgradedDb.open();
 
-    expect(upgradedDb.verno).toBe(2);
+    expect(upgradedDb.verno).toBe(3);
 
     // 3. Verify all records written under v1 are preserved exactly
     const store = await upgradedDb.stores.get("store-01");

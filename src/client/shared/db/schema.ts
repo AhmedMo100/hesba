@@ -3,6 +3,9 @@ import type {
   LocalAlert,
   LocalContact,
   LocalDebtEntry,
+  LocalGlobalBrand,
+  LocalGlobalProduct,
+  LocalGlobalVariant,
   LocalOutboxOp,
   LocalSale,
   LocalSaleLine,
@@ -29,6 +32,9 @@ export class HesbaDatabase extends Dexie {
   alerts!: Table<LocalAlert, string>;
   outbox!: Table<LocalOutboxOp, string>;
   sync_meta!: Table<LocalSyncMeta, string>;
+  global_brands!: Table<LocalGlobalBrand, string>;
+  global_products!: Table<LocalGlobalProduct, string>;
+  global_variants!: Table<LocalGlobalVariant, string>;
 
   constructor(dbName = "hesba_db") {
     super(dbName);
@@ -68,6 +74,13 @@ export class HesbaDatabase extends Dexie {
             }
           });
       });
+
+    // Schema Version 3: Adds public catalog tables for offline catalog search & variant selection
+    this.version(3).stores({
+      global_brands: "id, name_ar",
+      global_products: "id, brand_id, name_norm, category, type, updated_at",
+      global_variants: "id, global_product_id, name_norm",
+    });
   }
 }
 
