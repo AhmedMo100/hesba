@@ -16,6 +16,12 @@ export default defineConfig({
       HESBA_SESSION_SECRET: "hesba-test-session-secret-at-least-16-chars",
       HESBA_CRON_SECRET: "hesba-test-cron-secret",
       HESBA_APP_ORIGIN: "http://localhost:3000",
+      HESBA_DATABASE_URL:
+        process.env.HESBA_DATABASE_URL ??
+        "postgres://hesba_app:change-me-local@localhost:5434/hesba",
+      HESBA_DIRECT_URL:
+        process.env.HESBA_DIRECT_URL ??
+        "postgres://hesba_migrator:change-me-local@localhost:5434/hesba",
     },
   },
   resolve: {

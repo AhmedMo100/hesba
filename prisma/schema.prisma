@@ -146,6 +146,10 @@ model Store {
   aiMessages         AiMessage[]
   serviceItems       ServiceItem[]
   sessions           Session[]
+  catalogSuggestions CatalogSuggestion[]
+  candidateAdoptions CandidateAdoption[]
+  catalogReports     CatalogReport[]
+  catalogNotifications CatalogNotification[]
 
   @@map("stores")
 }
@@ -327,6 +331,7 @@ model Brand {
 
   globalProducts GlobalProduct[]
 
+  @@index([nameAr], map: "idx_brands_name_ar")
   @@map("brands")
 }
 
@@ -334,15 +339,21 @@ model GlobalProduct {
   id        String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   brandId   String?           @map("brand_id") @db.Uuid
   nameAr    String            @map("name_ar") @db.Text
+  nameEn    String?           @map("name_en") @db.Text
+  nameNorm  String            @map("name_norm") @db.Text
   category  String            @db.Text
-  type      GlobalProductType
+  type      GlobalProductType @default(stock)
+  status    String            @default("approved") @db.Text
   createdAt DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime          @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  brand          Brand?          @relation(fields: [brandId], references: [id], onDelete: SetNull)
-  globalVariants GlobalVariant[]
-  storeProducts  StoreProduct[]
-  storeVariants  StoreVariant[]
+  brand                 Brand?              @relation(fields: [brandId], references: [id], onDelete: SetNull)
+  globalVariants        GlobalVariant[]
+  storeProducts         StoreProduct[]
+  storeVariants         StoreVariant[]
+  promotedFromCandidates CatalogCandidate[]
 
+  @@index([nameNorm(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_global_products_name_trgm")
   @@map("global_products")
 }
 
@@ -353,7 +364,6 @@ model GlobalVariant {
   sizeValue       Decimal? @map("size_value") @db.Decimal
   sizeUnit        String?  @map("size_unit") @db.Text
   packQty         Int      @default(1) @map("pack_qty")
-  barcode         String?  @db.Text
   nameNorm        String   @map("name_norm") @db.Text
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -370,10 +380,12 @@ model StoreProduct {
   storeId           String   @map("store_id") @db.Uuid
   globalProductId   String?  @map("global_product_id") @db.Uuid
   nameAr            String?  @map("name_ar") @db.Text
+  nameNorm          String?  @map("name_norm") @db.Text
   category          String   @db.Text
   unit              String   @db.Text
   sellPricePiasters BigInt   @map("sell_price_piasters")
   isActive          Boolean  @default(true) @map("is_active")
+  isCustom          Boolean  @default(false) @map("is_custom")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -383,6 +395,7 @@ model StoreProduct {
   purchaseLines PurchaseLine[]
   saleLines     SaleLine[]
 
+  @@index([storeId, nameNorm], map: "idx_store_products_store_name_norm")
   @@map("store_products")
 }
 
@@ -396,7 +409,6 @@ model StoreVariant {
   sizeValue         Decimal? @map("size_value") @db.Decimal
   sizeUnit          String?  @map("size_unit") @db.Text
   packQty           Int      @default(1) @map("pack_qty")
-  barcode           String?  @db.Text
   sellPricePiasters BigInt   @map("sell_price_piasters")
   isActive          Boolean  @default(true) @map("is_active")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -693,4 +705,97 @@ model AiMessage {
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
   @@map("ai_messages")
+}
+
+model CatalogCandidate {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  submittedByStoreId String    @map("submitted_by_store_id") @db.Uuid
+  nameAr             String    @map("name_ar") @db.Text
+  nameNorm           String    @map("name_norm") @db.Text
+  brandName          String?   @map("brand_name") @db.Text
+  category           String    @db.Text
+  flavor             String?   @db.Text
+  sizeValue          Decimal?  @map("size_value") @db.Decimal
+  sizeUnit           String?   @map("size_unit") @db.Text
+  packQty            Int       @default(1) @map("pack_qty")
+  status             String    @default("pending") @db.Text
+  acceptsCount       Int       @default(0) @map("accepts_count")
+  reportsCount       Int       @default(0) @map("reports_count")
+  mergedIntoId       String?   @map("merged_into_id") @db.Uuid
+  firstSubmittedAt   DateTime  @default(now()) @map("first_submitted_at") @db.Timestamptz(6)
+  lastUpdatedAt      DateTime  @default(now()) @updatedAt @map("last_updated_at") @db.Timestamptz(6)
+  publishedAt        DateTime? @map("published_at") @db.Timestamptz(6)
+  promotedAt         DateTime? @map("promoted_at") @db.Timestamptz(6)
+
+  mergedInto    GlobalProduct?        @relation(fields: [mergedIntoId], references: [id], onDelete: SetNull)
+  suggestions   CatalogSuggestion[]
+  adoptions     CandidateAdoption[]
+  reports       CatalogReport[]
+  notifications CatalogNotification[]
+
+  @@index([nameNorm(ops: raw("gin_trgm_ops"))], type: Gin, map: "idx_catalog_candidates_name_trgm")
+  @@index([status], map: "idx_catalog_candidates_status")
+  @@map("catalog_candidates")
+}
+
+model CandidateAdoption {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  storeId     String   @map("store_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  candidate CatalogCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([candidateId, storeId], map: "idx_candidate_adoptions_unique_store")
+  @@index([storeId], map: "idx_candidate_adoptions_store_id")
+  @@map("candidate_adoptions")
+}
+
+model CatalogSuggestion {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId     String    @map("store_id") @db.Uuid
+  candidateId String    @map("candidate_id") @db.Uuid
+  status      String    @default("new") @db.Text
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  actedAt     DateTime? @map("acted_at") @db.Timestamptz(6)
+
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  candidate CatalogCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, candidateId], map: "idx_catalog_suggestions_store_candidate")
+  @@index([storeId, status], map: "idx_catalog_suggestions_store_status")
+  @@map("catalog_suggestions")
+}
+
+model CatalogReport {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId     String   @map("store_id") @db.Uuid
+  candidateId String   @map("candidate_id") @db.Uuid
+  reason      String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  candidate CatalogCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@index([candidateId], map: "idx_catalog_reports_candidate")
+  @@map("catalog_reports")
+}
+
+model CatalogNotification {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId     String    @map("store_id") @db.Uuid
+  candidateId String    @map("candidate_id") @db.Uuid
+  title       String    @db.Text
+  body        String    @db.Text
+  isRead      Boolean   @default(false) @map("is_read")
+  readAt      DateTime? @map("read_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store     Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  candidate CatalogCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, candidateId], map: "idx_catalog_notifications_store_candidate")
+  @@index([storeId, isRead], map: "idx_catalog_notifications_store_unread")
+  @@map("catalog_notifications")
 }
