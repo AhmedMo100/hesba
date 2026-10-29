@@ -191,6 +191,84 @@ describe("Expenses API & Tenancy Integration", () => {
     expect(json.by_category["نقل"]).toBe(12000);
   });
 
+  it("GET /api/expenses without period parameter defaults to today and returns 200", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    const getReq = new Request("http://localhost:3000/api/expenses", {
+      headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+    });
+
+    const res = await getExpensesRoute(getReq);
+    expect(res.status).toBe(200);
+
+    const json = await res.json();
+    expect(json.expenses).toBeInstanceOf(Array);
+    expect(json.total_piasters).toBe(12000);
+  });
+
+  it("GET /api/expenses without authentication returns 401 Unauthorized", async () => {
+    const getReq = new Request("http://localhost:3000/api/expenses");
+    const res = await getExpensesRoute(getReq);
+    expect(res.status).toBe(401);
+  });
+
+  it("GET /api/expenses supports period filters and custom range", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    // 7days period
+    const getWeek = new Request(
+      "http://localhost:3000/api/expenses?period=7days",
+      {
+        headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+      },
+    );
+    const resWeek = await getExpensesRoute(getWeek);
+    expect(resWeek.status).toBe(200);
+    const jsonWeek = await resWeek.json();
+    expect(jsonWeek.expenses.length).toBeGreaterThanOrEqual(1);
+
+    // Custom date range encompassing today
+    const nowIso = new Date().toISOString().slice(0, 10);
+    const getCustom = new Request(
+      `http://localhost:3000/api/expenses?period=custom&from=${nowIso}&to=${nowIso}`,
+      {
+        headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+      },
+    );
+    const resCustom = await getExpensesRoute(getCustom);
+    expect(resCustom.status).toBe(200);
+    const jsonCustom = await resCustom.json();
+    expect(jsonCustom.expenses.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it("GET /api/expenses filters by category correctly", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    // Filter matching category
+    const getMatching = new Request(
+      "http://localhost:3000/api/expenses?period=today&category=نقل",
+      {
+        headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+      },
+    );
+    const resMatching = await getExpensesRoute(getMatching);
+    expect(resMatching.status).toBe(200);
+    const jsonMatching = await resMatching.json();
+    expect(jsonMatching.expenses.length).toBe(1);
+
+    // Filter non-matching category
+    const getNonMatching = new Request(
+      "http://localhost:3000/api/expenses?period=today&category=كهرباء",
+      {
+        headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+      },
+    );
+    const resNonMatching = await getExpensesRoute(getNonMatching);
+    expect(resNonMatching.status).toBe(200);
+    const jsonNonMatching = await resNonMatching.json();
+    expect(jsonNonMatching.expenses.length).toBe(0);
+  });
+
   it("Enforces Cross-Tenant Isolation: Store B CANNOT read Store A expenses", async () => {
     const sessionB = await createSession(userBId, storeBId);
 

@@ -1,14 +1,14 @@
-/* Container and Header */
+/* Container and Layout */
 .container {
   display: flex;
   flex-direction: column;
   width: 100%;
-  max-width: 800px;
+  max-width: 680px;
   margin: 0 auto;
 }
 
 .head {
-  margin-bottom: 14px;
+  margin-bottom: 12px;
 }
 
 .title {
@@ -31,9 +31,15 @@
   background: var(--sf);
   border: 1px solid var(--line);
   border-radius: 16px;
-  padding: 16px;
+  padding: 14px;
   box-shadow: var(--sh);
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+}
+
+@media (min-width: 600px) {
+  .formCard {
+    padding: 16px;
+  }
 }
 
 /* Category Chips */
@@ -44,24 +50,23 @@
   margin-bottom: 12px;
 }
 
-@media (max-width: 600px) {
+@media (max-width: 500px) {
   .catGrid {
     display: grid;
-    grid-template-columns: repeat(6, 1fr);
-    gap: 8px;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 6px;
   }
 
+  /* Row 1: 3 categories (4 cols each) */
   .catChip:nth-child(1),
   .catChip:nth-child(2),
   .catChip:nth-child(3) {
-    grid-column: span 2;
+    grid-column: span 4;
   }
 
+  /* Row 2: 4 categories (3 cols each) */
   .catChip:nth-child(4),
-  .catChip:nth-child(5) {
-    grid-column: span 3;
-  }
-
+  .catChip:nth-child(5),
   .catChip:nth-child(6),
   .catChip:nth-child(7) {
     grid-column: span 3;
@@ -69,20 +74,28 @@
 }
 
 .catChip {
-  padding: 8px 16px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1.5px solid var(--line);
   background: var(--sf);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   min-height: 44px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
   user-select: none;
+  text-align: center;
+}
+
+@media (min-width: 600px) {
+  .catChip {
+    padding: 8px 16px;
+    font-size: 14px;
+  }
 }
 
 .catChip:hover {
@@ -99,7 +112,7 @@
 .amountFieldGroup {
   display: flex;
   flex-direction: column;
-  margin-top: 8px;
+  margin-top: 6px;
 }
 
 .amountLabel {
@@ -113,7 +126,7 @@
 .amountRow {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
 }
 
 .inputWrapper {
@@ -123,7 +136,7 @@
   background: var(--sf2);
   border: 1.5px solid var(--line);
   border-radius: 12px;
-  padding: 4px 10px;
+  padding: 4px 8px;
   min-height: 48px;
   transition: border-color 0.15s ease;
 }
@@ -167,7 +180,7 @@
   color: #ffffff;
   border: none;
   border-radius: 12px;
-  padding: 0 18px;
+  padding: 0 16px;
   min-height: 48px;
   font-size: 15px;
   font-weight: 800;
@@ -179,6 +192,7 @@
   white-space: nowrap;
   transition: opacity 0.15s ease;
   font-family: inherit;
+  flex-shrink: 0;
 }
 
 .registerBtn:hover {
@@ -213,8 +227,8 @@
 .extraFields {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  gap: 10px;
-  margin-top: 12px;
+  gap: 8px;
+  margin-top: 10px;
   padding-top: 10px;
   border-top: 1px dashed var(--line);
 }
@@ -241,8 +255,8 @@
   background: var(--sf2);
   border: 1.5px solid var(--line);
   border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 14px;
+  padding: 8px 10px;
+  font-size: 13px;
   color: var(--ink);
   outline: none;
   font-family: inherit;
@@ -257,9 +271,9 @@
 .periodRow {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
-  padding: 4px 2px 10px 2px;
+  padding: 2px 2px 8px 2px;
   margin-bottom: 4px;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
@@ -270,20 +284,20 @@
 }
 
 .periodChip {
-  padding: 6px 14px;
+  padding: 6px 12px;
   border-radius: 999px;
   border: 1.5px solid var(--line);
   background: var(--sf);
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 700;
   white-space: nowrap;
   cursor: pointer;
-  min-height: 40px;
+  min-height: 38px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
   user-select: none;
   flex-shrink: 0;
 }
@@ -302,8 +316,8 @@
 .customRange {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 10px;
   background: var(--sf);
   padding: 8px 12px;
   border-radius: 12px;
@@ -318,7 +332,7 @@
 }
 
 .customDateLabel {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 700;
   color: var(--ink2);
 }
@@ -329,7 +343,7 @@
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 6px 8px;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink);
   font-family: inherit;
 }
@@ -338,23 +352,35 @@
 .totalBanner {
   background: var(--soft);
   border-radius: 14px;
-  padding: 12px 16px;
+  padding: 10px 14px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .totalLabel {
   color: var(--br);
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
 }
 
 .totalAmount {
   color: var(--br);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 800;
+}
+
+@media (min-width: 600px) {
+  .totalBanner {
+    padding: 12px 16px;
+  }
+  .totalLabel {
+    font-size: 16px;
+  }
+  .totalAmount {
+    font-size: 22px;
+  }
 }
 
 /* Category breakdown */
@@ -362,7 +388,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .breakdownChip {
@@ -389,7 +415,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: 11px 14px;
   border-top: 1px solid var(--line);
 }
 
@@ -400,7 +426,7 @@
 .itemInfo {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
@@ -412,7 +438,7 @@
 }
 
 .itemMeta {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--ink2);
   white-space: nowrap;
   overflow: hidden;
@@ -422,11 +448,11 @@
 .itemActions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .itemAmount {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 800;
   color: var(--ink);
   white-space: nowrap;
@@ -437,14 +463,14 @@
   border: none;
   color: var(--ink2);
   cursor: pointer;
-  padding: 8px;
+  padding: 6px;
   border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 44px;
   min-height: 44px;
-  transition: all 0.15s ease;
+  transition: all 0.12s ease;
 }
 
 .deleteBtn:hover {
@@ -452,7 +478,7 @@
   background: var(--redBg);
 }
 
-/* Empty & Loading States */
+/* Empty, Error, & Loading States */
 .emptyCard {
   background: var(--sf);
   border: 1px solid var(--line);
@@ -461,12 +487,43 @@
   text-align: center;
 }
 
-.errorMessage {
-  background: var(--redBg);
+.errorCard {
+  background: var(--sf);
+  border: 1px solid var(--red);
+  border-radius: 14px;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.errorTitle {
+  font-size: 15px;
+  font-weight: 800;
   color: var(--red);
-  padding: 10px 14px;
+  margin: 0;
+}
+
+.retryBtn {
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
   border-radius: 10px;
-  font-size: 14px;
+  padding: 8px 18px;
+  color: var(--ink);
+  font-size: 13px;
   font-weight: 700;
-  margin-bottom: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  transition: all 0.12s ease;
+}
+
+.retryBtn:hover {
+  border-color: var(--ink);
+  background: var(--sf);
 }

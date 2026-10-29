@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { logger } from "@/server/platform/logger";
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -131,5 +132,6 @@ export function toSafeErrorResponse(
     }).toResponse(requestId);
   }
 
+  logger.error({ err: error, requestId }, "Internal API error");
   return AppError.internal().toResponse(requestId);
 }

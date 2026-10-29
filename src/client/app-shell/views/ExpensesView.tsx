@@ -139,6 +139,8 @@ export function ExpensesView() {
 
   const reloadExpenses = useCallback(async () => {
     try {
+      setLoading(true);
+      setError(null);
       let url = `/api/expenses?period=${period}`;
       if (period === "custom") {
         url += `&from=${customFrom}&to=${customTo}`;
@@ -146,14 +148,24 @@ export function ExpensesView() {
 
       const res = await fetch(url);
       if (!res.ok) {
-        throw new Error("فشل في تحميل المصروفات");
+        throw new Error(
+          t("pages.expenses.loadError") ||
+            "تعذر تحميل المصروفات، برجاء المحاولة مرة أخرى",
+        );
       }
       const data = await res.json();
       setExpenses(data.expenses || []);
       setTotalPiasters(data.total_piasters || 0);
       setByCategory(data.by_category || {});
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "حدث خطأ غير متوقع");
+      setError(
+        err instanceof Error
+          ? err.message
+          : t("pages.expenses.loadError") ||
+              "تعذر تحميل المصروفات، برجاء المحاولة مرة أخرى",
+      );
+    } finally {
+      setLoading(false);
     }
   }, [period, customFrom, customTo]);
 
@@ -166,7 +178,12 @@ export function ExpensesView() {
 
     fetch(url)
       .then((res) => {
-        if (!res.ok) throw new Error("فشل في تحميل المصروفات");
+        if (!res.ok) {
+          throw new Error(
+            t("pages.expenses.loadError") ||
+              "تعذر تحميل المصروفات، برجاء المحاولة مرة أخرى",
+          );
+        }
         return res.json();
       })
       .then((data) => {
@@ -174,12 +191,18 @@ export function ExpensesView() {
           setExpenses(data.expenses || []);
           setTotalPiasters(data.total_piasters || 0);
           setByCategory(data.by_category || {});
+          setError(null);
           setLoading(false);
         }
       })
       .catch((err: unknown) => {
         if (!ignore) {
-          setError(err instanceof Error ? err.message : "حدث خطأ غير متوقع");
+          setError(
+            err instanceof Error
+              ? err.message
+              : t("pages.expenses.loadError") ||
+                  "تعذر تحميل المصروفات، برجاء المحاولة مرة أخرى",
+          );
           setLoading(false);
         }
       });
@@ -326,7 +349,9 @@ export function ExpensesView() {
                 className={styles.registerBtn}
               >
                 <Icon n="plus" s={18} />
-                {t("pages.expenses.addExpense")}
+                {submitting
+                  ? t("pages.expenses.saving") || "جاري التسجيل..."
+                  : t("pages.expenses.addExpense")}
               </button>
             </div>
 
@@ -448,11 +473,21 @@ export function ExpensesView() {
           </div>
         )}
 
-        {/* Error message */}
-        {error && <div className={styles.errorMessage}>{error}</div>}
-
-        {/* Expense List or Empty State */}
-        {loading && expenses.length === 0 ? (
+        {/* Expense List, Empty State, Loading, or Error State */}
+        {error ? (
+          <div className={styles.errorCard} role="alert">
+            <Icon n="alert" s={24} />
+            <p className={styles.errorTitle}>{error}</p>
+            <button
+              type="button"
+              className={styles.retryBtn}
+              onClick={() => reloadExpenses()}
+            >
+              <Icon n="refresh" s={16} />
+              {t("pages.expenses.retry") || "إعادة المحاولة"}
+            </button>
+          </div>
+        ) : loading && expenses.length === 0 ? (
           <div className={styles.emptyCard}>
             <p>جاري التحميل...</p>
           </div>
