@@ -78,6 +78,15 @@ class FixtureAuthApi implements AuthApi {
     if (!cleanPhone.startsWith("01") || cleanPhone.length !== 11) {
       return { success: false, error: "رقم الموبايل غير صحيح" };
     }
+    if (!data.email || !data.email.trim()) {
+      return { success: false, error: "البريد الإلكتروني مطلوب" };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) {
+      return { success: false, error: "البريد الإلكتروني غير صحيح" };
+    }
+    if (data.email.trim().toLowerCase() === "duplicate@example.com") {
+      return { success: false, error: "البريد الإلكتروني مسجل بالفعل" };
+    }
     const pwdCheck = validatePasswordPolicy(data.password);
     if (!pwdCheck.valid) {
       if (pwdCheck.reason === "too_short" || pwdCheck.reason === "empty") {

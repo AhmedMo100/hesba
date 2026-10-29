@@ -271,6 +271,47 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       ).rejects.toThrow("البريد الإلكتروني مسجل بالفعل");
     });
 
+    it("rejects signup with empty, whitespace, or invalid email", async () => {
+      // 1. Empty email
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب",
+          phone: "01088888811",
+          email: "",
+          password: "ValidPass1234",
+          storeName: "محل",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("البريد الإلكتروني مطلوب");
+
+      // 2. Whitespace email
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب",
+          phone: "01088888812",
+          email: "   ",
+          password: "ValidPass1234",
+          storeName: "محل",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("البريد الإلكتروني مطلوب");
+
+      // 3. Invalid format
+      await expect(
+        registerUserWithPassword({
+          ownerName: "صاحب",
+          phone: "01088888813",
+          email: "not-an-email",
+          password: "ValidPass1234",
+          storeName: "محل",
+          shopType: "بقالة",
+          governorate: "القاهرة",
+        }),
+      ).rejects.toThrow("بريد إلكتروني غير صحيح");
+    });
+
     it("rejects signup when password does not meet security policy (short, too long, common)", async () => {
       // 1. Password too short (< 12)
       await expect(

@@ -31,7 +31,11 @@ export const signupInputSchema = z.object({
     .string()
     .trim()
     .regex(/^(01[0125]\d{8}|\+201[0125]\d{8})$/, "رقم هاتف مصري غير صحيح"),
-  email: z.string().trim().email("بريد إلكتروني غير صحيح"),
+  email: z
+    .string()
+    .trim()
+    .min(1, "البريد الإلكتروني مطلوب")
+    .email("بريد إلكتروني غير صحيح"),
   password: passwordPolicySchema,
   storeName: z.string().trim().min(2, "اسم المحل مطلوب"),
   shopType: z.string().trim().min(2, "نوع المحل مطلوب"),

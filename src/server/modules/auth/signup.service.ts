@@ -50,14 +50,32 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
   const openedOnDate = data.openedOn ? new Date(data.openedOn) : new Date();
 
   // 1. Create User (users table has NO RLS, accessed under service role)
-  const user = await prisma.user.create({
-    data: {
-      name: data.ownerName.trim(),
-      phone: normalizedPhone,
-      email: normalizedEmail,
-      passwordHash: hashedPassword,
-    },
-  });
+  let user;
+  try {
+    user = await prisma.user.create({
+      data: {
+        name: data.ownerName.trim(),
+        phone: normalizedPhone,
+        email: normalizedEmail,
+        passwordHash: hashedPassword,
+      },
+    });
+  } catch (err: unknown) {
+    if (
+      typeof err === "object" &&
+      err !== null &&
+      "code" in err &&
+      (err as { code: string }).code === "P2002"
+    ) {
+      const meta = (err as { meta?: { target?: string[] | string } }).meta;
+      const targetStr = JSON.stringify(meta?.target ?? "");
+      if (targetStr.includes("phone")) {
+        throw AppError.conflict("رقم الموبايل مسجل بالفعل");
+      }
+      throw AppError.conflict("البريد الإلكتروني مسجل بالفعل");
+    }
+    throw err;
+  }
 
   // 2. Create Store, StoreMember, and Device under withTenant context
   const { store, device } = await withTenant(storeId, user.id, async (tx) => {

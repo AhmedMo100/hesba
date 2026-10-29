@@ -215,7 +215,9 @@ export function AuthScreen({
     if (!okPhone(signupData.phone)) {
       errs["phone"] = t("errors.invalidPhone");
     }
-    if (signupData.email.trim() && !okMail(signupData.email)) {
+    if (!signupData.email.trim()) {
+      errs["email"] = t("errors.emailRequired");
+    } else if (!okMail(signupData.email)) {
       errs["email"] = t("errors.invalidEmail");
     }
     const pwdRes = validatePasswordPolicy(signupData.password);

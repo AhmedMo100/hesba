@@ -362,4 +362,34 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     );
     expect(backUnderline).toContain("underline");
   });
+
+  test("requires email and validates format on signup form step 1", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 360, height: 800 });
+    await page.goto("/signup");
+    await page.waitForLoadState("domcontentloaded");
+
+    // Check that email label is «البريد الإلكتروني» without «اختياري»
+    await expect(page.locator("text=البريد الإلكتروني")).toBeVisible();
+    await expect(page.locator("body")).not.toContainText("اختياري");
+
+    // Fill valid name, phone, and password, but leave email empty
+    await page.locator("input[autocomplete='name']").fill("صاحب المحل");
+    await page.locator("input[type='tel']").fill("01012345678");
+    await page
+      .locator("input[autocomplete='new-password']")
+      .fill("Cairo2026Pass");
+
+    // Click next
+    await page.locator("button:has-text('التالي')").click();
+
+    // Should show «البريد الإلكتروني مطلوب»
+    await expect(page.locator("text=البريد الإلكتروني مطلوب")).toBeVisible();
+
+    // Fill invalid email format
+    await page.locator("input[type='email']").fill("invalid-email");
+    await page.locator("button:has-text('التالي')").click();
+    await expect(page.locator("text=البريد الإلكتروني غير صحيح")).toBeVisible();
+  });
 });

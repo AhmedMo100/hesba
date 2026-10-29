@@ -92,6 +92,51 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
       expect(session?.user.email).toBe("ahmed@example.com");
     });
 
+    it("rejects registration with empty or missing email", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "",
+        password: "MySecurePassword123",
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("البريد الإلكتروني مطلوب");
+    });
+
+    it("rejects registration with invalid email format", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "not-an-email-format",
+        password: "MySecurePassword123",
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("البريد الإلكتروني غير صحيح");
+    });
+
+    it("rejects registration with duplicate email", async () => {
+      const res = await fixtureAuthApi.signup({
+        ownerName: "محمود",
+        phone: "01098765432",
+        email: "duplicate@example.com",
+        password: "MySecurePassword123",
+        storeName: "محل",
+        shopType: "بقالة",
+        governorate: "القاهرة",
+      });
+
+      expect(res.success).toBe(false);
+      expect(res.error).toBe("البريد الإلكتروني مسجل بالفعل");
+    });
+
     it("rejects registration with short password (< 12 chars)", async () => {
       const res = await fixtureAuthApi.signup({
         ownerName: "محمود",
