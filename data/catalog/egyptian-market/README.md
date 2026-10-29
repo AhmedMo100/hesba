@@ -59,3 +59,10 @@ pnpm catalog:import --dir=data/catalog/egyptian-market --dry-run
 ```bash
 pnpm catalog:import --dir=data/catalog/egyptian-market --apply
 ```
+
+---
+
+## 5. حالة التحقق والمصادر (Verification & Source Distinction)
+
+- **بيانات الكتالوج التأسيسي (Baseline Catalog):** مستخلصة من مواصفات وأحجام العبوات التجارية للسلع الاستهلاكية الرائجة في قطاع التجزئة والسوبر ماركت المصري مع التحقق الصارم من الوحدات الفيزيائية والفئات التجارية.
+- **اقتراحات المجتمع (Community Candidates):** تُسجل كبيانات مرشحة غير معتمدة في جدول `catalog_candidates` ولا تُعتمد كبيانات عامة إلا بعد استيفاء معايير الترقية الصارمة (7 أيام كاملة + 10 محلات مستقلة على الأقل) أو الاعتماد الإداري الصريح.
