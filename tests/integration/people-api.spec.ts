@@ -139,6 +139,9 @@ describe("People Module API & Tenancy Integration", () => {
     try {
       await migratorClient`DELETE FROM "supplier_products" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "debt_entries" WHERE store_id IN (${storeAId}, ${storeBId})`;
+      await migratorClient`DELETE FROM "customers" WHERE store_id IN (${storeAId}, ${storeBId})`;
+      await migratorClient`DELETE FROM "payables" WHERE store_id IN (${storeAId}, ${storeBId})`;
+      await migratorClient`DELETE FROM "suppliers" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "contacts" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "store_products" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "store_members" WHERE store_id IN (${storeAId}, ${storeBId})`;
@@ -567,5 +570,237 @@ describe("People Module API & Tenancy Integration", () => {
     expect(transRes.status).toBe(201);
     const transJson = await transRes.json();
     expect(transJson.transaction.amount_piasters).toBe(15050);
+  });
+
+  it("Database Architecture: Customers, Payables, and Suppliers are strictly isolated in separate tables", async () => {
+    // 1. Verify customer exists strictly in customers table
+    const dbCustomer = await migratorPrisma.customer.findUnique({
+      where: { id: customerId },
+    });
+    expect(dbCustomer).not.toBeNull();
+    expect(dbCustomer?.nameAr).toContain("أبو خالد");
+
+    const dbCustomerInPayables = await migratorPrisma.payable.findUnique({
+      where: { id: customerId },
+    });
+    expect(dbCustomerInPayables).toBeNull();
+
+    const dbCustomerInSuppliers = await migratorPrisma.supplier.findUnique({
+      where: { id: customerId },
+    });
+    expect(dbCustomerInSuppliers).toBeNull();
+
+    // 2. Verify payable exists strictly in payables table
+    const dbPayable = await migratorPrisma.payable.findUnique({
+      where: { id: iOwePersonId },
+    });
+    expect(dbPayable).not.toBeNull();
+    expect(dbPayable?.nameAr).toBe("الحاج إبراهيم");
+
+    const dbPayableInCustomers = await migratorPrisma.customer.findUnique({
+      where: { id: iOwePersonId },
+    });
+    expect(dbPayableInCustomers).toBeNull();
+
+    const dbPayableInSuppliers = await migratorPrisma.supplier.findUnique({
+      where: { id: iOwePersonId },
+    });
+    expect(dbPayableInSuppliers).toBeNull();
+
+    // 3. Verify supplier exists strictly in suppliers table
+    const dbSupplier = await migratorPrisma.supplier.findUnique({
+      where: { id: supplierId },
+    });
+    expect(dbSupplier).not.toBeNull();
+    expect(dbSupplier?.nameAr).toBe("شركة النور");
+
+    const dbSupplierInCustomers = await migratorPrisma.customer.findUnique({
+      where: { id: supplierId },
+    });
+    expect(dbSupplierInCustomers).toBeNull();
+
+    const dbSupplierInPayables = await migratorPrisma.payable.findUnique({
+      where: { id: supplierId },
+    });
+    expect(dbSupplierInPayables).toBeNull();
+
+    // 4. Verify debt entries are linked to the specific foreign keys
+    const customerDebts = await migratorPrisma.debtEntry.findMany({
+      where: { customerId },
+    });
+    expect(customerDebts.length).toBeGreaterThanOrEqual(1);
+    for (const d of customerDebts) {
+      expect(d.payableId).toBeNull();
+      expect(d.supplierId).toBeNull();
+    }
+
+    const supplierDebts = await migratorPrisma.debtEntry.findMany({
+      where: { supplierId },
+    });
+    expect(supplierDebts.length).toBeGreaterThanOrEqual(1);
+    for (const d of supplierDebts) {
+      expect(d.customerId).toBeNull();
+      expect(d.payableId).toBeNull();
+    }
+  });
+
+  it("P0: Full Isolation Test — adding in 'owedToMe' never appears in 'iOwe' or 'suppliers' across sessions", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    // 1. Add unique customer in 'owedToMe'
+    const custRes = await postPeopleRoute(
+      new Request("http://localhost:3000/api/people", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${sessionA.rawToken}`,
+        },
+        body: JSON.stringify({
+          name: "عميل عزل مستقل",
+          phone: "01099990001",
+          section: "owedToMe",
+          amountPiasters: 75000,
+          note: "اختبار عزل تام",
+        }),
+      }),
+    );
+    expect(custRes.status).toBe(201);
+    const { person: newCust } = await custRes.json();
+
+    // 2. Add unique payable in 'iOwe'
+    const payRes = await postPeopleRoute(
+      new Request("http://localhost:3000/api/people", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${sessionA.rawToken}`,
+        },
+        body: JSON.stringify({
+          name: "دائن عزل مستقل",
+          phone: "01099990002",
+          section: "iOwe",
+          amountPiasters: 50000,
+          note: "التزام صيانة",
+        }),
+      }),
+    );
+    expect(payRes.status).toBe(201);
+    const { person: newPay } = await payRes.json();
+
+    // 3. Add unique supplier in 'suppliers'
+    const supRes = await postPeopleRoute(
+      new Request("http://localhost:3000/api/people", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${sessionA.rawToken}`,
+        },
+        body: JSON.stringify({
+          name: "مورد عزل مستقل",
+          phone: "01099990003",
+          section: "suppliers",
+          amountPiasters: 120000,
+          supplies: [testProductId],
+        }),
+      }),
+    );
+    expect(supRes.status).toBe(201);
+    const { person: newSup } = await supRes.json();
+
+    // Simulate opening from a fresh session
+    const freshSessionA = await createSession(userAId, storeAId);
+
+    // 4. Query owedToMe: must contain newCust, must NOT contain newPay or newSup
+    const listOwed = await getPeopleRoute(
+      new Request("http://localhost:3000/api/people?section=owedToMe", {
+        headers: { cookie: `hesba_session=${freshSessionA.rawToken}` },
+      }),
+    );
+    const jsonOwed = await listOwed.json();
+    expect(
+      jsonOwed.people.some((p: { id: string }) => p.id === newCust.id),
+    ).toBe(true);
+    expect(
+      jsonOwed.people.some((p: { id: string }) => p.id === newPay.id),
+    ).toBe(false);
+    expect(
+      jsonOwed.people.some((p: { id: string }) => p.id === newSup.id),
+    ).toBe(false);
+
+    // 5. Query iOwe: must contain newPay, must NOT contain newCust or newSup
+    const listIOwe = await getPeopleRoute(
+      new Request("http://localhost:3000/api/people?section=iOwe", {
+        headers: { cookie: `hesba_session=${freshSessionA.rawToken}` },
+      }),
+    );
+    const jsonIOwe = await listIOwe.json();
+    expect(
+      jsonIOwe.people.some((p: { id: string }) => p.id === newPay.id),
+    ).toBe(true);
+    expect(
+      jsonIOwe.people.some((p: { id: string }) => p.id === newCust.id),
+    ).toBe(false);
+    expect(
+      jsonIOwe.people.some((p: { id: string }) => p.id === newSup.id),
+    ).toBe(false);
+
+    // 6. Query suppliers: must contain newSup, must NOT contain newCust or newPay
+    const listSup = await getPeopleRoute(
+      new Request("http://localhost:3000/api/people?section=suppliers", {
+        headers: { cookie: `hesba_session=${freshSessionA.rawToken}` },
+      }),
+    );
+    const jsonSup = await listSup.json();
+    expect(jsonSup.people.some((p: { id: string }) => p.id === newSup.id)).toBe(
+      true,
+    );
+    expect(
+      jsonSup.people.some((p: { id: string }) => p.id === newCust.id),
+    ).toBe(false);
+    expect(jsonSup.people.some((p: { id: string }) => p.id === newPay.id)).toBe(
+      false,
+    );
+
+    // 7. Verify Database rows: newCust is strictly in customers
+    const cDb = await migratorPrisma.customer.findUnique({
+      where: { id: newCust.id },
+    });
+    const cInPay = await migratorPrisma.payable.findUnique({
+      where: { id: newCust.id },
+    });
+    const cInSup = await migratorPrisma.supplier.findUnique({
+      where: { id: newCust.id },
+    });
+    expect(cDb).not.toBeNull();
+    expect(cInPay).toBeNull();
+    expect(cInSup).toBeNull();
+
+    // newPay is strictly in payables
+    const pDb = await migratorPrisma.payable.findUnique({
+      where: { id: newPay.id },
+    });
+    const pInCust = await migratorPrisma.customer.findUnique({
+      where: { id: newPay.id },
+    });
+    const pInSup = await migratorPrisma.supplier.findUnique({
+      where: { id: newPay.id },
+    });
+    expect(pDb).not.toBeNull();
+    expect(pInCust).toBeNull();
+    expect(pInSup).toBeNull();
+
+    // newSup is strictly in suppliers
+    const sDb = await migratorPrisma.supplier.findUnique({
+      where: { id: newSup.id },
+    });
+    const sInCust = await migratorPrisma.customer.findUnique({
+      where: { id: newSup.id },
+    });
+    const sInPay = await migratorPrisma.payable.findUnique({
+      where: { id: newSup.id },
+    });
+    expect(sDb).not.toBeNull();
+    expect(sInCust).toBeNull();
+    expect(sInPay).toBeNull();
   });
 });

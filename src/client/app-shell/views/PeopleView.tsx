@@ -15,7 +15,7 @@ interface SuppliedProduct {
 interface PersonItem {
   id: string;
   store_id: string;
-  section?: PeopleSection;
+  section: PeopleSection;
   kind: "customer" | "supplier" | "both";
   name: string;
   phone: string | null;
@@ -31,6 +31,15 @@ interface StoreProductOption {
   name: string;
 }
 
+interface SectionState {
+  people: PersonItem[];
+  count: number;
+  totalPiasters: number;
+  loaded: boolean;
+  loading: boolean;
+  error: string | null;
+}
+
 function formatEgp(piasters: number): string {
   const egp = piasters / 100;
   if (piasters % 100 !== 0) {
@@ -41,11 +50,36 @@ function formatEgp(piasters: number): string {
 
 export function PeopleView() {
   const [section, setSection] = useState<PeopleSection>("owedToMe");
-  const [people, setPeople] = useState<PersonItem[]>([]);
-  const [count, setCount] = useState(0);
-  const [totalPiasters, setTotalPiasters] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+
+  // Strictly isolated state per section — zero leakage between tabs
+  const [sectionsData, setSectionsData] = useState<
+    Record<PeopleSection, SectionState>
+  >({
+    owedToMe: {
+      people: [],
+      count: 0,
+      totalPiasters: 0,
+      loaded: false,
+      loading: true,
+      error: null,
+    },
+    iOwe: {
+      people: [],
+      count: 0,
+      totalPiasters: 0,
+      loaded: false,
+      loading: false,
+      error: null,
+    },
+    suppliers: {
+      people: [],
+      count: 0,
+      totalPiasters: 0,
+      loaded: false,
+      loading: false,
+      error: null,
+    },
+  });
 
   // Modal states
   const [modalOpen, setModalOpen] = useState(false);
@@ -64,64 +98,53 @@ export function PeopleView() {
   // Store products for supplier modal combobox
   const [storeProducts, setStoreProducts] = useState<StoreProductOption[]>([]);
 
-  // Reload people list
-  const reloadPeople = useCallback(async () => {
-    setLoading(true);
-    setError(null);
+  // Fetches data for a specific section independently
+  const fetchSectionData = useCallback(async (targetSection: PeopleSection) => {
+    setSectionsData((prev) => ({
+      ...prev,
+      [targetSection]: {
+        ...prev[targetSection],
+        loading: true,
+        error: null,
+      },
+    }));
+
     try {
-      const res = await fetch(`/api/people?section=${section}`);
+      const res = await fetch(`/api/people?section=${targetSection}`);
       if (!res.ok) {
         throw new Error(t("pages.people.loadError") || "تعذر تحميل البيانات");
       }
       const data = await res.json();
-      setPeople(data.people || []);
-      setCount(data.count || 0);
-      setTotalPiasters(data.total_piasters || 0);
+      setSectionsData((prev) => ({
+        ...prev,
+        [targetSection]: {
+          people: data.people || [],
+          count: data.count || 0,
+          totalPiasters: data.total_piasters || 0,
+          loaded: true,
+          loading: false,
+          error: null,
+        },
+      }));
     } catch (err: unknown) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : t("pages.people.loadError") || "تعذر تحميل البيانات",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [section]);
-
-  useEffect(() => {
-    let ignore = false;
-
-    fetch(`/api/people?section=${section}`)
-      .then((res) => {
-        if (!res.ok) {
-          throw new Error(t("pages.people.loadError") || "تعذر تحميل البيانات");
-        }
-        return res.json();
-      })
-      .then((data) => {
-        if (!ignore) {
-          setPeople(data.people || []);
-          setCount(data.count || 0);
-          setTotalPiasters(data.total_piasters || 0);
-          setError(null);
-          setLoading(false);
-        }
-      })
-      .catch((err: unknown) => {
-        if (!ignore) {
-          setError(
+      setSectionsData((prev) => ({
+        ...prev,
+        [targetSection]: {
+          ...prev[targetSection],
+          loading: false,
+          error:
             err instanceof Error
               ? err.message
               : t("pages.people.loadError") || "تعذر تحميل البيانات",
-          );
-          setLoading(false);
-        }
-      });
+        },
+      }));
+    }
+  }, []);
 
-    return () => {
-      ignore = true;
-    };
-  }, [section]);
+  // On tab switch, trigger fetch if not yet loaded
+  useEffect(() => {
+    fetchSectionData(section);
+  }, [section, fetchSectionData]);
 
   // Load store products when opening supplier modal
   const loadStoreProducts = useCallback(async () => {
@@ -221,7 +244,7 @@ export function PeopleView() {
           throw new Error(errData?.error?.message || "فشل في حفظ التعديل");
         }
       } else {
-        // POST new
+        // POST new person explicitly scoped to the current active section
         const res = await fetch("/api/people", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -242,7 +265,8 @@ export function PeopleView() {
       }
 
       setModalOpen(false);
-      await reloadPeople();
+      // Refresh strictly the affected section
+      await fetchSectionData(section);
     } catch (err: unknown) {
       setFormError(err instanceof Error ? err.message : "حدث خطأ أثناء الحفظ");
     } finally {
@@ -260,18 +284,20 @@ export function PeopleView() {
       if (!res.ok) throw new Error("تعذر الحذف");
       setDeleteTarget(null);
       setModalOpen(false);
-      await reloadPeople();
+      await fetchSectionData(section);
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "حدث خطأ أثناء الحذف");
+      alert(err instanceof Error ? err.message : "تعذر الحذف");
     } finally {
       setIsDeleting(false);
     }
   };
 
-  const handleRecordRepayment = async () => {
+  const handleRepay = async () => {
     if (!repayTarget) return;
-    const amountVal = parseEgpToPiasters(repayAmount);
-    if (!amountVal || amountVal <= 0) {
+    if (!repayAmount.trim()) return;
+
+    const amountNum = parseEgpToPiasters(repayAmount);
+    if (amountNum <= 0) {
       alert("المبلغ لازم يكون أكبر من صفر");
       return;
     }
@@ -283,20 +309,20 @@ export function PeopleView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "payment",
-          amountPiasters: amountVal,
+          amountPiasters: amountNum,
           note: repayNote.trim() || null,
         }),
       });
 
       if (!res.ok) {
-        const errJson = await res.json().catch(() => ({}));
-        throw new Error(errJson?.error?.message || "فشل في تسجيل المعاملة");
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || "فشل تسجيل العملية");
       }
 
       setRepayTarget(null);
       setRepayAmount("");
       setRepayNote("");
-      await reloadPeople();
+      await fetchSectionData(section);
     } catch (err: unknown) {
       alert(
         err instanceof Error ? err.message : "حدث خطأ أثناء تسجيل المعاملة",
@@ -311,6 +337,14 @@ export function PeopleView() {
     const selectedIds = new Set(formSupplies.map((s) => s.id));
     return storeProducts.filter((p) => !selectedIds.has(p.id));
   }, [storeProducts, formSupplies]);
+
+  // Current active section data
+  const currentSectionData = sectionsData[section];
+  const count = currentSectionData.count;
+  const totalPiasters = currentSectionData.totalPiasters;
+  const people = currentSectionData.people;
+  const loading = currentSectionData.loading;
+  const error = currentSectionData.error;
 
   // Dynamic banner title
   const bannerText = useMemo(() => {
@@ -380,13 +414,13 @@ export function PeopleView() {
           <button
             type="button"
             className={styles.retryBtn}
-            onClick={() => reloadPeople()}
+            onClick={() => fetchSectionData(section)}
           >
             <Icon n="refresh" s={16} />
             {t("pages.people.retry") || "إعادة المحاولة"}
           </button>
         </div>
-      ) : loading && people.length === 0 ? (
+      ) : loading && !currentSectionData.loaded ? (
         <div className={styles.loadingCard}>
           <p>جاري التحميل...</p>
         </div>
@@ -482,18 +516,23 @@ export function PeopleView() {
                 {/* Footer row */}
                 <div className={styles.cardFooter}>
                   {section === "suppliers" ? (
-                    <>
-                      <div className={styles.amountLine}>
-                        <span className={styles.amountLabel}>
-                          {t("pages.people.remainingOwed") || "المتبقي له:"}
-                        </span>
-                        <span className={styles.amountDark}>
-                          {formatEgp(p.amount_piasters)}
-                        </span>
-                      </div>
-                    </>
+                    <div className={styles.amountLine}>
+                      <span className={styles.amountLabel}>
+                        {t("pages.people.remainingOwed") || "المتبقي له:"}
+                      </span>
+                      <span className={styles.amountDark}>
+                        {formatEgp(p.amount_piasters)}
+                      </span>
+                    </div>
                   ) : (
                     <>
+                      {p.note ? (
+                        <span className={styles.noteText} title={p.note}>
+                          {p.note}
+                        </span>
+                      ) : (
+                        <span />
+                      )}
                       <span
                         className={
                           section === "owedToMe"
@@ -503,11 +542,6 @@ export function PeopleView() {
                       >
                         {formatEgp(p.amount_piasters)}
                       </span>
-                      {p.note && (
-                        <span className={styles.noteText} title={p.note}>
-                          {p.note}
-                        </span>
-                      )}
                     </>
                   )}
                 </div>
@@ -520,22 +554,165 @@ export function PeopleView() {
       {/* Add / Edit Modal */}
       {modalOpen && (
         <Modal
+          onClose={() => !isSubmitting && setModalOpen(false)}
           title={
             editingPerson
-              ? section === "owedToMe"
-                ? t("pages.people.editOwedToMe") || "تعديل حد عليه فلوس ليك"
+              ? section === "suppliers"
+                ? t("pages.people.editSupplier") || "تعديل مورد"
                 : section === "iOwe"
-                  ? t("pages.people.editIOwe") || "تعديل حد ليه فلوس عندك"
-                  : t("pages.people.editSupplier") || "تعديل مورد"
-              : section === "owedToMe"
-                ? t("pages.people.addOwedToMe") || "إضافة حد عليه فلوس ليك"
+                  ? t("pages.people.editPayable") || "تعديل التزام"
+                  : t("pages.people.editCustomer") || "تعديل شخص"
+              : section === "suppliers"
+                ? t("pages.people.addSupplier") || "إضافة مورد"
                 : section === "iOwe"
-                  ? t("pages.people.addIOwe") || "إضافة حد ليه فلوس عندك"
-                  : t("pages.people.addSupplier") || "إضافة مورد"
+                  ? t("pages.people.addPayable") || "إضافة التزام"
+                  : t("pages.people.addCustomer") || "إضافة شخص"
           }
-          onClose={() => setModalOpen(false)}
-          footer={
-            <div className={styles.modalFooter}>
+        >
+          <div className={styles.modalForm}>
+            {formError && <div className={styles.formError}>{formError}</div>}
+
+            {/* Name */}
+            <div className={styles.fieldGroup}>
+              <label className={styles.label}>
+                {t("pages.people.formName") || "الاسم"}
+              </label>
+              <input
+                type="text"
+                className={styles.textInput}
+                value={formName}
+                onChange={(e) => setFormName(e.target.value)}
+                placeholder={
+                  section === "suppliers"
+                    ? "مثلاً: شركة النور"
+                    : "مثلاً: أبو خالد"
+                }
+                autoFocus
+              />
+            </div>
+
+            {/* Phone */}
+            <div className={styles.fieldGroup}>
+              <label className={styles.label}>
+                {t("pages.people.formPhone") || "رقم التليفون"}
+              </label>
+              <input
+                type="tel"
+                className={styles.textInput}
+                value={formPhone}
+                onChange={(e) => setFormPhone(e.target.value)}
+                placeholder="01012345678"
+                dir="ltr"
+              />
+            </div>
+
+            {/* Amount */}
+            <div className={styles.fieldGroup}>
+              <label className={styles.label}>
+                {section === "suppliers"
+                  ? t("pages.people.remainingOptional") ||
+                    "المتبقي له (اختياري)"
+                  : section === "iOwe"
+                    ? t("pages.people.owedByMeOptional") ||
+                      "المبلغ عليك (اختياري)"
+                    : t("pages.people.owedToMeOptional") ||
+                      "المبلغ ليك (اختياري)"}
+              </label>
+              <div className={styles.amountInputWrapper}>
+                <span className={styles.currencyBadge}>ج.م</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className={styles.amountInput}
+                  value={formAmount}
+                  onChange={(e) => setFormAmount(e.target.value)}
+                  placeholder="0"
+                />
+              </div>
+            </div>
+
+            {/* Supplies selection for suppliers */}
+            {section === "suppliers" ? (
+              <div className={styles.fieldGroup}>
+                <label className={styles.label}>
+                  {t("pages.people.formSupplies") || "بيورّدلك إيه؟"}
+                </label>
+                {formSupplies.length > 0 && (
+                  <div className={styles.suppliesChipsEdit}>
+                    {formSupplies.map((s) => (
+                      <span className={styles.supplyChipEdit} key={s.id}>
+                        {s.name}
+                        <button
+                          type="button"
+                          className={styles.removeChipBtn}
+                          onClick={() =>
+                            setFormSupplies((prev) =>
+                              prev.filter((item) => item.id !== s.id),
+                            )
+                          }
+                          aria-label={`إزالة ${s.name}`}
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                {availableProductOptions.length > 0 ? (
+                  <select
+                    className={styles.productSelect}
+                    value=""
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      if (!id) return;
+                      const prod = storeProducts.find((p) => p.id === id);
+                      if (prod) {
+                        setFormSupplies((prev) => [...prev, prod]);
+                      }
+                    }}
+                  >
+                    <option value="">
+                      {t("pages.people.selectProduct") || "+ ضيف منتج..."}
+                    </option>
+                    {availableProductOptions.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <p className={styles.hintText}>
+                    {storeProducts.length === 0
+                      ? t("pages.people.noStoreProducts") ||
+                        "لا توجد منتجات مسجلة في المحل حالياً"
+                      : t("pages.people.allProductsAdded") ||
+                        "تمت إضافة جميع المنتجات"}
+                  </p>
+                )}
+              </div>
+            ) : (
+              /* Note for customers & payables */
+              <div className={styles.fieldGroup}>
+                <label className={styles.label}>
+                  {t("pages.people.formNote") || "ملاحظة (اختياري)"}
+                </label>
+                <input
+                  type="text"
+                  className={styles.textInput}
+                  value={formNote}
+                  onChange={(e) => setFormNote(e.target.value)}
+                  placeholder={
+                    section === "iOwe"
+                      ? "مثلاً: سلفة للمحل / صيانة"
+                      : "مثلاً: حساب الشهر / سلفة"
+                  }
+                />
+              </div>
+            )}
+
+            {/* Modal Actions matching screenshot */}
+            <div className={styles.modalActions}>
               <button
                 type="button"
                 className={styles.btnPrimary}
@@ -543,18 +720,20 @@ export function PeopleView() {
                 disabled={isSubmitting}
               >
                 <Icon n="check" s={16} />
-                {isSubmitting
-                  ? t("pages.people.saving") || "جاري الحفظ..."
-                  : t("pages.people.save") || "حفظ"}
+                {editingPerson
+                  ? t("common.save") || "حفظ"
+                  : t("common.save") || "حفظ"}
               </button>
+
               <button
                 type="button"
                 className={styles.btnGhost}
                 onClick={() => setModalOpen(false)}
                 disabled={isSubmitting}
               >
-                {t("pages.people.cancel") || "إلغاء"}
+                {t("common.cancel") || "إلغاء"}
               </button>
+
               {editingPerson && (
                 <button
                   type="button"
@@ -563,156 +742,26 @@ export function PeopleView() {
                   disabled={isSubmitting}
                 >
                   <Icon n="trash" s={15} />
-                  {t("pages.people.delete") || "حذف"}
+                  {t("common.delete") || "حذف"}
                 </button>
               )}
             </div>
-          }
-        >
-          {formError && (
-            <div className={styles.errorCard} style={{ marginBottom: 12 }}>
-              <p className={styles.errorTitle}>{formError}</p>
-            </div>
-          )}
-
-          {/* Name Field */}
-          <div className={styles.formGroup}>
-            <label className={styles.fieldLabel}>
-              {t("pages.people.name") || "الاسم"}
-            </label>
-            <input
-              type="text"
-              className={styles.inputField}
-              value={formName}
-              onChange={(e) => setFormName(e.target.value)}
-              placeholder={section === "suppliers" ? "شركة النور" : "أبو خالد"}
-              autoFocus
-            />
           </div>
-
-          {/* Phone Field */}
-          <div className={styles.formGroup}>
-            <label className={styles.fieldLabel}>
-              {t("pages.people.phone") || "رقم التليفون"}
-            </label>
-            <input
-              type="tel"
-              dir="ltr"
-              style={{ textAlign: "right" }}
-              className={styles.inputField}
-              value={formPhone}
-              onChange={(e) => setFormPhone(e.target.value)}
-              placeholder="01xxxxxxxxx"
-            />
-          </div>
-
-          {/* Amount Field */}
-          <div className={styles.formGroup}>
-            <label className={styles.fieldLabel}>
-              {section === "suppliers"
-                ? t("pages.people.owedOptional") || "المتبقي له (اختياري)"
-                : t("pages.people.amount") || "المبلغ"}
-            </label>
-            <div className={styles.amountInputWrapper}>
-              <span className={styles.currencyBadge}>ج.م</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                className={styles.amountNumInput}
-                value={formAmount}
-                onChange={(e) => setFormAmount(e.target.value)}
-                placeholder="0"
-              />
-            </div>
-          </div>
-
-          {/* Note Field (for non-suppliers) */}
-          {section !== "suppliers" && (
-            <div className={styles.formGroup}>
-              <label className={styles.fieldLabel}>
-                {t("pages.people.note") || "ملاحظة"}
-              </label>
-              <input
-                type="text"
-                className={styles.inputField}
-                value={formNote}
-                onChange={(e) => setFormNote(e.target.value)}
-                placeholder="حساب الشهر / سلفة..."
-              />
-            </div>
-          )}
-
-          {/* Supplies Section (for suppliers) */}
-          {section === "suppliers" && (
-            <div className={styles.formGroup}>
-              <label className={styles.fieldLabel}>
-                {t("pages.people.supplies") || "بيورّدلك إيه؟"}
-              </label>
-
-              {/* Selected chips */}
-              <div className={styles.selectedSuppliesList}>
-                {formSupplies.map((s) => (
-                  <button
-                    type="button"
-                    key={s.id}
-                    className={styles.selectedSupplyChip}
-                    onClick={() =>
-                      setFormSupplies(
-                        formSupplies.filter((item) => item.id !== s.id),
-                      )
-                    }
-                    title="اضغط للحذف"
-                  >
-                    <span>×</span>
-                    <span>{s.name}</span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Product selector dropdown */}
-              <div className={styles.productSelectWrapper}>
-                <select
-                  className={styles.productSelect}
-                  value=""
-                  onChange={(e) => {
-                    const selectedId = e.target.value;
-                    if (!selectedId) return;
-                    const found = storeProducts.find(
-                      (p) => p.id === selectedId,
-                    );
-                    if (found) {
-                      setFormSupplies((prev) => [
-                        ...prev,
-                        { id: found.id, name: found.name },
-                      ]);
-                    }
-                  }}
-                >
-                  <option value="">
-                    {t("pages.people.addProduct") || "ضِف منتج..."}
-                  </option>
-                  {availableProductOptions.map((prod) => (
-                    <option key={prod.id} value={prod.id}>
-                      {prod.name}
-                    </option>
-                  ))}
-                </select>
-                <div className={styles.productSelectIcon}>
-                  <Icon n="down" s={14} />
-                </div>
-              </div>
-            </div>
-          )}
         </Modal>
       )}
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete Confirmation Modal matching screenshot */}
       {deleteTarget && (
         <Modal
-          title={t("pages.people.delete") || "حذف"}
-          onClose={() => setDeleteTarget(null)}
-          footer={
-            <div className={styles.confirmActions}>
+          onClose={() => !isDeleting && setDeleteTarget(null)}
+          title={t("common.delete") || "حذف"}
+        >
+          <div className={styles.deleteConfirmDialog}>
+            <p className={styles.deleteConfirmMessage}>
+              {t("pages.people.deleteMessage", { name: deleteTarget.name }) ||
+                `هتحذف "${deleteTarget.name}" من القايمة.`}
+            </p>
+            <div className={styles.deleteConfirmActions}>
               <button
                 type="button"
                 className={styles.confirmDeleteBtn}
@@ -720,8 +769,8 @@ export function PeopleView() {
                 disabled={isDeleting}
               >
                 {isDeleting
-                  ? "جاري الحذف..."
-                  : t("pages.people.confirmDelete") || "احذف"}
+                  ? t("common.deleting") || "جاري الحذف..."
+                  : t("common.delete") || "احذف"}
               </button>
               <button
                 type="button"
@@ -729,37 +778,71 @@ export function PeopleView() {
                 onClick={() => setDeleteTarget(null)}
                 disabled={isDeleting}
               >
-                {t("pages.people.cancel") || "إلغاء"}
+                {t("common.cancel") || "إلغاء"}
               </button>
             </div>
-          }
-        >
-          <p className={styles.confirmMessage}>
-            {t("pages.people.deletePrompt", { name: deleteTarget.name }) ||
-              `هتحذف "${deleteTarget.name}" من القايمة.`}
-          </p>
+          </div>
         </Modal>
       )}
 
-      {/* Repayment / Collection Modal */}
+      {/* Repay / Settle Modal */}
       {repayTarget && (
         <Modal
+          onClose={() => !isSubmittingRepay && setRepayTarget(null)}
           title={
             section === "owedToMe"
-              ? `تحصيل من "${repayTarget.name}"`
-              : `سداد إلى "${repayTarget.name}"`
+              ? t("pages.people.collectFrom", { name: repayTarget.name }) ||
+                `تحصيل من ${repayTarget.name}`
+              : t("pages.people.payTo", { name: repayTarget.name }) ||
+                `سداد لـ ${repayTarget.name}`
           }
-          onClose={() => setRepayTarget(null)}
-          footer={
-            <div className={styles.modalFooter}>
+        >
+          <div className={styles.modalForm}>
+            <p className={styles.repayHint}>
+              {t("pages.people.currentBalance") || "الرصيد الحالي:"}{" "}
+              <strong>{formatEgp(repayTarget.amount_piasters)}</strong>
+            </p>
+
+            <div className={styles.fieldGroup}>
+              <label className={styles.label}>
+                {t("pages.people.amountPaid") || "المبلغ المدفوع"}
+              </label>
+              <div className={styles.amountInputWrapper}>
+                <span className={styles.currencyBadge}>ج.م</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className={styles.amountInput}
+                  value={repayAmount}
+                  onChange={(e) => setRepayAmount(e.target.value)}
+                  placeholder="0"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className={styles.fieldGroup}>
+              <label className={styles.label}>
+                {t("pages.people.formNote") || "ملاحظة (اختياري)"}
+              </label>
+              <input
+                type="text"
+                className={styles.textInput}
+                value={repayNote}
+                onChange={(e) => setRepayNote(e.target.value)}
+                placeholder="سداد دفعة / تحصيل كاش"
+              />
+            </div>
+
+            <div className={styles.modalActions}>
               <button
                 type="button"
                 className={styles.btnPrimary}
-                onClick={handleRecordRepayment}
+                onClick={handleRepay}
                 disabled={isSubmittingRepay}
               >
                 <Icon n="check" s={16} />
-                {isSubmittingRepay ? "جاري التسجيل..." : "سجّل المعاملة"}
+                {t("common.confirm") || "تأكيد"}
               </button>
               <button
                 type="button"
@@ -767,40 +850,9 @@ export function PeopleView() {
                 onClick={() => setRepayTarget(null)}
                 disabled={isSubmittingRepay}
               >
-                {t("pages.people.cancel") || "إلغاء"}
+                {t("common.cancel") || "إلغاء"}
               </button>
             </div>
-          }
-        >
-          <div className={styles.formGroup}>
-            <label className={styles.fieldLabel}>
-              {section === "owedToMe" ? "المبلغ المحصّل" : "المبلغ المدفوع"}
-            </label>
-            <div className={styles.amountInputWrapper}>
-              <span className={styles.currencyBadge}>ج.م</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                className={styles.amountNumInput}
-                value={repayAmount}
-                onChange={(e) => setRepayAmount(e.target.value)}
-                placeholder="0"
-                autoFocus
-              />
-            </div>
-          </div>
-
-          <div className={styles.formGroup}>
-            <label className={styles.fieldLabel}>
-              {t("pages.people.note") || "ملاحظة"}
-            </label>
-            <input
-              type="text"
-              className={styles.inputField}
-              value={repayNote}
-              onChange={(e) => setRepayNote(e.target.value)}
-              placeholder="دفعة نقدية / سداد..."
-            />
           </div>
         </Modal>
       )}

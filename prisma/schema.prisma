@@ -137,6 +137,9 @@ model Store {
   wallets              Wallet[]
   walletTransactions   WalletTransaction[]
   contacts             Contact[]
+  customers            Customer[]
+  payables             Payable[]
+  suppliers            Supplier[]
   debtEntries          DebtEntry[]
   purchases            Purchase[]
   purchaseLines        PurchaseLine[]
@@ -591,15 +594,68 @@ model Contact {
   createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  debtEntries      DebtEntry[]
-  purchases        Purchase[]
-  sales            Sale[]
-  suppliedProducts SupplierProduct[]
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  debtEntries DebtEntry[]
+  purchases   Purchase[]
+  sales       Sale[]
 
   @@index([storeId, kind, deletedAt], map: "idx_contacts_store_kind_deleted")
   @@index([storeId, section, deletedAt], map: "idx_contacts_store_section_deleted")
   @@map("contacts")
+}
+
+model Customer {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String    @map("store_id") @db.Uuid
+  nameAr    String    @map("name_ar") @db.Text
+  phone     String?   @db.Text
+  note      String?   @db.Text
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  debtEntries DebtEntry[]
+  sales       Sale[]
+
+  @@index([storeId, deletedAt], map: "idx_customers_store_deleted")
+  @@map("customers")
+}
+
+model Payable {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String    @map("store_id") @db.Uuid
+  nameAr    String    @map("name_ar") @db.Text
+  phone     String?   @db.Text
+  note      String?   @db.Text
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  debtEntries DebtEntry[]
+
+  @@index([storeId, deletedAt], map: "idx_payables_store_deleted")
+  @@map("payables")
+}
+
+model Supplier {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String    @map("store_id") @db.Uuid
+  nameAr    String    @map("name_ar") @db.Text
+  phone     String?   @db.Text
+  note      String?   @db.Text
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  debtEntries      DebtEntry[]
+  purchases        Purchase[]
+  suppliedProducts SupplierProduct[]
+
+  @@index([storeId, deletedAt], map: "idx_suppliers_store_deleted")
+  @@map("suppliers")
 }
 
 model SupplierProduct {
@@ -609,7 +665,7 @@ model SupplierProduct {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  supplier     Contact      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  supplier     Supplier     @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   storeProduct StoreProduct @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
 
   @@id([supplierId, storeProductId])
@@ -620,7 +676,10 @@ model SupplierProduct {
 model DebtEntry {
   id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storeId        String        @map("store_id") @db.Uuid
-  contactId      String        @map("contact_id") @db.Uuid
+  contactId      String?       @map("contact_id") @db.Uuid
+  customerId     String?       @map("customer_id") @db.Uuid
+  payableId      String?       @map("payable_id") @db.Uuid
+  supplierId     String?       @map("supplier_id") @db.Uuid
   direction      DebtDirection
   amountPiasters BigInt        @map("amount_piasters")
   noteAr         String?       @map("note_ar") @db.Text
@@ -629,11 +688,17 @@ model DebtEntry {
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  contact      Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact      Contact?    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  customer     Customer?   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  payable      Payable?    @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   settlesEntry DebtEntry?  @relation("DebtSettlement", fields: [settlesEntryId], references: [id], onDelete: SetNull)
   settlements  DebtEntry[] @relation("DebtSettlement")
 
   @@unique([storeId, opId])
+  @@index([storeId, customerId])
+  @@index([storeId, payableId])
+  @@index([storeId, supplierId])
   @@map("debt_entries")
 }
 
@@ -641,12 +706,14 @@ model Purchase {
   id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storeId           String   @map("store_id") @db.Uuid
   supplierContactId String?  @map("supplier_contact_id") @db.Uuid
+  supplierId        String?  @map("supplier_id") @db.Uuid
   totalPiasters     BigInt   @map("total_piasters")
   opId              String   @map("op_id") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store           Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   supplierContact Contact?       @relation(fields: [supplierContactId], references: [id], onDelete: SetNull)
+  supplier        Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   purchaseLines   PurchaseLine[]
 
   @@unique([storeId, opId])
@@ -676,6 +743,7 @@ model Sale {
   id                String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storeId           String            @map("store_id") @db.Uuid
   customerContactId String?           @map("customer_contact_id") @db.Uuid
+  customerId        String?           @map("customer_id") @db.Uuid
   paymentMethod     SalePaymentMethod @map("payment_method")
   totalPiasters     BigInt            @map("total_piasters")
   opId              String            @map("op_id") @db.Uuid
@@ -683,6 +751,7 @@ model Sale {
 
   store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
   customerContact Contact?   @relation(fields: [customerContactId], references: [id], onDelete: SetNull)
+  customer        Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
   saleLines       SaleLine[]
 
   @@unique([storeId, opId])
