@@ -89,11 +89,41 @@ function AppShellInner() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // Register service worker for offline precaching
+    // Register service worker for offline precaching in production only.
+    // In development mode, unregister any stale service worker and purge old precache caches
+    // to prevent 404 errors on nonexistent static CSS bundles.
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
-        .catch(() => {});
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker
+          .register("/sw.js", { scope: "/" })
+          .catch(() => {});
+      } else {
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((registrations) => {
+            for (const registration of registrations) {
+              registration.unregister();
+            }
+          })
+          .catch(() => {});
+
+        if ("caches" in window) {
+          caches
+            .keys()
+            .then((keys) => {
+              for (const key of keys) {
+                if (
+                  key.includes("serwist") ||
+                  key.includes("workbox") ||
+                  key.includes("precache")
+                ) {
+                  caches.delete(key);
+                }
+              }
+            })
+            .catch(() => {});
+        }
+      }
     }
 
     // Preload lazy view chunks on mount so they are cached for offline navigation

@@ -11,18 +11,19 @@ export const DEBT_DIRECTIONS = ["owed_to_me", "i_owe"] as const;
 export type DebtDirectionEnum = (typeof DEBT_DIRECTIONS)[number];
 
 export const phoneSchema = z
-  .string()
-  .trim()
-  .transform((val) => val.replace(/[\s-]/g, ""))
+  .union([z.string(), z.null(), z.undefined()])
+  .transform((val) => {
+    if (!val) return null;
+    const clean = normalizeNumberString(val).replace(/[\s-]/g, "");
+    return clean === "" ? null : clean;
+  })
   .refine(
     (val) =>
-      val === "" ||
+      val === null ||
       /^(\+?20|0)?1[0125]\d{8}$/.test(val) ||
       /^[\d+]{7,15}$/.test(val),
     { message: "رقم تليفون غير صحيح" },
-  )
-  .optional()
-  .nullable();
+  );
 
 export const moneyAmountSchema = z
   .union([z.number(), z.string()])
@@ -96,41 +97,95 @@ export const positiveMoneyAmountSchema = z
     return Math.round(num);
   });
 
-export const createPersonInputSchema = z.object({
-  name: z.string().trim().min(1, "اكتب الاسم").max(120, "الاسم طويل جداً"),
-  phone: phoneSchema,
-  section: z.enum(PEOPLE_SECTIONS, {
-    message: "القسم غير صحيح (owedToMe, iOwe, suppliers)",
-  }),
-  amountPiasters: moneyAmountSchema.default(0),
-  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
-  supplies: z
-    .array(z.string().uuid("معرف المنتج غير صحيح"))
-    .optional()
-    .default([]),
-});
+export const createPersonInputSchema = z
+  .object({
+    name: z.string().trim().min(1, "اكتب الاسم").max(120, "الاسم طويل جداً"),
+    phone: phoneSchema.optional(),
+    section: z.enum(PEOPLE_SECTIONS, {
+      message: "القسم غير صحيح (owedToMe, iOwe, suppliers)",
+    }),
+    amountPiasters: moneyAmountSchema.default(0),
+    amount_piasters: moneyAmountSchema.optional(),
+    note: z
+      .string()
+      .trim()
+      .max(500, "الملاحظة طويلة جداً")
+      .optional()
+      .nullable(),
+    supplies: z.array(z.string().min(1)).optional().default([]),
+  })
+  .transform((data) => ({
+    name: data.name,
+    phone: data.phone ?? null,
+    section: data.section,
+    amountPiasters:
+      data.amount_piasters !== undefined
+        ? data.amount_piasters
+        : data.amountPiasters,
+    note: data.note ?? null,
+    supplies: data.supplies,
+  }));
 
-export const updatePersonInputSchema = z.object({
-  name: z
-    .string()
-    .trim()
-    .min(1, "اكتب الاسم")
-    .max(120, "الاسم طويل جداً")
-    .optional(),
-  phone: phoneSchema,
-  supplies: z.array(z.string().uuid()).optional(),
-  amountPiasters: moneyAmountSchema.optional(),
-  note: z.string().trim().max(500).optional().nullable(),
-});
+export const updatePersonInputSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(1, "اكتب الاسم")
+      .max(120, "الاسم طويل جداً")
+      .optional(),
+    phone: phoneSchema.optional(),
+    supplies: z.array(z.string().min(1)).optional(),
+    amountPiasters: moneyAmountSchema.optional(),
+    amount_piasters: moneyAmountSchema.optional(),
+    note: z.string().trim().max(500).optional().nullable(),
+  })
+  .transform((data) => ({
+    name: data.name,
+    phone: data.phone,
+    supplies: data.supplies,
+    amountPiasters:
+      data.amount_piasters !== undefined
+        ? data.amount_piasters
+        : data.amountPiasters,
+    note: data.note ?? null,
+  }));
 
-export const recordDebtTransactionInputSchema = z.object({
-  type: z.enum(["debt", "payment"], {
-    message: "نوع المعاملة يجب أن يكون إما debt أو payment",
-  }),
-  amountPiasters: positiveMoneyAmountSchema,
-  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
-  opId: z.string().uuid().optional(),
-});
+export const recordDebtTransactionInputSchema = z
+  .object({
+    type: z.enum(["debt", "payment"], {
+      message: "نوع المعاملة يجب أن يكون إما debt أو payment",
+    }),
+    amountPiasters: positiveMoneyAmountSchema.optional(),
+    amount_piasters: positiveMoneyAmountSchema.optional(),
+    note: z
+      .string()
+      .trim()
+      .max(500, "الملاحظة طويلة جداً")
+      .optional()
+      .nullable(),
+    opId: z.string().uuid().optional(),
+    op_id: z.string().uuid().optional(),
+  })
+  .transform((data, ctx) => {
+    const amount =
+      data.amount_piasters !== undefined
+        ? data.amount_piasters
+        : data.amountPiasters;
+    if (amount === undefined || amount <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "المبلغ لازم يكون أكبر من صفر",
+      });
+      return z.NEVER;
+    }
+    return {
+      type: data.type,
+      amountPiasters: amount,
+      note: data.note ?? null,
+      opId: data.op_id || data.opId,
+    };
+  });
 
 export type CreatePersonInput = z.infer<typeof createPersonInputSchema>;
 export type UpdatePersonInput = z.infer<typeof updatePersonInputSchema>;
