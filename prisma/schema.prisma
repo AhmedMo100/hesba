@@ -155,6 +155,7 @@ model Store {
   stockLevels          StockLevel[]
   wasteRecords         WasteRecord[]
   expenses             Expense[]
+  supplierProducts     SupplierProduct[]
 
   @@map("stores")
 }
@@ -394,11 +395,12 @@ model StoreProduct {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store         Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  globalProduct GlobalProduct? @relation(fields: [globalProductId], references: [id], onDelete: SetNull)
-  storeVariants StoreVariant[]
-  purchaseLines PurchaseLine[]
-  saleLines     SaleLine[]
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  globalProduct    GlobalProduct?    @relation(fields: [globalProductId], references: [id], onDelete: SetNull)
+  storeVariants    StoreVariant[]
+  purchaseLines    PurchaseLine[]
+  saleLines        SaleLine[]
+  supplierProducts SupplierProduct[]
 
   @@index([storeId, nameNorm], map: "idx_store_products_store_name_norm")
   @@map("store_products")
@@ -584,14 +586,33 @@ model Contact {
   kind      ContactKind
   nameAr    String      @map("name_ar") @db.Text
   phone     String?     @db.Text
+  deletedAt DateTime?   @map("deleted_at") @db.Timestamptz(6)
   createdAt DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  debtEntries DebtEntry[]
-  purchases   Purchase[]
-  sales       Sale[]
+  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  debtEntries      DebtEntry[]
+  purchases        Purchase[]
+  sales            Sale[]
+  suppliedProducts SupplierProduct[]
 
+  @@index([storeId, kind, deletedAt], map: "idx_contacts_store_kind_deleted")
   @@map("contacts")
+}
+
+model SupplierProduct {
+  storeId        String   @map("store_id") @db.Uuid
+  supplierId     String   @map("supplier_id") @db.Uuid
+  storeProductId String   @map("store_product_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  supplier     Contact      @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  storeProduct StoreProduct @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
+
+  @@id([supplierId, storeProductId])
+  @@index([storeId, supplierId], map: "idx_supplier_products_store_supplier")
+  @@map("supplier_products")
 }
 
 model DebtEntry {
@@ -903,4 +924,3 @@ model Expense {
   @@index([storeId, spentAt(sort: Desc)], map: "idx_expenses_store_spent_at")
   @@map("expenses")
 }
-

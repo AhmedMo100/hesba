@@ -1,0 +1,544 @@
+/* People Module Layout */
+.container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 680px;
+  margin: 0 auto;
+}
+
+.head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.title {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 4px 0;
+  line-height: 1.25;
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--ink2);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.addBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: var(--acc);
+  color: #ffffff;
+  border: none;
+  border-radius: 12px;
+  padding: 0 16px;
+  min-height: 42px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: opacity 0.15s ease;
+  font-family: inherit;
+}
+
+.addBtn:hover {
+  opacity: 0.9;
+}
+
+.addBtn:active {
+  transform: scale(0.98);
+}
+
+.segWrapper {
+  margin-bottom: 12px;
+}
+
+/* Summary Banner */
+.summaryBanner {
+  background: rgba(58, 90, 64, 0.12);
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.summaryText {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--acc);
+}
+
+.summaryAmount {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--acc);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Cards List */
+.cardsGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.personCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: var(--sh);
+  display: flex;
+  flex-direction: column;
+  transition: border-color 0.15s ease;
+}
+
+.cardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.personMeta {
+  display: flex;
+  flex-direction: column;
+}
+
+.personName {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.personPhone {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--ink2);
+  text-decoration: none;
+  margin-top: 3px;
+  font-weight: 600;
+}
+
+.personPhone:hover {
+  color: var(--acc);
+  text-decoration: underline;
+}
+
+.noPhone {
+  font-size: 12px;
+  color: var(--ink3);
+  margin-top: 3px;
+}
+
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--sf);
+  color: var(--ink2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.iconBtn:hover {
+  background: var(--sf2);
+  color: var(--ink);
+  border-color: var(--ink2);
+}
+
+.iconBtn:active {
+  transform: scale(0.95);
+}
+
+/* Supplies chips for suppliers */
+.suppliesChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 10px 0 8px 0;
+}
+
+.supplyChip {
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.noSuppliesText {
+  font-size: 12px;
+  color: var(--ink3);
+  margin: 6px 0;
+}
+
+/* Card Footer */
+.cardFooter {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--line);
+}
+
+.amountLine {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.amountLabel {
+  font-size: 13px;
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+.amountPos {
+  font-size: 17px;
+  font-weight: 900;
+  color: #2d6a4f;
+  font-variant-numeric: tabular-nums;
+}
+
+.amountNeg {
+  font-size: 17px;
+  font-weight: 900;
+  color: #c1121f;
+  font-variant-numeric: tabular-nums;
+}
+
+.amountDark {
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.noteText {
+  font-size: 12px;
+  color: var(--ink2);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.payActionBtn {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--acc);
+  background: rgba(58, 90, 64, 0.08);
+  border: 1px solid rgba(58, 90, 64, 0.2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  font-family: inherit;
+}
+
+.payActionBtn:hover {
+  background: rgba(58, 90, 64, 0.15);
+}
+
+/* Modal Form Styles */
+.formGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.inputField {
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--ink);
+  outline: none;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+  width: 100%;
+}
+
+.inputField:focus {
+  border-color: var(--acc);
+}
+
+.amountInputWrapper {
+  display: flex;
+  align-items: center;
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 4px 10px;
+  min-height: 44px;
+}
+
+.amountInputWrapper:focus-within {
+  border-color: var(--acc);
+}
+
+.currencyBadge {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink2);
+  padding: 0 4px;
+}
+
+.amountNumInput {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  text-align: right;
+  font-family: inherit;
+}
+
+.selectedSuppliesList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.selectedSupplyChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--acc);
+  color: #ffffff;
+  border: none;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+  font-family: inherit;
+}
+
+.selectedSupplyChip:hover {
+  opacity: 0.85;
+}
+
+.productSelectWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.productSelect {
+  width: 100%;
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--ink);
+  outline: none;
+  font-family: inherit;
+  cursor: pointer;
+  appearance: none;
+}
+
+.productSelectIcon {
+  position: absolute;
+  left: 10px;
+  pointer-events: none;
+  color: var(--ink2);
+}
+
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  width: 100%;
+}
+
+.btnDanger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #fde8e8;
+  color: #c1121f;
+  border: 1px solid #f8b4b4;
+  border-radius: 10px;
+  padding: 0 14px;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btnDanger:hover {
+  background: #fbd5d5;
+}
+
+.btnGhost {
+  background: transparent;
+  color: var(--ink2);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 0 14px;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btnGhost:hover {
+  background: var(--sf2);
+  color: var(--ink);
+}
+
+.btnPrimary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--acc);
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 0 16px;
+  min-height: 40px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.btnPrimary:hover {
+  opacity: 0.9;
+}
+
+/* Confirm Delete Dialog */
+.confirmDialog {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 20px;
+  max-width: 360px;
+  width: 100%;
+  box-shadow: var(--sh);
+}
+
+.confirmTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 8px 0;
+}
+
+.confirmMessage {
+  font-size: 14px;
+  color: var(--ink2);
+  margin: 0 0 18px 0;
+  line-height: 1.4;
+}
+
+.confirmActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.confirmDeleteBtn {
+  background: #c1121f;
+  color: #ffffff;
+  border: none;
+  border-radius: 10px;
+  padding: 8px 18px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+/* Error & Loading Cards */
+.errorCard {
+  background: var(--sf);
+  border: 1.5px solid #f8b4b4;
+  border-radius: 16px;
+  padding: 20px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: #c1121f;
+  gap: 10px;
+}
+
+.errorTitle {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.retryBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 14px;
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.loadingCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 24px;
+  text-align: center;
+  color: var(--ink2);
+  font-size: 14px;
+  font-weight: 600;
+}
