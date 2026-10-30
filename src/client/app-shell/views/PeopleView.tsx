@@ -5,6 +5,7 @@ import styles from "./PeopleView.module.css";
 import { Icon, Seg, Empty, Modal } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
+import { parseEgpToPiasters } from "@/domain/money";
 
 interface SuppliedProduct {
   id: string;
@@ -14,6 +15,7 @@ interface SuppliedProduct {
 interface PersonItem {
   id: string;
   store_id: string;
+  section?: PeopleSection;
   kind: "customer" | "supplier" | "both";
   name: string;
   phone: string | null;
@@ -30,8 +32,11 @@ interface StoreProductOption {
 }
 
 function formatEgp(piasters: number): string {
-  const egp = Math.floor(piasters / 100);
-  return `${egp.toLocaleString("en-US")} ج.م`;
+  const egp = piasters / 100;
+  if (piasters % 100 !== 0) {
+    return `${egp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
+  }
+  return `${Math.floor(egp).toLocaleString("en-US")} ج.م`;
 }
 
 export function PeopleView() {
@@ -164,8 +169,13 @@ export function PeopleView() {
     setEditingPerson(p);
     setFormName(p.name);
     setFormPhone(p.phone || "");
+    const egpVal = p.amount_piasters / 100;
     setFormAmount(
-      p.amount_piasters > 0 ? String(Math.floor(p.amount_piasters / 100)) : "",
+      p.amount_piasters > 0
+        ? p.amount_piasters % 100 === 0
+          ? String(egpVal)
+          : egpVal.toFixed(2)
+        : "",
     );
     setFormNote(p.note || "");
     setFormSupplies(p.supplies || []);
@@ -182,10 +192,8 @@ export function PeopleView() {
       return;
     }
 
-    const amountNum = formAmount.trim()
-      ? Math.floor(Number(formAmount) * 100)
-      : 0;
-    if (Number.isNaN(amountNum) || amountNum < 0) {
+    const amountNum = formAmount.trim() ? parseEgpToPiasters(formAmount) : 0;
+    if (amountNum < 0) {
       setFormError("المبلغ غير صحيح");
       return;
     }
@@ -262,7 +270,7 @@ export function PeopleView() {
 
   const handleRecordRepayment = async () => {
     if (!repayTarget) return;
-    const amountVal = Math.floor(Number(repayAmount) * 100);
+    const amountVal = parseEgpToPiasters(repayAmount);
     if (!amountVal || amountVal <= 0) {
       alert("المبلغ لازم يكون أكبر من صفر");
       return;
@@ -528,25 +536,6 @@ export function PeopleView() {
           onClose={() => setModalOpen(false)}
           footer={
             <div className={styles.modalFooter}>
-              {editingPerson && (
-                <button
-                  type="button"
-                  className={styles.btnDanger}
-                  onClick={() => setDeleteTarget(editingPerson)}
-                  disabled={isSubmitting}
-                >
-                  <Icon n="trash" s={15} />
-                  {t("pages.people.delete") || "حذف"}
-                </button>
-              )}
-              <button
-                type="button"
-                className={styles.btnGhost}
-                onClick={() => setModalOpen(false)}
-                disabled={isSubmitting}
-              >
-                {t("pages.people.cancel") || "إلغاء"}
-              </button>
               <button
                 type="button"
                 className={styles.btnPrimary}
@@ -558,6 +547,25 @@ export function PeopleView() {
                   ? t("pages.people.saving") || "جاري الحفظ..."
                   : t("pages.people.save") || "حفظ"}
               </button>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                onClick={() => setModalOpen(false)}
+                disabled={isSubmitting}
+              >
+                {t("pages.people.cancel") || "إلغاء"}
+              </button>
+              {editingPerson && (
+                <button
+                  type="button"
+                  className={styles.btnDanger}
+                  onClick={() => setDeleteTarget(editingPerson)}
+                  disabled={isSubmitting}
+                >
+                  <Icon n="trash" s={15} />
+                  {t("pages.people.delete") || "حذف"}
+                </button>
+              )}
             </div>
           }
         >
@@ -608,9 +616,8 @@ export function PeopleView() {
             <div className={styles.amountInputWrapper}>
               <span className={styles.currencyBadge}>ج.م</span>
               <input
-                type="number"
-                min="0"
-                step="1"
+                type="text"
+                inputMode="decimal"
                 className={styles.amountNumInput}
                 value={formAmount}
                 onChange={(e) => setFormAmount(e.target.value)}
@@ -708,14 +715,6 @@ export function PeopleView() {
             <div className={styles.confirmActions}>
               <button
                 type="button"
-                className={styles.btnGhost}
-                onClick={() => setDeleteTarget(null)}
-                disabled={isDeleting}
-              >
-                {t("pages.people.cancel") || "إلغاء"}
-              </button>
-              <button
-                type="button"
                 className={styles.confirmDeleteBtn}
                 onClick={handleDelete}
                 disabled={isDeleting}
@@ -723,6 +722,14 @@ export function PeopleView() {
                 {isDeleting
                   ? "جاري الحذف..."
                   : t("pages.people.confirmDelete") || "احذف"}
+              </button>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                onClick={() => setDeleteTarget(null)}
+                disabled={isDeleting}
+              >
+                {t("pages.people.cancel") || "إلغاء"}
               </button>
             </div>
           }
@@ -747,20 +754,20 @@ export function PeopleView() {
             <div className={styles.modalFooter}>
               <button
                 type="button"
-                className={styles.btnGhost}
-                onClick={() => setRepayTarget(null)}
-                disabled={isSubmittingRepay}
-              >
-                {t("pages.people.cancel") || "إلغاء"}
-              </button>
-              <button
-                type="button"
                 className={styles.btnPrimary}
                 onClick={handleRecordRepayment}
                 disabled={isSubmittingRepay}
               >
                 <Icon n="check" s={16} />
                 {isSubmittingRepay ? "جاري التسجيل..." : "سجّل المعاملة"}
+              </button>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                onClick={() => setRepayTarget(null)}
+                disabled={isSubmittingRepay}
+              >
+                {t("pages.people.cancel") || "إلغاء"}
               </button>
             </div>
           }
@@ -772,9 +779,8 @@ export function PeopleView() {
             <div className={styles.amountInputWrapper}>
               <span className={styles.currencyBadge}>ج.م</span>
               <input
-                type="number"
-                min="1"
-                step="1"
+                type="text"
+                inputMode="decimal"
                 className={styles.amountNumInput}
                 value={repayAmount}
                 onChange={(e) => setRepayAmount(e.target.value)}

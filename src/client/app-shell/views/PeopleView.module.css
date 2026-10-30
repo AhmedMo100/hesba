@@ -35,27 +35,32 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: var(--acc);
+  background: var(--acc, #3a5a40);
   color: #ffffff;
   border: none;
   border-radius: 12px;
   padding: 0 16px;
   min-height: 42px;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: opacity 0.15s ease;
+  box-shadow:
+    0 2px 0 color-mix(in srgb, var(--br2, #2d4532) 85%, #000),
+    0 4px 12px color-mix(in srgb, var(--acc, #3a5a40) 25%, transparent);
+  transition:
+    transform 0.12s ease,
+    opacity 0.15s ease;
   font-family: inherit;
 }
 
 .addBtn:hover {
-  opacity: 0.9;
+  opacity: 0.92;
 }
 
 .addBtn:active {
-  transform: scale(0.98);
+  transform: translateY(1px) scale(0.98);
 }
 
 .segWrapper {
@@ -391,67 +396,86 @@
 .modalFooter {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  gap: 10px;
   width: 100%;
 }
 
 .btnDanger {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  background: #fde8e8;
-  color: #c1121f;
-  border: 1px solid #f8b4b4;
-  border-radius: 10px;
-  padding: 0 14px;
-  min-height: 40px;
-  font-size: 13px;
-  font-weight: 700;
+  background: #fee2e2;
+  color: #b91c1c;
+  border: 1px solid #fca5a5;
+  border-radius: 12px;
+  padding: 0 16px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 800;
   cursor: pointer;
   font-family: inherit;
+  margin-inline-start: auto;
+  transition:
+    background 0.15s ease,
+    opacity 0.15s ease;
 }
 
 .btnDanger:hover {
-  background: #fbd5d5;
+  background: #fecaca;
+}
+
+.btnDanger:active {
+  transform: scale(0.98);
 }
 
 .btnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
-  color: var(--ink2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 0 14px;
-  min-height: 40px;
-  font-size: 13px;
+  color: var(--ink, #1f2421);
+  border: 1px solid var(--line, #e5e0d8);
+  border-radius: 12px;
+  padding: 0 16px;
+  min-height: 44px;
+  font-size: 14px;
   font-weight: 700;
   cursor: pointer;
   font-family: inherit;
+  transition: background 0.15s ease;
 }
 
 .btnGhost:hover {
-  background: var(--sf2);
-  color: var(--ink);
+  background: var(--sf2, #f5f2eb);
 }
 
 .btnPrimary {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  background: var(--acc);
+  background: var(--acc, #3a5a40);
   color: #ffffff;
   border: none;
-  border-radius: 10px;
-  padding: 0 16px;
-  min-height: 40px;
-  font-size: 13px;
+  border-radius: 12px;
+  padding: 0 18px;
+  min-height: 44px;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
+  transition:
+    opacity 0.15s ease,
+    transform 0.12s ease;
 }
 
 .btnPrimary:hover {
-  opacity: 0.9;
+  opacity: 0.92;
+}
+
+.btnPrimary:active {
+  transform: scale(0.98);
 }
 
 /* Confirm Delete Dialog */
@@ -482,20 +506,36 @@
 .confirmActions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
+  gap: 12px;
+  width: 100%;
 }
 
 .confirmDeleteBtn {
-  background: #c1121f;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #b02a2a;
   color: #ffffff;
   border: none;
-  border-radius: 10px;
-  padding: 8px 18px;
-  font-size: 14px;
+  border-radius: 12px;
+  padding: 0 24px;
+  min-height: 44px;
+  font-size: 15px;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
+  transition:
+    opacity 0.15s ease,
+    transform 0.12s ease;
+}
+
+.confirmDeleteBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.confirmDeleteBtn:active:not(:disabled) {
+  transform: scale(0.98);
 }
 
 /* Error & Loading Cards */

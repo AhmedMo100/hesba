@@ -92,3 +92,59 @@ export function applyDiscount(
   );
   return Math.max(0, subtotalPiasters - discountPiasters);
 }
+
+/**
+ * Normalizes Eastern Arabic (٠-٩) and Persian (۰-۹) numerals,
+ * Arabic decimal separator (٫), and Arabic/Latin thousands separators (٬, ,)
+ * into a clean standard numeric string.
+ */
+export function normalizeNumberString(input: string): string {
+  if (!input) return "";
+  let s = input.trim();
+  // Replace Eastern Arabic-Indic numerals (٠-٩)
+  s = s.replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660));
+  // Replace Persian / Extended Arabic-Indic numerals (۰-۹)
+  s = s.replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0));
+  // Remove thousand separators: Arabic thousands (٬) and Latin comma (,)
+  s = s.replace(/[\u066C,]/g, "");
+  // Replace Arabic decimal separator (٫) with standard dot (.)
+  s = s.replace(/\u066B/g, ".");
+  // Strip any extra non-numeric characters except leading minus or decimal dot
+  s = s.replace(/[^\d.-]/g, "");
+  return s;
+}
+
+/**
+ * Parses user input in Egyptian Pounds (EGP) — supporting Arabic digits,
+ * commas, and decimals — and returns safe integer piasters (1 EGP = 100 piasters).
+ * Avoids floating-point precision drift.
+ * Examples:
+ *   "1500" -> 150000
+ *   "١٥٠٠" -> 150000
+ *   "150.50" -> 15050
+ *   "١٥٠٫٥٠" -> 15050
+ *   "1,500" -> 150000
+ *   "١٬٥٠٠" -> 150000
+ */
+export function parseEgpToPiasters(input: string | number): number {
+  if (typeof input === "number") {
+    if (!Number.isFinite(input) || input < 0) return 0;
+    return Math.round(input * 100);
+  }
+  if (typeof input !== "string") return 0;
+  const clean = normalizeNumberString(input);
+  if (!clean || clean === "-") return 0;
+
+  const parts = clean.split(".");
+  const integerPart = parseInt(parts[0] || "0", 10);
+  if (isNaN(integerPart) || integerPart < 0) return 0;
+
+  let fractionalPart = 0;
+  if (parts.length > 1 && parts[1]) {
+    const fractionString = parts[1].slice(0, 2).padEnd(2, "0");
+    fractionalPart = parseInt(fractionString, 10);
+    if (isNaN(fractionalPart)) fractionalPart = 0;
+  }
+
+  return integerPart * 100 + fractionalPart;
+}

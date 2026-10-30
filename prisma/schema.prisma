@@ -584,6 +584,7 @@ model Contact {
   id        String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storeId   String      @map("store_id") @db.Uuid
   kind      ContactKind
+  section   String      @default("owedToMe") @map("section") @db.Text
   nameAr    String      @map("name_ar") @db.Text
   phone     String?     @db.Text
   deletedAt DateTime?   @map("deleted_at") @db.Timestamptz(6)
@@ -597,6 +598,7 @@ model Contact {
   suppliedProducts SupplierProduct[]
 
   @@index([storeId, kind, deletedAt], map: "idx_contacts_store_kind_deleted")
+  @@index([storeId, section, deletedAt], map: "idx_contacts_store_section_deleted")
   @@map("contacts")
 }
 

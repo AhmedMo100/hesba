@@ -97,6 +97,7 @@ export interface LocalContact {
   name: string;
   phone?: string | null;
   type: "customer" | "supplier";
+  section?: "owedToMe" | "iOwe" | "suppliers";
   created_at: string;
   updated_at: string;
 }

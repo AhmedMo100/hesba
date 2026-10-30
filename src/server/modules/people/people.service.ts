@@ -17,6 +17,7 @@ export interface SuppliedProductItem {
 export interface FormattedPerson {
   id: string;
   store_id: string;
+  section: PeopleSection;
   kind: "customer" | "supplier" | "both";
   name: string;
   phone: string | null;
@@ -63,19 +64,11 @@ export async function getPeopleBySection(
     storeId,
     userId ?? null,
     async (tx) => {
-      // 1. Determine contact kinds to query based on section
-      let kindFilter: Prisma.ContactWhereInput["kind"];
-      if (section === "suppliers") {
-        kindFilter = { in: ["supplier", "both"] };
-      } else {
-        // owedToMe or iOwe: customers or general contacts
-        kindFilter = { in: ["customer", "both"] };
-      }
-
+      // 1. Strict section filtering on the database level
       const whereClause: Prisma.ContactWhereInput = {
         storeId,
         deletedAt: null,
-        kind: kindFilter,
+        section,
       };
 
       if (search && search.trim()) {
@@ -86,7 +79,7 @@ export async function getPeopleBySection(
         ];
       }
 
-      // 2. Fetch contacts with their debt entries and supplied products
+      // 2. Fetch contacts belonging strictly to this section
       const contacts = await tx.contact.findMany({
         where: whereClause,
         include: {
@@ -124,56 +117,35 @@ export async function getPeopleBySection(
         }
 
         let amountPiasters = 0;
-        let belongsToSection = false;
-
         if (section === "owedToMe") {
-          const net = owedToMeSum - iOweSum;
-          amountPiasters = Number(net);
-          // Show if customer owes the store (> 0) or if they were added specifically with 0 balance
-          if (
-            amountPiasters > 0 ||
-            (contact.debtEntries.length === 0 && contact.kind !== "supplier")
-          ) {
-            belongsToSection = true;
-          }
+          amountPiasters = Number(owedToMeSum - iOweSum);
         } else if (section === "iOwe") {
-          const net = iOweSum - owedToMeSum;
-          amountPiasters = Number(net);
-          // Show if store owes the person (> 0) and person is not a dedicated supplier
-          if (
-            amountPiasters > 0 ||
-            (contact.debtEntries.length > 0 && iOweSum > owedToMeSum)
-          ) {
-            belongsToSection = true;
-          }
+          amountPiasters = Number(iOweSum - owedToMeSum);
         } else {
           // suppliers
-          const net = iOweSum - owedToMeSum;
-          amountPiasters = Math.max(0, Number(net));
-          belongsToSection = true;
+          amountPiasters = Math.max(0, Number(iOweSum - owedToMeSum));
         }
 
-        if (belongsToSection) {
-          const supplies: SuppliedProductItem[] = contact.suppliedProducts
-            .filter((sp) => sp.storeProduct !== null)
-            .map((sp) => ({
-              id: sp.storeProduct.id,
-              name: sp.storeProduct.nameAr || "—",
-            }));
+        const supplies: SuppliedProductItem[] = contact.suppliedProducts
+          .filter((sp) => sp.storeProduct !== null)
+          .map((sp) => ({
+            id: sp.storeProduct.id,
+            name: sp.storeProduct.nameAr || "—",
+          }));
 
-          formattedList.push({
-            id: contact.id,
-            store_id: contact.storeId,
-            kind: contact.kind,
-            name: contact.nameAr,
-            phone: contact.phone,
-            amount_piasters: amountPiasters,
-            note: latestNote,
-            supplies,
-            created_at: contact.createdAt.toISOString(),
-            updated_at: contact.updatedAt.toISOString(),
-          });
-        }
+        formattedList.push({
+          id: contact.id,
+          store_id: contact.storeId,
+          section: (contact.section as PeopleSection) || section,
+          kind: contact.kind,
+          name: contact.nameAr,
+          phone: contact.phone,
+          amount_piasters: amountPiasters,
+          note: latestNote,
+          supplies,
+          created_at: contact.createdAt.toISOString(),
+          updated_at: contact.updatedAt.toISOString(),
+        });
       }
 
       // Sort by amount descending
@@ -211,10 +183,11 @@ export async function createPerson(
       const isSupplier = input.section === "suppliers";
       const kind = isSupplier ? "supplier" : "customer";
 
-      // 1. Create Contact
+      // 1. Create Contact with explicit section
       const contact = await tx.contact.create({
         data: {
           storeId,
+          section: input.section,
           kind,
           nameAr: input.name.trim(),
           phone: input.phone?.trim() || null,
@@ -273,6 +246,7 @@ export async function createPerson(
       return {
         id: contact.id,
         store_id: contact.storeId,
+        section: (contact.section as PeopleSection) || input.section,
         kind: contact.kind,
         name: contact.nameAr,
         phone: contact.phone,
@@ -362,16 +336,17 @@ export async function getPersonDetails(
         }));
 
       let balance = 0;
-      if (contact.kind === "supplier") {
-        balance = Math.max(0, Number(iOweSum - owedToMeSum));
-      } else {
+      if (contact.section === "owedToMe") {
         balance = Number(owedToMeSum - iOweSum);
+      } else {
+        balance = Math.max(0, Number(iOweSum - owedToMeSum));
       }
 
       return {
         person: {
           id: contact.id,
           store_id: contact.storeId,
+          section: (contact.section as PeopleSection) || "owedToMe",
           kind: contact.kind,
           name: contact.nameAr,
           phone: contact.phone,
@@ -435,17 +410,17 @@ export async function recordDebtTransaction(
       }
 
       // Determine direction:
-      // For Customer:
+      // For owedToMe:
       //   - debt = owed_to_me (customer took credit)
       //   - payment = i_owe (customer paid back / collection)
-      // For Supplier / IOwe:
+      // For iOwe / suppliers:
       //   - debt = i_owe (shop owes them more)
-      //   - payment = owed_to_me (shop paid supplier / repayment)
+      //   - payment = owed_to_me (shop paid them / repayment)
       let direction: "owed_to_me" | "i_owe";
-      if (contact.kind === "supplier") {
-        direction = input.type === "payment" ? "owed_to_me" : "i_owe";
-      } else {
+      if (contact.section === "owedToMe") {
         direction = input.type === "payment" ? "i_owe" : "owed_to_me";
+      } else {
+        direction = input.type === "payment" ? "owed_to_me" : "i_owe";
       }
 
       const entry = await tx.debtEntry.create({
@@ -552,10 +527,10 @@ export async function updatePerson(
         else iOweSum += entry.amountPiasters;
       }
 
-      if (contact.kind === "supplier") {
-        currentBalance = Math.max(0, Number(iOweSum - owedToMeSum));
-      } else {
+      if (contact.section === "owedToMe") {
         currentBalance = Number(owedToMeSum - iOweSum);
+      } else {
+        currentBalance = Math.max(0, Number(iOweSum - owedToMeSum));
       }
 
       let latestNote = input.note ?? null;
@@ -568,14 +543,14 @@ export async function updatePerson(
         const absDelta = BigInt(Math.abs(delta));
         let direction: "owed_to_me" | "i_owe";
 
-        if (contact.kind === "supplier") {
-          // If delta > 0, store owes more -> i_owe
-          // If delta < 0, store owes less -> owed_to_me
-          direction = delta > 0 ? "i_owe" : "owed_to_me";
-        } else {
+        if (contact.section === "owedToMe") {
           // If delta > 0, customer owes more -> owed_to_me
           // If delta < 0, customer owes less -> i_owe
           direction = delta > 0 ? "owed_to_me" : "i_owe";
+        } else {
+          // If delta > 0, store owes more -> i_owe
+          // If delta < 0, store owes less -> owed_to_me
+          direction = delta > 0 ? "i_owe" : "owed_to_me";
         }
 
         const noteText = input.note?.trim() || "تعديل رصيد";
@@ -619,10 +594,10 @@ export async function updatePerson(
       }
 
       let finalAmount = 0;
-      if (updated.kind === "supplier") {
-        finalAmount = Math.max(0, Number(finalIOwe - finalOwedToMe));
-      } else {
+      if (updated.section === "owedToMe") {
         finalAmount = Number(finalOwedToMe - finalIOwe);
+      } else {
+        finalAmount = Math.max(0, Number(finalIOwe - finalOwedToMe));
       }
 
       const supplies: SuppliedProductItem[] = updated.suppliedProducts
@@ -635,6 +610,7 @@ export async function updatePerson(
       return {
         id: updated.id,
         store_id: updated.storeId,
+        section: (updated.section as PeopleSection) || "owedToMe",
         kind: updated.kind,
         name: updated.nameAr,
         phone: updated.phone,

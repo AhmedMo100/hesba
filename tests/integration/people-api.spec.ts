@@ -258,6 +258,16 @@ describe("People Module API & Tenancy Integration", () => {
     const jsonOwed = await resOwed.json();
     expect(jsonOwed.count).toBeGreaterThanOrEqual(1);
     expect(jsonOwed.total_piasters).toBeGreaterThanOrEqual(240000);
+    expect(
+      jsonOwed.people.some((p: { id: string }) => p.id === customerId),
+    ).toBe(true);
+    // Strict isolation: iOwe and suppliers must NOT bleed into owedToMe
+    expect(
+      jsonOwed.people.some((p: { id: string }) => p.id === iOwePersonId),
+    ).toBe(false);
+    expect(
+      jsonOwed.people.some((p: { id: string }) => p.id === supplierId),
+    ).toBe(false);
 
     // 2. Check iOwe section
     const resIOwe = await getPeopleRoute(
@@ -269,6 +279,16 @@ describe("People Module API & Tenancy Integration", () => {
     const jsonIOwe = await resIOwe.json();
     expect(jsonIOwe.count).toBeGreaterThanOrEqual(1);
     expect(jsonIOwe.total_piasters).toBeGreaterThanOrEqual(150000);
+    expect(
+      jsonIOwe.people.some((p: { id: string }) => p.id === iOwePersonId),
+    ).toBe(true);
+    // Strict isolation: owedToMe and suppliers must NOT bleed into iOwe
+    expect(
+      jsonIOwe.people.some((p: { id: string }) => p.id === customerId),
+    ).toBe(false);
+    expect(
+      jsonIOwe.people.some((p: { id: string }) => p.id === supplierId),
+    ).toBe(false);
 
     // 3. Check suppliers section
     const resSup = await getPeopleRoute(
@@ -284,6 +304,13 @@ describe("People Module API & Tenancy Integration", () => {
       (s: { id: string }) => s.id === supplierId,
     );
     expect(foundSup.supplies).toHaveLength(1);
+    // Strict isolation: owedToMe and iOwe must NOT bleed into suppliers
+    expect(
+      jsonSup.people.some((p: { id: string }) => p.id === customerId),
+    ).toBe(false);
+    expect(
+      jsonSup.people.some((p: { id: string }) => p.id === iOwePersonId),
+    ).toBe(false);
   });
 
   it("POST /api/people/[id]/transactions records a collection reducing customer balance", async () => {
@@ -491,5 +518,54 @@ describe("People Module API & Tenancy Integration", () => {
       new Request("http://localhost:3000/api/people"),
     );
     expect(res.status).toBe(401);
+  });
+
+  it("P1: Supports Arabic and English numeric inputs in amounts without float errors", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    // 1. Create with Eastern Arabic numerals "١٥٠٠" (1500 piasters)
+    const postReq = new Request("http://localhost:3000/api/people", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `hesba_session=${sessionA.rawToken}`,
+      },
+      body: JSON.stringify({
+        name: "عم عبده",
+        phone: "01234567890",
+        section: "owedToMe",
+        amountPiasters: "١٥٠٠",
+        note: "تجربة أرقام عربية",
+      }),
+    });
+
+    const res = await postPeopleRoute(postReq);
+    expect(res.status).toBe(201);
+    const json = await res.json();
+    expect(json.person.amount_piasters).toBe(1500);
+
+    // 2. Add transaction with Arabic decimal "١٥٠٫٥٠" (15050 piasters)
+    const transReq = new Request(
+      `http://localhost:3000/api/people/${json.person.id}/transactions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${sessionA.rawToken}`,
+        },
+        body: JSON.stringify({
+          type: "debt",
+          amountPiasters: "١٥٠٫٥٠",
+          note: "دفعة إضافية بالعربي",
+        }),
+      },
+    );
+
+    const transRes = await postTransactionRoute(transReq, {
+      params: Promise.resolve({ id: json.person.id }),
+    });
+    expect(transRes.status).toBe(201);
+    const transJson = await transRes.json();
+    expect(transJson.transaction.amount_piasters).toBe(15050);
   });
 });
