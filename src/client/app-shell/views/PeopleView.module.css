@@ -35,8 +35,8 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: var(--acc, #3a5a40);
-  color: #ffffff;
+  background: var(--br, #4f6b46);
+  color: var(--brInk, #ffffff);
   border: none;
   border-radius: 12px;
   padding: 0 16px;
@@ -47,8 +47,8 @@
   white-space: nowrap;
   flex-shrink: 0;
   box-shadow:
-    0 2px 0 color-mix(in srgb, var(--br2, #2d4532) 85%, #000),
-    0 4px 12px color-mix(in srgb, var(--acc, #3a5a40) 25%, transparent);
+    0 2px 0 color-mix(in srgb, var(--br2, #3f5937) 85%, #000),
+    0 4px 12px color-mix(in srgb, var(--br, #4f6b46) 25%, transparent);
   transition:
     transform 0.12s ease,
     opacity 0.15s ease;
@@ -69,9 +69,9 @@
 
 /* Summary Banner */
 .summaryBanner {
-  background: rgba(58, 90, 64, 0.12);
+  background: var(--soft, #e1e8d4);
   border-radius: 14px;
-  padding: 12px 16px;
+  padding: 12px 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -79,16 +79,27 @@
 }
 
 .summaryText {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 800;
-  color: var(--acc);
+  color: var(--br, #4f6b46);
+}
+
+:global([data-theme="dark"]) .summaryText,
+:global([data-theme="auto"]) .summaryText {
+  color: var(--ok, #9dbb8b);
 }
 
 .summaryAmount {
-  font-size: 18px;
+  font-size: 19px;
   font-weight: 900;
-  color: var(--acc);
+  color: var(--br, #4f6b46);
   font-variant-numeric: tabular-nums;
+  direction: ltr;
+}
+
+:global([data-theme="dark"]) .summaryAmount,
+:global([data-theme="auto"]) .summaryAmount {
+  color: var(--ok, #9dbb8b);
 }
 
 /* Cards List */
@@ -101,7 +112,7 @@
 .personCard {
   background: var(--sf);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 14px 16px;
   box-shadow: var(--sh);
   display: flex;
@@ -131,77 +142,66 @@
 .personPhone {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   font-size: 13px;
   color: var(--ink2);
   text-decoration: none;
-  margin-top: 3px;
+  margin-top: 4px;
   font-weight: 600;
 }
 
 .personPhone:hover {
-  color: var(--acc);
+  color: var(--br);
   text-decoration: underline;
 }
 
 .noPhone {
   font-size: 12px;
-  color: var(--ink3);
-  margin-top: 3px;
+  color: var(--ink2);
+  margin-top: 4px;
+  opacity: 0.7;
 }
 
-.cardActions {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.iconBtn {
+.editBtn {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--sf);
+  border-radius: 10px;
+  border: none;
+  background: transparent;
   color: var(--ink2);
   display: inline-flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
-.iconBtn:hover {
+.editBtn:hover {
   background: var(--sf2);
   color: var(--ink);
-  border-color: var(--ink2);
 }
 
-.iconBtn:active {
-  transform: scale(0.95);
+.editBtn:active {
+  transform: scale(0.92);
 }
 
-/* Supplies chips for suppliers */
+/* Supplier product chips in card */
 .suppliesChips {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin: 10px 0 8px 0;
+  margin: 10px 0 6px 0;
 }
 
 .supplyChip {
   background: var(--sf2);
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 3px 10px;
+  padding: 4px 12px;
   font-size: 12px;
   font-weight: 700;
   color: var(--ink);
-}
-
-.noSuppliesText {
-  font-size: 12px;
-  color: var(--ink3);
-  margin: 6px 0;
 }
 
 /* Card Footer */
@@ -211,14 +211,6 @@
   justify-content: space-between;
   gap: 12px;
   margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--line);
-}
-
-.amountLine {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
 }
 
 .amountLabel {
@@ -227,29 +219,8 @@
   font-weight: 600;
 }
 
-.amountPos {
-  font-size: 17px;
-  font-weight: 900;
-  color: #2d6a4f;
-  font-variant-numeric: tabular-nums;
-}
-
-.amountNeg {
-  font-size: 17px;
-  font-weight: 900;
-  color: #c1121f;
-  font-variant-numeric: tabular-nums;
-}
-
-.amountDark {
-  font-size: 17px;
-  font-weight: 900;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-}
-
 .noteText {
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ink2);
   font-weight: 500;
   white-space: nowrap;
@@ -258,29 +229,57 @@
   max-width: 180px;
 }
 
-.payActionBtn {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--acc);
-  background: rgba(58, 90, 64, 0.08);
-  border: 1px solid rgba(58, 90, 64, 0.2);
-  border-radius: 6px;
-  padding: 3px 8px;
-  cursor: pointer;
-  transition: background 0.15s ease;
-  font-family: inherit;
+.amountPos {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--br, #4f6b46);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  margin-inline-start: auto;
 }
 
-.payActionBtn:hover {
-  background: rgba(58, 90, 64, 0.15);
+:global([data-theme="dark"]) .amountPos,
+:global([data-theme="auto"]) .amountPos {
+  color: var(--ok, #9dbb8b);
+}
+
+.amountNeg {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--red, #b3402f);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+  margin-inline-start: auto;
+}
+
+.amountDark {
+  font-size: 18px;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
 }
 
 /* Modal Form Styles */
+.modalForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.formError {
+  background: var(--redBg, #f7e0d9);
+  color: var(--red, #b3402f);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .formGroup {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  margin-bottom: 14px;
 }
 
 .fieldLabel {
@@ -289,12 +288,32 @@
   color: var(--ink);
 }
 
+.labelWithAction {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.removeFieldBtn {
+  background: none;
+  border: none;
+  color: var(--red, #b3402f);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+}
+
+.removeFieldBtn:hover {
+  text-decoration: underline;
+}
+
 .inputField {
   background: var(--sf2);
   border: 1.5px solid var(--line);
-  border-radius: 12px;
-  padding: 10px 12px;
-  font-size: 14px;
+  border-radius: 14px;
+  padding: 11px 14px;
+  font-size: 15px;
   color: var(--ink);
   outline: none;
   font-family: inherit;
@@ -303,7 +322,7 @@
 }
 
 .inputField:focus {
-  border-color: var(--acc);
+  border-color: var(--br);
 }
 
 .amountInputWrapper {
@@ -311,17 +330,18 @@
   align-items: center;
   background: var(--sf2);
   border: 1.5px solid var(--line);
-  border-radius: 12px;
-  padding: 4px 10px;
-  min-height: 44px;
+  border-radius: 14px;
+  padding: 4px 12px;
+  min-height: 48px;
+  transition: border-color 0.15s ease;
 }
 
 .amountInputWrapper:focus-within {
-  border-color: var(--acc);
+  border-color: var(--br);
 }
 
 .currencyBadge {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 800;
   color: var(--ink2);
   padding: 0 4px;
@@ -332,67 +352,187 @@
   background: transparent;
   border: none;
   outline: none;
-  font-size: 16px;
+  font-size: 17px;
   font-weight: 800;
   color: var(--ink);
   text-align: right;
   font-family: inherit;
 }
 
+/* Toggle Buttons for Progressive Disclosure */
+.toggleFieldBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1.5px dashed var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--br, #4f6b46);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  width: 100%;
+}
+
+:global([data-theme="dark"]) .toggleFieldBtn,
+:global([data-theme="auto"]) .toggleFieldBtn {
+  color: var(--ok, #9dbb8b);
+}
+
+.toggleFieldBtn:hover {
+  background: var(--sf2);
+  border-color: var(--br);
+}
+
+.toggleFieldBtn:active {
+  transform: scale(0.99);
+}
+
+/* Selected product chips in modal matching screenshot */
 .selectedSuppliesList {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: 4px;
 }
 
 .selectedSupplyChip {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  background: var(--acc);
+  background: var(--br, #4f6b46);
   color: #ffffff;
   border: none;
   border-radius: 999px;
-  padding: 4px 10px;
-  font-size: 12px;
+  padding: 6px 12px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   transition: opacity 0.15s ease;
   font-family: inherit;
 }
 
+:global([data-theme="dark"]) .selectedSupplyChip,
+:global([data-theme="auto"]) .selectedSupplyChip {
+  background: #394833;
+}
+
 .selectedSupplyChip:hover {
   opacity: 0.85;
 }
 
-.productSelectWrapper {
+.chipRemoveX {
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1;
+}
+
+/* Combobox Searchable Dropdown */
+.comboboxWrapper {
   position: relative;
+  width: 100%;
+}
+
+.comboboxTrigger {
   display: flex;
   align-items: center;
-}
-
-.productSelect {
-  width: 100%;
+  justify-content: space-between;
   background: var(--sf2);
   border: 1.5px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 12px;
-  font-size: 13px;
-  color: var(--ink);
-  outline: none;
-  font-family: inherit;
+  border-radius: 14px;
+  padding: 6px 14px;
+  min-height: 48px;
   cursor: pointer;
-  appearance: none;
+  transition: border-color 0.15s ease;
 }
 
-.productSelectIcon {
-  position: absolute;
-  left: 10px;
-  pointer-events: none;
+.comboboxTrigger:focus-within {
+  border-color: var(--br);
+}
+
+.comboboxRight {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
   color: var(--ink2);
 }
 
+.comboboxInput {
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--ink);
+  font-family: inherit;
+  flex: 1;
+}
+
+.comboboxArrow {
+  color: var(--ink2);
+  transition: transform 0.2s ease;
+}
+
+.arrowOpen {
+  transform: rotate(180deg);
+}
+
+.comboboxDropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  inset-inline-start: 0;
+  inset-inline-end: 0;
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--sh2);
+  max-height: 200px;
+  overflow-y: auto;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+}
+
+.dropdownOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: right;
+  font-family: inherit;
+  transition: background 0.12s ease;
+  min-height: 44px;
+}
+
+.dropdownOption:hover {
+  background: var(--sf2);
+}
+
+.dropdownOption:active {
+  background: var(--soft);
+}
+
+.dropdownHint {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+/* Modal Actions Footer matching screenshot */
 .modalFooter {
   display: flex;
   align-items: center;
@@ -405,24 +545,23 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: #fee2e2;
-  color: #b91c1c;
-  border: 1px solid #fca5a5;
-  border-radius: 12px;
+  background: var(--redBg, #f7e0d9);
+  color: var(--red, #b3402f);
+  border: none;
+  border-radius: 14px;
   padding: 0 16px;
   min-height: 44px;
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
-  margin-inline-start: auto;
   transition:
     background 0.15s ease,
     opacity 0.15s ease;
 }
 
 .btnDanger:hover {
-  background: #fecaca;
+  opacity: 0.9;
 }
 
 .btnDanger:active {
@@ -433,21 +572,21 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: transparent;
-  color: var(--ink, #1f2421);
-  border: 1px solid var(--line, #e5e0d8);
-  border-radius: 12px;
-  padding: 0 16px;
+  background: var(--sf);
+  color: var(--ink);
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 0 18px;
   min-height: 44px;
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 800;
   cursor: pointer;
   font-family: inherit;
   transition: background 0.15s ease;
 }
 
 .btnGhost:hover {
-  background: var(--sf2, #f5f2eb);
+  background: var(--sf2);
 }
 
 .btnPrimary {
@@ -455,16 +594,17 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  background: var(--acc, #3a5a40);
-  color: #ffffff;
+  background: var(--br, #4f6b46);
+  color: var(--brInk, #ffffff);
   border: none;
-  border-radius: 12px;
-  padding: 0 18px;
+  border-radius: 14px;
+  padding: 0 22px;
   min-height: 44px;
   font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
+  margin-inline-start: auto;
   transition:
     opacity 0.15s ease,
     transform 0.12s ease;
@@ -478,35 +618,31 @@
   transform: scale(0.98);
 }
 
-/* Confirm Delete Dialog */
-.confirmDialog {
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  padding: 20px;
-  max-width: 360px;
-  width: 100%;
-  box-shadow: var(--sh);
+.btnPrimary:disabled,
+.btnDanger:disabled,
+.btnGhost:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
-.confirmTitle {
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--ink);
-  margin: 0 0 8px 0;
+/* Confirm Delete Dialog matching screenshot */
+.confirmDialog {
+  display: flex;
+  flex-direction: column;
 }
 
 .confirmMessage {
-  font-size: 14px;
-  color: var(--ink2);
-  margin: 0 0 18px 0;
-  line-height: 1.4;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--ink);
+  margin: 0;
+  line-height: 1.5;
 }
 
 .confirmActions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   width: 100%;
 }
 
@@ -514,16 +650,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: #b02a2a;
+  background: var(--red, #b3402f);
   color: #ffffff;
   border: none;
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 0 24px;
   min-height: 44px;
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 800;
   cursor: pointer;
   font-family: inherit;
+  margin-inline-start: auto;
   transition:
     opacity 0.15s ease,
     transform 0.12s ease;
@@ -541,14 +678,14 @@
 /* Error & Loading Cards */
 .errorCard {
   background: var(--sf);
-  border: 1.5px solid #f8b4b4;
-  border-radius: 16px;
-  padding: 20px 16px;
+  border: 1.5px solid var(--red);
+  border-radius: 18px;
+  padding: 24px 16px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
-  color: #c1121f;
+  color: var(--red);
   gap: 10px;
 }
 
@@ -575,7 +712,7 @@
 .loadingCard {
   background: var(--sf);
   border: 1px solid var(--line);
-  border-radius: 16px;
+  border-radius: 18px;
   padding: 24px;
   text-align: center;
   color: var(--ink2);

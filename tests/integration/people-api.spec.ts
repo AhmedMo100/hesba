@@ -803,4 +803,221 @@ describe("People Module API & Tenancy Integration", () => {
     expect(sInCust).toBeNull();
     expect(sInPay).toBeNull();
   });
+
+  describe("Enhanced Supplier Form Combinations & Atomic Workflows", () => {
+    it("Combination 1: Name only — creates supplier without phone, note, debt entry or products", async () => {
+      const session = await createSession(userAId, storeAId);
+      const res = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "مورد بالاسم فقط",
+            section: "suppliers",
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { person } = await res.json();
+      expect(person.name).toBe("مورد بالاسم فقط");
+      expect(person.phone).toBeNull();
+      expect(person.note).toBeNull();
+      expect(person.amount_piasters).toBe(0);
+      expect(person.supplies).toEqual([]);
+
+      // Verify DB: Zero debt entries and zero supplier products
+      const debts = await migratorPrisma.debtEntry.findMany({
+        where: { supplierId: person.id },
+      });
+      expect(debts).toHaveLength(0);
+
+      const sp = await migratorPrisma.supplierProduct.findMany({
+        where: { supplierId: person.id },
+      });
+      expect(sp).toHaveLength(0);
+    });
+
+    it("Combination 2: Name + Phone — creates supplier with phone and zero financial debt", async () => {
+      const session = await createSession(userAId, storeAId);
+      const res = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "مورد برقم تليفون",
+            phone: "01011112222",
+            section: "suppliers",
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { person } = await res.json();
+      expect(person.name).toBe("مورد برقم تليفون");
+      expect(person.phone).toBe("01011112222");
+      expect(person.amount_piasters).toBe(0);
+
+      const debts = await migratorPrisma.debtEntry.findMany({
+        where: { supplierId: person.id },
+      });
+      expect(debts).toHaveLength(0);
+    });
+
+    it("Combination 3: Name + Note — creates supplier with note and zero financial debt", async () => {
+      const session = await createSession(userAId, storeAId);
+      const res = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "مورد بملاحظة",
+            note: "بيمر كل خميس",
+            section: "suppliers",
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { person } = await res.json();
+      expect(person.name).toBe("مورد بملاحظة");
+      expect(person.note).toBe("بيمر كل خميس");
+      expect(person.amount_piasters).toBe(0);
+
+      const debts = await migratorPrisma.debtEntry.findMany({
+        where: { supplierId: person.id },
+      });
+      expect(debts).toHaveLength(0);
+    });
+
+    it("Combination 4: Name + Amount — creates supplier and atomic debt entry with exact piasters", async () => {
+      const session = await createSession(userAId, storeAId);
+      const res = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "مورد برصيد مستحق",
+            amountPiasters: 320000, // 3200 EGP
+            section: "suppliers",
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { person } = await res.json();
+      expect(person.name).toBe("مورد برصيد مستحق");
+      expect(person.amount_piasters).toBe(320000);
+
+      // Verify DB has exactly 1 debt entry of 320000 in i_owe direction
+      const debts = await migratorPrisma.debtEntry.findMany({
+        where: { supplierId: person.id },
+      });
+      expect(debts).toHaveLength(1);
+      expect(debts[0]?.direction).toBe("i_owe");
+      expect(Number(debts[0]?.amountPiasters)).toBe(320000);
+    });
+
+    it("Combination 5: Name + Supplies — associates store product without debt", async () => {
+      const session = await createSession(userAId, storeAId);
+      const res = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "مورد بمنتج",
+            supplies: [testProductId],
+            section: "suppliers",
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { person } = await res.json();
+      expect(person.name).toBe("مورد بمنتج");
+      expect(person.supplies).toHaveLength(1);
+      expect(person.supplies[0]?.id).toBe(testProductId);
+      expect(person.amount_piasters).toBe(0);
+
+      const debts = await migratorPrisma.debtEntry.findMany({
+        where: { supplierId: person.id },
+      });
+      expect(debts).toHaveLength(0);
+    });
+
+    it("Combination 6: All fields combined — Name + Phone + Note + Amount + Supplies", async () => {
+      const session = await createSession(userAId, storeAId);
+      const res = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "شركة النور للتجارة",
+            phone: "01001112233",
+            note: "موزع رئيسي معتمد",
+            amountPiasters: 540000, // 5,400 EGP
+            supplies: [testProductId],
+            section: "suppliers",
+          }),
+        }),
+      );
+      expect(res.status).toBe(201);
+      const { person } = await res.json();
+      expect(person.name).toBe("شركة النور للتجارة");
+      expect(person.phone).toBe("01001112233");
+      expect(person.note).toBe("موزع رئيسي معتمد");
+      expect(person.amount_piasters).toBe(540000);
+      expect(person.supplies).toHaveLength(1);
+
+      // Verify updating supplier to add / remove supplies and update balance atomically
+      const patchRes = await patchPersonRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "شركة النور الدولية",
+            amountPiasters: 600000, // Updated to 6,000 EGP (+600 EGP debt adjustment)
+            supplies: [], // Removed all supplies
+          }),
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(patchRes.status).toBe(200);
+      const { person: updated } = await patchRes.json();
+      expect(updated.name).toBe("شركة النور الدولية");
+      expect(updated.amount_piasters).toBe(600000);
+      expect(updated.supplies).toHaveLength(0);
+
+      // Verify soft delete
+      const delRes = await deletePersonRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          method: "DELETE",
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(delRes.status).toBe(200);
+
+      const dbAfterDel = await migratorPrisma.supplier.findUnique({
+        where: { id: person.id },
+      });
+      expect(dbAfterDel?.deletedAt).not.toBeNull();
+    });
+  });
 });
