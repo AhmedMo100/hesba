@@ -20,17 +20,22 @@ describe("AiView Component (Assistant Chat Interface)", () => {
     expect(html).toContain("باقي 5 من 5 رسائل النهارده");
   });
 
-  it("renders empty state with sparkle icon and helpful store guidance", () => {
+  it("renders minimal calm empty state with sparkle icon and guidance", () => {
     const html = renderToStaticMarkup(<AiView />);
-    expect(html).toContain("اسألني أي حاجة عن محلك");
-    expect(html).toContain("الأرباح، النواقص، الأسعار، تأثير الدولار والوقود…");
+    expect(html).toContain("اسألني أي حاجة عن محلك أو السوق");
+    expect(html).toContain(
+      "الأرباح، النواقص، الأسعار، وحركة المبيعات والمصروفات…",
+    );
   });
 
-  it("renders the 4 predefined Egyptian store suggestion chips", () => {
+  it("renders permanent suggestions strip positioned above the composer", () => {
     const html = renderToStaticMarkup(<AiView />);
+    expect(html).toContain('data-testid="ai-suggestions-strip"');
     expect(html).toContain("كسبت كام النهارده؟");
-    expect(html).toContain("إيه اللي خلص ومحتاج أشتريه؟");
-    expect(html).toContain("أكتر صنف بيتباع");
+    expect(html).toContain("إيه المنتجات اللي قربت تخلص؟");
+    expect(html).toContain("أكتر المنتجات مبيعاً؟");
+    expect(html).toContain("إيه المصروفات النهارده؟");
+    expect(html).toContain("مين أكتر العملاء مديونية؟");
     expect(html).toContain("الدولار والبنزين هيأثروا على أسعاري إزاي؟");
   });
 

@@ -370,6 +370,8 @@ export function AiView() {
     t("pages.ai.sugg2"),
     t("pages.ai.sugg3"),
     t("pages.ai.sugg4"),
+    t("pages.ai.sugg5"),
+    t("pages.ai.sugg6"),
   ];
 
   const remainingQuota = quota ? quota.remaining : 5;
@@ -377,6 +379,7 @@ export function AiView() {
 
   return (
     <div className={styles.page} data-testid="page-ai">
+      {/* Header */}
       <header className={styles.phead}>
         <div className={styles.pheadInfo}>
           <h1>{t("pages.ai.title")}</h1>
@@ -408,6 +411,7 @@ export function AiView() {
         </div>
       </header>
 
+      {/* Daily limit warning banner */}
       {isQuotaExceeded && (
         <div className={styles.limitBanner}>
           <Icon n="info" s={18} />
@@ -417,28 +421,15 @@ export function AiView() {
         </div>
       )}
 
+      {/* Messages Scroll Area */}
       <div className={styles.chat}>
         {messages.length === 0 ? (
           <div className={styles.aiHello}>
             <div className={styles.sparkleIconBox}>
-              <Icon n="sparkle" s={30} />
+              <Icon n="sparkle" s={26} />
             </div>
             <b>{t("pages.ai.emptyTitle")}</b>
             <span>{t("pages.ai.emptySubtitle")}</span>
-
-            <div className={styles.chips}>
-              {suggestions.map((s, idx) => (
-                <button
-                  type="button"
-                  key={idx}
-                  className={styles.suggChip}
-                  disabled={isQuotaExceeded || isLoading}
-                  onClick={() => void handleSend(s)}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           messages.map((m) => (
@@ -449,6 +440,7 @@ export function AiView() {
               <div className={styles.bub}>
                 {m.content}
 
+                {/* Sources & Citations if present */}
                 {m.sources && m.sources.length > 0 && (
                   <div className={styles.sources}>
                     <span className={styles.sourcesTitle}>
@@ -473,8 +465,9 @@ export function AiView() {
                   </div>
                 )}
 
+                {/* Failed user message retry state */}
                 {m.failed && (
-                  <div style={{ marginTop: 8 }}>
+                  <div style={{ marginTop: 6 }}>
                     <button
                       type="button"
                       className={styles.retryBtn}
@@ -489,6 +482,7 @@ export function AiView() {
           ))
         )}
 
+        {/* Assistant typing indicator */}
         {isLoading && (
           <div className={`${styles.msg} ${styles.msgA}`}>
             <div className={`${styles.bub} ${styles.typing}`}>
@@ -499,6 +493,7 @@ export function AiView() {
           </div>
         )}
 
+        {/* Error message */}
         {error && (
           <div className={styles.errorState}>
             <span>{error}</span>
@@ -508,54 +503,79 @@ export function AiView() {
         <div ref={messagesEndRef} />
       </div>
 
-      <div className={styles.composer}>
-        <button
-          type="button"
-          className={`${styles.micBtn} ${isListening ? styles.micBtnListening : ""}`}
-          onClick={toggleVoice}
-          aria-label={
-            isListening ? t("pages.ai.listening") : t("pages.ai.voiceLabel")
-          }
-          title={
-            isListening ? t("pages.ai.listening") : t("pages.ai.voiceLabel")
-          }
+      {/* Fixed Bottom Section: Always-Visible Suggestions + Composer Bar */}
+      <div className={styles.bottomArea}>
+        {/* Horizontal Suggestion Chips directly above the input box */}
+        <div
+          className={styles.suggestionsStrip}
+          data-testid="ai-suggestions-strip"
+          aria-label="الأسئلة المقترحة"
         >
-          <Icon n="mic" s={20} />
-        </button>
+          {suggestions.map((s, idx) => (
+            <button
+              type="button"
+              key={idx}
+              className={styles.suggChip}
+              data-testid="ai-suggestion-chip"
+              disabled={isQuotaExceeded || isLoading}
+              onClick={() => void handleSend(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
 
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          disabled={isQuotaExceeded || isLoading}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
+        {/* Composer Bar */}
+        <div className={styles.composer}>
+          <button
+            type="button"
+            className={`${styles.micBtn} ${isListening ? styles.micBtnListening : ""}`}
+            onClick={toggleVoice}
+            aria-label={
+              isListening ? t("pages.ai.listening") : t("pages.ai.voiceLabel")
             }
-          }}
-          placeholder={
-            isQuotaExceeded
-              ? t("pages.ai.placeholderExceeded")
-              : isListening
-                ? t("pages.ai.listening")
-                : t("pages.ai.placeholder")
-          }
-          aria-label={t("pages.ai.placeholder")}
-        />
+            title={
+              isListening ? t("pages.ai.listening") : t("pages.ai.voiceLabel")
+            }
+          >
+            <Icon n="mic" s={19} />
+          </button>
 
-        <button
-          type="button"
-          className={`${styles.sendBtn} ${input.trim() ? styles.sendBtnActive : ""}`}
-          disabled={!input.trim() || isLoading || isQuotaExceeded}
-          onClick={() => void handleSend()}
-          aria-label={t("pages.ai.send")}
-        >
-          <Icon n="send" s={18} />
-        </button>
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            disabled={isQuotaExceeded || isLoading}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
+            placeholder={
+              isQuotaExceeded
+                ? t("pages.ai.placeholderExceeded")
+                : isListening
+                  ? t("pages.ai.listening")
+                  : t("pages.ai.placeholder")
+            }
+            aria-label={t("pages.ai.placeholder")}
+          />
+
+          <button
+            type="button"
+            className={`${styles.sendBtn} ${input.trim() ? styles.sendBtnActive : ""}`}
+            disabled={!input.trim() || isLoading || isQuotaExceeded}
+            onClick={() => void handleSend()}
+            aria-label={t("pages.ai.send")}
+          >
+            <Icon n="send" s={17} />
+          </button>
+        </div>
       </div>
 
+      {/* 7-Day History Modal */}
       {showHistoryModal && (
         <Modal
           title={t("pages.ai.historyTitle")}
@@ -571,7 +591,7 @@ export function AiView() {
               <div
                 style={{
                   textAlign: "center",
-                  padding: "24px 0",
+                  padding: "20px 0",
                   color: "var(--ink2)",
                 }}
               >
