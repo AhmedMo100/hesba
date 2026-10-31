@@ -43,7 +43,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies
-        run: pnpm audit
+        run: pnpm audit --audit-level high
 
       - name: Static lint & import boundaries
         run: pnpm lint

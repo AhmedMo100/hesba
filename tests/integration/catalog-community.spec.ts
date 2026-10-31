@@ -9,8 +9,11 @@ import {
 } from "@/server/modules/catalog";
 
 const directUrl =
+  process.env["HESBA_DIRECT_URL"] ??
   "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
-const databaseUrl = "postgres://hesba_app:change-me-local@localhost:5434/hesba";
+const databaseUrl =
+  process.env["HESBA_DATABASE_URL"] ??
+  "postgres://hesba_app:change-me-local@localhost:5434/hesba";
 
 describe("Catalog Foundation, Custom Products & Community Suggestions (Phase 3.1 Integration)", () => {
   let migratorPrisma: PrismaClient;

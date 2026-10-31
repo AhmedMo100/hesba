@@ -3,6 +3,7 @@ import { PrismaClient } from "@prisma/client";
 import { GET } from "@/app/api/sync/catalog/route";
 
 const directUrl =
+  process.env["HESBA_DIRECT_URL"] ??
   "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
 
 describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integration)", () => {
