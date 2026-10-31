@@ -21,12 +21,12 @@
   justify-content: space-between;
   gap: 12px;
   padding: 4px 0 8px 0;
+  width: 100%;
 }
 
+/* Hidden on mobile to keep the mobile header clean & compact */
 .pheadInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: none;
 }
 
 .pheadInfo h1 {
@@ -47,7 +47,23 @@
 .pheadActions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
   gap: 8px;
+}
+
+/* Display full title and subtitle on tablet & desktop */
+@media (min-width: 640px) {
+  .pheadInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pheadActions {
+    width: auto;
+    justify-content: flex-end;
+  }
 }
 
 .quota {

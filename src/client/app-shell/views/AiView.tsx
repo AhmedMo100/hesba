@@ -387,16 +387,6 @@ export function AiView() {
         </div>
 
         <div className={styles.pheadActions}>
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={() => setShowHistoryModal(true)}
-            aria-label={t("pages.ai.historyBtn")}
-            title={t("pages.ai.historyBtn")}
-          >
-            <Icon n="history" s={18} />
-          </button>
-
           <span
             className={`${styles.quota} ${isQuotaExceeded ? styles.quotaZero : ""}`}
             data-testid="ai-quota-badge"
@@ -408,6 +398,16 @@ export function AiView() {
                   limit: quota?.limit ?? 5,
                 })}
           </span>
+
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={() => setShowHistoryModal(true)}
+            aria-label={t("pages.ai.historyBtn")}
+            title={t("pages.ai.historyBtn")}
+          >
+            <Icon n="history" s={18} />
+          </button>
         </div>
       </header>
 
