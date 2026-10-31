@@ -49,7 +49,7 @@ export class AIService {
     if (aiProvider) {
       this.aiProvider = aiProvider;
     } else if (
-      process.env.HESBA_GEMINI_API_KEY &&
+      (process.env.GEMINI_API_KEY || process.env.HESBA_GEMINI_API_KEY) &&
       process.env.NODE_ENV !== "test"
     ) {
       this.aiProvider = new GeminiProvider();

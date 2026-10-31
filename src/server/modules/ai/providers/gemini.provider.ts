@@ -16,13 +16,20 @@ export class GeminiProvider implements AIProvider {
   private readonly modelName: string;
 
   constructor(apiKey?: string, modelName?: string) {
-    this.apiKey = apiKey || process.env.HESBA_GEMINI_API_KEY || "";
+    this.apiKey =
+      apiKey ||
+      process.env.GEMINI_API_KEY ||
+      process.env.HESBA_GEMINI_API_KEY ||
+      "";
     this.modelName =
-      modelName || process.env.HESBA_GEMINI_MODEL || DEFAULT_GEMINI_MODEL;
+      modelName ||
+      process.env.GEMINI_MODEL ||
+      process.env.HESBA_GEMINI_MODEL ||
+      DEFAULT_GEMINI_MODEL;
 
     if (!this.apiKey) {
       logger.warn(
-        "GeminiProvider instantiated without HESBA_GEMINI_API_KEY. Calls will fail unless configured.",
+        "GeminiProvider instantiated without GEMINI_API_KEY. Calls will fail unless configured.",
       );
     }
   }

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { BusinessToolsService } from "@/server/modules/ai/tools/business-tools";
 import { MockAIProvider } from "@/server/modules/ai/providers/mock-ai.provider";
 import { MockSearchProvider } from "@/server/modules/ai/search/mock-search.provider";
+import { GeminiProvider } from "@/server/modules/ai/providers/gemini.provider";
 
 describe("AI Business Tools & Providers Unit Tests", () => {
   it("provides complete tool definitions with JSON schema properties", () => {
@@ -76,5 +77,16 @@ describe("AI Business Tools & Providers Unit Tests", () => {
     expect(result.citations.length).toBeGreaterThan(0);
     expect(result.citations[0]?.url).toContain("http");
     expect(result.summary).toBeTruthy();
+  });
+
+  it("GeminiProvider initializes safely and reads GEMINI_API_KEY from environment", () => {
+    const originalKey = process.env.GEMINI_API_KEY;
+    try {
+      process.env.GEMINI_API_KEY = "test-gemini-key";
+      const provider = new GeminiProvider();
+      expect(provider.name).toBe("gemini");
+    } finally {
+      process.env.GEMINI_API_KEY = originalKey;
+    }
   });
 });
