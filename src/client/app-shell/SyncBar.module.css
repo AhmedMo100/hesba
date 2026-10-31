@@ -1,4 +1,7 @@
 .syncbar {
+  position: sticky;
+  top: 62px;
+  z-index: 29;
   display: flex;
   align-items: center;
   gap: 8px;
