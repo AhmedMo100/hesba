@@ -178,19 +178,12 @@ export function AiView() {
             messageCount: c.message_count ?? c.messageCount ?? 0,
           }));
           setConversations(formatted);
-          if (formatted.length > 0 && !activeConversationId) {
-            const todayConv = formatted[0];
-            if (todayConv) {
-              setActiveConversationId(todayConv.id);
-              await loadConversationMessages(todayConv.id);
-            }
-          }
         }
       }
     } catch {
       // Ignore background load errors
     }
-  }, [activeConversationId, loadConversationMessages]);
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -228,40 +221,6 @@ export function AiView() {
               messageCount: c.message_count ?? c.messageCount ?? 0,
             }));
             setConversations(formatted);
-            if (formatted.length > 0) {
-              const todayConv = formatted[0];
-              if (todayConv) {
-                setActiveConversationId(todayConv.id);
-                const msgsRes = await fetch(
-                  `/api/ai/conversations/${todayConv.id}`,
-                );
-                if (!ignore && msgsRes.ok) {
-                  const msgsJson = await msgsRes.json();
-                  const conv = msgsJson.conversation ?? msgsJson.data;
-                  if (conv && Array.isArray(conv.messages)) {
-                    setMessages(
-                      conv.messages.map(
-                        (m: {
-                          id: string;
-                          role: "user" | "assistant";
-                          body_text?: string;
-                          content?: string;
-                          sources?: AiSource[];
-                          created_at?: string;
-                          createdAt?: string;
-                        }) => ({
-                          id: m.id,
-                          role: m.role,
-                          content: m.body_text ?? m.content ?? "",
-                          sources: m.sources,
-                          createdAt: m.created_at ?? m.createdAt,
-                        }),
-                      ),
-                    );
-                  }
-                }
-              }
-            }
           }
         }
       } catch {
@@ -431,6 +390,7 @@ export function AiView() {
     t("pages.ai.sugg2"),
     t("pages.ai.sugg3"),
     t("pages.ai.sugg4"),
+    t("pages.ai.sugg5"),
   ];
 
   const remainingQuota = quota ? quota.remaining : 5;
@@ -489,26 +449,6 @@ export function AiView() {
             </div>
             <b>{t("pages.ai.emptyTitle")}</b>
             <span>{t("pages.ai.emptySubtitle")}</span>
-
-            {/* Vertically centered suggestion pills */}
-            <div
-              className={styles.suggChipsList}
-              data-testid="ai-suggestions-strip"
-              aria-label="الأسئلة المقترحة"
-            >
-              {suggestions.map((s, idx) => (
-                <button
-                  type="button"
-                  key={idx}
-                  className={styles.suggChip}
-                  data-testid="ai-suggestion-chip"
-                  disabled={isQuotaExceeded || isLoading}
-                  onClick={() => void handleSend(s)}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
           </div>
         ) : (
           messages.map((m) => (
@@ -582,8 +522,29 @@ export function AiView() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Fixed Bottom Section: Composer Bar */}
+      {/* Fixed Bottom Section: Suggestions Strip directly above Search + Composer Bar */}
       <div className={styles.bottomArea}>
+        {/* Horizontal Suggestion Chips directly above the input box */}
+        <div
+          className={styles.suggestionsStrip}
+          data-testid="ai-suggestions-strip"
+          aria-label="الأسئلة المقترحة"
+        >
+          {suggestions.map((s, idx) => (
+            <button
+              type="button"
+              key={idx}
+              className={styles.suggChip}
+              data-testid="ai-suggestion-chip"
+              disabled={isQuotaExceeded || isLoading}
+              onClick={() => void handleSend(s)}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+
+        {/* Composer Bar */}
         <div className={styles.composer}>
           <button
             type="button"

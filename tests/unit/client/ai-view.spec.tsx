@@ -26,7 +26,7 @@ describe("AiView Component (Assistant Chat Interface)", () => {
     expect(html).toContain("الأرباح، النواقص، الأسعار، تأثير الدولار والوقود…");
   });
 
-  it("renders suggestions list positioned in empty state", () => {
+  it("renders suggestions strip positioned above the composer", () => {
     const html = renderToStaticMarkup(<AiView />);
     expect(html).toContain('data-testid="ai-suggestions-strip"');
     expect(html).toContain("كسبت كام النهارده؟");
