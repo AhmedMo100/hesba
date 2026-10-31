@@ -340,10 +340,14 @@ CREATE INDEX ON jobs (status, run_at);
 
 CREATE TABLE flags (key text PRIMARY KEY, value jsonb NOT NULL, updated_at timestamptz DEFAULT now());  -- maintenance, kill-switch
 CREATE TABLE audit_log (id uuid PRIMARY KEY, store_id uuid NULL, actor_user_id uuid NULL, action text NOT NULL, target text NULL, meta jsonb NULL, ip inet NULL, created_at timestamptz DEFAULT now());
-CREATE TABLE ai_usage (store_id uuid NOT NULL, day date NOT NULL, count int NOT NULL DEFAULT 0, PRIMARY KEY (store_id, day));
+CREATE TABLE ai_usage (store_id uuid NOT NULL, day date NOT NULL, count int NOT NULL DEFAULT 0, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(), PRIMARY KEY (store_id, day));
+CREATE TABLE ai_conversations (id uuid PRIMARY KEY, store_id uuid NOT NULL REFERENCES stores(id), day date NOT NULL, title text NOT NULL, created_at timestamptz DEFAULT now(), updated_at timestamptz DEFAULT now(), CONSTRAINT uq_ai_conversations_store_day UNIQUE (store_id, day));
+CREATE TABLE ai_messages (id uuid PRIMARY KEY, conversation_id uuid NOT NULL REFERENCES ai_conversations(id) ON DELETE CASCADE, role text NOT NULL, content text NOT NULL, sources jsonb, client_message_id text, created_at timestamptz DEFAULT now());
 CREATE TABLE alert_dismissals (store_id uuid NOT NULL, kind text NOT NULL, ref_id uuid NOT NULL, dismissed_at timestamptz DEFAULT now(), PRIMARY KEY (store_id, kind, ref_id));
 ```
-- `ai_usage`: atomic check `INSERT … ON CONFLICT (store_id, day) DO UPDATE SET count = ai_usage.count + 1 WHERE ai_usage.count < 5 RETURNING count` (if no row is returned = the limit is reached). The limit of 5 is a constant in `constants.ts`.
+- `ai_conversations`: Enforces a single conversation per store per day (`@@unique([store_id, day])`). Retention is 7 days, purged via cron `POST /api/cron/ai-cleanup`.
+- `ai_messages`: Append-only messages linked to daily conversation, cascading upon conversation deletion.
+- `ai_usage`: atomic check `INSERT … ON CONFLICT (store_id, day) DO UPDATE SET count = ai_usage.count + 1 WHERE ai_usage.count < 5 RETURNING count` (if no row is returned = the limit is reached). The limit of 5 is a constant in `constants.ts`. Never purged by retention to preserve daily billing/quota auditing.
 
 ## 8. Subscriptions and Reports
 
