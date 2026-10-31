@@ -67,39 +67,94 @@
   margin-bottom: 12px;
 }
 
-/* Summary Banner */
-.summaryBanner {
+/* Comprehensive Financial Summary Card */
+.financialSummaryCard {
   background: var(--soft, #e1e8d4);
-  border-radius: 14px;
-  padding: 12px 18px;
+  border-radius: 16px;
+  padding: 14px 16px;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  gap: 10px;
   margin-bottom: 14px;
+  border: 1px solid color-mix(in srgb, var(--br, #4f6b46) 20%, transparent);
 }
 
-.summaryText {
+.summaryMetricsRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  text-align: center;
+}
+
+.summaryMetricItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.metricLabel {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.metricValOriginal {
   font-size: 15px;
-  font-weight: 800;
-  color: var(--br, #4f6b46);
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
 }
 
-:global([data-theme="dark"]) .summaryText,
-:global([data-theme="auto"]) .summaryText {
-  color: var(--ok, #9dbb8b);
-}
-
-.summaryAmount {
-  font-size: 19px;
+.metricValPaid {
+  font-size: 15px;
   font-weight: 900;
   color: var(--br, #4f6b46);
   font-variant-numeric: tabular-nums;
   direction: ltr;
 }
 
-:global([data-theme="dark"]) .summaryAmount,
-:global([data-theme="auto"]) .summaryAmount {
+:global([data-theme="dark"]) .metricValPaid,
+:global([data-theme="auto"]) .metricValPaid {
   color: var(--ok, #9dbb8b);
+}
+
+.metricValRemaining {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--red, #b3402f);
+  font-variant-numeric: tabular-nums;
+  direction: ltr;
+}
+
+.summaryCountsStrip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px dashed color-mix(in srgb, var(--br, #4f6b46) 25%, transparent);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.countBadge {
+  color: var(--ink);
+}
+
+.countBadgeSettled {
+  color: var(--br, #4f6b46);
+}
+
+:global([data-theme="dark"]) .countBadgeSettled,
+:global([data-theme="auto"]) .countBadgeSettled {
+  color: var(--ok, #9dbb8b);
+}
+
+.countsDot {
+  color: var(--ink2);
+  opacity: 0.6;
 }
 
 /* Cards List */
@@ -124,12 +179,20 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 10px;
+  gap: 8px;
 }
 
 .personMeta {
   display: flex;
   flex-direction: column;
+  min-width: 0;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .personName {
@@ -137,6 +200,21 @@
   font-weight: 800;
   color: var(--ink);
   line-height: 1.3;
+}
+
+.settledBadge {
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--soft, #e1e8d4);
+  color: var(--br, #4f6b46);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+:global([data-theme="dark"]) .settledBadge,
+:global([data-theme="auto"]) .settledBadge {
+  color: var(--ok, #9dbb8b);
 }
 
 .personPhone {
@@ -162,10 +240,81 @@
   opacity: 0.7;
 }
 
+.cardActionsGroup {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.collectBtn,
+.payBtn {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  transition: opacity 0.15s ease;
+  min-height: 32px;
+}
+
+.collectBtn {
+  background: var(--br, #4f6b46);
+  color: #ffffff;
+}
+
+.collectBtn:hover {
+  opacity: 0.9;
+}
+
+.payBtn {
+  background: var(--red, #b3402f);
+  color: #ffffff;
+}
+
+.payBtn:hover {
+  opacity: 0.9;
+}
+
+.statementBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  min-height: 32px;
+}
+
+.statementBtn:hover {
+  background: var(--sf);
+  color: var(--ink);
+  border-color: var(--ink2);
+}
+
+.statementBtnText {
+  display: inline-block;
+}
+
+@media (max-width: 360px) {
+  .statementBtnText {
+    display: none;
+  }
+}
+
 .editBtn {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
   border: none;
   background: transparent;
   color: var(--ink2);
@@ -274,6 +423,29 @@
   border-radius: 10px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.currentBalanceBanner {
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.currentBalanceLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.currentBalanceValue {
+  font-size: 16px;
+  font-weight: 900;
+  color: var(--ink);
+  direction: ltr;
 }
 
 .formGroup {
@@ -392,7 +564,7 @@
   transform: scale(0.99);
 }
 
-/* Selected product chips in modal matching screenshot */
+/* Selected product chips in modal */
 .selectedSuppliesList {
   display: flex;
   flex-wrap: wrap;
@@ -532,7 +704,7 @@
   font-weight: 600;
 }
 
-/* Modal Actions Footer matching screenshot */
+/* Modal Actions Footer */
 .modalFooter {
   display: flex;
   align-items: center;
@@ -625,7 +797,7 @@
   cursor: not-allowed;
 }
 
-/* Confirm Delete Dialog matching screenshot */
+/* Confirm Delete Dialog */
 .confirmDialog {
   display: flex;
   flex-direction: column;
@@ -673,6 +845,176 @@
 
 .confirmDeleteBtn:active:not(:disabled) {
   transform: scale(0.98);
+}
+
+/* Statement / Ledger Modal Styles */
+.ledgerContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.ledgerSummaryStrip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  gap: 8px;
+  text-align: center;
+}
+
+.ledgerSummaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.ledgerSummaryLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.ledgerSummaryValOriginal {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  direction: ltr;
+}
+
+.ledgerSummaryValPaid {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--br, #4f6b46);
+  direction: ltr;
+}
+
+:global([data-theme="dark"]) .ledgerSummaryValPaid,
+:global([data-theme="auto"]) .ledgerSummaryValPaid {
+  color: var(--ok, #9dbb8b);
+}
+
+.ledgerSummaryValRemaining {
+  font-size: 15px;
+  font-weight: 900;
+  color: var(--red, #b3402f);
+  direction: ltr;
+}
+
+.ledgerTransactionsList {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ledgerListTitle {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0;
+}
+
+.ledgerEntries {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.ledgerEntryRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  gap: 10px;
+}
+
+.ledgerEntryMeta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ledgerEntryHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ledgerBadgePayment {
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--soft, #e1e8d4);
+  color: var(--br, #4f6b46);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+:global([data-theme="dark"]) .ledgerBadgePayment,
+:global([data-theme="auto"]) .ledgerBadgePayment {
+  color: var(--ok, #9dbb8b);
+}
+
+.ledgerBadgeDebt {
+  font-size: 11px;
+  font-weight: 800;
+  background: var(--sf2);
+  color: var(--ink2);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.ledgerEntryDate {
+  font-size: 11px;
+  color: var(--ink2);
+  direction: ltr;
+}
+
+.ledgerEntryNote {
+  font-size: 12px;
+  color: var(--ink);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.ledgerEntryAmounts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.ledgerEntryAmount {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+  direction: ltr;
+}
+
+.ledgerEntryBalanceAfter {
+  font-size: 11px;
+  color: var(--ink2);
+  direction: ltr;
+}
+
+.ledgerLoading,
+.ledgerEmpty {
+  text-align: center;
+  padding: 20px;
+  font-size: 13px;
+  color: var(--ink2);
+  font-weight: 600;
 }
 
 /* Error & Loading Cards */

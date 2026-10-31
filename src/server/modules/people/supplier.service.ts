@@ -76,8 +76,10 @@ export async function getSuppliers(
           }
         }
 
-        // Amount remaining owed to supplier = max(0, iOweSum - owedToMeSum)
+        const totalOriginal = Number(iOweSum);
+        const totalPaid = Number(owedToMeSum);
         const netOwed = Math.max(0, Number(iOweSum - owedToMeSum));
+        const isSettled = totalOriginal > 0 && netOwed <= 0;
 
         const supplies: SuppliedProductItem[] = supplier.suppliedProducts
           .filter((sp) => sp.storeProduct !== null)
@@ -94,6 +96,9 @@ export async function getSuppliers(
           name: supplier.nameAr,
           phone: supplier.phone,
           amount_piasters: netOwed,
+          total_original_piasters: totalOriginal,
+          total_paid_piasters: totalPaid,
+          is_settled: isSettled,
           note: latestNote,
           supplies,
           created_at: supplier.createdAt.toISOString(),
@@ -103,16 +108,33 @@ export async function getSuppliers(
 
       formattedList.sort((a, b) => b.amount_piasters - a.amount_piasters);
 
-      const totalPiasters = formattedList.reduce(
-        (sum, p) => sum + p.amount_piasters,
-        0,
-      );
+      let totalOwedPiasters = 0;
+      let totalPaidPiasters = 0;
+      let totalRemainingPiasters = 0;
+      let activeCount = 0;
+      let settledCount = 0;
+
+      for (const s of formattedList) {
+        totalOwedPiasters += s.total_original_piasters || 0;
+        totalPaidPiasters += s.total_paid_piasters || 0;
+        totalRemainingPiasters += s.amount_piasters;
+        if (s.amount_piasters > 0) activeCount++;
+        if (s.is_settled) settledCount++;
+      }
 
       return {
         section: "suppliers",
         people: formattedList,
         count: formattedList.length,
-        total_piasters: totalPiasters,
+        total_piasters: totalRemainingPiasters,
+        summary: {
+          total_original_piasters: totalOwedPiasters,
+          total_paid_piasters: totalPaidPiasters,
+          total_remaining_piasters: totalRemainingPiasters,
+          total_count: formattedList.length,
+          active_count: activeCount,
+          settled_count: settledCount,
+        },
       };
     },
     customPrisma ?? defaultPrisma,
@@ -224,7 +246,7 @@ export async function getSupplierDetails(
         },
         include: {
           debtEntries: {
-            orderBy: { createdAt: "desc" },
+            orderBy: { createdAt: "asc" },
           },
           suppliedProducts: {
             include: {
@@ -240,36 +262,52 @@ export async function getSupplierDetails(
         throw new Error("المورد غير موجود أو تم حذفه");
       }
 
-      let owedToMeSum = BigInt(0);
-      let iOweSum = BigInt(0);
+      let runningBalance = BigInt(0);
+      let totalOriginalSum = BigInt(0);
+      let totalPaidSum = BigInt(0);
       let latestNote: string | null = supplier.note;
 
-      const transactions: DebtTransactionItem[] = supplier.debtEntries.map(
-        (entry) => {
-          if (entry.direction === "owed_to_me") {
-            owedToMeSum += entry.amountPiasters;
-          } else {
-            iOweSum += entry.amountPiasters;
-          }
-          if (entry.noteAr) {
-            latestNote = entry.noteAr;
-          }
+      const transactions: DebtTransactionItem[] = [];
 
-          const type = entry.direction === "i_owe" ? "debt" : "payment";
+      for (const entry of supplier.debtEntries) {
+        let type: "debt" | "payment";
+        let actionLabel: string;
 
-          return {
-            id: entry.id,
-            direction: entry.direction,
-            type,
-            amount_piasters: Number(entry.amountPiasters),
-            note: entry.noteAr,
-            op_id: entry.opId,
-            created_at: entry.createdAt.toISOString(),
-          };
-        },
-      );
+        if (entry.direction === "i_owe") {
+          type = "debt";
+          actionLabel = "مستحق له";
+          runningBalance += entry.amountPiasters;
+          totalOriginalSum += entry.amountPiasters;
+        } else {
+          type = "payment";
+          actionLabel = "سداد له";
+          runningBalance -= entry.amountPiasters;
+          totalPaidSum += entry.amountPiasters;
+        }
 
-      const netOwed = Math.max(0, Number(iOweSum - owedToMeSum));
+        if (entry.noteAr) {
+          latestNote = entry.noteAr;
+        }
+
+        transactions.push({
+          id: entry.id,
+          direction: entry.direction,
+          type,
+          action_label: actionLabel,
+          amount_piasters: Number(entry.amountPiasters),
+          balance_after_piasters: Math.max(0, Number(runningBalance)),
+          note: entry.noteAr,
+          op_id: entry.opId,
+          created_at: entry.createdAt.toISOString(),
+        });
+      }
+
+      transactions.reverse();
+
+      const remainingPiasters = Math.max(0, Number(runningBalance));
+      const totalOriginal = Number(totalOriginalSum);
+      const totalPaid = Number(totalPaidSum);
+      const isSettled = totalOriginal > 0 && remainingPiasters <= 0;
 
       const supplies: SuppliedProductItem[] = supplier.suppliedProducts
         .filter((sp) => sp.storeProduct !== null)
@@ -286,13 +324,22 @@ export async function getSupplierDetails(
           kind: "supplier",
           name: supplier.nameAr,
           phone: supplier.phone,
-          amount_piasters: netOwed,
+          amount_piasters: remainingPiasters,
+          total_original_piasters: totalOriginal,
+          total_paid_piasters: totalPaid,
+          is_settled: isSettled,
           note: latestNote,
           supplies,
           created_at: supplier.createdAt.toISOString(),
           updated_at: supplier.updatedAt.toISOString(),
         },
         transactions,
+        summary: {
+          total_original_piasters: totalOriginal,
+          total_paid_piasters: totalPaid,
+          remaining_piasters: remainingPiasters,
+          is_settled: isSettled,
+        },
       };
     },
     customPrisma ?? defaultPrisma,
@@ -319,6 +366,11 @@ export async function recordSupplierTransaction(
           storeId,
           deletedAt: null,
         },
+        include: {
+          debtEntries: {
+            orderBy: { createdAt: "asc" },
+          },
+        },
       });
 
       if (!supplier) {
@@ -336,11 +388,23 @@ export async function recordSupplierTransaction(
 
       if (existing) {
         const type = existing.direction === "i_owe" ? "debt" : "payment";
+        const actionLabel =
+          existing.direction === "i_owe" ? "مستحق له" : "سداد له";
+
+        let bal = BigInt(0);
+        for (const e of supplier.debtEntries) {
+          if (e.direction === "i_owe") bal += e.amountPiasters;
+          else bal -= e.amountPiasters;
+          if (e.id === existing.id) break;
+        }
+
         return {
           id: existing.id,
           direction: existing.direction,
           type,
+          action_label: actionLabel,
           amount_piasters: Number(existing.amountPiasters),
+          balance_after_piasters: Math.max(0, Number(bal)),
           note: existing.noteAr,
           op_id: existing.opId,
           created_at: existing.createdAt.toISOString(),
@@ -350,6 +414,7 @@ export async function recordSupplierTransaction(
       // type === 'debt' -> more owed to supplier -> 'i_owe'
       // type === 'payment' -> payment to supplier -> 'owed_to_me'
       const direction = input.type === "debt" ? "i_owe" : "owed_to_me";
+      const actionLabel = input.type === "debt" ? "مستحق له" : "سداد له";
 
       const created = await tx.debtEntry.create({
         data: {
@@ -359,14 +424,25 @@ export async function recordSupplierTransaction(
           amountPiasters: BigInt(input.amountPiasters),
           noteAr: input.note?.trim() || null,
           opId,
+          createdAt: input.date ?? new Date(),
         },
       });
+
+      let currentBal = BigInt(0);
+      for (const e of supplier.debtEntries) {
+        if (e.direction === "i_owe") currentBal += e.amountPiasters;
+        else currentBal -= e.amountPiasters;
+      }
+      if (direction === "i_owe") currentBal += created.amountPiasters;
+      else currentBal -= created.amountPiasters;
 
       return {
         id: created.id,
         direction: created.direction,
         type: input.type,
+        action_label: actionLabel,
         amount_piasters: Number(created.amountPiasters),
+        balance_after_piasters: Math.max(0, Number(currentBal)),
         note: created.noteAr,
         op_id: created.opId,
         created_at: created.createdAt.toISOString(),

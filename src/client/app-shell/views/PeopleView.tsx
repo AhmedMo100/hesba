@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import styles from "./PeopleView.module.css";
 import { Icon, Seg, Empty, Modal } from "../../shared/ui";
-import { t } from "../../shared/i18n";
+import { t, formatDateCairo } from "../../shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
 
@@ -26,6 +26,9 @@ interface PersonItem {
   name: string;
   phone: string | null;
   amount_piasters: number;
+  total_original_piasters?: number;
+  total_paid_piasters?: number;
+  is_settled?: boolean;
   note: string | null;
   supplies: SuppliedProduct[];
   created_at: string;
@@ -37,17 +40,56 @@ interface StoreProductOption {
   name: string;
 }
 
+interface SectionFinancialSummary {
+  total_original_piasters: number;
+  total_paid_piasters: number;
+  total_remaining_piasters: number;
+  total_count: number;
+  active_count: number;
+  settled_count: number;
+}
+
 interface SectionState {
   people: PersonItem[];
   count: number;
   totalPiasters: number;
+  summary: SectionFinancialSummary;
   loaded: boolean;
   loading: boolean;
   error: string | null;
 }
 
+interface DebtTransactionItem {
+  id: string;
+  direction: "owed_to_me" | "i_owe";
+  type: "debt" | "payment";
+  action_label?: string;
+  amount_piasters: number;
+  balance_after_piasters: number;
+  note: string | null;
+  op_id: string;
+  created_at: string;
+}
+
+interface LedgerModalState {
+  person: PersonItem;
+  transactions: DebtTransactionItem[];
+  summary: {
+    total_original_piasters: number;
+    total_paid_piasters: number;
+    remaining_piasters: number;
+    is_settled: boolean;
+  };
+  loading: boolean;
+}
+
+interface PaymentModalState {
+  person: PersonItem;
+  isCollection: boolean;
+}
+
 function formatEgp(piasters: number): string {
-  const egp = piasters / 100;
+  const egp = (piasters || 0) / 100;
   if (piasters % 100 !== 0) {
     return `${egp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
   }
@@ -57,7 +99,16 @@ function formatEgp(piasters: number): string {
 export function PeopleView() {
   const [section, setSection] = useState<PeopleSection>("owedToMe");
 
-  // Strictly isolated state per section — zero leakage between tabs
+  const defaultSummary: SectionFinancialSummary = {
+    total_original_piasters: 0,
+    total_paid_piasters: 0,
+    total_remaining_piasters: 0,
+    total_count: 0,
+    active_count: 0,
+    settled_count: 0,
+  };
+
+  // Strictly isolated state per section
   const [sectionsData, setSectionsData] = useState<
     Record<PeopleSection, SectionState>
   >({
@@ -65,6 +116,7 @@ export function PeopleView() {
       people: [],
       count: 0,
       totalPiasters: 0,
+      summary: defaultSummary,
       loaded: false,
       loading: true,
       error: null,
@@ -73,6 +125,7 @@ export function PeopleView() {
       people: [],
       count: 0,
       totalPiasters: 0,
+      summary: defaultSummary,
       loaded: false,
       loading: false,
       error: null,
@@ -81,13 +134,14 @@ export function PeopleView() {
       people: [],
       count: 0,
       totalPiasters: 0,
+      summary: defaultSummary,
       loaded: false,
       loading: false,
       error: null,
     },
   });
 
-  // Modal states
+  // Add / Edit Modal states
   const [modalOpen, setModalOpen] = useState(false);
   const [editingPerson, setEditingPerson] = useState<PersonItem | null>(null);
 
@@ -104,6 +158,23 @@ export function PeopleView() {
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<PersonItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+
+  // Ledger / Statement Modal state
+  const [ledgerTarget, setLedgerTarget] = useState<LedgerModalState | null>(
+    null,
+  );
+
+  // Payment / Collection Modal state
+  const [paymentTarget, setPaymentTarget] = useState<PaymentModalState | null>(
+    null,
+  );
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [paymentDate, setPaymentDate] = useState(() =>
+    new Date().toISOString().slice(0, 10),
+  );
+  const [paymentNote, setPaymentNote] = useState("");
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // Form input state
   const [formName, setFormName] = useState("");
@@ -153,6 +224,14 @@ export function PeopleView() {
           people: data.people || [],
           count: data.count || 0,
           totalPiasters: data.total_piasters || 0,
+          summary: data.summary || {
+            total_original_piasters: data.total_piasters || 0,
+            total_paid_piasters: 0,
+            total_remaining_piasters: data.total_piasters || 0,
+            total_count: data.count || 0,
+            active_count: data.count || 0,
+            settled_count: 0,
+          },
           loaded: true,
           loading: false,
           error: null,
@@ -240,6 +319,61 @@ export function PeopleView() {
     }
   };
 
+  const openLedgerModal = async (person: PersonItem) => {
+    setLedgerTarget({
+      person,
+      transactions: [],
+      summary: {
+        total_original_piasters:
+          person.total_original_piasters || person.amount_piasters,
+        total_paid_piasters: person.total_paid_piasters || 0,
+        remaining_piasters: person.amount_piasters,
+        is_settled: Boolean(person.is_settled),
+      },
+      loading: true,
+    });
+
+    try {
+      const res = await fetch(`/api/people/${person.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        setLedgerTarget({
+          person: data.person || person,
+          transactions: data.transactions || [],
+          summary: data.summary || {
+            total_original_piasters:
+              data.person?.total_original_piasters || person.amount_piasters,
+            total_paid_piasters: data.person?.total_paid_piasters || 0,
+            remaining_piasters:
+              data.person?.amount_piasters || person.amount_piasters,
+            is_settled: Boolean(data.person?.is_settled),
+          },
+          loading: false,
+        });
+      }
+    } catch {
+      setLedgerTarget((prev) => (prev ? { ...prev, loading: false } : null));
+    }
+  };
+
+  const openPaymentModal = (person: PersonItem) => {
+    setPaymentTarget({
+      person,
+      isCollection: section === "owedToMe",
+    });
+    const egpVal = person.amount_piasters / 100;
+    setPaymentAmount(
+      person.amount_piasters > 0
+        ? person.amount_piasters % 100 === 0
+          ? String(egpVal)
+          : egpVal.toFixed(2)
+        : "",
+    );
+    setPaymentDate(new Date().toISOString().slice(0, 10));
+    setPaymentNote("");
+    setPaymentError(null);
+  };
+
   const handleSavePerson = async () => {
     if (!formName.trim()) {
       setFormError(t("pages.people.nameRequired") || "اكتب الاسم");
@@ -320,11 +454,67 @@ export function PeopleView() {
       if (!res.ok) throw new Error("تعذر الحذف");
       setDeleteTarget(null);
       setModalOpen(false);
+      if (ledgerTarget && ledgerTarget.person.id === deleteTarget.id) {
+        setLedgerTarget(null);
+      }
       await fetchSectionData(section);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "تعذر الحذف");
     } finally {
       setIsDeleting(false);
+    }
+  };
+
+  const handleRecordPayment = async () => {
+    if (!paymentTarget) return;
+    if (!paymentAmount.trim()) {
+      setPaymentError("اكتب المبلغ");
+      return;
+    }
+
+    const amountNum = parseEgpToPiasters(paymentAmount);
+    if (amountNum <= 0) {
+      setPaymentError("المبلغ لازم يكون أكبر من صفر");
+      return;
+    }
+
+    setIsSubmittingPayment(true);
+    setPaymentError(null);
+
+    try {
+      const res = await fetch(
+        `/api/people/${paymentTarget.person.id}/transactions`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            type: "payment",
+            amountPiasters: amountNum,
+            note: paymentNote.trim() || null,
+            date: paymentDate ? new Date(paymentDate).toISOString() : undefined,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || "فشل تسجيل العملية");
+      }
+
+      const closedPersonId = paymentTarget.person.id;
+      setPaymentTarget(null);
+
+      // Refresh section data and ledger if open
+      await fetchSectionData(section);
+      if (ledgerTarget && ledgerTarget.person.id === closedPersonId) {
+        openLedgerModal({ ...ledgerTarget.person, id: closedPersonId });
+      }
+    } catch (err: unknown) {
+      setPaymentError(
+        err instanceof Error ? err.message : "حدث خطأ أثناء تسجيل المعاملة",
+      );
+    } finally {
+      setIsSubmittingPayment(false);
     }
   };
 
@@ -341,32 +531,18 @@ export function PeopleView() {
 
   // Current active section data
   const currentSectionData = sectionsData[section];
-  const count = currentSectionData.count;
-  const totalPiasters = currentSectionData.totalPiasters;
   const people = currentSectionData.people;
   const loading = currentSectionData.loading;
   const error = currentSectionData.error;
-
-  // Dynamic banner title matching screenshots
-  const bannerText = useMemo(() => {
-    if (section === "owedToMe") {
-      return `فلوس ليك عند ${count} شخص`;
-    }
-    if (section === "iOwe") {
-      return `فلوس عليك ل ${count}`;
-    }
-    return `${count} مورد – المتبقي ليهم`;
-  }, [section, count]);
+  const summary = currentSectionData.summary;
 
   return (
     <div className={styles.container} data-testid="page-people">
       {/* Header */}
       <div className={styles.head}>
         <div>
-          <h1 className={styles.title}>{t("pages.people.title") || "الناس"}</h1>
-          <p className={styles.sub}>
-            {t("pages.people.sub") || "اللي ليك، واللي عليك، والموردين"}
-          </p>
+          <h1 className={styles.title}>{t("pages.people.title")}</h1>
+          <p className={styles.sub}>{t("pages.people.sub")}</p>
         </div>
         <button
           type="button"
@@ -375,7 +551,7 @@ export function PeopleView() {
           data-testid="btn-add-person"
         >
           <Icon n="plus" s={18} />
-          {t("pages.people.add") || "إضافة"}
+          <span>{t("pages.people.add")}</span>
         </button>
       </div>
 
@@ -386,17 +562,95 @@ export function PeopleView() {
           value={section}
           onChange={(newSec) => setSection(newSec)}
           options={[
-            ["owedToMe", t("pages.people.owedToMe") || "ليك"],
-            ["iOwe", t("pages.people.iOwe") || "عليك"],
-            ["suppliers", t("pages.people.suppliers") || "الموردين"],
+            ["owedToMe", t("pages.people.owedToMe")],
+            ["iOwe", t("pages.people.iOwe")],
+            ["suppliers", t("pages.people.suppliers")],
           ]}
         />
       </div>
 
-      {/* Summary Banner */}
-      <div className={styles.summaryBanner}>
-        <span className={styles.summaryText}>{bannerText}</span>
-        <span className={styles.summaryAmount}>{formatEgp(totalPiasters)}</span>
+      {/* Financial Summary Cards */}
+      <div className={styles.financialSummaryCard}>
+        <div className={styles.summaryMetricsRow}>
+          {/* 1. Original Obligation / Receivable */}
+          <div className={styles.summaryMetricItem}>
+            <span className={styles.metricLabel}>
+              {section === "owedToMe"
+                ? t("pages.people.totalReceivable")
+                : section === "iOwe"
+                  ? t("pages.people.totalObligations")
+                  : t("pages.people.totalSuppliersOwed")}
+            </span>
+            <span className={styles.metricValOriginal}>
+              {formatEgp(summary.total_original_piasters)}
+            </span>
+          </div>
+
+          {/* 2. Collected / Paid */}
+          <div className={styles.summaryMetricItem}>
+            <span className={styles.metricLabel}>
+              {section === "owedToMe"
+                ? t("pages.people.totalCollected")
+                : t("pages.people.totalPaid")}
+            </span>
+            <span className={styles.metricValPaid}>
+              {formatEgp(summary.total_paid_piasters)}
+            </span>
+          </div>
+
+          {/* 3. Remaining Balance */}
+          <div className={styles.summaryMetricItem}>
+            <span className={styles.metricLabel}>
+              {t("pages.people.totalRemaining")}
+            </span>
+            <span className={styles.metricValRemaining}>
+              {formatEgp(summary.total_remaining_piasters)}
+            </span>
+          </div>
+        </div>
+
+        {/* Counts strip */}
+        <div className={styles.summaryCountsStrip}>
+          <span className={styles.countBadge}>
+            {section === "owedToMe"
+              ? t("pages.people.customersCount", { count: summary.total_count })
+              : section === "iOwe"
+                ? t("pages.people.payablesCount", {
+                    count: summary.total_count,
+                  })
+                : t("pages.people.suppliersCount", {
+                    count: summary.total_count,
+                  })}
+          </span>
+          <span className={styles.countsDot}>•</span>
+          <span className={styles.countBadge}>
+            {section === "owedToMe"
+              ? t("pages.people.activeCustomers", {
+                  count: summary.active_count,
+                })
+              : section === "iOwe"
+                ? t("pages.people.activePayables", {
+                    count: summary.active_count,
+                  })
+                : t("pages.people.activeSuppliers", {
+                    count: summary.active_count,
+                  })}
+          </span>
+          <span className={styles.countsDot}>•</span>
+          <span className={styles.countBadgeSettled}>
+            {section === "owedToMe"
+              ? t("pages.people.settledCustomers", {
+                  count: summary.settled_count,
+                })
+              : section === "iOwe"
+                ? t("pages.people.settledPayables", {
+                    count: summary.settled_count,
+                  })
+                : t("pages.people.settledSuppliers", {
+                    count: summary.settled_count,
+                  })}
+          </span>
+        </div>
       </div>
 
       {/* Content / States */}
@@ -410,17 +664,17 @@ export function PeopleView() {
             onClick={() => fetchSectionData(section)}
           >
             <Icon n="refresh" s={16} />
-            {t("pages.people.retry") || "إعادة المحاولة"}
+            <span>{t("pages.people.retry")}</span>
           </button>
         </div>
       ) : loading && !currentSectionData.loaded ? (
         <div className={styles.loadingCard}>
-          <p>جاري التحميل...</p>
+          <p>{t("common.loading")}</p>
         </div>
       ) : people.length === 0 ? (
         <Empty
           icon="users"
-          title={t("pages.people.empty") || "القايمة فاضية"}
+          title={t("pages.people.empty")}
           action={
             <button
               type="button"
@@ -428,7 +682,7 @@ export function PeopleView() {
               onClick={openAddModal}
             >
               <Icon n="plus" s={18} />
-              {t("pages.people.add") || "إضافة"}
+              <span>{t("pages.people.add")}</span>
             </button>
           }
         />
@@ -444,7 +698,16 @@ export function PeopleView() {
                 {/* Header row */}
                 <div className={styles.cardHeader}>
                   <div className={styles.personMeta}>
-                    <span className={styles.personName}>{p.name}</span>
+                    <div className={styles.nameRow}>
+                      <span className={styles.personName}>{p.name}</span>
+                      {p.is_settled && (
+                        <span className={styles.settledBadge}>
+                          {section === "owedToMe"
+                            ? "تم التحصيل ✓"
+                            : "تم السداد ✓"}
+                        </span>
+                      )}
+                    </div>
                     {p.phone ? (
                       <a
                         className={styles.personPhone}
@@ -456,22 +719,63 @@ export function PeopleView() {
                       </a>
                     ) : (
                       <span className={styles.noPhone}>
-                        {t("pages.people.noPhone") || "بدون رقم"}
+                        {t("pages.people.noPhone")}
                       </span>
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    className={styles.editBtn}
-                    aria-label={`تعديل ${p.name}`}
-                    onClick={() => openEditModal(p)}
-                  >
-                    <Icon n="edit" s={16} />
-                  </button>
+                  {/* Card quick actions */}
+                  <div className={styles.cardActionsGroup}>
+                    {/* Collection / Payment quick button */}
+                    {p.amount_piasters > 0 && (
+                      <button
+                        type="button"
+                        className={
+                          section === "owedToMe"
+                            ? styles.collectBtn
+                            : styles.payBtn
+                        }
+                        onClick={() => openPaymentModal(p)}
+                        title={
+                          section === "owedToMe"
+                            ? t("pages.people.collect")
+                            : t("pages.people.pay")
+                        }
+                      >
+                        <span>
+                          {section === "owedToMe"
+                            ? t("pages.people.collect")
+                            : t("pages.people.pay")}
+                        </span>
+                      </button>
+                    )}
+
+                    {/* Statement button */}
+                    <button
+                      type="button"
+                      className={styles.statementBtn}
+                      onClick={() => openLedgerModal(p)}
+                      title={t("pages.people.statement")}
+                    >
+                      <Icon n="list" s={15} />
+                      <span className={styles.statementBtnText}>
+                        {t("pages.people.statement")}
+                      </span>
+                    </button>
+
+                    {/* Edit button */}
+                    <button
+                      type="button"
+                      className={styles.editBtn}
+                      aria-label={`${t("common.edit")} ${p.name}`}
+                      onClick={() => openEditModal(p)}
+                    >
+                      <Icon n="edit" s={15} />
+                    </button>
+                  </div>
                 </div>
 
-                {/* Supplier product tags chips matching screenshot */}
+                {/* Supplier product tags chips */}
                 {section === "suppliers" &&
                   p.supplies &&
                   p.supplies.length > 0 && (
@@ -489,7 +793,7 @@ export function PeopleView() {
                   {section === "suppliers" ? (
                     <>
                       <span className={styles.amountLabel}>
-                        {t("pages.people.remainingOwed") || "المتبقي له:"}
+                        {t("pages.people.remainingOwed")}
                       </span>
                       <span className={styles.amountDark}>
                         {formatEgp(p.amount_piasters)}
@@ -522,22 +826,22 @@ export function PeopleView() {
         </div>
       )}
 
-      {/* Add / Edit Modal matching screenshot */}
+      {/* Add / Edit Modal */}
       {modalOpen && (
         <Modal
           onClose={() => !isSubmitting && setModalOpen(false)}
           title={
             editingPerson
               ? section === "suppliers"
-                ? "تعديل مورد"
+                ? t("pages.people.editSupplier")
                 : section === "iOwe"
-                  ? "تعديل التزام"
-                  : "تعديل شخص"
+                  ? t("pages.people.editPayable")
+                  : t("pages.people.editCustomer")
               : section === "suppliers"
-                ? "إضافة مورد"
+                ? t("pages.people.addSupplier")
                 : section === "iOwe"
-                  ? "إضافة التزام"
-                  : "إضافة شخص"
+                  ? t("pages.people.addPayable")
+                  : t("pages.people.addCustomer")
           }
           footer={
             <div className={styles.modalFooter}>
@@ -549,7 +853,7 @@ export function PeopleView() {
                   disabled={isSubmitting}
                 >
                   <Icon n="trash" s={16} />
-                  <span>{t("common.delete") || "حذف"}</span>
+                  <span>{t("common.delete")}</span>
                 </button>
               )}
 
@@ -559,7 +863,7 @@ export function PeopleView() {
                 onClick={() => setModalOpen(false)}
                 disabled={isSubmitting}
               >
-                <span>{t("common.cancel") || "إلغاء"}</span>
+                <span>{t("common.cancel")}</span>
               </button>
 
               <button
@@ -570,7 +874,7 @@ export function PeopleView() {
               >
                 <Icon n="check" s={18} />
                 <span>
-                  {isSubmitting ? "جاري الحفظ..." : t("common.save") || "حفظ"}
+                  {isSubmitting ? t("common.saving") : t("common.save")}
                 </span>
               </button>
             </div>
@@ -582,7 +886,7 @@ export function PeopleView() {
             {/* Name */}
             <div className={styles.formGroup}>
               <label className={styles.fieldLabel}>
-                {t("pages.people.formName") || "الاسم"}
+                {t("pages.people.formName")}
               </label>
               <input
                 type="text"
@@ -601,7 +905,7 @@ export function PeopleView() {
             {/* Phone */}
             <div className={styles.formGroup}>
               <label className={styles.fieldLabel}>
-                {t("pages.people.formPhone") || "رقم التليفون"}
+                {t("pages.people.formPhone")}
               </label>
               <input
                 type="tel"
@@ -623,14 +927,13 @@ export function PeopleView() {
                     onClick={() => setShowAmountField(true)}
                   >
                     <Icon n="plus" s={15} />
-                    <span>إضافة مبلغ مستحق (اختياري)</span>
+                    <span>{t("pages.people.addAmountOptional")}</span>
                   </button>
                 ) : (
                   <div className={styles.formGroup}>
                     <div className={styles.labelWithAction}>
                       <label className={styles.fieldLabel}>
-                        {t("pages.people.remainingOptional") ||
-                          "المتبقي له (اختياري)"}
+                        {t("pages.people.remainingOptional")}
                       </label>
                       <button
                         type="button"
@@ -640,11 +943,13 @@ export function PeopleView() {
                           setFormAmount("");
                         }}
                       >
-                        إزالة
+                        {t("pages.people.remove")}
                       </button>
                     </div>
                     <div className={styles.amountInputWrapper}>
-                      <span className={styles.currencyBadge}>ج.م</span>
+                      <span className={styles.currencyBadge}>
+                        {t("pages.people.currency")}
+                      </span>
                       <input
                         type="text"
                         inputMode="decimal"
@@ -668,13 +973,13 @@ export function PeopleView() {
                     }}
                   >
                     <Icon n="plus" s={15} />
-                    <span>تحديد المنتجات اللي بيوردها (اختياري)</span>
+                    <span>{t("pages.people.specifyProductsOptional")}</span>
                   </button>
                 ) : (
                   <div className={styles.formGroup}>
                     <div className={styles.labelWithAction}>
                       <label className={styles.fieldLabel}>
-                        {t("pages.people.formSupplies") || "بيورّدلك إيه؟"}
+                        {t("pages.people.formSupplies")}
                       </label>
                       <button
                         type="button"
@@ -684,11 +989,11 @@ export function PeopleView() {
                           setFormSupplies([]);
                         }}
                       >
-                        إزالة
+                        {t("pages.people.remove")}
                       </button>
                     </div>
 
-                    {/* Selected product chips matching screenshot */}
+                    {/* Selected product chips */}
                     {formSupplies.length > 0 && (
                       <div className={styles.selectedSuppliesList}>
                         {formSupplies.map((s) => (
@@ -701,7 +1006,7 @@ export function PeopleView() {
                                 prev.filter((item) => item.id !== s.id),
                               )
                             }
-                            title={`إزالة ${s.name}`}
+                            title={`${t("common.delete")} ${s.name}`}
                           >
                             <span className={styles.chipRemoveX}>×</span>
                             <span>{s.name}</span>
@@ -723,7 +1028,7 @@ export function PeopleView() {
                           <input
                             type="text"
                             className={styles.comboboxInput}
-                            placeholder="ضف منتج..."
+                            placeholder={t("pages.people.addProductsHint")}
                             value={productSearchQuery}
                             onChange={(e) => {
                               setProductSearchQuery(e.target.value);
@@ -747,13 +1052,13 @@ export function PeopleView() {
                         <div className={styles.comboboxDropdown}>
                           {storeProducts.length === 0 ? (
                             <div className={styles.dropdownHint}>
-                              لا توجد منتجات مسجلة في المحل حالياً
+                              {t("pages.people.noStoreProducts")}
                             </div>
                           ) : filteredProductOptions.length === 0 ? (
                             <div className={styles.dropdownHint}>
                               {formSupplies.length === storeProducts.length
-                                ? "تمت إضافة جميع المنتجات"
-                                : "مفيش منتج بالاسم ده"}
+                                ? t("pages.people.allProductsAdded")
+                                : t("pages.people.noProductFound")}
                             </div>
                           ) : (
                             filteredProductOptions.map((p) => (
@@ -781,7 +1086,7 @@ export function PeopleView() {
                 {/* Notes for supplier */}
                 <div className={styles.formGroup}>
                   <label className={styles.fieldLabel}>
-                    {t("pages.people.formNote") || "ملاحظات (اختياري)"}
+                    {t("pages.people.formNote")}
                   </label>
                   <input
                     type="text"
@@ -798,13 +1103,13 @@ export function PeopleView() {
                 <div className={styles.formGroup}>
                   <label className={styles.fieldLabel}>
                     {section === "iOwe"
-                      ? t("pages.people.owedByMeOptional") ||
-                        "المبلغ عليك (اختياري)"
-                      : t("pages.people.owedToMeOptional") ||
-                        "المبلغ ليك (اختياري)"}
+                      ? t("pages.people.owedByMeOptional")
+                      : t("pages.people.owedToMeOptional")}
                   </label>
                   <div className={styles.amountInputWrapper}>
-                    <span className={styles.currencyBadge}>ج.م</span>
+                    <span className={styles.currencyBadge}>
+                      {t("pages.people.currency")}
+                    </span>
                     <input
                       type="text"
                       inputMode="decimal"
@@ -818,7 +1123,7 @@ export function PeopleView() {
 
                 <div className={styles.formGroup}>
                   <label className={styles.fieldLabel}>
-                    {t("pages.people.formNote") || "ملاحظة (اختياري)"}
+                    {t("pages.people.formNote")}
                   </label>
                   <input
                     type="text"
@@ -838,11 +1143,11 @@ export function PeopleView() {
         </Modal>
       )}
 
-      {/* Delete Confirmation Modal matching screenshot */}
+      {/* Delete Confirmation Modal */}
       {deleteTarget && (
         <Modal
           onClose={() => !isDeleting && setDeleteTarget(null)}
-          title={t("common.delete") || "حذف"}
+          title={t("common.delete")}
           footer={
             <div className={styles.confirmActions}>
               <button
@@ -851,7 +1156,7 @@ export function PeopleView() {
                 onClick={() => setDeleteTarget(null)}
                 disabled={isDeleting}
               >
-                <span>{t("common.cancel") || "إلغاء"}</span>
+                <span>{t("common.cancel")}</span>
               </button>
 
               <button
@@ -862,8 +1167,8 @@ export function PeopleView() {
               >
                 <span>
                   {isDeleting
-                    ? t("common.deleting") || "جاري الحذف..."
-                    : t("common.delete") || "احذف"}
+                    ? t("common.deleting")
+                    : t("pages.people.confirmDelete")}
                 </span>
               </button>
             </div>
@@ -871,8 +1176,245 @@ export function PeopleView() {
         >
           <div className={styles.confirmDialog}>
             <p className={styles.confirmMessage}>
-              هتحذف &quot;{deleteTarget.name}&quot; من القايمة.
+              {t("pages.people.deleteMessage", { name: deleteTarget.name })}
             </p>
+          </div>
+        </Modal>
+      )}
+
+      {/* Payment / Collection Modal */}
+      {paymentTarget && (
+        <Modal
+          onClose={() => !isSubmittingPayment && setPaymentTarget(null)}
+          title={
+            paymentTarget.isCollection
+              ? t("pages.people.collectFrom", {
+                  name: paymentTarget.person.name,
+                })
+              : t("pages.people.payTo", { name: paymentTarget.person.name })
+          }
+          footer={
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                onClick={() => setPaymentTarget(null)}
+                disabled={isSubmittingPayment}
+              >
+                <span>{t("common.cancel")}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={handleRecordPayment}
+                disabled={isSubmittingPayment}
+              >
+                <Icon n="check" s={18} />
+                <span>
+                  {isSubmittingPayment
+                    ? t("common.saving")
+                    : paymentTarget.isCollection
+                      ? t("pages.people.confirmCollection")
+                      : t("pages.people.confirmPayment")}
+                </span>
+              </button>
+            </div>
+          }
+        >
+          <div className={styles.modalForm}>
+            {paymentError && (
+              <div className={styles.formError}>{paymentError}</div>
+            )}
+
+            <div className={styles.currentBalanceBanner}>
+              <span className={styles.currentBalanceLabel}>
+                {t("pages.people.currentBalance")}
+              </span>
+              <span className={styles.currentBalanceValue}>
+                {formatEgp(paymentTarget.person.amount_piasters)}
+              </span>
+            </div>
+
+            {/* Amount */}
+            <div className={styles.formGroup}>
+              <label className={styles.fieldLabel}>
+                {paymentTarget.isCollection
+                  ? t("pages.people.amountCollected")
+                  : t("pages.people.amountPaid")}
+              </label>
+              <div className={styles.amountInputWrapper}>
+                <span className={styles.currencyBadge}>
+                  {t("pages.people.currency")}
+                </span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className={styles.amountNumInput}
+                  value={paymentAmount}
+                  onChange={(e) => setPaymentAmount(e.target.value)}
+                  placeholder="0"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            {/* Date */}
+            <div className={styles.formGroup}>
+              <label className={styles.fieldLabel}>
+                {t("pages.people.date")}
+              </label>
+              <input
+                type="date"
+                className={styles.inputField}
+                value={paymentDate}
+                onChange={(e) => setPaymentDate(e.target.value)}
+              />
+            </div>
+
+            {/* Note */}
+            <div className={styles.formGroup}>
+              <label className={styles.fieldLabel}>
+                {t("pages.people.formNote")}
+              </label>
+              <input
+                type="text"
+                className={styles.inputField}
+                value={paymentNote}
+                onChange={(e) => setPaymentNote(e.target.value)}
+                placeholder="دفعة نقدية / تحصيل كاش"
+              />
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* Statement / Ledger Modal */}
+      {ledgerTarget && (
+        <Modal
+          onClose={() => setLedgerTarget(null)}
+          title={t("pages.people.statementTitle", {
+            name: ledgerTarget.person.name,
+          })}
+          footer={
+            <div className={styles.modalFooter}>
+              <button
+                type="button"
+                className={styles.btnGhost}
+                onClick={() => setLedgerTarget(null)}
+              >
+                <span>{t("common.close")}</span>
+              </button>
+
+              <button
+                type="button"
+                className={styles.btnPrimary}
+                onClick={() => openPaymentModal(ledgerTarget.person)}
+              >
+                <Icon n="plus" s={16} />
+                <span>
+                  {ledgerTarget.person.section === "owedToMe"
+                    ? t("pages.people.collect")
+                    : t("pages.people.pay")}
+                </span>
+              </button>
+            </div>
+          }
+        >
+          <div className={styles.ledgerContainer}>
+            {/* Ledger Financial Summary Strip */}
+            <div className={styles.ledgerSummaryStrip}>
+              <div className={styles.ledgerSummaryItem}>
+                <span className={styles.ledgerSummaryLabel}>
+                  {ledgerTarget.person.section === "owedToMe"
+                    ? t("pages.people.totalReceivable")
+                    : t("pages.people.totalObligations")}
+                </span>
+                <span className={styles.ledgerSummaryValOriginal}>
+                  {formatEgp(ledgerTarget.summary.total_original_piasters)}
+                </span>
+              </div>
+
+              <div className={styles.ledgerSummaryItem}>
+                <span className={styles.ledgerSummaryLabel}>
+                  {ledgerTarget.person.section === "owedToMe"
+                    ? t("pages.people.totalCollected")
+                    : t("pages.people.totalPaid")}
+                </span>
+                <span className={styles.ledgerSummaryValPaid}>
+                  {formatEgp(ledgerTarget.summary.total_paid_piasters)}
+                </span>
+              </div>
+
+              <div className={styles.ledgerSummaryItem}>
+                <span className={styles.ledgerSummaryLabel}>
+                  {t("pages.people.currentBalance")}
+                </span>
+                <span className={styles.ledgerSummaryValRemaining}>
+                  {formatEgp(ledgerTarget.summary.remaining_piasters)}
+                </span>
+              </div>
+            </div>
+
+            {/* Transactions List */}
+            <div className={styles.ledgerTransactionsList}>
+              <h4 className={styles.ledgerListTitle}>
+                {t("pages.people.history")}
+              </h4>
+
+              {ledgerTarget.loading ? (
+                <div className={styles.ledgerLoading}>
+                  {t("common.loading")}
+                </div>
+              ) : ledgerTarget.transactions.length === 0 ? (
+                <div className={styles.ledgerEmpty}>
+                  {t("pages.people.emptyHistory")}
+                </div>
+              ) : (
+                <div className={styles.ledgerEntries}>
+                  {ledgerTarget.transactions.map((tr) => (
+                    <div className={styles.ledgerEntryRow} key={tr.id}>
+                      <div className={styles.ledgerEntryMeta}>
+                        <div className={styles.ledgerEntryHeader}>
+                          <span
+                            className={
+                              tr.type === "payment"
+                                ? styles.ledgerBadgePayment
+                                : styles.ledgerBadgeDebt
+                            }
+                          >
+                            {tr.action_label ||
+                              (tr.type === "payment"
+                                ? t("pages.people.paidCash")
+                                : t("pages.people.debtAddedOwedToMe"))}
+                          </span>
+                          <span className={styles.ledgerEntryDate}>
+                            {formatDateCairo(tr.created_at)}
+                          </span>
+                        </div>
+                        {tr.note && (
+                          <span className={styles.ledgerEntryNote}>
+                            {tr.note}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className={styles.ledgerEntryAmounts}>
+                        <span className={styles.ledgerEntryAmount}>
+                          {formatEgp(tr.amount_piasters)}
+                        </span>
+                        <span className={styles.ledgerEntryBalanceAfter}>
+                          {t("pages.people.balanceAfter")}:{" "}
+                          <strong>
+                            {formatEgp(tr.balance_after_piasters)}
+                          </strong>
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </Modal>
       )}

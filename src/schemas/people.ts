@@ -164,6 +164,9 @@ export const recordDebtTransactionInputSchema = z
       .max(500, "الملاحظة طويلة جداً")
       .optional()
       .nullable(),
+    date: z.string().optional().nullable(),
+    createdAt: z.string().optional().nullable(),
+    created_at: z.string().optional().nullable(),
     opId: z.string().uuid().optional(),
     op_id: z.string().uuid().optional(),
   })
@@ -179,10 +182,20 @@ export const recordDebtTransactionInputSchema = z
       });
       return z.NEVER;
     }
+    const rawDate = data.date || data.createdAt || data.created_at;
+    let parsedDate: Date | undefined;
+    if (rawDate) {
+      const d = new Date(rawDate);
+      if (!isNaN(d.getTime())) {
+        parsedDate = d;
+      }
+    }
+
     return {
       type: data.type,
       amountPiasters: amount,
       note: data.note ?? null,
+      date: parsedDate,
       opId: data.op_id || data.opId,
     };
   });

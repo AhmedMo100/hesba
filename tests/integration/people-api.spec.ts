@@ -1020,4 +1020,443 @@ describe("People Module API & Tenancy Integration", () => {
       expect(dbAfterDel?.deletedAt).not.toBeNull();
     });
   });
+
+  describe("Financial System: Collections, Payments, Ledgers & Accurate Summaries", () => {
+    it("Customer Scenario: 1,000 EGP debt -> 300 EGP collection (700 remaining) -> 200 EGP collection (500 remaining) -> 500 EGP full settlement (0 remaining, settled)", async () => {
+      const session = await createSession(userAId, storeAId);
+
+      // 1. Create customer with 1,000 EGP (100,000 piasters)
+      const createRes = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "عميل سيناريو الحساب",
+            section: "owedToMe",
+            amountPiasters: 100000, // 1,000 EGP
+            note: "حساب مفتوح",
+          }),
+        }),
+      );
+      expect(createRes.status).toBe(201);
+      const { person } = await createRes.json();
+      expect(person.amount_piasters).toBe(100000);
+
+      // 2. First partial collection: 300 EGP (30,000 piasters)
+      const pay1Res = await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 30000,
+              note: "تحصيل جزئي أول",
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(pay1Res.status).toBe(201);
+      const { transaction: tx1 } = await pay1Res.json();
+      expect(tx1.amount_piasters).toBe(30000);
+      expect(tx1.balance_after_piasters).toBe(70000);
+
+      // Verify customer details ledger
+      let detailsRes = await getPersonDetailsRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      let detailsJson = await detailsRes.json();
+      expect(detailsJson.person.amount_piasters).toBe(70000);
+      expect(detailsJson.summary.total_original_piasters).toBe(100000);
+      expect(detailsJson.summary.total_paid_piasters).toBe(30000);
+      expect(detailsJson.summary.remaining_piasters).toBe(70000);
+      expect(detailsJson.summary.is_settled).toBe(false);
+
+      // 3. Second partial collection: 200 EGP (20,000 piasters)
+      const pay2Res = await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 20000,
+              note: "تحصيل جزئي ثان",
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(pay2Res.status).toBe(201);
+      const { transaction: tx2 } = await pay2Res.json();
+      expect(tx2.amount_piasters).toBe(20000);
+      expect(tx2.balance_after_piasters).toBe(50000);
+
+      detailsRes = await getPersonDetailsRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      detailsJson = await detailsRes.json();
+      expect(detailsJson.person.amount_piasters).toBe(50000);
+      expect(detailsJson.summary.total_original_piasters).toBe(100000);
+      expect(detailsJson.summary.total_paid_piasters).toBe(50000);
+      expect(detailsJson.summary.remaining_piasters).toBe(50000);
+      expect(detailsJson.summary.is_settled).toBe(false);
+
+      // 4. Final collection: 500 EGP (50,000 piasters) -> Full settlement
+      const pay3Res = await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 50000,
+              note: "سداد باقي الحساب بالكامل",
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(pay3Res.status).toBe(201);
+      const { transaction: tx3 } = await pay3Res.json();
+      expect(tx3.amount_piasters).toBe(50000);
+      expect(tx3.balance_after_piasters).toBe(0);
+
+      detailsRes = await getPersonDetailsRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      detailsJson = await detailsRes.json();
+      expect(detailsJson.person.amount_piasters).toBe(0);
+      expect(detailsJson.summary.total_original_piasters).toBe(100000);
+      expect(detailsJson.summary.total_paid_piasters).toBe(100000);
+      expect(detailsJson.summary.remaining_piasters).toBe(0);
+      expect(detailsJson.summary.is_settled).toBe(true);
+
+      // Verify transactions order in ledger (newest first, with correct balances)
+      expect(detailsJson.transactions).toHaveLength(4);
+      expect(detailsJson.transactions[0].amount_piasters).toBe(50000); // pay3
+      expect(detailsJson.transactions[0].balance_after_piasters).toBe(0);
+      expect(detailsJson.transactions[1].amount_piasters).toBe(20000); // pay2
+      expect(detailsJson.transactions[1].balance_after_piasters).toBe(50000);
+      expect(detailsJson.transactions[2].amount_piasters).toBe(30000); // pay1
+      expect(detailsJson.transactions[2].balance_after_piasters).toBe(70000);
+      expect(detailsJson.transactions[3].amount_piasters).toBe(100000); // initial debt
+      expect(detailsJson.transactions[3].balance_after_piasters).toBe(100000);
+    });
+
+    it("Payable Scenario: 1,500 EGP obligation -> 600 EGP payment (900 remaining) -> 900 EGP payment (0 remaining, settled)", async () => {
+      const session = await createSession(userAId, storeAId);
+
+      // 1. Create payable with 1,500 EGP (150,000 piasters)
+      const createRes = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "سلفة محل مالية",
+            section: "iOwe",
+            amountPiasters: 150000,
+          }),
+        }),
+      );
+      expect(createRes.status).toBe(201);
+      const { person } = await createRes.json();
+      expect(person.amount_piasters).toBe(150000);
+
+      // 2. Payment 1: 600 EGP (60,000 piasters)
+      const pay1 = await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 60000,
+              note: "دفعة سداد أولى",
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(pay1.status).toBe(201);
+
+      // 3. Payment 2: 900 EGP (90,000 piasters)
+      const pay2 = await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 90000,
+              note: "سداد باقي السلفة",
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(pay2.status).toBe(201);
+
+      const detailsRes = await getPersonDetailsRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      const json = await detailsRes.json();
+      expect(json.person.amount_piasters).toBe(0);
+      expect(json.summary.total_original_piasters).toBe(150000);
+      expect(json.summary.total_paid_piasters).toBe(150000);
+      expect(json.summary.remaining_piasters).toBe(0);
+      expect(json.summary.is_settled).toBe(true);
+    });
+
+    it("Supplier Scenario: 2,000 EGP debt -> 500 EGP payment -> 1,500 EGP payment -> Full settlement", async () => {
+      const session = await createSession(userAId, storeAId);
+
+      // 1. Create supplier with 2,000 EGP (200,000 piasters)
+      const createRes = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "مورد البضاعة الأسبوعية",
+            section: "suppliers",
+            amountPiasters: 200000,
+          }),
+        }),
+      );
+      expect(createRes.status).toBe(201);
+      const { person } = await createRes.json();
+      expect(person.amount_piasters).toBe(200000);
+
+      // 2. Payment 1: 500 EGP (50,000 piasters)
+      await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 50000,
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+
+      // 3. Payment 2: 1,500 EGP (150,000 piasters)
+      await postTransactionRoute(
+        new Request(
+          `http://localhost:3000/api/people/${person.id}/transactions`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              cookie: `hesba_session=${session.rawToken}`,
+            },
+            body: JSON.stringify({
+              type: "payment",
+              amountPiasters: 150000,
+            }),
+          },
+        ),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+
+      const detailsRes = await getPersonDetailsRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      const json = await detailsRes.json();
+      expect(json.person.amount_piasters).toBe(0);
+      expect(json.summary.total_original_piasters).toBe(200000);
+      expect(json.summary.total_paid_piasters).toBe(200000);
+      expect(json.summary.remaining_piasters).toBe(0);
+      expect(json.summary.is_settled).toBe(true);
+    });
+
+    it("Idempotency & Isolation: Duplicate transaction with same opId is executed only once without duplicating balance", async () => {
+      const session = await createSession(userAId, storeAId);
+
+      const custRes = await postPeopleRoute(
+        new Request("http://localhost:3000/api/people", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "عميل تجربة تكرار الطلب",
+            section: "owedToMe",
+            amountPiasters: 80000, // 800 EGP
+          }),
+        }),
+      );
+      const { person } = await custRes.json();
+
+      const fixedOpId = crypto.randomUUID();
+
+      // Submit identical request twice
+      const req1 = new Request(
+        `http://localhost:3000/api/people/${person.id}/transactions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            type: "payment",
+            amountPiasters: 30000,
+            opId: fixedOpId,
+          }),
+        },
+      );
+
+      const req2 = new Request(
+        `http://localhost:3000/api/people/${person.id}/transactions`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            type: "payment",
+            amountPiasters: 30000,
+            opId: fixedOpId,
+          }),
+        },
+      );
+
+      const [res1, res2] = await Promise.all([
+        postTransactionRoute(req1, {
+          params: Promise.resolve({ id: person.id }),
+        }),
+        postTransactionRoute(req2, {
+          params: Promise.resolve({ id: person.id }),
+        }),
+      ]);
+
+      expect(res1.status).toBe(201);
+      expect(res2.status).toBe(201);
+
+      // Verify in DB that only 1 debtEntry with fixedOpId exists
+      const entries = await migratorPrisma.debtEntry.findMany({
+        where: { storeId: storeAId, opId: fixedOpId },
+      });
+      expect(entries).toHaveLength(1);
+
+      // Verify balance is 800 - 300 = 500 EGP (50,000 piasters), NOT 200 EGP
+      const detailsRes = await getPersonDetailsRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          headers: { cookie: `hesba_session=${session.rawToken}` },
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      const json = await detailsRes.json();
+      expect(json.person.amount_piasters).toBe(50000);
+    });
+
+    it("Summary Verification: Section summaries accurately report totals and do not double-count suppliers in payables", async () => {
+      const session = await createSession(userAId, storeAId);
+
+      const [resOwed, resPay, resSup] = await Promise.all([
+        getPeopleRoute(
+          new Request("http://localhost:3000/api/people?section=owedToMe", {
+            headers: { cookie: `hesba_session=${session.rawToken}` },
+          }),
+        ),
+        getPeopleRoute(
+          new Request("http://localhost:3000/api/people?section=iOwe", {
+            headers: { cookie: `hesba_session=${session.rawToken}` },
+          }),
+        ),
+        getPeopleRoute(
+          new Request("http://localhost:3000/api/people?section=suppliers", {
+            headers: { cookie: `hesba_session=${session.rawToken}` },
+          }),
+        ),
+      ]);
+
+      const jsonOwed = await resOwed.json();
+      const jsonPay = await resPay.json();
+      const jsonSup = await resSup.json();
+
+      expect(jsonOwed.summary).toBeDefined();
+      expect(jsonOwed.summary.total_count).toBe(jsonOwed.people.length);
+      expect(jsonOwed.summary.total_remaining_piasters).toBe(
+        jsonOwed.total_piasters,
+      );
+
+      expect(jsonPay.summary).toBeDefined();
+      expect(jsonPay.summary.total_count).toBe(jsonPay.people.length);
+      expect(jsonPay.summary.total_remaining_piasters).toBe(
+        jsonPay.total_piasters,
+      );
+
+      expect(jsonSup.summary).toBeDefined();
+      expect(jsonSup.summary.total_count).toBe(jsonSup.people.length);
+      expect(jsonSup.summary.total_remaining_piasters).toBe(
+        jsonSup.total_piasters,
+      );
+
+      // Ensure zero overlap between payables and suppliers
+      const payableIds = new Set(
+        jsonPay.people.map((p: { id: string }) => p.id),
+      );
+      const supplierIds = new Set(
+        jsonSup.people.map((p: { id: string }) => p.id),
+      );
+      for (const id of supplierIds) {
+        expect(payableIds.has(id)).toBe(false);
+      }
+    });
+  });
 });
