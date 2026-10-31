@@ -109,22 +109,25 @@ export function AiView() {
         const res = await fetch(`/api/ai/conversations/${conversationId}`);
         if (res.ok) {
           const json = await res.json();
-          if (json.success && json.data) {
-            setActiveConversationId(json.data.id);
+          const conv = json.conversation ?? json.data;
+          if (conv && Array.isArray(conv.messages)) {
+            setActiveConversationId(conv.id);
             setMessages(
-              json.data.messages.map(
+              conv.messages.map(
                 (m: {
                   id: string;
                   role: "user" | "assistant";
-                  content: string;
+                  body_text?: string;
+                  content?: string;
                   sources?: AiSource[];
+                  created_at?: string;
                   createdAt?: string;
                 }) => ({
                   id: m.id,
                   role: m.role,
-                  content: m.content,
+                  content: m.body_text ?? m.content ?? "",
                   sources: m.sources,
-                  createdAt: m.createdAt,
+                  createdAt: m.created_at ?? m.createdAt,
                 }),
               ),
             );
@@ -144,8 +147,14 @@ export function AiView() {
       const res = await fetch("/api/ai/quota");
       if (res.ok) {
         const json = await res.json();
-        if (json.success && json.data) {
-          setQuota(json.data);
+        const q = json.data ?? json;
+        if (q && typeof q.remaining === "number") {
+          setQuota({
+            remaining: q.remaining,
+            limit: q.limit ?? 5,
+            resetsAt: q.resets_at ?? q.resetsAt ?? "",
+            day: q.day_key ?? q.dayKey ?? "",
+          });
         }
       }
     } catch {
@@ -158,12 +167,23 @@ export function AiView() {
       const res = await fetch("/api/ai/conversations");
       if (res.ok) {
         const json = await res.json();
-        if (json.success && Array.isArray(json.data)) {
-          setConversations(json.data);
-          if (json.data.length > 0 && !activeConversationId) {
-            const todayConv = json.data[0];
-            setActiveConversationId(todayConv.id);
-            await loadConversationMessages(todayConv.id);
+        const list = json.conversations ?? json.data;
+        if (Array.isArray(list)) {
+          const formatted = list.map((c) => ({
+            id: c.id,
+            day: c.day,
+            title: c.title,
+            createdAt: c.created_at ?? c.createdAt ?? "",
+            updatedAt: c.updated_at ?? c.updatedAt ?? "",
+            messageCount: c.message_count ?? c.messageCount ?? 0,
+          }));
+          setConversations(formatted);
+          if (formatted.length > 0 && !activeConversationId) {
+            const todayConv = formatted[0];
+            if (todayConv) {
+              setActiveConversationId(todayConv.id);
+              await loadConversationMessages(todayConv.id);
+            }
           }
         }
       }
@@ -184,41 +204,61 @@ export function AiView() {
 
         if (!ignore && quotaRes.ok) {
           const quotaJson = await quotaRes.json();
-          if (quotaJson.success && quotaJson.data) {
-            setQuota(quotaJson.data);
+          const q = quotaJson.data ?? quotaJson;
+          if (q && typeof q.remaining === "number") {
+            setQuota({
+              remaining: q.remaining,
+              limit: q.limit ?? 5,
+              resetsAt: q.resets_at ?? q.resetsAt ?? "",
+              day: q.day_key ?? q.dayKey ?? "",
+            });
           }
         }
 
         if (!ignore && convRes.ok) {
           const convJson = await convRes.json();
-          if (convJson.success && Array.isArray(convJson.data)) {
-            setConversations(convJson.data);
-            if (convJson.data.length > 0) {
-              const todayConv = convJson.data[0];
-              setActiveConversationId(todayConv.id);
-              const msgsRes = await fetch(
-                `/api/ai/conversations/${todayConv.id}`,
-              );
-              if (!ignore && msgsRes.ok) {
-                const msgsJson = await msgsRes.json();
-                if (msgsJson.success && msgsJson.data?.messages) {
-                  setMessages(
-                    msgsJson.data.messages.map(
-                      (m: {
-                        id: string;
-                        role: "user" | "assistant";
-                        content: string;
-                        sources?: AiSource[];
-                        createdAt?: string;
-                      }) => ({
-                        id: m.id,
-                        role: m.role,
-                        content: m.content,
-                        sources: m.sources,
-                        createdAt: m.createdAt,
-                      }),
-                    ),
-                  );
+          const list = convJson.conversations ?? convJson.data;
+          if (Array.isArray(list)) {
+            const formatted = list.map((c) => ({
+              id: c.id,
+              day: c.day,
+              title: c.title,
+              createdAt: c.created_at ?? c.createdAt ?? "",
+              updatedAt: c.updated_at ?? c.updatedAt ?? "",
+              messageCount: c.message_count ?? c.messageCount ?? 0,
+            }));
+            setConversations(formatted);
+            if (formatted.length > 0) {
+              const todayConv = formatted[0];
+              if (todayConv) {
+                setActiveConversationId(todayConv.id);
+                const msgsRes = await fetch(
+                  `/api/ai/conversations/${todayConv.id}`,
+                );
+                if (!ignore && msgsRes.ok) {
+                  const msgsJson = await msgsRes.json();
+                  const conv = msgsJson.conversation ?? msgsJson.data;
+                  if (conv && Array.isArray(conv.messages)) {
+                    setMessages(
+                      conv.messages.map(
+                        (m: {
+                          id: string;
+                          role: "user" | "assistant";
+                          body_text?: string;
+                          content?: string;
+                          sources?: AiSource[];
+                          created_at?: string;
+                          createdAt?: string;
+                        }) => ({
+                          id: m.id,
+                          role: m.role,
+                          content: m.body_text ?? m.content ?? "",
+                          sources: m.sources,
+                          createdAt: m.created_at ?? m.createdAt,
+                        }),
+                      ),
+                    );
+                  }
                 }
               }
             }
@@ -260,39 +300,60 @@ export function AiView() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          body_text: text,
           message: text,
+          conversation_id: activeConversationId || undefined,
           conversationId: activeConversationId || undefined,
+          client_message_id: clientMsgId,
           clientMessageId: clientMsgId,
         }),
       });
 
       const json = await res.json();
 
-      if (!res.ok || !json.success) {
-        throw new Error(json.error || t("pages.ai.sendError"));
+      if (!res.ok) {
+        throw new Error(json.error || json.message || t("pages.ai.sendError"));
       }
 
-      if (json.data) {
-        if (json.data.conversationId) {
-          setActiveConversationId(json.data.conversationId);
-        }
-        if (json.data.quota) {
-          setQuota(json.data.quota);
-        }
-        if (json.data.message) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: json.data.message.id,
-              role: "assistant",
-              content: json.data.message.content,
-              sources: json.data.message.sources,
-              createdAt: json.data.message.createdAt,
-            },
-          ]);
-        }
-        void loadConversations();
+      const convId =
+        json.conversation_id ??
+        json.conversationId ??
+        json.data?.conversationId;
+      const msgId =
+        json.message_id ??
+        json.messageId ??
+        json.data?.message?.id ??
+        generateClientUuid();
+      const bodyText =
+        json.body_text ?? json.message?.content ?? json.data?.message?.content;
+      const sources =
+        json.sources ?? json.message?.sources ?? json.data?.message?.sources;
+      const rawQuota = json.quota ?? json.data?.quota;
+
+      if (convId) {
+        setActiveConversationId(convId);
       }
+      if (rawQuota && typeof rawQuota.remaining === "number") {
+        setQuota({
+          remaining: rawQuota.remaining,
+          limit: rawQuota.limit ?? 5,
+          resetsAt: rawQuota.resets_at ?? rawQuota.resetsAt ?? "",
+          day: rawQuota.day_key ?? rawQuota.dayKey ?? "",
+        });
+      }
+      if (bodyText) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: msgId,
+            role: "assistant",
+            content: bodyText,
+            sources: sources,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }
+      void loadConversations();
     } catch (err: unknown) {
       const errMsg =
         err instanceof Error ? err.message : t("pages.ai.sendError");
@@ -370,8 +431,6 @@ export function AiView() {
     t("pages.ai.sugg2"),
     t("pages.ai.sugg3"),
     t("pages.ai.sugg4"),
-    t("pages.ai.sugg5"),
-    t("pages.ai.sugg6"),
   ];
 
   const remainingQuota = quota ? quota.remaining : 5;
@@ -430,6 +489,26 @@ export function AiView() {
             </div>
             <b>{t("pages.ai.emptyTitle")}</b>
             <span>{t("pages.ai.emptySubtitle")}</span>
+
+            {/* Vertically centered suggestion pills */}
+            <div
+              className={styles.suggChipsList}
+              data-testid="ai-suggestions-strip"
+              aria-label="الأسئلة المقترحة"
+            >
+              {suggestions.map((s, idx) => (
+                <button
+                  type="button"
+                  key={idx}
+                  className={styles.suggChip}
+                  data-testid="ai-suggestion-chip"
+                  disabled={isQuotaExceeded || isLoading}
+                  onClick={() => void handleSend(s)}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           messages.map((m) => (
@@ -503,29 +582,8 @@ export function AiView() {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Fixed Bottom Section: Always-Visible Suggestions + Composer Bar */}
+      {/* Fixed Bottom Section: Composer Bar */}
       <div className={styles.bottomArea}>
-        {/* Horizontal Suggestion Chips directly above the input box */}
-        <div
-          className={styles.suggestionsStrip}
-          data-testid="ai-suggestions-strip"
-          aria-label="الأسئلة المقترحة"
-        >
-          {suggestions.map((s, idx) => (
-            <button
-              type="button"
-              key={idx}
-              className={styles.suggChip}
-              data-testid="ai-suggestion-chip"
-              disabled={isQuotaExceeded || isLoading}
-              onClick={() => void handleSend(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {/* Composer Bar */}
         <div className={styles.composer}>
           <button
             type="button"

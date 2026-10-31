@@ -1,13 +1,23 @@
 import { z } from "zod";
 
-export const SendMessageSchema = z.object({
-  body_text: z
-    .string({ message: "نص السؤال مطلوب" })
-    .trim()
-    .min(1, "نص السؤال مطلوب")
-    .max(1000, "يجب ألا يتجاوز السؤال 1000 حرف"),
-  client_message_id: z.string().trim().min(1).max(128).optional(),
-});
+export const SendMessageSchema = z
+  .object({
+    body_text: z.string().trim().min(1).max(1000).optional(),
+    message: z.string().trim().min(1).max(1000).optional(),
+    client_message_id: z.string().trim().min(1).max(128).optional(),
+    clientMessageId: z.string().trim().min(1).max(128).optional(),
+    conversation_id: z.string().uuid().optional(),
+    conversationId: z.string().uuid().optional(),
+  })
+  .refine((data) => Boolean((data.body_text ?? data.message)?.trim()), {
+    message: "نص السؤال مطلوب",
+    path: ["body_text"],
+  })
+  .transform((data) => ({
+    body_text: (data.body_text ?? data.message)!.trim(),
+    client_message_id: data.client_message_id ?? data.clientMessageId,
+    conversation_id: data.conversation_id ?? data.conversationId,
+  }));
 
 export type SendMessageInput = z.infer<typeof SendMessageSchema>;
 

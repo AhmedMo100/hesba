@@ -17,16 +17,17 @@
 /* Header */
 .phead {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
-  padding: 4px 0 8px 0;
+  padding: 4px 0 10px 0;
   width: 100%;
 }
 
-/* Hidden on mobile to keep the mobile header clean & compact */
 .pheadInfo {
-  display: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .pheadInfo h1 {
@@ -40,38 +41,22 @@
 
 .pheadInfo p {
   margin: 0;
-  font-size: 13px;
+  font-size: 13.5px;
   color: var(--ink2);
 }
 
 .pheadActions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
   gap: 8px;
-}
-
-/* Display full title and subtitle on tablet & desktop */
-@media (min-width: 640px) {
-  .pheadInfo {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .pheadActions {
-    width: auto;
-    justify-content: flex-end;
-  }
 }
 
 .quota {
   background: var(--soft);
   color: var(--br);
-  font-weight: 700;
-  font-size: 12.5px;
-  padding: 5px 12px;
+  font-weight: 800;
+  font-size: 13px;
+  padding: 6px 14px;
   border-radius: 999px;
   display: inline-flex;
   align-items: center;
@@ -109,7 +94,7 @@
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 8px 0 20px 0;
+  padding: 4px 0 20px 0;
   overflow-y: auto;
 }
 
@@ -121,13 +106,13 @@
   text-align: center;
   gap: 8px;
   margin: auto 0;
-  padding: 48px 16px;
+  padding: 24px 16px;
 }
 
 .sparkleIconBox {
-  width: 54px;
-  height: 54px;
-  border-radius: 16px;
+  width: 58px;
+  height: 58px;
+  border-radius: 18px;
   background: var(--soft);
   display: flex;
   align-items: center;
@@ -138,15 +123,60 @@
 
 .aiHello b {
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 800;
   color: var(--ink);
 }
 
 .aiHello span {
   font-size: 13.5px;
   color: var(--ink2);
-  max-width: 290px;
+  max-width: 320px;
   line-height: 1.6;
+  margin-bottom: 6px;
+}
+
+/* Suggestion Pills in Empty State */
+.suggChipsList {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 360px;
+  margin-top: 8px;
+}
+
+.suggChip {
+  width: fit-content;
+  max-width: 100%;
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 22px;
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: normal;
+  text-align: center;
+  font-family: inherit;
+  box-shadow: var(--sh);
+}
+
+.suggChip:hover:not(:disabled) {
+  border-color: var(--br);
+  background: var(--soft);
+  color: var(--br);
+}
+
+.suggChip:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.suggChip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Message Bubbles */
@@ -165,8 +195,8 @@
 
 .bub {
   max-width: 86%;
-  padding: 11px 15px;
-  border-radius: 16px;
+  padding: 12px 16px;
+  border-radius: 18px;
   white-space: pre-wrap;
   line-height: 1.65;
   font-size: 14.5px;
@@ -183,7 +213,7 @@
 
 .msgA .bub {
   background: var(--sf);
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   color: var(--ink);
   border-bottom-left-radius: 4px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
@@ -271,7 +301,7 @@
   margin: 2px 0 6px 0;
 }
 
-/* Fixed Bottom Area: Suggestions + Composer */
+/* Fixed Bottom Area: Composer */
 .bottomArea {
   position: sticky;
   bottom: calc(var(--nav, 72px) + 8px + env(safe-area-inset-bottom, 0px));
@@ -282,78 +312,27 @@
   padding-top: 6px;
 }
 
-/* Horizontal Suggestions Strip */
-.suggestionsStrip {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 2px 2px 4px 2px;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  -webkit-overflow-scrolling: touch;
-  align-items: center;
-}
-
-.suggestionsStrip::-webkit-scrollbar {
-  display: none;
-}
-
-.suggChip {
-  flex-shrink: 0;
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 6px 14px;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--ink);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-  font-family: inherit;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-  min-height: 34px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.suggChip:hover:not(:disabled) {
-  border-color: var(--br);
-  background: var(--soft);
-  color: var(--br);
-}
-
-.suggChip:active:not(:disabled) {
-  transform: scale(0.97);
-}
-
-.suggChip:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
 /* Composer Bar */
 .composer {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   background: var(--sf);
   border: 1.5px solid var(--line);
-  border-radius: 22px;
-  padding: 5px 6px;
+  border-radius: 28px;
+  padding: 6px 8px;
   box-shadow: var(--sh2);
+  min-height: 52px;
 }
 
 .composer input {
   flex: 1;
   border: none;
   background: transparent;
-  padding: 6px 8px;
-  font-size: 14.5px;
+  padding: 8px 10px;
+  font-size: 15px;
   color: var(--ink);
   outline: none;
-  min-height: 36px;
   font-family: inherit;
 }
 
@@ -364,8 +343,8 @@
 .micBtn {
   background: transparent;
   border: none;
-  width: 38px;
-  height: 38px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -373,10 +352,11 @@
   color: var(--ink2);
   cursor: pointer;
   transition: all 0.15s;
+  flex-shrink: 0;
 }
 
 .micBtn:hover {
-  color: var(--ink);
+  color: var(--br);
 }
 
 .micBtnListening {
@@ -396,10 +376,8 @@
 }
 
 .sendBtn {
-  width: 40px;
-  height: 40px;
-  min-height: 40px;
-  min-width: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
   border: none;
   background: var(--soft);
@@ -409,6 +387,7 @@
   justify-content: center;
   cursor: pointer;
   transition: all 0.15s;
+  flex-shrink: 0;
 }
 
 .sendBtnActive {
