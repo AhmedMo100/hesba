@@ -67,94 +67,84 @@
   margin-bottom: 12px;
 }
 
-/* Comprehensive Financial Summary Card */
-.financialSummaryCard {
+/* Summary Banner */
+.summaryBanner {
   background: var(--soft, #e1e8d4);
-  border-radius: 16px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-bottom: 14px;
-  border: 1px solid color-mix(in srgb, var(--br, #4f6b46) 20%, transparent);
-}
-
-.summaryMetricsRow {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  text-align: center;
-}
-
-.summaryMetricItem {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.metricLabel {
-  font-size: 12px;
-  font-weight: 700;
-  color: var(--ink2);
-}
-
-.metricValOriginal {
-  font-size: 15px;
-  font-weight: 900;
-  color: var(--ink);
-  font-variant-numeric: tabular-nums;
-  direction: ltr;
-}
-
-.metricValPaid {
-  font-size: 15px;
-  font-weight: 900;
-  color: var(--br, #4f6b46);
-  font-variant-numeric: tabular-nums;
-  direction: ltr;
-}
-
-:global([data-theme="dark"]) .metricValPaid,
-:global([data-theme="auto"]) .metricValPaid {
-  color: var(--ok, #9dbb8b);
-}
-
-.metricValRemaining {
-  font-size: 16px;
-  font-weight: 900;
-  color: var(--red, #b3402f);
-  font-variant-numeric: tabular-nums;
-  direction: ltr;
-}
-
-.summaryCountsStrip {
+  border-radius: 14px;
+  padding: 12px 18px;
   display: flex;
   align-items: center;
-  justify-content: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding-top: 8px;
-  border-top: 1px dashed color-mix(in srgb, var(--br, #4f6b46) 25%, transparent);
-  font-size: 12px;
-  font-weight: 700;
+  justify-content: space-between;
+  margin-bottom: 14px;
 }
 
-.countBadge {
-  color: var(--ink);
-}
-
-.countBadgeSettled {
+.summaryText {
+  font-size: 15px;
+  font-weight: 800;
   color: var(--br, #4f6b46);
 }
 
-:global([data-theme="dark"]) .countBadgeSettled,
-:global([data-theme="auto"]) .countBadgeSettled {
+:global([data-theme="dark"]) .summaryText,
+:global([data-theme="auto"]) .summaryText {
   color: var(--ok, #9dbb8b);
 }
 
-.countsDot {
+.summaryAmount {
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--br, #4f6b46);
+  font-variant-numeric: tabular-nums;
+}
+
+:global([data-theme="dark"]) .summaryAmount,
+:global([data-theme="auto"]) .summaryAmount {
+  color: var(--ok, #9dbb8b);
+}
+
+:global([data-theme="dark"]) .summaryBanner,
+:global([data-theme="auto"]) .summaryBanner {
+  background: rgba(85, 110, 75, 0.25);
+  border: 1px solid rgba(157, 187, 139, 0.2);
+}
+
+.supplierNotesBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.supplierNoteRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.supplierNoteLabel {
+  font-weight: 800;
   color: var(--ink2);
-  opacity: 0.6;
+}
+
+.supplierNoteValOwed {
+  font-weight: 800;
+  color: var(--red, #b3402f);
+}
+
+:global([data-theme="dark"]) .supplierNoteValOwed,
+:global([data-theme="auto"]) .supplierNoteValOwed {
+  color: #ff8c7a;
+}
+
+.supplierNoteValProducts {
+  font-weight: 800;
+  color: var(--br, #4f6b46);
+}
+
+:global([data-theme="dark"]) .supplierNoteValProducts,
+:global([data-theme="auto"]) .supplierNoteValProducts {
+  color: var(--ok, #9dbb8b);
 }
 
 /* Cards List */

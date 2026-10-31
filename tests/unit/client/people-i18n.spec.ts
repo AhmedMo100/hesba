@@ -12,11 +12,11 @@ describe("People Module i18n Verification", () => {
     );
     const content = fs.readFileSync(peopleViewPath, "utf-8");
 
-    // Extract all t("...") calls
-    const matches = content.match(/t\(\s*["']([^"']+)["']/g) || [];
+    // Extract all t("...") calls (with word boundary to avoid matching split("\n") etc.)
+    const matches = content.match(/\bt\(\s*["']([^"']+)["']/g) || [];
     const keys = Array.from(
       new Set(
-        matches.map((m) => m.replace(/t\(\s*["']/, "").replace(/["']$/, "")),
+        matches.map((m) => m.replace(/\bt\(\s*["']/, "").replace(/["']$/, "")),
       ),
     );
 

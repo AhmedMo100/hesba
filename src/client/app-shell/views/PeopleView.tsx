@@ -96,6 +96,65 @@ function formatEgp(piasters: number): string {
   return `${Math.floor(egp).toLocaleString("en-US")} ج.م`;
 }
 
+function parseSupplierNotes(note: string | null): {
+  owedMoneyNote: string;
+  productsNote: string;
+  generalNote: string;
+} {
+  if (!note) {
+    return { owedMoneyNote: "", productsNote: "", generalNote: "" };
+  }
+  const lines = note.split("\n");
+  let owedMoneyNote = "";
+  let productsNote = "";
+  const remainingLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (
+      trimmed.startsWith("عليك ليهم فلوس:") ||
+      trimmed.startsWith("فلوس ليهم:")
+    ) {
+      owedMoneyNote = trimmed
+        .replace(/^(عليك ليهم فلوس|فلوس ليهم):\s*/, "")
+        .trim();
+    } else if (
+      trimmed.startsWith("ليك عندهم منتجات:") ||
+      trimmed.startsWith("منتجات عندهم:")
+    ) {
+      productsNote = trimmed
+        .replace(/^(ليك عندهم منتجات|منتجات عندهم):\s*/, "")
+        .trim();
+    } else if (trimmed) {
+      remainingLines.push(trimmed);
+    }
+  }
+
+  return {
+    owedMoneyNote,
+    productsNote,
+    generalNote: remainingLines.join("\n"),
+  };
+}
+
+function serializeSupplierNotes(parts: {
+  owedMoneyNote?: string;
+  productsNote?: string;
+  generalNote?: string;
+}): string | null {
+  const lines: string[] = [];
+  if (parts.owedMoneyNote?.trim()) {
+    lines.push(`عليك ليهم فلوس: ${parts.owedMoneyNote.trim()}`);
+  }
+  if (parts.productsNote?.trim()) {
+    lines.push(`ليك عندهم منتجات: ${parts.productsNote.trim()}`);
+  }
+  if (parts.generalNote?.trim()) {
+    lines.push(parts.generalNote.trim());
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
+}
+
 export function PeopleView() {
   const [section, setSection] = useState<PeopleSection>("owedToMe");
 
@@ -146,7 +205,6 @@ export function PeopleView() {
   const [editingPerson, setEditingPerson] = useState<PersonItem | null>(null);
 
   // Progressive disclosure states in form
-  const [showAmountField, setShowAmountField] = useState(false);
   const [showProductField, setShowProductField] = useState(false);
 
   // Product combobox dropdown state
@@ -181,6 +239,8 @@ export function PeopleView() {
   const [formPhone, setFormPhone] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formNote, setFormNote] = useState("");
+  const [supplierOwedMoneyNote, setSupplierOwedMoneyNote] = useState("");
+  const [supplierProductsNote, setSupplierProductsNote] = useState("");
   const [formSupplies, setFormSupplies] = useState<SuppliedProduct[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -282,9 +342,10 @@ export function PeopleView() {
     setFormPhone("");
     setFormAmount("");
     setFormNote("");
+    setSupplierOwedMoneyNote("");
+    setSupplierProductsNote("");
     setFormSupplies([]);
     setFormError(null);
-    setShowAmountField(false);
     setShowProductField(false);
     setIsProductDropdownOpen(false);
     setProductSearchQuery("");
@@ -306,10 +367,18 @@ export function PeopleView() {
           : egpVal.toFixed(2)
         : "",
     );
-    setFormNote(p.note || "");
+    if (p.section === "suppliers") {
+      const parsed = parseSupplierNotes(p.note);
+      setSupplierOwedMoneyNote(parsed.owedMoneyNote);
+      setSupplierProductsNote(parsed.productsNote);
+      setFormNote(parsed.generalNote);
+    } else {
+      setSupplierOwedMoneyNote("");
+      setSupplierProductsNote("");
+      setFormNote(p.note || "");
+    }
     setFormSupplies(p.supplies || []);
     setFormError(null);
-    setShowAmountField(p.amount_piasters > 0);
     setShowProductField((p.supplies || []).length > 0);
     setIsProductDropdownOpen(false);
     setProductSearchQuery("");
@@ -380,11 +449,19 @@ export function PeopleView() {
       return;
     }
 
-    const amountNum =
-      showAmountField || section !== "suppliers"
-        ? formAmount.trim()
-          ? parseEgpToPiasters(formAmount)
-          : 0
+    const isSupplier = section === "suppliers";
+    const finalNote = isSupplier
+      ? serializeSupplierNotes({
+          owedMoneyNote: supplierOwedMoneyNote,
+          productsNote: supplierProductsNote,
+          generalNote: formNote,
+        })
+      : formNote.trim() || null;
+
+    const amountNum = isSupplier
+      ? editingPerson?.amount_piasters || 0
+      : formAmount.trim()
+        ? parseEgpToPiasters(formAmount)
         : 0;
 
     if (amountNum < 0) {
@@ -405,8 +482,8 @@ export function PeopleView() {
             name: formName.trim(),
             phone: formPhone.trim() || null,
             amountPiasters: amountNum,
-            note: formNote.trim() || null,
-            supplies: showProductField ? formSupplies.map((s) => s.id) : [],
+            note: finalNote,
+            supplies: formSupplies.map((s) => s.id),
           }),
         });
 
@@ -424,8 +501,8 @@ export function PeopleView() {
             phone: formPhone.trim() || null,
             section,
             amountPiasters: amountNum,
-            note: formNote.trim() || null,
-            supplies: showProductField ? formSupplies.map((s) => s.id) : [],
+            note: finalNote,
+            supplies: formSupplies.map((s) => s.id),
           }),
         });
 
@@ -534,7 +611,6 @@ export function PeopleView() {
   const people = currentSectionData.people;
   const loading = currentSectionData.loading;
   const error = currentSectionData.error;
-  const summary = currentSectionData.summary;
 
   return (
     <div className={styles.container} data-testid="page-people">
@@ -569,88 +645,26 @@ export function PeopleView() {
         />
       </div>
 
-      {/* Financial Summary Cards */}
-      <div className={styles.financialSummaryCard}>
-        <div className={styles.summaryMetricsRow}>
-          {/* 1. Original Obligation / Receivable */}
-          <div className={styles.summaryMetricItem}>
-            <span className={styles.metricLabel}>
-              {section === "owedToMe"
-                ? t("pages.people.totalReceivable")
-                : section === "iOwe"
-                  ? t("pages.people.totalObligations")
-                  : t("pages.people.totalSuppliersOwed")}
-            </span>
-            <span className={styles.metricValOriginal}>
-              {formatEgp(summary.total_original_piasters)}
-            </span>
-          </div>
-
-          {/* 2. Collected / Paid */}
-          <div className={styles.summaryMetricItem}>
-            <span className={styles.metricLabel}>
-              {section === "owedToMe"
-                ? t("pages.people.totalCollected")
-                : t("pages.people.totalPaid")}
-            </span>
-            <span className={styles.metricValPaid}>
-              {formatEgp(summary.total_paid_piasters)}
-            </span>
-          </div>
-
-          {/* 3. Remaining Balance */}
-          <div className={styles.summaryMetricItem}>
-            <span className={styles.metricLabel}>
-              {t("pages.people.totalRemaining")}
-            </span>
-            <span className={styles.metricValRemaining}>
-              {formatEgp(summary.total_remaining_piasters)}
-            </span>
-          </div>
-        </div>
-
-        {/* Counts strip */}
-        <div className={styles.summaryCountsStrip}>
-          <span className={styles.countBadge}>
-            {section === "owedToMe"
-              ? t("pages.people.customersCount", { count: summary.total_count })
-              : section === "iOwe"
-                ? t("pages.people.payablesCount", {
-                    count: summary.total_count,
-                  })
-                : t("pages.people.suppliersCount", {
-                    count: summary.total_count,
-                  })}
-          </span>
-          <span className={styles.countsDot}>•</span>
-          <span className={styles.countBadge}>
-            {section === "owedToMe"
-              ? t("pages.people.activeCustomers", {
-                  count: summary.active_count,
+      {/* Summary Banner */}
+      <div className={styles.summaryBanner}>
+        <span className={styles.summaryText}>
+          {section === "owedToMe"
+            ? t("pages.people.summaryOwedToMe", {
+                count: currentSectionData.count,
+              })
+            : section === "iOwe"
+              ? t("pages.people.summaryIOwe", {
+                  count: currentSectionData.count,
                 })
-              : section === "iOwe"
-                ? t("pages.people.activePayables", {
-                    count: summary.active_count,
-                  })
-                : t("pages.people.activeSuppliers", {
-                    count: summary.active_count,
-                  })}
-          </span>
-          <span className={styles.countsDot}>•</span>
-          <span className={styles.countBadgeSettled}>
-            {section === "owedToMe"
-              ? t("pages.people.settledCustomers", {
-                  count: summary.settled_count,
-                })
-              : section === "iOwe"
-                ? t("pages.people.settledPayables", {
-                    count: summary.settled_count,
-                  })
-                : t("pages.people.settledSuppliers", {
-                    count: summary.settled_count,
-                  })}
-          </span>
-        </div>
+              : t("pages.people.suppliersCountTitle")}
+        </span>
+        <span className={styles.summaryAmount}>
+          {section === "suppliers"
+            ? t("pages.people.suppliersCount", {
+                count: currentSectionData.count,
+              })
+            : formatEgp(currentSectionData.totalPiasters)}
+        </span>
       </div>
 
       {/* Content / States */}
@@ -788,38 +802,73 @@ export function PeopleView() {
                     </div>
                   )}
 
-                {/* Footer row */}
-                <div className={styles.cardFooter}>
-                  {section === "suppliers" ? (
-                    <>
-                      <span className={styles.amountLabel}>
-                        {t("pages.people.remainingOwed")}
+                {/* Footer / Notes row */}
+                {section === "suppliers" ? (
+                  (() => {
+                    const parsed = parseSupplierNotes(p.note);
+                    return (
+                      <div className={styles.supplierNotesBlock}>
+                        {parsed.owedMoneyNote && (
+                          <div className={styles.supplierNoteRow}>
+                            <span className={styles.supplierNoteLabel}>
+                              {t("pages.people.supplierOwedLabel")}
+                            </span>
+                            <span className={styles.supplierNoteValOwed}>
+                              {parsed.owedMoneyNote}
+                            </span>
+                          </div>
+                        )}
+                        {parsed.productsNote && (
+                          <div className={styles.supplierNoteRow}>
+                            <span className={styles.supplierNoteLabel}>
+                              {t("pages.people.supplierProductsLabel")}
+                            </span>
+                            <span className={styles.supplierNoteValProducts}>
+                              {parsed.productsNote}
+                            </span>
+                          </div>
+                        )}
+                        {parsed.generalNote && (
+                          <span
+                            className={styles.noteText}
+                            title={parsed.generalNote}
+                          >
+                            {parsed.generalNote}
+                          </span>
+                        )}
+                        {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
+                          <div className={styles.cardFooter}>
+                            <span className={styles.amountLabel}>
+                              {t("pages.people.remainingOwed")}
+                            </span>
+                            <span className={styles.amountDark}>
+                              {formatEgp(p.amount_piasters)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()
+                ) : (
+                  <div className={styles.cardFooter}>
+                    {p.note ? (
+                      <span className={styles.noteText} title={p.note}>
+                        {p.note}
                       </span>
-                      <span className={styles.amountDark}>
-                        {formatEgp(p.amount_piasters)}
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      {p.note ? (
-                        <span className={styles.noteText} title={p.note}>
-                          {p.note}
-                        </span>
-                      ) : (
-                        <span />
-                      )}
-                      <span
-                        className={
-                          section === "owedToMe"
-                            ? styles.amountPos
-                            : styles.amountNeg
-                        }
-                      >
-                        {formatEgp(p.amount_piasters)}
-                      </span>
-                    </>
-                  )}
-                </div>
+                    ) : (
+                      <span />
+                    )}
+                    <span
+                      className={
+                        section === "owedToMe"
+                          ? styles.amountPos
+                          : styles.amountNeg
+                      }
+                    >
+                      {formatEgp(p.amount_piasters)}
+                    </span>
+                  </div>
+                )}
               </div>
             );
           })}
@@ -917,50 +966,36 @@ export function PeopleView() {
               />
             </div>
 
-            {/* Supplier Form Specific: Amount with Progressive Disclosure */}
+            {/* Supplier Form Specific: Notes & Supplies */}
             {section === "suppliers" ? (
               <>
-                {!showAmountField ? (
-                  <button
-                    type="button"
-                    className={styles.toggleFieldBtn}
-                    onClick={() => setShowAmountField(true)}
-                  >
-                    <Icon n="plus" s={15} />
-                    <span>{t("pages.people.addAmountOptional")}</span>
-                  </button>
-                ) : (
-                  <div className={styles.formGroup}>
-                    <div className={styles.labelWithAction}>
-                      <label className={styles.fieldLabel}>
-                        {t("pages.people.remainingOptional")}
-                      </label>
-                      <button
-                        type="button"
-                        className={styles.removeFieldBtn}
-                        onClick={() => {
-                          setShowAmountField(false);
-                          setFormAmount("");
-                        }}
-                      >
-                        {t("pages.people.remove")}
-                      </button>
-                    </div>
-                    <div className={styles.amountInputWrapper}>
-                      <span className={styles.currencyBadge}>
-                        {t("pages.people.currency")}
-                      </span>
-                      <input
-                        type="text"
-                        inputMode="decimal"
-                        className={styles.amountNumInput}
-                        value={formAmount}
-                        onChange={(e) => setFormAmount(e.target.value)}
-                        placeholder="0"
-                      />
-                    </div>
-                  </div>
-                )}
+                {/* عليك ليهم فلوس؟ كـ ملاحظة */}
+                <div className={styles.formGroup}>
+                  <label className={styles.fieldLabel}>
+                    {t("pages.people.supplierOwedMoneyNote")}
+                  </label>
+                  <input
+                    type="text"
+                    className={styles.inputField}
+                    value={supplierOwedMoneyNote}
+                    onChange={(e) => setSupplierOwedMoneyNote(e.target.value)}
+                    placeholder={t("pages.people.supplierOwedMoneyPlaceholder")}
+                  />
+                </div>
+
+                {/* ليك عندهم منتجات؟ كـ ملاحظة */}
+                <div className={styles.formGroup}>
+                  <label className={styles.fieldLabel}>
+                    {t("pages.people.supplierProductsNote")}
+                  </label>
+                  <input
+                    type="text"
+                    className={styles.inputField}
+                    value={supplierProductsNote}
+                    onChange={(e) => setSupplierProductsNote(e.target.value)}
+                    placeholder={t("pages.people.supplierProductsPlaceholder")}
+                  />
+                </div>
 
                 {/* Supplies selection with Progressive Disclosure */}
                 {!showProductField ? (
@@ -1083,17 +1118,17 @@ export function PeopleView() {
                   </div>
                 )}
 
-                {/* Notes for supplier */}
+                {/* Additional Notes for supplier */}
                 <div className={styles.formGroup}>
                   <label className={styles.fieldLabel}>
-                    {t("pages.people.formNote")}
+                    {t("pages.people.additionalNotes")}
                   </label>
                   <input
                     type="text"
                     className={styles.inputField}
                     value={formNote}
                     onChange={(e) => setFormNote(e.target.value)}
-                    placeholder="مثلاً: بيمر كل يوم ثلاثاء"
+                    placeholder={t("pages.people.additionalNotesPlaceholder")}
                   />
                 </div>
               </>
