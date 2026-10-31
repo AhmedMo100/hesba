@@ -30,17 +30,16 @@
 .phead {
   flex-shrink: 0;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   padding: 2px 0 6px 0;
   width: 100%;
 }
 
+/* Hidden on small screens (< 640px) as requested */
 .pheadInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+  display: none;
 }
 
 .pheadInfo h1 {
@@ -61,7 +60,27 @@
 .pheadActions {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  width: 100%;
   gap: 8px;
+}
+
+/* Show title and subtitle on tablet and desktop (>= 640px) */
+@media (min-width: 640px) {
+  .phead {
+    align-items: flex-start;
+  }
+
+  .pheadInfo {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .pheadActions {
+    width: auto;
+    justify-content: flex-end;
+  }
 }
 
 .quota {
@@ -101,7 +120,7 @@
   border-color: var(--ink2);
 }
 
-/* Chat Messages */
+/* Chat Messages Area with Hidden Scrollbar */
 .chat {
   flex: 1;
   min-height: 0;
@@ -111,6 +130,14 @@
   padding: 4px 0 10px 0;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
+}
+
+.chat::-webkit-scrollbar {
+  display: none; /* Chrome, Safari, WebKit */
+  width: 0;
+  height: 0;
 }
 
 /* Empty State */
@@ -164,10 +191,9 @@
 }
 
 .bub {
-  max-width: 86%;
+  max-width: 88%;
   padding: 12px 16px;
   border-radius: 18px;
-  white-space: pre-wrap;
   line-height: 1.65;
   font-size: 14.5px;
   word-break: break-word;
@@ -179,6 +205,7 @@
   border-bottom-right-radius: 4px;
   font-weight: 500;
   box-shadow: 0 1px 4px rgba(46, 91, 54, 0.12);
+  white-space: pre-wrap;
 }
 
 .msgA .bub {
@@ -187,6 +214,181 @@
   color: var(--ink);
   border-bottom-left-radius: 4px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+/* Rich Formatted Message Content */
+.msgContent {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  line-height: 1.65;
+}
+
+.spacerLine {
+  height: 6px;
+}
+
+.sectionHeader {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--ink);
+  margin-top: 4px;
+  padding-bottom: 2px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.sectionDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--br);
+  flex-shrink: 0;
+}
+
+.bulletItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.bulletIcon {
+  color: var(--br);
+  font-weight: 800;
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.bulletText {
+  flex: 1;
+  word-break: break-word;
+}
+
+.numberedItem {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.numberBadge {
+  min-width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--soft);
+  color: var(--br);
+  font-weight: 800;
+  font-size: 11.5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.alertLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--yelBg);
+  color: var(--yel);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  margin: 4px 0;
+}
+
+.tipLine {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--soft);
+  color: var(--ink);
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  border: 1px solid color-mix(in srgb, var(--br) 25%, transparent);
+  margin: 6px 0;
+}
+
+.tipBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--br);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.regularLine {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+/* Lively Non-Boring Thinking Indicator */
+.thinkingCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px;
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  box-shadow: var(--sh);
+}
+
+.thinkingHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.thinkingIconWrap {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--br);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: thinkGlow 1.8s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes thinkGlow {
+  0%,
+  100% {
+    transform: scale(1) rotate(0deg);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.12) rotate(12deg);
+    opacity: 1;
+  }
+}
+
+.thinkingPhrase {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--br);
+  animation: phraseFade 0.35s ease;
+}
+
+@keyframes phraseFade {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* Sources & Citations */
@@ -222,19 +424,19 @@
   color: var(--ink2);
 }
 
-/* Typing Indicator */
+/* Typing Dots */
 .typing {
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 12px 16px;
+  padding: 2px 0 0 2px;
 }
 
 .typingDot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: var(--ink2);
+  background: var(--br);
   animation: typingBlink 1s infinite;
 }
 
@@ -249,7 +451,7 @@
 @keyframes typingBlink {
   0%,
   100% {
-    opacity: 0.2;
+    opacity: 0.25;
     transform: translateY(0);
   }
   50% {
@@ -295,6 +497,8 @@
 
 .suggestionsStrip::-webkit-scrollbar {
   display: none;
+  width: 0;
+  height: 0;
 }
 
 .suggChip {

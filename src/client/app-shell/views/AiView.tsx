@@ -88,10 +88,122 @@ function getTodayCairoDateString(): string {
   }
 }
 
+const THINKING_PHRASES = [
+  "بيحسب أرقام محلك...",
+  "بيراجع المبيعات والمخزون...",
+  "بيظبط الحسبة بالقرش...",
+  "ثواني وبيرد عليك...",
+];
+
+function renderHighlightedText(text: string): React.ReactNode {
+  if (!text.includes("**")) {
+    return text;
+  }
+  const segments = text.split(/(\*\*[^*]+\*\*)/g);
+  return segments.map((seg, i) => {
+    if (seg.startsWith("**") && seg.endsWith("**")) {
+      return <strong key={i}>{seg.slice(2, -2)}</strong>;
+    }
+    return seg;
+  });
+}
+
+function AiMessageContent({ content }: { content: string }) {
+  const lines = content.split("\n");
+
+  return (
+    <div className={styles.msgContent}>
+      {lines.map((line, idx) => {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          return <div key={idx} className={styles.spacerLine} />;
+        }
+
+        // Warning / Alert callout
+        if (trimmed.startsWith("⚠️") || trimmed.startsWith("⚠")) {
+          return (
+            <div key={idx} className={styles.alertLine}>
+              <Icon n="alert" s={16} />
+              <span>{trimmed.replace(/^⚠️?\s*/, "")}</span>
+            </div>
+          );
+        }
+
+        // Advice / Tip callout (نصيحة: or قاعدة عامة:)
+        if (trimmed.startsWith("نصيحة:") || trimmed.startsWith("قاعدة عامة:")) {
+          const colonIdx = trimmed.indexOf(":");
+          const label = trimmed.slice(0, colonIdx);
+          const text = trimmed.slice(colonIdx + 1).trim();
+          return (
+            <div key={idx} className={styles.tipLine}>
+              <span className={styles.tipBadge}>
+                <Icon n="sparkle" s={14} />
+                <b>{label}</b>
+              </span>
+              <span>{renderHighlightedText(text)}</span>
+            </div>
+          );
+        }
+
+        // Section header (ends with : or starts with # or title line)
+        if (
+          (trimmed.endsWith(":") || trimmed.startsWith("#")) &&
+          !trimmed.startsWith("•") &&
+          !trimmed.startsWith("-")
+        ) {
+          const headerText = trimmed.replace(/^#+\s*/, "");
+          return (
+            <div key={idx} className={styles.sectionHeader}>
+              <span className={styles.sectionDot} />
+              <b>{headerText}</b>
+            </div>
+          );
+        }
+
+        // Bullet point item
+        if (trimmed.startsWith("•") || trimmed.startsWith("-")) {
+          const rawItem = trimmed.replace(/^[•\-]\s*/, "");
+          return (
+            <div key={idx} className={styles.bulletItem}>
+              <span className={styles.bulletIcon}>•</span>
+              <span className={styles.bulletText}>
+                {renderHighlightedText(rawItem)}
+              </span>
+            </div>
+          );
+        }
+
+        // Numbered list item: 1. Item Name — Value
+        const numberedMatch = trimmed.match(/^(\d+)[\.\)]\s*(.+)$/);
+        if (numberedMatch && numberedMatch[1] && numberedMatch[2]) {
+          const num = numberedMatch[1];
+          const rest = numberedMatch[2];
+          return (
+            <div key={idx} className={styles.numberedItem}>
+              <span className={styles.numberBadge}>{num}</span>
+              <span className={styles.bulletText}>
+                {renderHighlightedText(rest)}
+              </span>
+            </div>
+          );
+        }
+
+        // Regular line
+        return (
+          <div key={idx} className={styles.regularLine}>
+            {renderHighlightedText(trimmed)}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function AiView() {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [thinkingIndex, setThinkingIndex] = useState(0);
   const [quota, setQuota] = useState<AiQuotaInfo | null>(null);
   const [activeConversationId, setActiveConversationId] = useState<
     string | null
@@ -113,6 +225,14 @@ export function AiView() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isLoading]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const interval = setInterval(() => {
+      setThinkingIndex((prev) => (prev + 1) % THINKING_PHRASES.length);
+    }, 2200);
+    return () => clearInterval(interval);
+  }, [isLoading]);
 
   const loadConversationMessages = useCallback(
     async (conversationId: string) => {
@@ -514,7 +634,11 @@ export function AiView() {
               className={`${styles.msg} ${m.role === "user" ? styles.msgU : styles.msgA}`}
             >
               <div className={styles.bub}>
-                {m.content}
+                {m.role === "assistant" ? (
+                  <AiMessageContent content={m.content} />
+                ) : (
+                  m.content
+                )}
 
                 {/* Sources & Citations if present */}
                 {m.sources && m.sources.length > 0 && (
@@ -560,11 +684,21 @@ export function AiView() {
 
         {/* Assistant typing indicator */}
         {isLoading && (
-          <div className={`${styles.msg} ${styles.msgA}`}>
-            <div className={`${styles.bub} ${styles.typing}`}>
-              <div className={styles.typingDot} />
-              <div className={styles.typingDot} />
-              <div className={styles.typingDot} />
+          <div className={`${styles.msg} ${styles.msgA}`} aria-live="polite">
+            <div className={`${styles.bub} ${styles.thinkingCard}`}>
+              <div className={styles.thinkingHeader}>
+                <div className={styles.thinkingIconWrap}>
+                  <Icon n="sparkle" s={16} />
+                </div>
+                <span className={styles.thinkingPhrase}>
+                  {THINKING_PHRASES[thinkingIndex]}
+                </span>
+              </div>
+              <div className={styles.typing}>
+                <div className={styles.typingDot} />
+                <div className={styles.typingDot} />
+                <div className={styles.typingDot} />
+              </div>
             </div>
           </div>
         )}
