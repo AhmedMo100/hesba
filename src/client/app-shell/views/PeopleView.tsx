@@ -9,7 +9,7 @@ import React, {
 } from "react";
 import styles from "./PeopleView.module.css";
 import { Icon, Seg, Empty, Modal } from "../../shared/ui";
-import { t, formatDateCairo } from "../../shared/i18n";
+import { t } from "../../shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
 
@@ -59,30 +59,6 @@ interface SectionState {
   error: string | null;
 }
 
-interface DebtTransactionItem {
-  id: string;
-  direction: "owed_to_me" | "i_owe";
-  type: "debt" | "payment";
-  action_label?: string;
-  amount_piasters: number;
-  balance_after_piasters: number;
-  note: string | null;
-  op_id: string;
-  created_at: string;
-}
-
-interface LedgerModalState {
-  person: PersonItem;
-  transactions: DebtTransactionItem[];
-  summary: {
-    total_original_piasters: number;
-    total_paid_piasters: number;
-    remaining_piasters: number;
-    is_settled: boolean;
-  };
-  loading: boolean;
-}
-
 interface PaymentModalState {
   person: PersonItem;
   isCollection: boolean;
@@ -94,6 +70,49 @@ function formatEgp(piasters: number): string {
     return `${egp.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ج.م`;
   }
   return `${Math.floor(egp).toLocaleString("en-US")} ج.م`;
+}
+
+function parseCustomerNotes(note: string | null): {
+  products: string[];
+  generalNote: string;
+} {
+  if (!note) return { products: [], generalNote: "" };
+  const lines = note.split("\n");
+  const products: string[] = [];
+  const remaining: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith("الأصناف:") || trimmed.startsWith("المنتجات:")) {
+      const items = trimmed
+        .replace(/^(الأصناف|المنتجات):\s*/, "")
+        .split(/[،,]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      products.push(...items);
+    } else if (trimmed) {
+      remaining.push(trimmed);
+    }
+  }
+
+  return {
+    products,
+    generalNote: remaining.join("\n"),
+  };
+}
+
+function serializeCustomerNotes(
+  products: string[],
+  generalNote: string,
+): string | null {
+  const lines: string[] = [];
+  if (products.length > 0) {
+    lines.push(`المنتجات: ${products.join("، ")}`);
+  }
+  if (generalNote.trim()) {
+    lines.push(generalNote.trim());
+  }
+  return lines.length > 0 ? lines.join("\n") : null;
 }
 
 function parseSupplierNotes(note: string | null): {
@@ -216,11 +235,6 @@ export function PeopleView() {
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<PersonItem | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Ledger / Statement Modal state
-  const [ledgerTarget, setLedgerTarget] = useState<LedgerModalState | null>(
-    null,
-  );
 
   // Payment / Collection Modal state
   const [paymentTarget, setPaymentTarget] = useState<PaymentModalState | null>(
@@ -372,57 +386,32 @@ export function PeopleView() {
       setSupplierOwedMoneyNote(parsed.owedMoneyNote);
       setSupplierProductsNote(parsed.productsNote);
       setFormNote(parsed.generalNote);
+      setFormSupplies(p.supplies || []);
+      setShowProductField((p.supplies || []).length > 0);
+      loadStoreProducts();
+    } else if (p.section === "owedToMe") {
+      setSupplierOwedMoneyNote("");
+      setSupplierProductsNote("");
+      const parsedCust = parseCustomerNotes(p.note);
+      setFormNote(parsedCust.generalNote);
+      const custSupplies = parsedCust.products.map((name, idx) => ({
+        id: `prod_${idx}_${name}`,
+        name,
+      }));
+      setFormSupplies(custSupplies);
+      setShowProductField(custSupplies.length > 0);
+      loadStoreProducts();
     } else {
       setSupplierOwedMoneyNote("");
       setSupplierProductsNote("");
       setFormNote(p.note || "");
+      setFormSupplies([]);
+      setShowProductField(false);
     }
-    setFormSupplies(p.supplies || []);
     setFormError(null);
-    setShowProductField((p.supplies || []).length > 0);
     setIsProductDropdownOpen(false);
     setProductSearchQuery("");
     setModalOpen(true);
-    if (section === "suppliers") {
-      loadStoreProducts();
-    }
-  };
-
-  const openLedgerModal = async (person: PersonItem) => {
-    setLedgerTarget({
-      person,
-      transactions: [],
-      summary: {
-        total_original_piasters:
-          person.total_original_piasters || person.amount_piasters,
-        total_paid_piasters: person.total_paid_piasters || 0,
-        remaining_piasters: person.amount_piasters,
-        is_settled: Boolean(person.is_settled),
-      },
-      loading: true,
-    });
-
-    try {
-      const res = await fetch(`/api/people/${person.id}`);
-      if (res.ok) {
-        const data = await res.json();
-        setLedgerTarget({
-          person: data.person || person,
-          transactions: data.transactions || [],
-          summary: data.summary || {
-            total_original_piasters:
-              data.person?.total_original_piasters || person.amount_piasters,
-            total_paid_piasters: data.person?.total_paid_piasters || 0,
-            remaining_piasters:
-              data.person?.amount_piasters || person.amount_piasters,
-            is_settled: Boolean(data.person?.is_settled),
-          },
-          loading: false,
-        });
-      }
-    } catch {
-      setLedgerTarget((prev) => (prev ? { ...prev, loading: false } : null));
-    }
   };
 
   const openPaymentModal = (person: PersonItem) => {
@@ -450,13 +439,21 @@ export function PeopleView() {
     }
 
     const isSupplier = section === "suppliers";
-    const finalNote = isSupplier
-      ? serializeSupplierNotes({
-          owedMoneyNote: supplierOwedMoneyNote,
-          productsNote: supplierProductsNote,
-          generalNote: formNote,
-        })
-      : formNote.trim() || null;
+    const isCustomer = section === "owedToMe";
+
+    let finalNote: string | null = formNote.trim() || null;
+    if (isSupplier) {
+      finalNote = serializeSupplierNotes({
+        owedMoneyNote: supplierOwedMoneyNote,
+        productsNote: supplierProductsNote,
+        generalNote: formNote,
+      });
+    } else if (isCustomer) {
+      finalNote = serializeCustomerNotes(
+        formSupplies.map((s) => s.name),
+        formNote,
+      );
+    }
 
     const amountNum = isSupplier
       ? editingPerson?.amount_piasters || 0
@@ -483,7 +480,7 @@ export function PeopleView() {
             phone: formPhone.trim() || null,
             amountPiasters: amountNum,
             note: finalNote,
-            supplies: formSupplies.map((s) => s.id),
+            supplies: isSupplier ? formSupplies.map((s) => s.id) : [],
           }),
         });
 
@@ -502,7 +499,7 @@ export function PeopleView() {
             section,
             amountPiasters: amountNum,
             note: finalNote,
-            supplies: formSupplies.map((s) => s.id),
+            supplies: isSupplier ? formSupplies.map((s) => s.id) : [],
           }),
         });
 
@@ -531,9 +528,6 @@ export function PeopleView() {
       if (!res.ok) throw new Error("تعذر الحذف");
       setDeleteTarget(null);
       setModalOpen(false);
-      if (ledgerTarget && ledgerTarget.person.id === deleteTarget.id) {
-        setLedgerTarget(null);
-      }
       await fetchSectionData(section);
     } catch (err: unknown) {
       alert(err instanceof Error ? err.message : "تعذر الحذف");
@@ -578,14 +572,10 @@ export function PeopleView() {
         throw new Error(errData?.error?.message || "فشل تسجيل العملية");
       }
 
-      const closedPersonId = paymentTarget.person.id;
       setPaymentTarget(null);
 
-      // Refresh section data and ledger if open
+      // Refresh section data
       await fetchSectionData(section);
-      if (ledgerTarget && ledgerTarget.person.id === closedPersonId) {
-        openLedgerModal({ ...ledgerTarget.person, id: closedPersonId });
-      }
     } catch (err: unknown) {
       setPaymentError(
         err instanceof Error ? err.message : "حدث خطأ أثناء تسجيل المعاملة",
@@ -764,18 +754,31 @@ export function PeopleView() {
                       </button>
                     )}
 
-                    {/* Statement button */}
-                    <button
-                      type="button"
-                      className={styles.statementBtn}
-                      onClick={() => openLedgerModal(p)}
-                      title={t("pages.people.statement")}
-                    >
-                      <Icon n="list" s={15} />
-                      <span className={styles.statementBtnText}>
-                        {t("pages.people.statement")}
-                      </span>
-                    </button>
+                    {/* WhatsApp quick contact */}
+                    {p.phone && (
+                      <a
+                        href={`https://wa.me/20${p.phone.replace(/^(\+?20|0)/, "")}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={styles.cardWaBtn}
+                        title={t("pages.people.waChat")}
+                        aria-label={`${t("pages.people.waChat")} ${p.name}`}
+                      >
+                        <svg
+                          width={15}
+                          height={15}
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth={2}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          aria-hidden="true"
+                        >
+                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                        </svg>
+                      </a>
+                    )}
 
                     {/* Edit button */}
                     <button
@@ -783,8 +786,20 @@ export function PeopleView() {
                       className={styles.editBtn}
                       aria-label={`${t("common.edit")} ${p.name}`}
                       onClick={() => openEditModal(p)}
+                      title={t("common.edit")}
                     >
                       <Icon n="edit" s={15} />
+                    </button>
+
+                    {/* Delete button right next to edit */}
+                    <button
+                      type="button"
+                      className={styles.cardDeleteBtn}
+                      aria-label={`${t("common.delete")} ${p.name}`}
+                      onClick={() => setDeleteTarget(p)}
+                      title={t("common.delete")}
+                    >
+                      <Icon n="trash" s={15} />
                     </button>
                   </div>
                 </div>
@@ -801,6 +816,23 @@ export function PeopleView() {
                       ))}
                     </div>
                   )}
+
+                {/* Customer credit products chips in 'owedToMe' */}
+                {section === "owedToMe" &&
+                  (() => {
+                    const parsedCust = parseCustomerNotes(p.note);
+                    if (parsedCust.products.length === 0) return null;
+                    return (
+                      <div className={styles.suppliesChips}>
+                        {parsedCust.products.map((prodName, idx) => (
+                          <span className={styles.creditProductChip} key={idx}>
+                            <Icon n="box" s={12} />
+                            <span>{prodName}</span>
+                          </span>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                 {/* Footer / Notes row */}
                 {section === "suppliers" ? (
@@ -851,7 +883,18 @@ export function PeopleView() {
                   })()
                 ) : (
                   <div className={styles.cardFooter}>
-                    {p.note ? (
+                    {section === "owedToMe" ? (
+                      (() => {
+                        const custNote = parseCustomerNotes(p.note).generalNote;
+                        return custNote ? (
+                          <span className={styles.noteText} title={custNote}>
+                            {custNote}
+                          </span>
+                        ) : (
+                          <span />
+                        );
+                      })()
+                    ) : p.note ? (
                       <span className={styles.noteText} title={p.note}>
                         {p.note}
                       </span>
@@ -1156,6 +1199,138 @@ export function PeopleView() {
                   </div>
                 </div>
 
+                {/* Credit products selection for owedToMe */}
+                {section === "owedToMe" && (
+                  <>
+                    {!showProductField ? (
+                      <button
+                        type="button"
+                        className={styles.toggleFieldBtn}
+                        onClick={() => {
+                          setShowProductField(true);
+                          loadStoreProducts();
+                        }}
+                      >
+                        <Icon n="plus" s={15} />
+                        <span>
+                          {t("pages.people.specifyCreditProductsOptional")}
+                        </span>
+                      </button>
+                    ) : (
+                      <div className={styles.formGroup}>
+                        <div className={styles.labelWithAction}>
+                          <label className={styles.fieldLabel}>
+                            {t("pages.people.creditProducts")}
+                          </label>
+                          <button
+                            type="button"
+                            className={styles.removeFieldBtn}
+                            onClick={() => {
+                              setShowProductField(false);
+                              setFormSupplies([]);
+                            }}
+                          >
+                            {t("pages.people.remove")}
+                          </button>
+                        </div>
+
+                        {/* Selected product chips */}
+                        {formSupplies.length > 0 && (
+                          <div className={styles.selectedSuppliesList}>
+                            {formSupplies.map((s) => (
+                              <button
+                                type="button"
+                                className={styles.selectedSupplyChip}
+                                key={s.id}
+                                onClick={() =>
+                                  setFormSupplies((prev) =>
+                                    prev.filter((item) => item.id !== s.id),
+                                  )
+                                }
+                                title={`${t("common.delete")} ${s.name}`}
+                              >
+                                <span className={styles.chipRemoveX}>×</span>
+                                <span>{s.name}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Searchable Combobox Selector */}
+                        <div
+                          className={styles.comboboxWrapper}
+                          ref={comboboxRef}
+                        >
+                          <div
+                            className={styles.comboboxTrigger}
+                            onClick={() => {
+                              setIsProductDropdownOpen((prev) => !prev);
+                            }}
+                          >
+                            <div className={styles.comboboxRight}>
+                              <Icon n="search" s={16} />
+                              <input
+                                type="text"
+                                className={styles.comboboxInput}
+                                placeholder={t(
+                                  "pages.people.addCreditProductsHint",
+                                )}
+                                value={productSearchQuery}
+                                onChange={(e) => {
+                                  setProductSearchQuery(e.target.value);
+                                  if (!isProductDropdownOpen) {
+                                    setIsProductDropdownOpen(true);
+                                  }
+                                }}
+                                onClick={(e) => e.stopPropagation()}
+                                onFocus={() => setIsProductDropdownOpen(true)}
+                              />
+                            </div>
+                            <Icon
+                              n="down"
+                              s={16}
+                              className={`${styles.comboboxArrow} ${isProductDropdownOpen ? styles.arrowOpen : ""}`}
+                            />
+                          </div>
+
+                          {/* Dropdown Options List */}
+                          {isProductDropdownOpen && (
+                            <div className={styles.comboboxDropdown}>
+                              {storeProducts.length === 0 ? (
+                                <div className={styles.dropdownHint}>
+                                  {t("pages.people.noStoreProducts")}
+                                </div>
+                              ) : filteredProductOptions.length === 0 ? (
+                                <div className={styles.dropdownHint}>
+                                  {formSupplies.length === storeProducts.length
+                                    ? t("pages.people.allProductsAdded")
+                                    : t("pages.people.noProductFound")}
+                                </div>
+                              ) : (
+                                filteredProductOptions.map((p) => (
+                                  <button
+                                    key={p.id}
+                                    type="button"
+                                    className={styles.dropdownOption}
+                                    onClick={() => {
+                                      setFormSupplies((prev) => [...prev, p]);
+                                      setProductSearchQuery("");
+                                      setIsProductDropdownOpen(false);
+                                    }}
+                                  >
+                                    <span>{p.name}</span>
+                                    <Icon n="plus" s={14} />
+                                  </button>
+                                ))
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+
                 <div className={styles.formGroup}>
                   <label className={styles.fieldLabel}>
                     {t("pages.people.formNote")}
@@ -1319,136 +1494,6 @@ export function PeopleView() {
                 onChange={(e) => setPaymentNote(e.target.value)}
                 placeholder="دفعة نقدية / تحصيل كاش"
               />
-            </div>
-          </div>
-        </Modal>
-      )}
-
-      {/* Statement / Ledger Modal */}
-      {ledgerTarget && (
-        <Modal
-          onClose={() => setLedgerTarget(null)}
-          title={t("pages.people.statementTitle", {
-            name: ledgerTarget.person.name,
-          })}
-          footer={
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className={styles.btnGhost}
-                onClick={() => setLedgerTarget(null)}
-              >
-                <span>{t("common.close")}</span>
-              </button>
-
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={() => openPaymentModal(ledgerTarget.person)}
-              >
-                <Icon n="plus" s={16} />
-                <span>
-                  {ledgerTarget.person.section === "owedToMe"
-                    ? t("pages.people.collect")
-                    : t("pages.people.pay")}
-                </span>
-              </button>
-            </div>
-          }
-        >
-          <div className={styles.ledgerContainer}>
-            {/* Ledger Financial Summary Strip */}
-            <div className={styles.ledgerSummaryStrip}>
-              <div className={styles.ledgerSummaryItem}>
-                <span className={styles.ledgerSummaryLabel}>
-                  {ledgerTarget.person.section === "owedToMe"
-                    ? t("pages.people.totalReceivable")
-                    : t("pages.people.totalObligations")}
-                </span>
-                <span className={styles.ledgerSummaryValOriginal}>
-                  {formatEgp(ledgerTarget.summary.total_original_piasters)}
-                </span>
-              </div>
-
-              <div className={styles.ledgerSummaryItem}>
-                <span className={styles.ledgerSummaryLabel}>
-                  {ledgerTarget.person.section === "owedToMe"
-                    ? t("pages.people.totalCollected")
-                    : t("pages.people.totalPaid")}
-                </span>
-                <span className={styles.ledgerSummaryValPaid}>
-                  {formatEgp(ledgerTarget.summary.total_paid_piasters)}
-                </span>
-              </div>
-
-              <div className={styles.ledgerSummaryItem}>
-                <span className={styles.ledgerSummaryLabel}>
-                  {t("pages.people.currentBalance")}
-                </span>
-                <span className={styles.ledgerSummaryValRemaining}>
-                  {formatEgp(ledgerTarget.summary.remaining_piasters)}
-                </span>
-              </div>
-            </div>
-
-            {/* Transactions List */}
-            <div className={styles.ledgerTransactionsList}>
-              <h4 className={styles.ledgerListTitle}>
-                {t("pages.people.history")}
-              </h4>
-
-              {ledgerTarget.loading ? (
-                <div className={styles.ledgerLoading}>
-                  {t("common.loading")}
-                </div>
-              ) : ledgerTarget.transactions.length === 0 ? (
-                <div className={styles.ledgerEmpty}>
-                  {t("pages.people.emptyHistory")}
-                </div>
-              ) : (
-                <div className={styles.ledgerEntries}>
-                  {ledgerTarget.transactions.map((tr) => (
-                    <div className={styles.ledgerEntryRow} key={tr.id}>
-                      <div className={styles.ledgerEntryMeta}>
-                        <div className={styles.ledgerEntryHeader}>
-                          <span
-                            className={
-                              tr.type === "payment"
-                                ? styles.ledgerBadgePayment
-                                : styles.ledgerBadgeDebt
-                            }
-                          >
-                            {tr.action_label ||
-                              (tr.type === "payment"
-                                ? t("pages.people.paidCash")
-                                : t("pages.people.debtAddedOwedToMe"))}
-                          </span>
-                          <span className={styles.ledgerEntryDate}>
-                            {formatDateCairo(tr.created_at)}
-                          </span>
-                        </div>
-                        {tr.note && (
-                          <span className={styles.ledgerEntryNote}>
-                            {tr.note}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className={styles.ledgerEntryAmounts}>
-                        <span className={styles.ledgerEntryAmount}>
-                          {formatEgp(tr.amount_piasters)}
-                        </span>
-                        <span className={styles.ledgerEntryBalanceAfter}>
-                          {t("pages.people.balanceAfter")}:{" "}
-                          <strong>
-                            {formatEgp(tr.balance_after_piasters)}
-                          </strong>
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           </div>
         </Modal>
