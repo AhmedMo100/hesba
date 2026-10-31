@@ -146,7 +146,9 @@ model Store {
   sales                Sale[]
   saleLines            SaleLine[]
   alerts               Alert[]
+  aiConversations      AiConversation[]
   aiMessages           AiMessage[]
+  aiUsages             AiUsage[]
   serviceItems         ServiceItem[]
   sessions             Session[]
   catalogSuggestions   CatalogSuggestion[]
@@ -795,17 +797,50 @@ model Alert {
   @@map("alerts")
 }
 
+model AiConversation {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  day       DateTime @db.Date
+  title     String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store    Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  messages AiMessage[]
+
+  @@unique([storeId, day], map: "uq_ai_conversations_store_day")
+  @@index([storeId, day(sort: Desc)], map: "idx_ai_conversations_store_day")
+  @@map("ai_conversations")
+}
+
 model AiMessage {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  storeId        String        @map("store_id") @db.Uuid
-  role           AiMessageRole
-  bodyText       String        @map("body_text") @db.Text
-  conversationId String?       @map("conversation_id") @db.Uuid
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  id              String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId         String        @map("store_id") @db.Uuid
+  role            AiMessageRole
+  bodyText        String        @map("body_text") @db.Text
+  conversationId  String?       @map("conversation_id") @db.Uuid
+  sources         Json?         @db.JsonB
+  clientMessageId String?       @map("client_message_id") @db.Text
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  conversation AiConversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, conversationId, createdAt(sort: Asc)], map: "idx_ai_messages_store_conv_created")
+  @@index([storeId, clientMessageId], map: "idx_ai_messages_store_client_id")
+  @@map("ai_messages")
+}
+
+model AiUsage {
+  storeId   String   @map("store_id") @db.Uuid
+  day       DateTime @db.Date
+  count     Int      @default(0)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
-  @@map("ai_messages")
+  @@id([storeId, day], map: "ai_usage_pkey")
+  @@map("ai_usage")
 }
 
 model CatalogCandidate {
