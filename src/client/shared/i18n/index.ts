@@ -29,6 +29,7 @@ export function toNum(value: string | number | null | undefined): number {
 export function t(
   key: string,
   params?: Record<string, string | number>,
+  fallback?: string,
 ): string {
   const parts = key.split(".");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,12 +39,12 @@ export function t(
     if (current && typeof current === "object" && part in current) {
       current = current[part];
     } else {
-      return key;
+      return fallback !== undefined ? fallback : key;
     }
   }
 
   if (typeof current !== "string") {
-    return key;
+    return fallback !== undefined ? fallback : key;
   }
 
   let text = current;

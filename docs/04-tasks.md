@@ -122,25 +122,25 @@
 > **Goal:** a real user signs up, records an operation offline, and it reaches the server exactly once. **This is the riskiest phase.** Give it extra time, and do not start Phase 3 pages until sync is stable.
 
 ### Product
-- ☐ **P2-PR-01** (⏱1) OTP policy: when it is requested, number of attempts, what to do if SMS is down (the alternative from S-22). Final privacy and terms text from the lawyer. ✅ Policy in `docs/12`. ⛓ S-06 (for the final text).
-- ☐ **P2-PR-02** (⏱0.5) Colloquial Arabic error messages for every case: wrong number, wrong code, network down, session expired, server updating. ✅ Messages in `ar.json`, reviewed by a native speaker. ↔ S-12.
+- ☐ **P2-PR-01** (⏱1) Passkey & Account Recovery Policy: WebAuthn challenge lifecycles, single-use rules, email verification links (24h), account recovery links (1h, single-use, hashed), audit logging, and rate limiting (prevent account enumeration). Final privacy and terms text from the lawyer. ✅ Policy in `docs/06-quality.md`. ⛓ S-06 (for the final text).
+- ☐ **P2-PR-02** (⏱0.5) Colloquial Arabic error messages for every case: passkey canceled, unsupported device, recovery link expired/used, network down, session expired, server updating. ✅ Messages in `ar.json`, reviewed by a native speaker. ↔ S-12.
 - ☐ **P2-PR-03** (⏱0.5) Define "needs review": which rejected operations count, and how the user sees them in plain words. ✅ Rule written in `docs/10`.
 
 ### Front
-- ☐ **P2-F-01** (⏱3) Auth pages: sign-up in two steps ("عنك" about you, "محلك" your shop), login, OTP verification. Server Actions for these. ✅ Looks like the demo; works at 360px.
-- ☐ **P2-F-02** (⏱1) Client session state, optional PIN lock, and the behaviour when the session expires offline (selling continues; authentication happens at sync time). ✅ Covered by the E2E test in P2-Q-01.
+- ☐ **P2-F-01** (⏱3) Auth pages: sign-up in two steps ("عنك" about you with name/phone/email, "محلك" your shop), Passkey registration, Passkey login, and account recovery via email link. ✅ Looks like the demo; works at 360px.
+- ☐ **P2-F-02** (⏱1) Client session state, optional local PIN lock (app screen lock only; reset requires Passkey re-auth), and the behaviour when the session expires offline (selling continues; authentication happens at sync time). ✅ Covered by the E2E test in P2-Q-01.
 - ☐ **P2-F-03** (⏱2.5) Dexie database (`src/client/shared/db`): all local tables, versions, and upgrade code. ✅ An upgrade test from version 1 to version 2 keeps the data.
 - ☐ **P2-F-04** (⏱4) Sync engine (`engine.ts`, `outbox.ts`, `apply-changes.ts`). **Event-driven only**: after a write (debounced), on app open, on `online`, when the tab becomes visible, and on a manual button. Backoff with jitter. Handles 503 (with Retry-After), 401, 403, 409, 413, 429, 204. **No `setInterval` anywhere in sync code.** ✅ Cut the network in the middle of a push → after reconnect the operation is sent exactly once. A test fails if `setInterval` appears in the sync folder.
 - ☐ **P2-F-05** (⏱1) A real SyncBar and a "needs review" screen listing rejected operations and their reasons. ✅ A rejected operation appears on that screen.
-- ☐ **P2-F-06** (⏱1) Profile modal wired to the API. ✅ Saves, and shows the server error text when it fails.
+- ☐ **P2-F-06** (⏱1) Profile modal wired to the API (shows verified email badge, Passkey management with add button, and local PIN toggle). ✅ Saves, and shows the server error text when it fails.
 
 ### Back
-- ☐ **P2-B-01** (⏱3) Auth: OTP request and verify, with limits per phone number, IP, and device. Argon2id (`@node-rs/argon2`): measure the time on the target hardware and tune the parameters in config. A rotating httpOnly session cookie, stored hashed in the database, with reuse detection. ✅ Brute-force attempts are blocked; reusing an old session revokes the whole session chain.
+- ☐ **P2-B-01** (⏱3) Auth server: WebAuthn registration and authentication ceremony (challenge creation, signature verification, RP ID, allowed origins, counter check, transports, AAGUID). Account recovery single-use token issuance and redemption. Rotating httpOnly session cookie, stored hashed in DB with reuse detection and session-chain revocation. Rate limits on challenges, logins, and recovery. ✅ Reusing an old session revokes the whole session chain; recovery token is single-use and expires.
 - ☐ **P2-B-02** (⏱1.5) Tenancy: create a shop, members, roles (owner, worker), trial subscription row. ✅ A worker cannot call an owner-only action (tested).
-- ☐ **P2-B-03** (⏱1) SMS interface + provider adapter + sending job through the `jobs` table. ⛓ S-05 (SMS trial account). ✅ An OTP arrives on a real test phone in staging.
+- ☐ **P2-B-03** (⏱1) Transactional Email interface + provider adapter + sending job through the `jobs` table (verification and recovery link delivery). ⛓ S-05. ✅ Verification and recovery links arrive on test email in staging.
 - ☐ **P2-B-04** (⏱3) Sync endpoints: `POST /api/sync/push`, `GET /api/sync/pull`. Handler registry in `handlers.ts`. Push is idempotent by `op_id`. Pull uses a cursor and returns 204 when there is nothing new. Tables `change_log` and `sync_ops`. Soft maintenance mode (503 + Retry-After). Origin check and the `X-Hesba-Client` header. ✅ Integration tests: duplicate operation, rejected operation, ordering, two devices.
 - ☐ **P2-B-05** (⏱1) `schema_v` in every sync request and response, and a written policy for supporting two versions at once. ✅ An old version receives 409 with a clear upgrade message.
-- ☐ **P2-B-06** (⏱1) Basic `audit_log` (who, what, when, which shop). No personal data in the payload. ✅ Written on sign-in and tenancy actions.
+- ☐ **P2-B-06** (⏱1) Basic `audit_log` (who, what, when, which shop). No personal data in the payload. ✅ Written on sign-in, recovery, and tenancy actions.
 - ☐ **P2-B-07** (⏱2) Jobs system: `jobs` table + `POST /api/cron/tick` protected by a secret header, `FOR UPDATE SKIP LOCKED`, retries, dead status. ⛓ S-07 (the hosting decides how the tick is scheduled). ✅ When the tick is called twice at the same moment, a test job runs exactly once.
 - ☐ **P2-B-08** (⏱0.5) `flags` table with the maintenance-mode flag, and `docs/runbooks/maintenance-mode.md`. ✅ Turning the flag on makes sync return 503.
 
@@ -150,7 +150,7 @@
 
 ### QA
 - ☐ **P2-Q-01** (⏱2) E2E: sign up → log in → network off → add an operation → network on → it is synced exactly once.
-- ☐ **P2-Q-02** (⏱1) Security tests: OTP brute force, session reuse, cross-tenant access on **every** new endpoint.
+- ☐ **P2-Q-02** (⏱1) Security tests: Recovery token expiration and reuse, session chain revocation on reuse, cross-tenant access on **every** new endpoint, rate limiting, and enumeration resistance.
 
 ### ✅ Done-when (Phase 2)
 A new user signs up and logs in · an operation recorded offline is synced exactly once · two devices of the same shop end up with the same data · cross-tenant tests are green.
@@ -159,7 +159,7 @@ A new user signs up and logs in · an operation recorded offline is synced exact
 - **Sync takes longer than planned (most likely)** ← this is the riskiest part. Give it spare time and do not start Phase 3 until it is stable.
 - **Two devices conflict in a way nobody thought about** ← write each conflict case as a test before the code.
 - **Session expires while offline** ← the queue stays saved, selling continues, and authentication happens at sync. Test it explicitly.
-- **SMS provider is slow or rejects us** ← build the adapter so a second provider can be added (S-22), and set a cost cap.
+- **Email delivery delayed or filtered as spam** ← build the adapter behind an interface, configure SPF/DKIM/DMARC, verify against Egyptian mail domains.
 - **Server Actions used for offline work** ← every offline operation goes through `/api/sync/*` (`docs/02` section 2). Otherwise it breaks after the next deploy.
 
 ---
@@ -451,7 +451,7 @@ Beta runs 7 days with no critical problems · the final load test passes · the 
 - ☐ **S-02** (⏱0.5) Add the domain to Cloudflare for DNS. ✅ Zone active. **⛓ gate for P1-D-03.**
 - ☐ **S-03** (⏱0.5) GitHub organization, repo, and team access (only you at first). ✅ Repo exists. ↔ P0-D-01.
 - ☐ **S-04** (⏱0.5) Password manager and project secret store, with separate staging and production entries. ✅ No secret in Git (secret scan in CI, P1-D-02). ↔ P0-D-02.
-- ☐ **S-05** (⏱1) Accounts: Sentry, SMS provider (trial), uptime monitor (check whether the free plan fits). ✅ Keys stored in S-04. **⛓ gate for P1-D-03 (Sentry) and P2-B-03 (SMS).**
+- ☐ **S-05** (⏱1) Accounts: Sentry, Transactional Email provider (trial for verification & recovery), uptime monitor (check whether the free plan fits). ✅ Keys stored in S-04. **⛓ gate for P1-D-03 (Sentry) and P2-B-03 (Email).**
 - ☐ **S-06** (⏱ lawyer's time) Lawyer: brief, reply, drafts of privacy policy and terms (Law 151/2020). This is business advice you get from a lawyer, not from the docs. ✅ Written reply. **⛓ gate for P2-PR-01 and P5-PR-01 (final text).**
 - ☐ **S-07** (⏱1.5) Hosting verification and written questions to providers (the ❓ list in `docs/05`). ✅ Table with sources. **⛓ gate for ADR-0006 (P0-D-05).**
 - ☐ **S-08** (⏱0.5) Four-month budget from real quotes. ✅ In `docs/15`.
@@ -463,8 +463,8 @@ Beta runs 7 days with no critical problems · the final load test passes · the 
 
 ### S2 — Weeks 4–8
 - ☐ **S-20** (⏱0.5) Set up and verify Vodafone Cash and InstaPay receiving accounts and WhatsApp business contact for manual renewal. ✅ Accounts active.
-- ☐ **S-21** (⏱ as needed) Production SMS sender registration if the provider requires it. ✅ Approved. ⛓ before any real shop receives OTP (Phase 6).
-- ☐ **S-22** (⏱1) Evaluate a second SMS provider as a backup. ✅ Written comparison in ADR-0007.
+- ☐ **S-21** (⏱ as needed) Production email domain verification (SPF, DKIM, DMARC) with transactional email provider. ✅ Verified DNS records. ⛓ before production recovery emails (Phase 6).
+- ☐ **S-22** (⏱1) Evaluate transactional email provider options for Egypt deliverability (Resend, Postmark, AWS SES, Brevo). ✅ Selection recorded for Phase 2.2.
 - ☐ **S-23** (⏱ borrow or buy) Test devices: two or three phones, including a low-spec Android. ✅ Available. **⛓ gate for P3-F-10.**
 
 ### S3 — Weeks 8–12

@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React from "react";
 import styles from "./Header.module.css";
 import { Icon } from "../shared/ui";
 import { t } from "../shared/i18n";
+import { useTheme } from "../shared/theme";
 
 export interface HeaderProps {
   storeName?: string;
@@ -11,36 +12,7 @@ export interface HeaderProps {
 }
 
 export function Header({ storeName, onStoreClick }: HeaderProps) {
-  const [theme, setTheme] = useState<"auto" | "light" | "dark">(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("hesba-theme") as
-        "auto" | "light" | "dark" | null;
-      if (saved && ["auto", "light", "dark"].includes(saved)) {
-        return saved;
-      }
-    }
-    return "auto";
-  });
-
-  useEffect(() => {
-    if (typeof document === "undefined") return;
-
-    if (theme === "auto") {
-      document.documentElement.removeAttribute("data-theme");
-    } else {
-      document.documentElement.setAttribute("data-theme", theme);
-    }
-  }, [theme]);
-
-  const cycleTheme = () => {
-    let next: "auto" | "light" | "dark" = "light";
-    if (theme === "light") next = "dark";
-    else if (theme === "dark") next = "auto";
-    else next = "light";
-
-    setTheme(next);
-    localStorage.setItem("hesba-theme", next);
-  };
+  const { theme, cycleTheme } = useTheme();
 
   const themeIcon =
     theme === "dark" ? "moon" : theme === "light" ? "sun" : "auto";

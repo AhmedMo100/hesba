@@ -9,7 +9,7 @@
 # Part 1: Security and Privacy
 > Source: formerly `docs/06-quality.md`
 
-> Security here means **requirements that are implemented and tested**, not good intentions. Any feature that touches identity, sessions, OTP, subscriptions, or the shared catalog = read this file first.
+> Security here means **requirements that are implemented and tested**, not good intentions. Any feature that touches identity, sessions, credentials, account recovery, subscriptions, or the shared catalog = read this file first.
 > **Legal:** Points marked ⚖️ must be reviewed by a **lawyer** before production. I am not a substitute for legal advice.
 
 ---
@@ -19,7 +19,7 @@
 |---|---|---|---|
 | 1 | One store sees/modifies another store's data | Legal disaster and reputation damage | Mandatory RLS + cross-tenant test in CI + `withTenant()` |
 | 2 | Session/account theft | Access to the store's data | httpOnly+Secure+SameSite cookie, session rotation, device binding, server-side revocation |
-| 3 | Brute-force / OTP abuse | SMS cost + account compromise | Limits per number/IP/device + escalating delay + CAPTCHA when suspicious |
+| 3 | Account enumeration & recovery token brute-force | Account compromise / spam | Generic enumeration-resistant responses, cryptographically secure single-use tokens (hashed in DB), 1h expiry, rate limits |
 | 4 | CSRF on `/api/sync/*` | Forged operations | `SameSite` + `Origin` check + `X-Hesba-Client` |
 | 5 | SQL injection | Leak/corruption | Prisma with parameters only; building SQL from inputs is forbidden |
 | 6 | XSS | Session theft | React escaping, CSP, no `dangerouslySetInnerHTML` with user input, sanitize catalog text |
@@ -33,11 +33,30 @@
 | 14 | Device lost/stolen | Local access | Optional PIN + server-side session revocation + no extra sensitive data stored locally |
 
 ## 2. Identity and Sessions
-- **Password:** Argon2id (`@node-rs/argon2`). Parameters (memory/iterations) are tuned by measuring timing on the chosen hosting (goal: a reasonable time that does not exhaust the CPU). Storing/logging a password is **forbidden**.
-- **OTP:** A short numeric code, stored **hashed**, short validity, limited attempts, consumed once. Send limits per number/IP/device and per day. **The actual values are fixed in `constants.ts` and are set together with the SMS provider** (no invented numbers here).
-- **Session:** An `httpOnly; Secure; SameSite=Lax` cookie carrying a random identifier; what is stored in the DB is the **hash** of the identifier (`sessions.id_hash`). **Rotation** on periodic use + detecting reuse of an old identifier = revoke all of the device's sessions. Absolute expiry + idle expiry. Server-side revocation (logout / password change).
-- **Offline:** An expired session **does not stop local selling**; authentication happens at sync time. Local account data = the minimum.
-- **Password recovery:** OTP to the mobile number (same limits).
+- **Primary Authentication (Passkeys / WebAuthn):**
+  - WebAuthn is the primary and only direct authentication method for accounts. Zero passwords stored or checked.
+  - Server verifies: WebAuthn cryptographic signature, credential ownership, RP ID, allowed origins, challenge expiration (5 min), single-use challenge, and monotonically increasing signature counter.
+  - Supports multiple Passkeys per account (e.g. phone, laptop, security key).
+  - Stored credential attributes: `credential_id`, `public_key` (COSE bytes), `counter`, `transports`, `aaguid`, `backup_eligible`, `backup_status`.
+- **Account Recovery & Email Verification:**
+  - Single-use, cryptographically secure, expiring links sent to the user's verified email.
+  - Verification tokens expire in 24 hours; recovery tokens expire in 1 hour.
+  - Only cryptographic hashes of tokens (`token_hash`, SHA-256) are stored in the database.
+  - On recovery redemption: user authenticates, existing sessions can be revoked, user is required to register a new Passkey, and an audit notification is sent to their verified email.
+  - Existing Passkeys policy on recovery: existing Passkeys are retained unless the user explicitly revokes lost devices/credentials in their Profile modal (avoiding catastrophic lockout while preventing silent deletion).
+  - Security limitation note: Email-based recovery means anyone with access to the user's email account can take over the account. It is a necessary convenience fallback for lost devices, not equivalent to the hardware-bound phish-resistance of Passkeys.
+  - Generic responses resist account enumeration: requests for non-existent emails return the identical success message as existing emails.
+- **Local Application PIN Lock:**
+  - Optional 6-digit PIN on the device.
+  - Strictly a local client-side screen lock; never sent to the server or verified remotely.
+  - Forgotten PIN reset cannot bypass server security: requires online account re-authentication with a valid Passkey before allowing PIN reset. If no Passkey is available, directs user to email account recovery.
+- **Session:**
+  - `httpOnly; Secure; SameSite=Lax` cookie carrying a random identifier; what is stored in the DB is the SHA-256 hash (`sessions.id_hash`).
+  - Rotation on periodic use; reuse of an old/rotated identifier revokes the entire session chain.
+  - Server-side revocation on logout, account recovery, or credential revocation.
+- **Offline:**
+  - Permitted local sales and inventory operations continue in IndexedDB while offline even if a session expires.
+  - Synchronization of protected server operations requires re-authenticating after reconnecting.
 - **Roles:** `owner` / `cashier` (V1.1). Permissions are always checked on the server (not only in the UI).
 - **Admin platform (`platform_admin`):** A separate role, 2FA (decision in `15`), every operation goes to `audit_log`.
 
@@ -52,7 +71,7 @@
 ## 4. Web Security
 - **Headers:** Strict CSP (no unauthorized inline, `nonce`), HSTS (after stabilization), `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`, `frame-ancestors 'none'`.
 - **CSRF:** Server Actions have Next's built-in protection; `/api/sync/*` and `/api/cron/*`: check `Origin`/secret depending on the type.
-- **Rate limiting:** On Cloudflare (WAF) + in the application (OTP, login, sync, AI, catalog). Limits are in `constants.ts`.
+- **Rate limiting:** On Cloudflare (WAF) + in the application (passkey challenges, login, account recovery, sync, AI, catalog). Limits are in `constants.ts`.
 - **Inputs:** zod at every system boundary (Actions, Handlers). Extra fields are rejected (`strict`).
 - **Outputs:** React escapes output. `dangerouslySetInnerHTML` with user content is forbidden. Catalog text is sanitized (length, characters, no HTML).
 - **CORS:** Closed (same origin).
@@ -71,8 +90,8 @@
 - **Minimization:** Collect only what we need. No advertising tracking. No selling/sharing of data.
 - **Shared catalog:** Only the **product definition** is shared, **without the store's identity and without prices/stock/sales**. The store can disable sharing and receiving. Consent is in the terms ⚖️ (06).
 - **User rights:** Export their data (CSV/JSON) and delete the account (a Job, with a short grace period to undo) ⚖️. Deletion covers backups according to a published retention policy.
-- **Retention:** `sync_ops` older than X days are cleaned up. `otp_codes` are cleaned up. `audit_log` is kept for a defined period. Values are fixed in `constants.ts` and are set with the lawyer ⚖️.
-- **Logs:** `request_id` and `store_id` only. **Forbidden:** mobile numbers, names, passwords, OTPs, tokens, operation content.
+- **Retention:** `sync_ops` older than X days are cleaned up. Expired `passkey_challenges`, `email_verification_tokens`, and `account_recovery_tokens` are cleaned up. `audit_log` is kept for a defined period. Values are fixed in `constants.ts` and are set with the lawyer ⚖️.
+- **Logs:** `request_id` and `store_id` only. **Forbidden:** mobile numbers, names, raw tokens, passkey secrets, operation content.
 - **Sentry:** `beforeSend` strips sensitive fields; no session replay on sensitive screens.
 - **AI:** We do not send people's personal data (names/numbers) to the LLM. Only aggregated results are sent. The provider and its data policy are to be reviewed ⚖️.
 
@@ -83,8 +102,8 @@
 - No real data in Dev/Staging environments (test data only).
 
 ## 8. Monitoring and Incident Response
-- Alerts on: 5xx error rate, OTP failures, unusual 401s, many 429s, AI/SMS consumption, backup failure, job queue depth, storage growth.
-- `audit_log` for sensitive operations: login/logout, password change, account deletion, data export, admin operations, subscription change.
+- Alerts on: 5xx error rate, recovery failures, unusual 401s, many 429s, AI consumption, backup failure, job queue depth, storage growth.
+- `audit_log` for sensitive operations: login/logout, passkey registration/revocation, account recovery, account deletion, data export, admin operations, subscription change.
 - **Incident plan (Runbook):** detect → contain (maintenance flag / revoke sessions / rotate secrets) → assess → notify (users and authorities as required by law ⚖️) → fix → post-incident review.
 - Kill switch: `flags` (maintenance, disable suggestions, disable AI, disable registration).
 
@@ -99,7 +118,7 @@
 1. Cross-tenant on every Endpoint/Action/Handler.
 2. RLS enabled on every table that has `store_id`.
 3. No store identity leak in any catalog-related response.
-4. OTP/login brute-force is stopped by the limits.
+4. Recovery token expiration, single-use reuse rejection, and enumeration resistance.
 5. Reuse of an old session identifier = revocation.
 6. CSRF: `/api/sync/push` without `Origin`/`X-Hesba-Client` = rejected.
 7. Manual subscription change without audit log = rejected.
@@ -176,7 +195,7 @@ Normalization, duplicate prevention (concurrency: two stores with the same produ
 
 ## 6. UI Tests (E2E — Playwright)
 Mandatory paths (light/dark, 360px):
-1. Sign-up (two steps + test OTP) → login.
+1. Sign-up (two steps + Passkey registration) → login with Passkey.
 2. Add a product (from the catalog + custom).
 3. Add stock (expiry + supplier + on credit).
 4. **Sell without internet** (piece, carton, weight) + undo → internet returns → syncs.

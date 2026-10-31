@@ -3,6 +3,7 @@
 import React from "react";
 import styles from "./Field.module.css";
 import { normDigits } from "../../i18n";
+import { Icon } from "../Icon/Icon";
 
 export interface FieldProps {
   label: string;
@@ -38,8 +39,9 @@ export function Field({
       <span className={styles.fl}>{label}</span>
       {children}
       {err ? (
-        <span className={styles.fe} role="alert">
-          {err}
+        <span className={styles.fe} role="alert" aria-live="polite">
+          <Icon n="alert" s={14} sw={2.4} className={styles.feIcon} />
+          <span>{err}</span>
         </span>
       ) : hint ? (
         <span className={styles.fh}>{hint}</span>

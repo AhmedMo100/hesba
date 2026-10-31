@@ -46,13 +46,10 @@ const REQUIRED_HEADERS: Record<string, string[]> = {
     "size_value",
     "size_unit",
     "pack_qty",
-    "barcode",
   ],
   "prepaid_cards.csv": [
     "network",
     "denomination_piasters",
-    "data_package_ar",
-    "validity_days",
     "sell_price_piasters",
     "cost_piasters",
   ],
@@ -148,7 +145,7 @@ export function validateCatalogFile(
     return { report, validDataRows: [] };
   }
 
-  const barcodeMap = new Map<string, number[]>();
+  const variantKeyMap = new Map<string, number[]>();
   const productKeyMap = new Map<string, number[]>();
   const brandNameMap = new Map<string, number[]>();
   const validDataRows: Array<Record<string, string>> = [];
@@ -247,20 +244,12 @@ export function validateCatalogFile(
         }
       }
 
-      const barcodeStr = data["barcode"] ?? "";
-      if (barcodeStr) {
-        if (!/^\d+$/.test(barcodeStr)) {
-          report.errors.push({
-            rowNumber,
-            message: `barcode must contain digits only, received: "${barcodeStr}"`,
-          });
-          hasRowError = true;
-        } else {
-          const existing = barcodeMap.get(barcodeStr) || [];
-          existing.push(rowNumber);
-          barcodeMap.set(barcodeStr, existing);
-        }
-      }
+      const brandName = data["brand_name_ar"] ?? "";
+      const flavorStr = data["flavor"] ?? "";
+      const variantKey = `${brandName}::${prodName}::${flavorStr}::${sizeValStr}::${sizeUnitStr}::${packQtyStr || "1"}`;
+      const existing = variantKeyMap.get(variantKey) || [];
+      existing.push(rowNumber);
+      variantKeyMap.set(variantKey, existing);
     } else if (fileName === "prepaid_cards.csv") {
       const required = [
         "network",
@@ -385,16 +374,16 @@ export function validateCatalogFile(
   }
 
   // Check duplicates and report them - NEVER MERGE!
-  for (const [barcode, rowNums] of barcodeMap.entries()) {
+  for (const [variantKey, rowNums] of variantKeyMap.entries()) {
     if (rowNums.length > 1) {
       report.duplicates.push({
-        type: "barcode",
-        identifier: barcode,
+        type: "variant",
+        identifier: variantKey,
         rows: rowNums,
       });
       report.errors.push({
         rowNumber: rowNums[0] ?? 0,
-        message: `Duplicate barcode "${barcode}" found on rows: ${rowNums.join(", ")}. Duplicates are NEVER merged.`,
+        message: `Duplicate variant "${variantKey}" found on rows: ${rowNums.join(", ")}. Duplicates are NEVER merged.`,
       });
     }
   }
@@ -442,13 +431,17 @@ async function applyFileTransaction(
         const nameAr = row["name_ar"] ?? "";
         if (!nameAr) continue;
         const nameEn = row["name_en"] ? row["name_en"] : null;
-        const res = await tx`
-          INSERT INTO brands (name_ar, name_en)
-          VALUES (${nameAr}, ${nameEn})
-          ON CONFLICT (name_ar) DO NOTHING
-          RETURNING id;
+        const existing = await tx`
+          SELECT id FROM brands WHERE name_ar = ${nameAr} LIMIT 1;
         `;
-        if (res.length > 0) insertedCount++;
+        if (existing.length === 0) {
+          const res = await tx`
+            INSERT INTO brands (name_ar, name_en)
+            VALUES (${nameAr}, ${nameEn})
+            RETURNING id;
+          `;
+          if (res.length > 0) insertedCount++;
+        }
       }
     } else if (fileName === "products.csv") {
       for (const row of rows) {
@@ -467,19 +460,28 @@ async function applyFileTransaction(
         const nameNorm = normalizeArabic(name);
         const category = row["category"] ?? "";
         const type = row["type"] ?? "stock";
-        const res = await tx`
-          INSERT INTO global_products (brand_id, name, name_norm, category, type)
-          VALUES (${brandId}, ${name}, ${nameNorm}, ${category}, ${type}::product_type)
-          RETURNING id;
+
+        const existing = await tx`
+          SELECT id FROM global_products
+          WHERE (brand_id IS NOT DISTINCT FROM ${brandId}::uuid)
+            AND name_ar = ${name}
+          LIMIT 1;
         `;
-        if (res.length > 0) insertedCount++;
+        if (existing.length === 0) {
+          const res = await tx`
+            INSERT INTO global_products (brand_id, name_ar, name_norm, category, type)
+            VALUES (${brandId ? brandId : null}, ${name}, ${nameNorm}, ${category}, ${type}::global_product_type)
+            RETURNING id;
+          `;
+          if (res.length > 0) insertedCount++;
+        }
       }
     } else if (fileName === "variants.csv") {
       for (const row of rows) {
         const prodName = row["product_name_ar"] ?? "";
         if (!prodName) continue;
         const prodRes = await tx`
-          SELECT id FROM global_products WHERE name = ${prodName} LIMIT 1;
+          SELECT id FROM global_products WHERE name_ar = ${prodName} LIMIT 1;
         `;
         if (prodRes.length === 0 || !prodRes[0]) continue;
         const productId = prodRes[0].id;
@@ -488,26 +490,70 @@ async function applyFileTransaction(
         const sizeUnit = row["size_unit"] ? row["size_unit"] : null;
         const packQtyStr = row["pack_qty"] ?? "";
         const packQty = packQtyStr ? parseInt(packQtyStr, 10) : 1;
-        const barcode = row["barcode"] ? row["barcode"] : null;
         const nameNorm = normalizeArabic(
           [prodName, flavor, sizeValue, sizeUnit].filter(Boolean).join(" "),
         );
 
-        if (barcode) {
+        const existing = await tx`
+          SELECT id FROM global_variants
+          WHERE global_product_id = ${productId}
+            AND (flavor IS NOT DISTINCT FROM ${flavor}::text)
+            AND (size_value IS NOT DISTINCT FROM ${sizeValue}::numeric)
+            AND (size_unit IS NOT DISTINCT FROM ${sizeUnit}::text)
+            AND pack_qty = ${packQty}
+          LIMIT 1;
+        `;
+        if (existing.length === 0) {
           const res = await tx`
-            INSERT INTO global_variants (product_id, flavor, size_value, size_unit, pack_qty, barcode, name_norm)
-            VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${barcode}, ${nameNorm})
-            ON CONFLICT (barcode) DO NOTHING
+            INSERT INTO global_variants (global_product_id, flavor, size_value, size_unit, pack_qty, name_norm)
+            VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${nameNorm})
             RETURNING id;
           `;
           if (res.length > 0) insertedCount++;
-        } else {
-          const res = await tx`
-            INSERT INTO global_variants (product_id, flavor, size_value, size_unit, pack_qty, barcode, name_norm)
-            VALUES (${productId}, ${flavor}, ${sizeValue}, ${sizeUnit}, ${packQty}, ${barcode}, ${nameNorm})
-            RETURNING id;
+        }
+      }
+    } else if (fileName === "prepaid_cards.csv") {
+      for (const row of rows) {
+        const network = row["network"] ?? "";
+        const denominationStr = row["denomination_piasters"] ?? "0";
+        const costPiastersStr = row["cost_piasters"]
+          ? row["cost_piasters"]
+          : null;
+        const dataPackage = row["data_package_ar"] || null;
+        const validityDays = row["validity_days"]
+          ? parseInt(row["validity_days"], 10)
+          : null;
+
+        const existing = await tx`
+          SELECT id FROM prepaid_products
+          WHERE network = ${network} AND denomination_piasters = ${denominationStr}::bigint
+          LIMIT 1;
+        `;
+        if (existing.length === 0) {
+          await tx`
+            INSERT INTO prepaid_products (network, denomination_piasters, data_package_ar, validity_days, cost_piasters)
+            VALUES (${network}, ${denominationStr}::bigint, ${dataPackage}, ${validityDays}, ${costPiastersStr ? `${costPiastersStr}::bigint` : null});
           `;
-          if (res.length > 0) insertedCount++;
+          insertedCount++;
+        }
+      }
+    } else if (fileName === "bills.csv") {
+      for (const row of rows) {
+        const labelAr = row["label_ar"] ?? "";
+        const billType = row["bill_type"] ?? "other";
+        if (!labelAr) continue;
+
+        const existing = await tx`
+          SELECT id FROM bill_providers
+          WHERE name_ar = ${labelAr} AND bill_type = ${billType}::bill_type
+          LIMIT 1;
+        `;
+        if (existing.length === 0) {
+          await tx`
+            INSERT INTO bill_providers (name_ar, bill_type)
+            VALUES (${labelAr}, ${billType}::bill_type);
+          `;
+          insertedCount++;
         }
       }
     } else if (fileName === "transfer_commissions.csv") {

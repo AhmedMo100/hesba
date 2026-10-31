@@ -5,6 +5,8 @@ import {
   calculateLineTotal,
   egpToPiasters,
   formatPiasters,
+  normalizeNumberString,
+  parseEgpToPiasters,
   piastersToEgp,
 } from "@/domain/money";
 
@@ -53,5 +55,27 @@ describe("domain/money - integer piaster arithmetic", () => {
     expect(() => piastersToEgp(10.2)).toThrow(TypeError);
     expect(() => applyDiscount(12.5, 10)).toThrow(TypeError);
     expect(() => applyDiscount(1000, 150)).toThrow(RangeError);
+  });
+
+  it("normalizes Arabic and Persian numerals, separators, and decimals", () => {
+    expect(normalizeNumberString("١٥٠٠")).toBe("1500");
+    expect(normalizeNumberString("۱۵۰۰")).toBe("1500");
+    expect(normalizeNumberString("١٥٠٫٥٠")).toBe("150.50");
+    expect(normalizeNumberString("١٬٥٠٠")).toBe("1500");
+    expect(normalizeNumberString("1,500.50")).toBe("1500.50");
+  });
+
+  it("parses EGP amounts into integer piasters without float issues", () => {
+    expect(parseEgpToPiasters(1500)).toBe(150000);
+    expect(parseEgpToPiasters("1500")).toBe(150000);
+    expect(parseEgpToPiasters("١٥٠٠")).toBe(150000);
+    expect(parseEgpToPiasters("۱۵۰۰")).toBe(150000);
+    expect(parseEgpToPiasters("150.50")).toBe(15050);
+    expect(parseEgpToPiasters("١٥٠٫٥٠")).toBe(15050);
+    expect(parseEgpToPiasters("1,500")).toBe(150000);
+    expect(parseEgpToPiasters("١٬٥٠٠")).toBe(150000);
+    expect(parseEgpToPiasters("150.5")).toBe(15050);
+    expect(parseEgpToPiasters("0.75")).toBe(75);
+    expect(parseEgpToPiasters("")).toBe(0);
   });
 });

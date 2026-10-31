@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { normalizeArabic } from "@/domain/normalize";
 import { validateCatalogFile } from "../../../scripts/import-catalog";
 
 describe("Catalog Import Tooling & Validation", () => {
@@ -29,11 +30,11 @@ describe("Catalog Import Tooling & Validation", () => {
   });
 
   it("validates size_value must be a positive number", () => {
-    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty,barcode
-شيبسي,شيبسي,ملح,-50,g,1,62210001
-شيبسي,شيبسي,ملح,abc,g,1,62210002
-شيبسي,شيبسي,ملح,0,g,1,62210003
-شيبسي,شيبسي,ملح,50,g,1,62210004`;
+    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty
+شيبسي,شيبسي,ملح,-50,g,1
+شيبسي,شيبسي,ملح,abc,g,1
+شيبسي,شيبسي,ملح,0,g,1
+شيبسي,شيبسي,ملح,50,g,1`;
 
     const { report, validDataRows } = validateCatalogFile("variants.csv", csv);
     expect(report.errors.length).toBe(3);
@@ -50,9 +51,9 @@ describe("Catalog Import Tooling & Validation", () => {
   });
 
   it("validates size_unit must be one of ['g', 'kg', 'ml', 'l', 'piece']", () => {
-    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty,barcode
-كوكاكولا,كوكاكولا,,250,can,1,62210001
-كوكاكولا,كوكاكولا,,250,ml,1,62210002`;
+    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty
+كوكاكولا,كوكاكولا,,250,can,1
+كوكاكولا,كوكاكولا,,250,ml,1`;
 
     const { report, validDataRows } = validateCatalogFile("variants.csv", csv);
     expect(report.errors.length).toBe(1);
@@ -61,11 +62,11 @@ describe("Catalog Import Tooling & Validation", () => {
   });
 
   it("validates pack_qty must be a positive whole number", () => {
-    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty,barcode
-نيدو,نستله,,1,kg,0,62210001
-نيدو,نستله,,1,kg,1.5,62210002
-نيدو,نستله,,1,kg,-12,62210003
-نيدو,نستله,,1,kg,12,62210004`;
+    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty
+نيدو,نستله,,1,kg,0
+نيدو,نستله,,1,kg,1.5
+نيدو,نستله,,1,kg,-12
+نيدو,نستله,,1,kg,12`;
 
     const { report, validDataRows } = validateCatalogFile("variants.csv", csv);
     expect(report.errors.length).toBe(3);
@@ -81,33 +82,22 @@ describe("Catalog Import Tooling & Validation", () => {
     expect(validDataRows).toHaveLength(1);
   });
 
-  it("validates barcode must contain digits only", () => {
-    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty,barcode
-بيبسي,بيبسي,,330,ml,1,62210ABC001
-بيبسي,بيبسي,,330,ml,1,62210000001`;
-
-    const { report, validDataRows } = validateCatalogFile("variants.csv", csv);
-    expect(report.errors.length).toBe(1);
-    expect(report.errors[0]!.message).toContain(
-      "barcode must contain digits only",
-    );
-    expect(validDataRows).toHaveLength(1);
-  });
-
-  it("reports duplicate barcodes with exact row numbers and NEVER merges", () => {
-    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty,barcode
-شيبسي جبنة,شيبسي,جبنة,50,g,1,6221000001
-شيبسي طماطم,شيبسي,طماطم,50,g,1,6221000001
-شيبسي شطة,شيبسي,شطة,50,g,1,6221000002`;
+  it("reports duplicate variants with exact row numbers and NEVER merges", () => {
+    const csv = `product_name_ar,brand_name_ar,flavor,size_value,size_unit,pack_qty
+شيبسي,شيبسي,جبنة,50,g,1
+شيبسي,شيبسي,جبنة,50,g,1
+شيبسي,شيبسي,شطة,50,g,1`;
 
     const { report } = validateCatalogFile("variants.csv", csv);
     expect(report.duplicates).toHaveLength(1);
-    expect(report.duplicates[0]!.type).toBe("barcode");
-    expect(report.duplicates[0]!.identifier).toBe("6221000001");
+    expect(report.duplicates[0]!.type).toBe("variant");
+    expect(report.duplicates[0]!.identifier).toBe(
+      "شيبسي::شيبسي::جبنة::50::g::1",
+    );
     expect(report.duplicates[0]!.rows).toEqual([2, 3]);
 
     const dupError = report.errors.find((e) =>
-      e.message.includes("Duplicate barcode"),
+      e.message.includes("Duplicate variant"),
     );
     expect(dupError).toBeDefined();
     expect(dupError?.message).toContain("NEVER merged");
@@ -159,6 +149,59 @@ we,landline,فاتورة التليفون الأرضي`;
     expect(report.errors[0]!.message).toContain(
       'Invalid bill_type "invalid_type"',
     );
+    expect(validDataRows).toHaveLength(1);
+  });
+
+  it("handles empty template files with headers only without error", () => {
+    const csv = `name_ar,name_en`;
+    const { report, validDataRows } = validateCatalogFile("brands.csv", csv);
+    expect(report.errors).toHaveLength(0);
+    expect(report.validRows).toBe(0);
+    expect(report.totalRows).toBe(0);
+    expect(validDataRows).toHaveLength(0);
+  });
+
+  it("reports duplicate brand names with exact row numbers and never merges", () => {
+    const csv = `name_ar,name_en
+الضحى,El Doha
+ريحانة,Rehana
+الضحى,El Doha Duplicate`;
+
+    const { report } = validateCatalogFile("brands.csv", csv);
+    expect(report.duplicates).toHaveLength(1);
+    expect(report.duplicates[0]!.type).toBe("brand");
+    expect(report.duplicates[0]!.identifier).toBe(normalizeArabic("الضحى"));
+    expect(report.duplicates[0]!.rows).toEqual([2, 4]);
+    expect(report.errors.some((e) => e.message.includes("NEVER merged"))).toBe(
+      true,
+    );
+  });
+
+  it("reports duplicate product names under same brand with exact row numbers", () => {
+    const csv = `brand_name_ar,product_name_ar,category,type
+الضحى,أرز مصري,أرز,stock
+الضحى,عدس أصفر,بقوليات,stock
+الضحى,أرز مصري,أرز,stock`;
+
+    const { report } = validateCatalogFile("products.csv", csv);
+    expect(report.duplicates).toHaveLength(1);
+    expect(report.duplicates[0]!.type).toBe("product");
+    expect(report.duplicates[0]!.rows).toEqual([2, 4]);
+    expect(report.errors.some((e) => e.message.includes("NEVER merged"))).toBe(
+      true,
+    );
+  });
+
+  it("validates prepaid cards with standard 4-column format", () => {
+    const csv = `network,denomination_piasters,sell_price_piasters,cost_piasters
+vodafone,1000,1050,950`;
+
+    const { report, validDataRows } = validateCatalogFile(
+      "prepaid_cards.csv",
+      csv,
+    );
+    expect(report.errors).toHaveLength(0);
+    expect(report.validRows).toBe(1);
     expect(validDataRows).toHaveLength(1);
   });
 });

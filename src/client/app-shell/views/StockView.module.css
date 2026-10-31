@@ -1,0 +1,296 @@
+.view {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  width: 100%;
+  box-sizing: border-box;
+  animation: viewIn 0.36s var(--ease);
+}
+
+@keyframes viewIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+}
+
+.phead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.phead h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.phead p {
+  margin: 4px 0 0;
+  color: var(--ink2);
+  font-size: 14px;
+}
+
+.pact {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.onlyM {
+  display: flex;
+  width: 100%;
+}
+
+.onlyD {
+  display: none;
+}
+
+.twoCol {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  width: 100%;
+}
+
+@media (min-width: 900px) {
+  .onlyM {
+    display: none !important;
+  }
+
+  .onlyD {
+    display: block;
+  }
+
+  .twoCol {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+    width: 100%;
+  }
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.hideM {
+  display: none !important;
+}
+
+@media (min-width: 900px) {
+  .hideM {
+    display: flex !important;
+  }
+}
+
+.secTitle {
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0 0 4px;
+}
+
+.chips {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.chip {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  padding: 6px 14px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.chip.active {
+  background: var(--ink);
+  color: #fff;
+  border-color: var(--ink);
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.lrow {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  box-shadow: var(--sh);
+}
+
+.lrowLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ok, #108e5c);
+  flex-shrink: 0;
+}
+
+.dot.low {
+  background: var(--yelLine, #d9822b);
+}
+
+.dot.out {
+  background: var(--red, #cf3c3c);
+}
+
+.lrn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+
+.lrn b {
+  font-size: 15px;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lrn small {
+  color: var(--ink2);
+  font-size: 12px;
+}
+
+.lrq {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  flex-shrink: 0;
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+.lrq b {
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-weight: 700;
+}
+
+.badge.out {
+  background: #fde8e8;
+  color: var(--red, #cf3c3c);
+}
+
+.badge.warn {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.sumline {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--sf2, #fbf7ef);
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.dgroup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.dgh {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink2);
+  margin-top: 6px;
+}
+
+.lgi {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.lgTop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.lgTop b {
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.lgq {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ok, #108e5c);
+}
+
+.lgMeta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink2);
+  flex-wrap: wrap;
+  width: 100%;
+}

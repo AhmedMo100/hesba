@@ -1,11 +1,12 @@
 # ADR-0006: SMS provider
 
-- **Status:** Proposed
-- **Date:** 2026-10-24
+- **Status:** Superseded
+- **Date:** 2026-10-24 (Superseded on 2026-10-28)
 - **Decision-maker:** Ahmed Tarek / Team Hesba
+- **Superseded by:** Passkeys (WebAuthn) as primary authentication and cryptographic single-use email links for account recovery. SMS OTP authentication is completely removed.
 
 ## Context
-User identity, store registration, and account recovery in Hesba rely on Egyptian mobile phone numbers and One-Time Passwords (OTP). Quick and reliable SMS delivery to all four Egyptian telecommunications networks (Vodafone, Orange, e&/Etisalat, WE) is critical to ensure users are not blocked during signup or login. The solution must feature a simple HTTP API, high deliverability within Egypt, sensible rate limits to prevent budget exhaustion, and an interface architecture that supports fallbacks (`docs/12-SECURITY-AND-PRIVACY.md`, `docs/15-DECISIONS-AND-OPEN-QUESTIONS.md` item O2).
+*(Historical note: Initially proposed for SMS OTP before authentication was migrated to Passkeys and email recovery).* User identity, store registration, and account recovery in Hesba rely on Egyptian mobile phone numbers. Quick and reliable delivery...
 
 ## Options
 

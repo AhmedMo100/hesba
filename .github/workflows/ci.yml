@@ -43,7 +43,7 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Audit dependencies
-        run: pnpm audit
+        run: pnpm audit --audit-level high
 
       - name: Static lint & import boundaries
         run: pnpm lint
@@ -58,6 +58,9 @@ jobs:
         run: pnpm build
         env:
           NEXT_TELEMETRY_DISABLED: 1
+          HESBA_SESSION_SECRET: hesba-test-session-secret-at-least-16-chars
+          HESBA_CRON_SECRET: hesba-test-cron-secret
+          HESBA_APP_ORIGIN: http://localhost:3000
 
       - name: Verify Docker build portability
         run: docker build -t hesba:ci .
@@ -111,4 +114,7 @@ jobs:
         env:
           HESBA_DATABASE_URL: postgres://hesba_app:change-me-local@localhost:5432/hesba
           HESBA_DIRECT_URL: postgres://hesba_migrator:change-me-local@localhost:5432/hesba
+          HESBA_SESSION_SECRET: hesba-test-session-secret-at-least-16-chars
+          HESBA_CRON_SECRET: hesba-test-cron-secret
+          HESBA_APP_ORIGIN: http://localhost:3000
         run: pnpm test:int

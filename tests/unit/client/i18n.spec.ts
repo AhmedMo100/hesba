@@ -19,6 +19,32 @@ describe("i18n and formatting utilities", () => {
     expect(t("non.existent.key")).toBe("non.existent.key");
   });
 
+  it("contains clean marketing copy without demo version claims in auth strings", () => {
+    expect(t("auth.loginSub")).toBe(
+      "أهلاً بعودتك، خلّي إدارة محلك أسهل مع حِسبة.",
+    );
+    expect(t("auth.signupSub")).toBe(
+      "ابدأ تنظيم حسابات محلك ومخزونه مع حِسبة.",
+    );
+    expect(t("auth.forgotPasswordSub")).toBe(
+      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
+    );
+    expect(t("auth.loginPasswordPlaceholder")).toBe("كلمة السر");
+    expect(t("auth.passwordHint")).toBe(
+      "12 حرفًا على الأقل، ويشمل حرفًا ورقمًا، مثال: Cairo2026Pass",
+    );
+    expect(t("auth.passwordMissingLetter")).toBe(
+      "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
+    );
+    expect(t("auth.passwordMissingNumber")).toBe(
+      "كلمة السر يجب أن تحتوي على رقم واحد على الأقل",
+    );
+    expect(t("auth.reqMinLength")).toBe("12 حرفًا على الأقل");
+    expect(t("auth.reqLetter")).toBe("حرف واحد على الأقل");
+    expect(t("auth.reqNumber")).toBe("رقم واحد على الأقل");
+    expect(t("auth.reqMatch")).toBe("تطابق كلمتي السر");
+  });
+
   it("formats piasters as Egyptian Pounds with ج.م suffix", () => {
     expect(formatMoney(1550)).toBe("15.50 ج.م");
     expect(formatMoney(1500)).toBe("15 ج.م");

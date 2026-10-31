@@ -419,7 +419,7 @@ Sources: [Vercel Fair Use](https://vercel.com/docs/limits/fair-use-guidelines) �
 6. **Jobs without always-on Workers:** a `jobs` table in Postgres + an `/api/cron/tick` endpoint called from an external Cron or from the provider (it executes a small batch with `FOR UPDATE SKIP LOCKED`). No Redis and no BullMQ in V1. ❓ Check the Cron limit on the plan you choose, otherwise use a free external scheduler.
 7. **Files/images:** V1 has no product images (name and category are enough). If needed later: S3-compatible storage + compression + fixed sizes.
 8. **Cache:** public catalog data is cached on the CDN with a long `Cache-Control` + ETag.
-9. **Protection limits:** Rate limits on OTP, sync and the suggestions catalog (prevents consuming the plan by mistake or maliciously).
+9. **Protection limits:** Rate limits on auth/recovery, sync and the suggestions catalog (prevents consuming the plan by mistake or maliciously).
 
 ### Estimated lifetime of the free tier (assumptions from file 01 — **measure them in Alpha**)
 ```

@@ -15,14 +15,14 @@ export const envSchema = z.object({
 
   // Optional / Defaults
   HESBA_POSTGRES_PORT: z.coerce.number().optional().default(5432),
-  HESBA_SMS_PROVIDER: z.string().optional().default("mock"),
-  HESBA_SMS_KEY: z.string().optional(),
   HESBA_LLM_PROVIDER: z.string().optional().default("mock"),
   HESBA_LLM_KEY: z.string().optional(),
   HESBA_SENTRY_DSN: z.string().optional(),
   HESBA_RENEWAL_VODAFONE_CASH: z.string().optional(),
   HESBA_RENEWAL_INSTAPAY: z.string().optional(),
   HESBA_RENEWAL_WHATSAPP: z.string().optional(),
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().optional(),
   NODE_ENV: z
     .enum(["development", "test", "production"])
     .optional()
@@ -39,7 +39,20 @@ export type Env = z.infer<typeof envSchema>;
 export function validateEnv(
   rawEnv: Record<string, unknown> = process.env,
 ): Env {
-  const result = envSchema.safeParse(rawEnv);
+  const normalizedEnv: Record<string, unknown> = { ...rawEnv };
+
+  // If HESBA_APP_ORIGIN is not provided, check VERCEL_URL or VERCEL_PROJECT_PRODUCTION_URL
+  if (!normalizedEnv["HESBA_APP_ORIGIN"]) {
+    if (normalizedEnv["VERCEL_URL"]) {
+      normalizedEnv["HESBA_APP_ORIGIN"] =
+        `https://${normalizedEnv["VERCEL_URL"]}`;
+    } else if (normalizedEnv["VERCEL_PROJECT_PRODUCTION_URL"]) {
+      normalizedEnv["HESBA_APP_ORIGIN"] =
+        `https://${normalizedEnv["VERCEL_PROJECT_PRODUCTION_URL"]}`;
+    }
+  }
+
+  const result = envSchema.safeParse(normalizedEnv);
 
   if (!result.success) {
     const missingKeys = Array.from(
@@ -56,13 +69,18 @@ export function validateEnv(
   return result.data;
 }
 
-// In test environment, skip eager evaluation on import so tests can pass custom env dictionaries
-export const env: Env =
-  process.env.NODE_ENV === "test"
-    ? new Proxy({} as Env, {
-        get(_target, prop: string) {
-          const current = validateEnv();
-          return current[prop as keyof Env];
-        },
-      })
-    : validateEnv();
+let cachedEnv: Env | null = null;
+
+// Lazy proxy: evaluates validateEnv on first property access, avoiding build-time route collection crashes
+export const env: Env = new Proxy({} as Env, {
+  get(_target, prop: string) {
+    if (process.env.NODE_ENV === "test") {
+      const current = validateEnv();
+      return current[prop as keyof Env];
+    }
+    if (!cachedEnv) {
+      cachedEnv = validateEnv();
+    }
+    return cachedEnv[prop as keyof Env];
+  },
+});

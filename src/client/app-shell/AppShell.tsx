@@ -60,7 +60,18 @@ function ViewLoading() {
   );
 }
 
-export function AppShell() {
+import {
+  AuthProvider,
+  useAuth,
+  ProfileModal,
+  AuthScreen,
+} from "../shared/auth";
+
+function AppShellInner() {
+  const { session, isOfflineExpired } = useAuth();
+  const [showProfile, setShowProfile] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+
   const [route, setRoute] = useState<NavRoute>(() => {
     if (typeof window !== "undefined") {
       return getRouteFromPathname(window.location.pathname);
@@ -78,11 +89,41 @@ export function AppShell() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    // Register service worker for offline precaching
+    // Register service worker for offline precaching in production only.
+    // In development mode, unregister any stale service worker and purge old precache caches
+    // to prevent 404 errors on nonexistent static CSS bundles.
     if ("serviceWorker" in navigator) {
-      navigator.serviceWorker
-        .register("/sw.js", { scope: "/" })
-        .catch(() => {});
+      if (process.env.NODE_ENV === "production") {
+        navigator.serviceWorker
+          .register("/sw.js", { scope: "/" })
+          .catch(() => {});
+      } else {
+        navigator.serviceWorker
+          .getRegistrations()
+          .then((registrations) => {
+            for (const registration of registrations) {
+              registration.unregister();
+            }
+          })
+          .catch(() => {});
+
+        if ("caches" in window) {
+          caches
+            .keys()
+            .then((keys) => {
+              for (const key of keys) {
+                if (
+                  key.includes("serwist") ||
+                  key.includes("workbox") ||
+                  key.includes("precache")
+                ) {
+                  caches.delete(key);
+                }
+              }
+            })
+            .catch(() => {});
+        }
+      }
     }
 
     // Preload lazy view chunks on mount so they are cached for offline navigation
@@ -145,22 +186,57 @@ export function AppShell() {
     }
   };
 
+  const effectiveSyncState: SyncState = isOfflineExpired ? "login" : syncState;
+
   return (
-    <ToastProvider>
-      <div className={styles.app} dir="rtl">
-        <SideNav activeRoute={route} onNavigate={navigate} />
-        <div className={styles.main}>
-          <Header />
-          <SyncBar state={syncState} />
-          <main className={styles.content}>
-            <Suspense fallback={<ViewLoading />}>
-              {renderCurrentView()}
-            </Suspense>
-          </main>
-          <BottomNav activeRoute={route} onNavigate={navigate} />
-        </div>
+    <div className={styles.app} dir="rtl">
+      <SideNav activeRoute={route} onNavigate={navigate} />
+      <div className={styles.main}>
+        <Header
+          storeName={session?.store?.name}
+          onStoreClick={() => setShowProfile(true)}
+        />
+        <SyncBar
+          state={effectiveSyncState}
+          onClick={() => {
+            if (isOfflineExpired) setShowAuthModal(true);
+          }}
+        />
+        <main className={styles.content}>
+          <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
+        </main>
+        <BottomNav activeRoute={route} onNavigate={navigate} />
       </div>
-    </ToastProvider>
+
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+
+      {showAuthModal && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 999,
+            overflowY: "auto",
+          }}
+        >
+          <AuthScreen
+            initialMode="login"
+            onSuccess={() => setShowAuthModal(false)}
+            isOffline={syncState === "offline"}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function AppShell() {
+  return (
+    <AuthProvider>
+      <ToastProvider>
+        <AppShellInner />
+      </ToastProvider>
+    </AuthProvider>
   );
 }
 

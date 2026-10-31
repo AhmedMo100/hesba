@@ -1,4 +1,6 @@
 import "server-only";
+import { z } from "zod";
+import { logger } from "@/server/platform/logger";
 
 export type ErrorCode =
   | "UNAUTHORIZED"
@@ -9,6 +11,7 @@ export type ErrorCode =
   | "CONFLICT"
   | "RATE_LIMITED"
   | "MAINTENANCE"
+  | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR";
 
 export interface ErrorResponsePayload {
@@ -67,6 +70,20 @@ export class AppError extends Error {
     return new AppError("CONFLICT", message, 409);
   }
 
+  static rateLimited(
+    message = "تجاوزت الحد المسموح من المحاولات. يُرجى الانتظار والمحاولة لاحقاً.",
+    details?: unknown,
+  ): AppError {
+    return new AppError("RATE_LIMITED", message, 429, details);
+  }
+
+  static serviceUnavailable(
+    message = "الخدمة غير متوفرة حالياً. يُرجى المحاولة لاحقاً.",
+    details?: unknown,
+  ): AppError {
+    return new AppError("SERVICE_UNAVAILABLE", message, 503, details);
+  }
+
   static internal(
     message = "حصل خطأ غير متوقع في السيرفر. شغلك محفوظ.",
   ): AppError {
@@ -106,5 +123,15 @@ export function toSafeErrorResponse(
     return error.toResponse(requestId);
   }
 
+  if (error instanceof z.ZodError) {
+    const firstIssue = error.issues[0];
+    const safeMessage = firstIssue?.message || "البيانات المدخلة غير صحيحة";
+    const field = firstIssue?.path ? firstIssue.path.join(".") : undefined;
+    return new AppError("VALIDATION_ERROR", safeMessage, 400, {
+      field,
+    }).toResponse(requestId);
+  }
+
+  logger.error({ err: error, requestId }, "Internal API error");
   return AppError.internal().toResponse(requestId);
 }

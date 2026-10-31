@@ -84,12 +84,14 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           id: userAId,
           name: "Shop Owner A",
           phone: phoneA,
+          email: `owner-a-${runId}@example.com`,
           passwordHash: "argon2id$mockhashA",
         },
         {
           id: userBId,
           name: "Shop Owner B",
           phone: phoneB,
+          email: `owner-b-${runId}@example.com`,
           passwordHash: "argon2id$mockhashB",
         },
       ],
@@ -559,6 +561,7 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
         data: {
           brandId,
           nameAr: `حليب جهينة 1 لتر ${runId}`,
+          nameNorm: `حليب جهينه 1 لتر ${runId}`,
           category: "ألبان",
           type: "stock",
         },
@@ -572,7 +575,6 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
           sizeValue: 1,
           sizeUnit: "l",
           packQty: 12,
-          barcode: `622100${Date.now().toString().slice(-6)}`,
           nameNorm: `حليب جهينه كامل الدسم 1 لتر ${runId}`,
         },
       });
@@ -678,7 +680,6 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
     });
 
     it("store_variants: Store A variant is completely hidden from Store B", async () => {
-      const variantBarcode = "622998877001";
       const storeAVariant = await withTenant(
         storeAId,
         userAId,
@@ -688,7 +689,6 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
               storeId: storeAId,
               productId: globalProductId,
               globalVariantId: globalVariantId,
-              barcode: variantBarcode,
               sellPricePiasters: BigInt(4500),
               isActive: true,
             },
@@ -725,7 +725,7 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       );
       expect(storeBList).toHaveLength(0);
 
-      // Barcode uniqueness is per store: Store B CAN use the same barcode for its own store
+      // Store B creates its own variant independently
       const storeBVariant = await withTenant(
         storeBId,
         userBId,
@@ -735,7 +735,6 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
               storeId: storeBId,
               productId: globalProductId,
               globalVariantId: globalVariantId,
-              barcode: variantBarcode,
               sellPricePiasters: BigInt(4800),
               isActive: true,
             },
@@ -746,28 +745,19 @@ describe("Cross-Tenant Isolation & RLS on Real Postgres", () => {
       expect(storeBVariant).toBeDefined();
       expect(storeBVariant.storeId).toBe(storeBId);
 
-      // But Store A inserting duplicate barcode fails unique constraint
-      let dupBarcodeError: unknown;
-      try {
-        await withTenant(
-          storeAId,
-          userAId,
-          async (tx) => {
-            return await tx.storeVariant.create({
-              data: {
-                storeId: storeAId,
-                productId: globalProductId,
-                barcode: variantBarcode,
-                sellPricePiasters: BigInt(5000),
-              },
-            });
-          },
-          appPoolPrisma,
-        );
-      } catch (err) {
-        dupBarcodeError = err;
-      }
-      expect(dupBarcodeError).toBeDefined();
+      // Store B cannot update Store A's variant
+      const updateResult = await withTenant(
+        storeBId,
+        userBId,
+        async (tx) => {
+          return await tx.storeVariant.updateMany({
+            where: { id: storeAVariant.id },
+            data: { sellPricePiasters: BigInt(9999) },
+          });
+        },
+        appPoolPrisma,
+      );
+      expect(updateResult.count).toBe(0);
     });
 
     it("service_items & card_serials: Store A items are completely hidden from Store B", async () => {
