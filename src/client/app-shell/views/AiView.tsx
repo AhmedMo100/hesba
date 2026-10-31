@@ -75,6 +75,19 @@ function generateClientUuid(): string {
   });
 }
 
+function getTodayCairoDateString(): string {
+  try {
+    return new Intl.DateTimeFormat("en-CA", {
+      timeZone: "Africa/Cairo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
 export function AiView() {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [input, setInput] = useState("");
@@ -195,6 +208,8 @@ export function AiView() {
           fetch("/api/ai/conversations"),
         ]);
 
+        let currentDayKey = getTodayCairoDateString();
+
         if (!ignore && quotaRes.ok) {
           const quotaJson = await quotaRes.json();
           const q = quotaJson.data ?? quotaJson;
@@ -205,6 +220,9 @@ export function AiView() {
               resetsAt: q.resets_at ?? q.resetsAt ?? "",
               day: q.day_key ?? q.dayKey ?? "",
             });
+            if (q.day_key || q.dayKey) {
+              currentDayKey = q.day_key ?? q.dayKey;
+            }
           }
         }
 
@@ -221,6 +239,45 @@ export function AiView() {
               messageCount: c.message_count ?? c.messageCount ?? 0,
             }));
             setConversations(formatted);
+
+            // Keep today's conversation visible in chat as long as we are in the same day!
+            // When the day ends (tomorrow), it automatically moves to the previous chats list.
+            const todayConv = formatted.find((c) => c.day === currentDayKey);
+            if (todayConv) {
+              setActiveConversationId(todayConv.id);
+              const msgsRes = await fetch(
+                `/api/ai/conversations/${todayConv.id}`,
+              );
+              if (!ignore && msgsRes.ok) {
+                const msgsJson = await msgsRes.json();
+                const conv = msgsJson.conversation ?? msgsJson.data;
+                if (conv && Array.isArray(conv.messages)) {
+                  setMessages(
+                    conv.messages.map(
+                      (m: {
+                        id: string;
+                        role: "user" | "assistant";
+                        body_text?: string;
+                        content?: string;
+                        sources?: AiSource[];
+                        created_at?: string;
+                        createdAt?: string;
+                      }) => ({
+                        id: m.id,
+                        role: m.role,
+                        content: m.body_text ?? m.content ?? "",
+                        sources: m.sources,
+                        createdAt: m.created_at ?? m.createdAt,
+                      }),
+                    ),
+                  );
+                }
+              }
+            } else {
+              // Day has ended or new day: fresh chat!
+              setActiveConversationId(null);
+              setMessages([]);
+            }
           }
         }
       } catch {

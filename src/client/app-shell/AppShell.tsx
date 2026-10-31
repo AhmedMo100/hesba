@@ -202,7 +202,9 @@ function AppShellInner() {
             if (isOfflineExpired) setShowAuthModal(true);
           }}
         />
-        <main className={styles.content}>
+        <main
+          className={`${styles.content} ${route === "ai" ? styles.contentAi : ""}`}
+        >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
         <BottomNav activeRoute={route} onNavigate={navigate} />

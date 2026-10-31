@@ -19,6 +19,11 @@
   margin: 0 auto;
 }
 
+.contentAi {
+  padding: 8px 16px 0 16px;
+  overflow: hidden;
+}
+
 @media (min-width: 900px) {
   .app {
     display: grid;
@@ -28,10 +33,18 @@
   .content {
     padding: 24px 32px 60px;
   }
+
+  .contentAi {
+    padding: 12px 32px 0 32px;
+  }
 }
 
 @media (max-width: 380px) {
   .content {
+    padding-inline: 12px;
+  }
+
+  .contentAi {
     padding-inline: 12px;
   }
 }
