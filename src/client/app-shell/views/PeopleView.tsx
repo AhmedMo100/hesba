@@ -72,6 +72,33 @@ function formatEgp(piasters: number): string {
   return `${Math.floor(egp).toLocaleString("en-US")} ج.م`;
 }
 
+function getWaUrl(
+  phone: string | null | undefined,
+  name: string,
+  sec: PeopleSection,
+  amountPiasters: number,
+): string {
+  if (!phone) return "";
+  const cleanDigits = phone.replace(/\D/g, "");
+  if (!cleanDigits) return "";
+  const phoneFormatted = cleanDigits.startsWith("20")
+    ? cleanDigits
+    : cleanDigits.startsWith("0")
+      ? `20${cleanDigits.slice(1)}`
+      : `20${cleanDigits}`;
+
+  let text = "";
+  if (sec === "owedToMe") {
+    text = `السلام عليكم يا ${name}، بخصوص الحساب المتبقي وقدره ${formatEgp(amountPiasters)}.`;
+  } else if (sec === "iOwe") {
+    text = `السلام عليكم يا ${name}، بخصوص المبلغ المستحق لحضرتك وقدره ${formatEgp(amountPiasters)} من طرفنا.`;
+  } else {
+    text = `السلام عليكم يا ${name}، للتواصل بخصوص البضاعة والطلبيات.`;
+  }
+
+  return `https://wa.me/${phoneFormatted}?text=${encodeURIComponent(text)}`;
+}
+
 function parseCustomerNotes(note: string | null): {
   products: string[];
   generalNote: string;
@@ -713,14 +740,44 @@ export function PeopleView() {
                       )}
                     </div>
                     {p.phone ? (
-                      <a
-                        className={styles.personPhone}
-                        href={`tel:${p.phone}`}
-                        dir="ltr"
-                      >
-                        <Icon n="phone" s={13} />
-                        <span>{p.phone}</span>
-                      </a>
+                      <div className={styles.phoneRow}>
+                        <a
+                          className={styles.personPhone}
+                          href={`tel:${p.phone}`}
+                          dir="ltr"
+                        >
+                          <Icon n="phone" s={13} />
+                          <span>{p.phone}</span>
+                        </a>
+                        <a
+                          href={getWaUrl(
+                            p.phone,
+                            p.name,
+                            section,
+                            p.amount_piasters,
+                          )}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className={styles.waLinkBadge}
+                          title={t("pages.people.waChat")}
+                          aria-label={`${t("pages.people.waChat")} ${p.name}`}
+                        >
+                          <svg
+                            width={12}
+                            height={12}
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth={2}
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            aria-hidden="true"
+                          >
+                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                          </svg>
+                          <span>واتساب</span>
+                        </a>
+                      </div>
                     ) : (
                       <span className={styles.noPhone}>
                         {t("pages.people.noPhone")}
@@ -757,7 +814,12 @@ export function PeopleView() {
                     {/* WhatsApp quick contact */}
                     {p.phone && (
                       <a
-                        href={`https://wa.me/20${p.phone.replace(/^(\+?20|0)/, "")}`}
+                        href={getWaUrl(
+                          p.phone,
+                          p.name,
+                          section,
+                          p.amount_piasters,
+                        )}
                         target="_blank"
                         rel="noopener noreferrer"
                         className={styles.cardWaBtn}
