@@ -786,23 +786,47 @@ export class CatalogService {
             v.costPricePiasters ?? input.buyCostPiasters ?? 0,
           );
 
-          if (v.id && !v.id.startsWith("gp_")) {
+          let existingVar = null;
+          if (v.id && !v.id.startsWith("gp_") && !v.id.startsWith("temp_")) {
+            existingVar = await tx.storeVariant.findFirst({
+              where: { id: v.id, storeId },
+            });
+          }
+
+          if (existingVar) {
             const updatedVar = await tx.storeVariant.update({
-              where: { id: v.id },
+              where: { id: existingVar.id },
               data: {
+                storeProductId,
                 flavor: v.flavor ?? null,
                 sizeValue: v.sizeValue ? v.sizeValue : null,
                 sizeUnit: v.sizeUnit ?? null,
                 packQty: v.packQty ?? 1,
                 sellPricePiasters: varSell,
                 buyPricePiasters: varBuy,
-                globalVariantId: v.globalVariantId ?? null,
+                globalVariantId:
+                  v.globalVariantId ?? existingVar.globalVariantId,
                 isActive: v.isActive ?? true,
                 updatedAt: now,
               },
             });
             variantResults.push(updatedVar);
           } else {
+            let safeGlobalVariantId: string | null = null;
+            const candidateGvId =
+              v.globalVariantId ??
+              (v.id?.startsWith("gp_") ? v.id.slice(3) : v.id);
+
+            if (candidateGvId && !candidateGvId.startsWith("temp_")) {
+              const gvExists = await tx.globalVariant.findUnique({
+                where: { id: candidateGvId },
+                select: { id: true },
+              });
+              if (gvExists) {
+                safeGlobalVariantId = gvExists.id;
+              }
+            }
+
             const createdVar = await tx.storeVariant.create({
               data: {
                 storeId,
@@ -814,9 +838,7 @@ export class CatalogService {
                 packQty: v.packQty ?? 1,
                 sellPricePiasters: varSell,
                 buyPricePiasters: varBuy,
-                globalVariantId:
-                  v.globalVariantId ??
-                  (v.id?.startsWith("gp_") ? v.id.slice(3) : null),
+                globalVariantId: safeGlobalVariantId,
                 isActive: v.isActive ?? true,
                 createdAt: now,
                 updatedAt: now,

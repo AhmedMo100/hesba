@@ -183,8 +183,13 @@ describe("AddStockModal Component", () => {
     expect(html).toContain("بالقطعة / الكرتونة");
     expect(html).toContain("بالوزن");
     expect(html).toContain("كراتين");
-    expect(html).toContain("قطع زيادة (مفرد)");
+    expect(html).toContain("قطع زيادة");
     expect(html).toContain("قطع/كرتونة");
     expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
+    expect(html).toContain("تاريخ الإنتاج / البداية (اختياري)");
+    expect(html).toContain("تاريخ الانتهاء");
+    expect(html).toContain("المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)");
+    expect(html).toContain("بعد 3 شهور");
+    expect(html).toContain("بعد سنة");
   });
 });

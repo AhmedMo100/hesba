@@ -16,6 +16,7 @@ const addStockSchema = z.object({
     .int()
     .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً"),
   costPricePiasters: z.number().int().min(0, "سعر التكلفة يجب ألا يقل عن صفر"),
+  productionDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
   batchCode: z.string().trim().optional().nullable(),
   opId: z.string().uuid().optional(),
@@ -97,6 +98,7 @@ export async function POST(req: Request) {
           storeVariantId: input.storeVariantId,
           receivedQuantityBase: input.quantityBase,
           costPriceMinor: input.costPricePiasters,
+          productionDate: input.productionDate,
           expiryDate: input.expiryDate,
           batchCode: input.batchCode,
           opId: input.opId,

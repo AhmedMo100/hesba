@@ -24,6 +24,7 @@ export class InventoryService {
       storeVariantId: string;
       receivedQuantityBase: bigint | number;
       costPriceMinor: bigint | number;
+      productionDate?: Date | string | null;
       expiryDate?: Date | string | null;
       batchCode?: string | null;
       supplierId?: string | null;
@@ -36,7 +37,13 @@ export class InventoryService {
       throw new Error("Received quantity must be positive");
     }
 
+    const prodDate = input.productionDate
+      ? new Date(input.productionDate)
+      : null;
     const expiry = input.expiryDate ? new Date(input.expiryDate) : null;
+    if (prodDate && expiry && expiry < prodDate) {
+      throw new Error("تاريخ الانتهاء يجب ألا يكون قبل تاريخ الإنتاج");
+    }
     const now = new Date();
 
     return withTenant(
@@ -77,6 +84,7 @@ export class InventoryService {
             remainingQuantityBase: qtyBase,
             costPriceMinor: costMinor,
             costTotalMinor: costMinor * qtyBase,
+            productionDate: prodDate,
             expiryDate: expiry,
             supplierId: input.supplierId ?? null,
             receivedAt: now,

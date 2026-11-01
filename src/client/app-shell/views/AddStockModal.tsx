@@ -91,6 +91,7 @@ export function AddStockModal({
   );
   const [weightInput, setWeightInput] = useState(isInitialWeight ? "1" : "");
   const [costEgp, setCostEgp] = useState("");
+  const [prodDate, setProdDate] = useState("");
   const [expiry, setExpiry] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
   const [batchCode, setBatchCode] = useState("");
@@ -229,10 +230,15 @@ export function AddStockModal({
     selectedOption,
   ]);
 
-  const addDaysToToday = (days: number) => {
-    const d = new Date();
-    d.setDate(d.getDate() + days);
+  const computeExpiryDate = (baseIso: string, months: number) => {
+    const d = baseIso ? new Date(baseIso) : new Date();
+    d.setMonth(d.getMonth() + months);
     return d.toISOString().split("T")[0]!;
+  };
+
+  const applyDurationMonths = (months: number) => {
+    const base = prodDate || new Date().toISOString().split("T")[0]!;
+    setExpiry(computeExpiryDate(base, months));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -257,6 +263,8 @@ export function AddStockModal({
 
     if (!noExpiry && !expiry) {
       newErrors.expiry = 'اختر تاريخ الصلاحية أو اضغط "مفيش صلاحية"';
+    } else if (!noExpiry && prodDate && expiry && expiry < prodDate) {
+      newErrors.expiry = "تاريخ الانتهاء يجب ألا يسبق تاريخ الإنتاج";
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -320,7 +328,13 @@ export function AddStockModal({
         }
 
         const prodData = await prodRes.json();
-        targetVariantId = prodData.product?.variants?.[0]?.id;
+        targetVariantId =
+          prodData.data?.variants?.[0]?.id ||
+          prodData.product?.variants?.[0]?.id;
+
+        if (!targetVariantId) {
+          throw new Error("تعذر تحديد معرّف الصنف في المخزون");
+        }
       }
 
       const payload = {
@@ -328,6 +342,7 @@ export function AddStockModal({
         storeVariantId: targetVariantId,
         quantityBase: totalBaseQty,
         costPricePiasters: costPiasters,
+        productionDate: noExpiry ? null : prodDate || null,
         expiryDate: noExpiry ? null : expiry || null,
         batchCode: batchCode.trim() || null,
       };
@@ -354,10 +369,11 @@ export function AddStockModal({
   };
 
   const quickExpiryChips = [
-    { label: "بعد شهر", days: 30 },
-    { label: "بعد 3 شهور", days: 90 },
-    { label: "بعد 6 شهور", days: 180 },
-    { label: "بعد سنة", days: 365 },
+    { label: "بعد شهر", months: 1 },
+    { label: "بعد 3 شهور", months: 3 },
+    { label: "بعد 6 شهور", months: 6 },
+    { label: "بعد سنة", months: 12 },
+    { label: "بعد سنتين", months: 24 },
   ];
 
   return (
@@ -607,7 +623,7 @@ export function AddStockModal({
                 />
               </Field>
 
-              <Field label="قطع زيادة (مفرد)">
+              <Field label="قطع زيادة">
                 <input
                   type="number"
                   min="0"
@@ -749,94 +765,131 @@ export function AddStockModal({
           )}
         </div>
 
-        <Field label="تاريخ الصلاحية" err={errors.expiry}>
+        {/* إدارة الصلاحية وتاريخ الإنتاج والانتهاء */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <div
             style={{
               display: "flex",
-              flexDirection: "column",
+              alignItems: "center",
               gap: 8,
+              cursor: "pointer",
+            }}
+            onClick={() => {
+              const next = !noExpiry;
+              setNoExpiry(next);
+              if (next) {
+                setExpiry("");
+                setProdDate("");
+              }
             }}
           >
-            {!noExpiry && (
-              <input
-                type="date"
-                value={expiry}
-                onChange={(e) => setExpiry(e.target.value)}
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                }}
-              />
-            )}
-
-            <div
+            <input
+              type="checkbox"
+              id="noExpiryCheck"
+              checked={noExpiry}
+              onChange={(e) => {
+                setNoExpiry(e.target.checked);
+                if (e.target.checked) {
+                  setExpiry("");
+                  setProdDate("");
+                }
+              }}
+              style={{ width: 18, height: 18, cursor: "pointer" }}
+            />
+            <label
+              htmlFor="noExpiryCheck"
               style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
+                fontSize: 13,
+                fontWeight: 600,
                 cursor: "pointer",
               }}
-              onClick={() => {
-                setNoExpiry(!noExpiry);
-                if (!noExpiry) setExpiry("");
-              }}
             >
-              <input
-                type="checkbox"
-                id="noExpiryCheck"
-                checked={noExpiry}
-                onChange={(e) => {
-                  setNoExpiry(e.target.checked);
-                  if (e.target.checked) setExpiry("");
-                }}
-                style={{ width: 18, height: 18, cursor: "pointer" }}
-              />
-              <label
-                htmlFor="noExpiryCheck"
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)
-              </label>
-            </div>
+              المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)
+            </label>
+          </div>
 
-            {!noExpiry && (
+          {!noExpiry && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
               <div
                 style={{
-                  display: "flex",
-                  gap: 6,
-                  flexWrap: "wrap",
-                  marginTop: 4,
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 8,
                 }}
               >
-                {quickExpiryChips.map((chip) => (
-                  <button
-                    key={chip.label}
-                    type="button"
-                    onClick={() => setExpiry(addDaysToToday(chip.days))}
+                <Field label="تاريخ الإنتاج / البداية">
+                  <input
+                    type="date"
+                    value={prodDate}
+                    onChange={(e) => setProdDate(e.target.value)}
                     style={{
-                      padding: "4px 8px",
-                      fontSize: 11,
-                      fontWeight: 700,
-                      borderRadius: 6,
-                      border: "1px solid var(--line)",
-                      background: "var(--sf2)",
-                      color: "var(--ink)",
-                      cursor: "pointer",
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1.5px solid var(--line)",
                     }}
-                  >
-                    {chip.label}
-                  </button>
-                ))}
+                  />
+                </Field>
+
+                <Field label="تاريخ الانتهاء" err={errors.expiry}>
+                  <input
+                    type="date"
+                    value={expiry}
+                    onChange={(e) => setExpiry(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1.5px solid var(--line)",
+                    }}
+                  />
+                </Field>
               </div>
-            )}
-          </div>
-        </Field>
+
+              {/* أزرار حساب مدة الصلاحية التلقائية */}
+              <div>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 11.5,
+                    fontWeight: 700,
+                    color: "var(--ink2)",
+                    marginBottom: 6,
+                  }}
+                >
+                  حساب مدة الصلاحية سريعاً من الإنتاج:
+                </span>
+                <div
+                  style={{
+                    display: "flex",
+                    gap: 6,
+                    flexWrap: "wrap",
+                  }}
+                >
+                  {quickExpiryChips.map((chip) => (
+                    <button
+                      key={chip.label}
+                      type="button"
+                      onClick={() => applyDurationMonths(chip.months)}
+                      style={{
+                        padding: "5px 10px",
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        borderRadius: 8,
+                        border: "1px solid var(--line)",
+                        background: "var(--sf2)",
+                        color: "var(--ink)",
+                        cursor: "pointer",
+                      }}
+                    >
+                      {chip.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         <Field label="كود التشغيلة / الباتش (اختياري)">
           <input

@@ -808,4 +808,93 @@ describe("Products API & Service (Phase 3.4 Integration)", () => {
     });
     await migratorPrisma.globalProduct.delete({ where: { id: globalProd.id } });
   });
+
+  it("safely handles editing prices for a catalog product where variant id is a GlobalVariant id", async () => {
+    // 1. Create a global product with a global variant
+    const gvId = crypto.randomUUID();
+    const gpId = crypto.randomUUID();
+
+    await migratorPrisma.globalProduct.create({
+      data: {
+        id: gpId,
+        nameAr: `منتج كتالوج للتعديل ${runId}`,
+        nameNorm: `منتج كتالوج للتعديل ${runId}`,
+        category: "مشروبات",
+        globalVariants: {
+          create: {
+            id: gvId,
+            packQty: 12,
+            nameNorm: `منتج كتالوج للتعديل ${runId}`,
+          },
+        },
+      },
+    });
+
+    const catalogService = new CatalogService(appPrisma);
+
+    // 2. Call upsertStoreProduct passing the GlobalVariant id as v.id
+    // This simulates the frontend sending the ID it received from getStoreProducts
+    const upsertRes = await catalogService.upsertStoreProduct(
+      storeAId,
+      userAId,
+      {
+        id: `gp_${gpId}`,
+        nameAr: `منتج كتالوج للتعديل ${runId}`,
+        category: "مشروبات",
+        unit: "piece",
+        sellPricePiasters: 1800,
+        buyCostPiasters: 1400,
+        globalProductId: gpId,
+        variants: [
+          {
+            id: gvId, // GlobalVariant id, NOT storeVariant id!
+            packQty: 12,
+            sellPricePiasters: 1800,
+            costPricePiasters: 1400,
+            globalVariantId: gvId,
+          },
+        ],
+      },
+    );
+
+    expect(upsertRes.storeProductId).toBeDefined();
+    expect(upsertRes.variants).toHaveLength(1);
+    expect(upsertRes.variants[0]?.sellPricePiasters).toBe(BigInt(1800));
+    expect(upsertRes.variants[0]?.buyPricePiasters).toBe(BigInt(1400));
+    expect(upsertRes.variants[0]?.globalVariantId).toBe(gvId);
+
+    // 3. Now update it again with the newly created store variant ID
+    const createdStoreVariantId = upsertRes.variants[0]!.id;
+    const updateRes = await catalogService.upsertStoreProduct(
+      storeAId,
+      userAId,
+      {
+        id: upsertRes.storeProductId,
+        nameAr: `منتج كتالوج للتعديل ${runId}`,
+        category: "مشروبات",
+        unit: "piece",
+        sellPricePiasters: 2000,
+        buyCostPiasters: 1500,
+        globalProductId: gpId,
+        variants: [
+          {
+            id: createdStoreVariantId,
+            packQty: 12,
+            sellPricePiasters: 2000,
+            costPricePiasters: 1500,
+            globalVariantId: gvId,
+          },
+        ],
+      },
+    );
+
+    expect(updateRes.variants[0]?.sellPricePiasters).toBe(BigInt(2000));
+    expect(updateRes.variants[0]?.buyPricePiasters).toBe(BigInt(1500));
+
+    // Cleanup
+    await migratorPrisma.storeProduct.deleteMany({
+      where: { id: upsertRes.storeProductId },
+    });
+    await migratorPrisma.globalProduct.delete({ where: { id: gpId } });
+  });
 });

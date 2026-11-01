@@ -299,4 +299,69 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const storeBInv = await inventory.getStoreInventory(storeBId, userBId);
     expect(storeBInv).toHaveLength(0);
   });
+
+  it("handles productionDate and expiryDate with validation and supports products with no expiry", async () => {
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Success: batch with productionDate and expiryDate where expiryDate >= productionDate
+    const batchRes = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: variantAId,
+      receivedQuantityBase: 12,
+      costPriceMinor: 1000,
+      productionDate: "2026-11-01",
+      expiryDate: "2027-05-01",
+      batchCode: "BATCH-EXP-01",
+    });
+
+    expect(batchRes.batchId).toBeDefined();
+
+    const [batchDb] = await migratorClient<
+      Array<{
+        production_date: string | null;
+        expiry_date: string | null;
+        batch_code: string;
+      }>
+    >`
+      SELECT production_date::text, expiry_date::text, batch_code
+      FROM store_stock_batches
+      WHERE id = ${batchRes.batchId}::uuid
+    `;
+
+    expect(batchDb?.production_date).toBe("2026-11-01");
+    expect(batchDb?.expiry_date).toBe("2027-05-01");
+    expect(batchDb?.batch_code).toBe("BATCH-EXP-01");
+
+    // 2. Failure: batch where expiryDate < productionDate
+    await expect(
+      inventory.addStockBatch(storeAId, userAId, {
+        storeVariantId: variantAId,
+        receivedQuantityBase: 6,
+        costPriceMinor: 1000,
+        productionDate: "2026-11-01",
+        expiryDate: "2026-10-01", // before production date!
+      }),
+    ).rejects.toThrow("تاريخ الانتهاء يجب ألا يكون قبل تاريخ الإنتاج");
+
+    // 3. Success: product with no expiry (e.g. detergents / tissues)
+    const noExpBatch = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: variantAId,
+      receivedQuantityBase: 24,
+      costPriceMinor: 800,
+      productionDate: null,
+      expiryDate: null,
+      batchCode: "NO-EXP-01",
+    });
+
+    expect(noExpBatch.batchId).toBeDefined();
+
+    const [noExpDb] = await migratorClient<
+      Array<{ expiry_date: string | null }>
+    >`
+      SELECT expiry_date::text
+      FROM store_stock_batches
+      WHERE id = ${noExpBatch.batchId}::uuid
+    `;
+
+    expect(noExpDb?.expiry_date).toBeNull();
+  });
 });

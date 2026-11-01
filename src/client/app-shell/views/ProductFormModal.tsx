@@ -630,6 +630,18 @@ export function ProductFormModal({
                     : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
                 </div>
               )}
+              {errors.price && (
+                <div
+                  style={{
+                    color: "var(--red, #cf3c3c)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginTop: 6,
+                  }}
+                >
+                  {errors.price}
+                </div>
+              )}
             </div>
           ) : (
             <>
@@ -741,6 +753,18 @@ export function ProductFormModal({
                     </div>
                   </div>
                 </div>
+                {errors.price && (
+                  <div
+                    style={{
+                      color: "var(--red, #cf3c3c)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      marginTop: 6,
+                    }}
+                  >
+                    {errors.price}
+                  </div>
+                )}
               </div>
             </>
           )}

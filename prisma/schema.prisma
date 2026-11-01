@@ -949,6 +949,7 @@ model StoreStockBatch {
   remainingQuantityBase BigInt    @map("remaining_quantity_base")
   costPriceMinor        BigInt    @map("cost_price_minor")
   costTotalMinor        BigInt?   @map("cost_total_minor")
+  productionDate        DateTime? @map("production_date") @db.Date
   expiryDate            DateTime? @map("expiry_date") @db.Date
   supplierId            String?   @map("supplier_id") @db.Uuid
   receivedAt            DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
