@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const productVariantInputSchema = z.object({
-  id: z.string().uuid().optional(),
+  id: z.string().trim().optional(),
   flavor: z.string().trim().nullable().optional(),
   sizeValue: z.number().positive().nullable().optional(),
   sizeUnit: z.enum(["g", "kg", "ml", "l", "piece"]).nullable().optional(),
@@ -16,7 +16,7 @@ export const productVariantInputSchema = z.object({
 export type ProductVariantInput = z.infer<typeof productVariantInputSchema>;
 
 export const upsertProductInputSchema = z.object({
-  id: z.string().uuid().optional(),
+  id: z.string().trim().optional(),
   opId: z.string().uuid().optional(),
   nameAr: z.string().trim().min(2, "اسم المنتج مطلوب (حرفين على الأقل)"),
   category: z.string().trim().min(2, "التصنيف مطلوب"),

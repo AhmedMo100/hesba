@@ -17,34 +17,28 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain("إضافة منتج");
   });
 
-  it("renders segmented tabs for Store Products and Egyptian Catalog", () => {
-    const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("منتجات المحل");
-    expect(html).toContain("الكتالوج المصري");
-  });
-
-  it("renders summary statistics counters bar with total, low stock, and out of stock", () => {
-    const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("إجمالي الأصناف");
-    expect(html).toContain("قرب يخلص");
-    expect(html).toContain("خلصان");
-  });
-
-  it("renders search box with Arabic placeholder", () => {
+  it("renders search box with Arabic placeholder and microphone button", () => {
     const html = renderToStaticMarkup(<ProductsView />);
     expect(html).toContain("دوّر على منتج… اكتب أو اتكلم");
+    expect(html).toContain("بحث بالصوت");
   });
 
-  it("renders filter chips for stock status (all, low stock, out of stock)", () => {
+  it("renders filter chips for all products", () => {
     const html = renderToStaticMarkup(<ProductsView />);
     expect(html).toContain("الكل (0)");
-    expect(html).toContain("قرب يخلص (0)");
-    expect(html).toContain("خلصان (0)");
+  });
+
+  it("strictly omits stock balance, stock quantities, and stock badges from products view", () => {
+    const html = renderToStaticMarkup(<ProductsView />);
+    expect(html).not.toContain("متاح ");
+    expect(html).not.toContain("المخزون الحالي");
+    expect(html).not.toContain("قرب يخلص");
+    expect(html).not.toContain("خلصان");
   });
 });
 
 describe("ProductFormModal Component", () => {
-  it("renders creation modal with name, unit selection, and sell price inputs", () => {
+  it("renders creation modal with name, packaging selection, and piece pricing matching demo", () => {
     const html = renderToStaticMarkup(
       <ProductFormModal onClose={() => {}} onSaved={() => {}} />,
     );
@@ -53,12 +47,43 @@ describe("ProductFormModal Component", () => {
     expect(html).toContain("بيتباع إزاي؟");
     expect(html).toContain("بالقطعة / الكرتونة");
     expect(html).toContain("بالوزن (كيلو)");
-    expect(html).toContain("بيع القطعة (ج.م)");
     expect(html).toContain("بيتباع كرتونة كمان");
-    expect(html).toContain("إضافة للمحل");
+    expect(html).toContain("سعر القطعة");
+    expect(html).toContain("إضافة");
+    expect(html).toContain("إلغاء");
   });
 
-  it("renders edit modal with existing product data, read-only stock notice, and delete button", () => {
+  it("renders carton fields and pricing when packaged product is passed", () => {
+    const samplePackagedProduct = {
+      id: "prod-pkg",
+      name_ar: "Pepsi 1L",
+      category: "مشروبات",
+      unit: "piece",
+      sell_price_piasters: 1500,
+      buy_cost_piasters: 1350,
+      variants: [
+        {
+          id: "var-1",
+          pack_qty: 12,
+          sell_price_piasters: 1500,
+          buy_cost_piasters: 1350,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ProductFormModal
+        product={samplePackagedProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(html).toContain("عدد القطع في الكرتونة");
+    expect(html).toContain("سعر الكرتونة");
+    expect(html).toContain("سعر القطعة");
+  });
+
+  it("renders edit modal with existing product data and delete button, with NO stock inputs", () => {
     const sampleProduct = {
       id: "prod-1",
       name_ar: "بيبسي 330 مل",
@@ -66,7 +91,6 @@ describe("ProductFormModal Component", () => {
       unit: "piece",
       sell_price_piasters: 1000,
       buy_cost_piasters: 800,
-      stock_quantity: 24,
       is_custom: true,
       variants: [
         {
@@ -74,7 +98,6 @@ describe("ProductFormModal Component", () => {
           pack_qty: 1,
           sell_price_piasters: 1000,
           buy_cost_piasters: 800,
-          stock_quantity: 24,
         },
       ],
     };
@@ -88,9 +111,8 @@ describe("ProductFormModal Component", () => {
     );
     expect(html).toContain("تعديل المنتج");
     expect(html).toContain("بيبسي 330 مل");
-    expect(html).toContain("المخزون الحالي:");
-    expect(html).toContain("24 قطعة");
     expect(html).toContain("حذف");
-    expect(html).toContain("حفظ التعديلات");
+    expect(html).toContain("حفظ");
+    expect(html).not.toContain("المخزون الحالي:");
   });
 });

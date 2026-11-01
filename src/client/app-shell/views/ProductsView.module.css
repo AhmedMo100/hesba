@@ -45,12 +45,8 @@
   align-items: center;
 }
 
-.segWrap {
-  width: 100%;
-}
-
 .offlineBanner {
-  background: var(--sf2, #fbf7ef);
+  background: var(--sf2);
   border: 1px solid var(--line);
   padding: 8px 12px;
   border-radius: 12px;
@@ -61,49 +57,6 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-}
-
-/* Summary statistics counters bar */
-.sumBar {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  padding-bottom: 2px;
-}
-
-.sumCard {
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 14px;
-  padding: 8px 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 95px;
-  flex: 1;
-  box-shadow: var(--sh);
-}
-
-.sumCard small {
-  font-size: 11px;
-  color: var(--ink2);
-  font-weight: 600;
-}
-
-.sumCard b {
-  font-size: 18px;
-  font-weight: 800;
-  color: var(--ink);
-}
-
-.sumCard.low b {
-  color: var(--yelLine, #d9822b);
-}
-
-.sumCard.out b {
-  color: var(--red, #cf3c3c);
 }
 
 /* Chips filter row */
@@ -139,10 +92,22 @@
   justify-content: center;
 }
 
+/* Fixed Dark/Light contrast: text is always inverted against background */
 .chip.active {
   background: var(--ink);
-  color: #fff;
+  color: var(--bg);
   border-color: var(--ink);
+}
+
+.chip.hiddenChip {
+  color: var(--ink2);
+  border-style: dashed;
+}
+
+.chip.hiddenChip.active {
+  background: var(--ink2);
+  color: var(--bg);
+  border-style: solid;
 }
 
 /* Responsive cards grid */
@@ -169,6 +134,7 @@
 
 /* Demo product card */
 .pcard {
+  position: relative;
   background: var(--sf);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -192,44 +158,16 @@
   }
 }
 
+.pcard.cardHidden {
+  opacity: 0.7;
+  border-style: dashed;
+}
+
 .pch {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   gap: 4px;
-}
-
-.cardActions {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex-shrink: 0;
-}
-
-.iconBtn {
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  color: var(--ink2);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 36px;
-  min-height: 36px;
-  transition:
-    background 0.15s ease,
-    color 0.15s ease;
-}
-
-.iconBtn:hover {
-  background: var(--sf2, #fbf7ef);
-  color: var(--ink);
-}
-
-.deleteBtn:hover {
-  color: var(--red, #cf3c3c);
 }
 
 .pcn {
@@ -257,8 +195,8 @@
 .brandBadge {
   font-size: 11px;
   font-weight: 700;
-  color: var(--br, #c8651b);
-  background: color-mix(in srgb, var(--br, #c8651b) 12%, transparent);
+  color: var(--yelLine, #d9a92e);
+  background: color-mix(in srgb, var(--yel, #b8841a) 15%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
   display: inline-block;
@@ -266,39 +204,86 @@
   margin-bottom: 2px;
 }
 
-.badgeAdded {
-  font-size: 11px;
+.customBadge {
+  font-size: 10.5px;
   font-weight: 700;
-  color: var(--ok, #108e5c);
-  background: color-mix(in srgb, var(--ok, #108e5c) 12%, transparent);
-  padding: 4px 8px;
+  color: var(--br);
+  background: var(--soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-block;
+  align-self: flex-start;
+  margin-bottom: 2px;
+}
+
+/* 3-dots menu button */
+.menuBtn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
   border-radius: 6px;
+  color: var(--ink2);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-top: auto;
+  justify-content: center;
+  min-width: 28px;
+  min-height: 28px;
+  font-size: 18px;
+  line-height: 1;
+  transition: background 0.15s;
 }
 
-.addBtnSmall {
-  background: var(--br, #c8651b);
-  color: #fff;
+.menuBtn:hover {
+  background: var(--sf2);
+  color: var(--ink);
+}
+
+/* Card action popover dropdown */
+.menuDropdown {
+  position: absolute;
+  top: 36px;
+  left: 10px;
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--sh2);
+  display: flex;
+  flex-direction: column;
+  z-index: 10;
+  min-width: 140px;
+  overflow: hidden;
+  animation: dropIn 0.15s ease;
+}
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.menuItem {
+  background: transparent;
   border: none;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font-size: 12px;
+  padding: 10px 12px;
+  text-align: right;
+  font-size: 13px;
   font-weight: 700;
+  color: var(--ink);
   cursor: pointer;
-  margin-top: auto;
-  min-height: 36px;
-  transition: opacity 0.15s;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 4px;
+  gap: 8px;
+  transition: background 0.15s;
 }
 
-.addBtnSmall:hover {
-  opacity: 0.9;
+.menuItem:hover {
+  background: var(--sf2);
+}
+
+.menuItem.danger {
+  color: var(--red);
 }
 
 .pcp {
@@ -312,7 +297,8 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
-  background: var(--sf2, #fbf7ef);
+  background: var(--sf2);
+  border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
   border-radius: 10px;
   padding: 6px 9px;
   box-sizing: border-box;
@@ -322,6 +308,7 @@
   font-size: 11.5px;
   font-weight: 700;
   color: var(--ink2);
+  text-align: center;
 }
 
 .prvals {
@@ -333,13 +320,14 @@
 .prv {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: center;
   line-height: 1.2;
 }
 
 .prv small {
-  font-size: 10px;
+  font-size: 10.5px;
   color: var(--ink2);
+  margin-bottom: 2px;
 }
 
 .prv b {
@@ -348,60 +336,225 @@
 }
 
 .prvSell b {
-  color: var(--br, #c8651b);
+  color: var(--ok);
+  font-weight: 800;
 }
 
-/* Stock status indicator */
-.pcs {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  font-size: 12px;
-  color: var(--ink2);
+/* Profit indicator line on product card */
+.profitLine {
+  font-size: 11px;
   font-weight: 700;
-  margin-top: auto;
-  padding-top: 2px;
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  padding: 4px 8px;
+  border-radius: 6px;
+  text-align: center;
+  margin-top: 2px;
 }
 
-.pcs i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--ok, #108e5c);
-  flex: none;
-  display: inline-block;
-}
-
-.pcs.low i {
-  background: var(--yelLine, #d9822b);
-}
-
-.pcs.out i {
-  background: var(--red, #cf3c3c);
-}
-
-.pcs.out {
-  color: var(--red, #cf3c3c);
-}
-
-.catVariants {
-  font-size: 12px;
+.hiddenNotice {
+  font-size: 11px;
+  font-weight: 700;
   color: var(--ink2);
+  background: var(--sf2);
+  padding: 4px 8px;
+  border-radius: 6px;
   display: flex;
-  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.unhideBtn {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+
+/* Modal form controls */
+.modalDark {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inputWithBadge {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.inputWithBadge input {
+  width: 100%;
+  padding: 10px 12px;
+  padding-left: 48px;
+  border-radius: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  box-sizing: border-box;
+}
+
+.inputWithBadge input:focus {
+  border-color: var(--br);
+  outline: none;
+}
+
+.inputBadge {
+  position: absolute;
+  left: 10px;
+  background: var(--sf2);
+  color: var(--ink2);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  pointer-events: none;
+  border: 1px solid var(--line);
+}
+
+.priceCardGroup {
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.priceCardTitle {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.priceInputsGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.priceInputCol {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
 }
 
-.variantTag {
-  background: var(--sf2, #fbf7ef);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 11px;
+.priceInputLabel {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.cartonToggleCard {
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+
+.cartonToggleLabel {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.customCheckbox {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 2px solid var(--line);
+  background: var(--sf);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--brInk);
+}
+
+.customCheckbox.checked {
+  background: var(--ok);
+  border-color: var(--ok);
+  color: var(--brInk);
+}
+
+/* Modal action footer */
+.modalFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.modalFooterLeft {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.modalFooterBtnSave {
+  background: var(--br);
+  color: var(--brInk);
+  border: none;
+  border-radius: 12px;
+  padding: 10px 22px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: opacity 0.15s;
+}
+
+.modalFooterBtnSave:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.modalFooterBtnCancel {
+  background: var(--sf2);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 18px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modalFooterBtnDelete {
+  background: var(--redBg);
+  color: var(--red);
+  border: 1px solid color-mix(in srgb, var(--red) 30%, transparent);
+  border-radius: 12px;
+  padding: 10px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* Catalog suggestions in modal */
 .catalogMatches {
-  background: var(--sf2, #fbf7ef);
+  background: var(--sf2);
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px;
@@ -430,7 +583,7 @@
 }
 
 .matchCard:hover {
-  background: color-mix(in srgb, var(--br, #c8651b) 8%, var(--sf));
+  background: var(--sf2);
 }
 
 .matchInfo {

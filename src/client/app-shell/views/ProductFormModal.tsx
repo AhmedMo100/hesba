@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { Modal, Button, Field, Seg } from "../../shared/ui";
+import React, { useState, useEffect, useMemo } from "react";
+import { Modal, Field, Seg } from "../../shared/ui";
 import { HesbaDatabase } from "../../shared/db";
 import {
   searchOfflineCatalog,
@@ -18,7 +18,6 @@ export interface ProductFormModalProps {
     unit: string;
     sell_price_piasters: number;
     buy_cost_piasters?: number;
-    stock_quantity?: number;
     is_custom?: boolean;
     global_product_id?: string | null;
     variants: Array<{
@@ -29,7 +28,6 @@ export interface ProductFormModalProps {
       pack_qty?: number;
       sell_price_piasters: number;
       buy_cost_piasters?: number;
-      stock_quantity?: number;
     }>;
   } | null;
   initialCatalogProduct?: CatalogSearchResult | null;
@@ -45,7 +43,6 @@ export function ProductFormModal({
   onSaved,
   onDeleted,
 }: ProductFormModalProps) {
-  const isEditing = Boolean(product);
   const firstVariant = product?.variants?.[0];
 
   const [name, setName] = useState(
@@ -59,7 +56,7 @@ export function ProductFormModal({
     product?.unit === "weight" || product?.unit === "kg" ? "weight" : "unit",
   );
 
-  // Weight pricing
+  // Weight pricing (in pounds for user display/entry)
   const [wBuy, setWBuy] = useState(
     product && (product.unit === "weight" || product.unit === "kg")
       ? (product.buy_cost_piasters
@@ -109,9 +106,6 @@ export function ProductFormModal({
       : "",
   );
 
-  // Initial stock for new product only
-  const [initialStock, setInitialStock] = useState("");
-
   const [category, setCategory] = useState(
     product
       ? product.category
@@ -149,7 +143,7 @@ export function ProductFormModal({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Live offline search against IndexedDB when name changes
+  // Live offline search against IndexedDB when name changes (new product mode)
   useEffect(() => {
     if (product || selectedGlobalProduct) return;
     const trimmed = name.trim();
@@ -259,21 +253,21 @@ export function ProductFormModal({
     setSelectedVariantId(null);
   };
 
-  // Profit calculation for helpful feedback pill
-  const profitHint = React.useMemo(() => {
+  // Expected gross profit calculation
+  const profitHint = useMemo(() => {
     if (kind === "weight") {
       const sell = parseFloat(wSell);
       const buy = parseFloat(wBuy);
       if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
         const diffPiasters = Math.round((sell - buy) * 100);
-        return `ربحك في الكيلو ${formatMoney(diffPiasters)}`;
+        return `مجمل الربح المتوقع في الكيلو: ${formatMoney(diffPiasters)}`;
       }
     } else {
       const sell = parseFloat(pcSell);
       const buy = parseFloat(pcBuy);
       if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
         const diffPiasters = Math.round((sell - buy) * 100);
-        return `ربحك في القطعة ${formatMoney(diffPiasters)}`;
+        return `مجمل الربح المتوقع في القطعة: ${formatMoney(diffPiasters)}`;
       }
     }
     return "";
@@ -321,19 +315,9 @@ export function ProductFormModal({
     try {
       const sellPricePiasters = Math.round(sellPriceNum * 100);
       const buyCostPiasters = buyCostNum > 0 ? Math.round(buyCostNum * 100) : 0;
-      const isCustom = !selectedGlobalProduct;
+      const isCustom = product ? product.is_custom : !selectedGlobalProduct;
       const packQtyNum =
         hasPack && kind === "unit" ? parseInt(packN, 10) || 1 : 1;
-
-      // Handle initial stock if brand new product
-      let initialQtyNum: number | null = null;
-      if (!isEditing && initialStock.trim()) {
-        const parsed = parseFloat(initialStock);
-        if (!isNaN(parsed) && parsed > 0) {
-          initialQtyNum =
-            kind === "weight" ? Math.round(parsed * 1000) : Math.round(parsed);
-        }
-      }
 
       const payload = {
         id: product?.id,
@@ -342,11 +326,10 @@ export function ProductFormModal({
         unit: kind === "weight" ? ("kg" as const) : ("piece" as const),
         sellPricePiasters,
         buyCostPiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
-        initialQuantity: initialQtyNum,
         isCustom,
         globalProductId: selectedGlobalProduct
           ? selectedGlobalProduct.product.id
-          : null,
+          : (product?.global_product_id ?? null),
         brandName: brandName.trim() || null,
         variants: [
           {
@@ -394,7 +377,7 @@ export function ProductFormModal({
       const res = await fetch(`/api/products?id=${product.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("فشل حذف المنتج");
+      if (!res.ok) throw new Error("فشل إخفاء/حذف المنتج");
       if (onDeleted) onDeleted(product.id);
       onClose();
     } catch (err) {
@@ -412,52 +395,41 @@ export function ProductFormModal({
         title={product ? "تعديل المنتج" : "إضافة منتج"}
         onClose={onClose}
         footer={
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              width: "100%",
-              alignItems: "center",
-            }}
-          >
+          <div className={styles.modalFooter}>
             {product ? (
-              <Button
-                kind="ghost"
-                icon="trash"
+              <button
+                type="button"
+                className={styles.modalFooterBtnDelete}
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={isSubmitting || isDeleting}
-                style={{ color: "var(--red, #cf3c3c)" }}
               >
-                حذف
-              </Button>
+                <span>🗑 حذف</span>
+              </button>
             ) : (
               <span />
             )}
-            <div style={{ display: "flex", gap: 8 }}>
-              <Button
-                kind="ghost"
+            <div className={styles.modalFooterLeft}>
+              <button
+                type="button"
+                className={styles.modalFooterBtnCancel}
                 onClick={onClose}
                 disabled={isSubmitting || isDeleting}
               >
                 إلغاء
-              </Button>
-              <Button
-                kind="primary"
+              </button>
+              <button
+                type="button"
+                className={styles.modalFooterBtnSave}
                 onClick={handleSubmit}
                 disabled={isSubmitting || isDeleting}
-                loading={isSubmitting}
-                icon="check"
               >
-                {product ? "حفظ التعديلات" : "إضافة للمحل"}
-              </Button>
+                <span>✓ {product ? "حفظ" : "إضافة"}</span>
+              </button>
             </div>
           </div>
         }
       >
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: "flex", flexDirection: "column", gap: 14 }}
-        >
+        <form onSubmit={handleSubmit} className={styles.modalDark}>
           {errors.submit && (
             <div
               style={{
@@ -470,12 +442,13 @@ export function ProductFormModal({
             </div>
           )}
 
+          {/* اسم المنتج */}
           <Field label="اسم المنتج" err={errors.name}>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="مثال: بيبسي 330 مل أو شاي العروسة"
+              placeholder="Pepsi 1L"
               autoFocus={!product}
               style={{
                 width: "100%",
@@ -509,9 +482,15 @@ export function ProductFormModal({
                       {m.product.category}
                     </span>
                   </div>
-                  <Button size="sm" kind="soft">
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "var(--ok, #108e5c)",
+                    }}
+                  >
                     اختيار
-                  </Button>
+                  </span>
                 </div>
               ))}
             </div>
@@ -533,17 +512,22 @@ export function ProductFormModal({
                 style={{
                   fontSize: 13,
                   fontWeight: 700,
-                  color: "var(--br, #c8651b)",
+                  color: "var(--ok, #108e5c)",
                 }}
               >
                 ✓ مربوط بالكتالوج: {selectedGlobalProduct.product.nameAr}
               </span>
-              <Button size="sm" kind="ghost" onClick={handleClearCatalogMatch}>
+              <button
+                type="button"
+                className={styles.unhideBtn}
+                onClick={handleClearCatalogMatch}
+              >
                 إلغاء الربط
-              </Button>
+              </button>
             </div>
           )}
 
+          {/* بيتباع إزاي؟ */}
           <Field label="بيتباع إزاي؟">
             <Seg
               value={kind}
@@ -556,228 +540,148 @@ export function ProductFormModal({
           </Field>
 
           {kind === "weight" ? (
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <Field label="سعر شراء الكيلو (ج.م)">
-                <input
-                  type="number"
-                  step="0.25"
-                  min="0"
-                  value={wBuy}
-                  onChange={(e) => setWBuy(e.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1.5px solid var(--line)",
-                    background: "var(--sf)",
-                  }}
-                />
-              </Field>
-              <Field label="سعر بيع الكيلو (ج.م)" err={errors.price}>
-                <input
-                  type="number"
-                  step="0.25"
-                  min="0"
-                  value={wSell}
-                  onChange={(e) => setWSell(e.target.value)}
-                  placeholder="0.00"
-                  style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1.5px solid var(--line)",
-                    background: "var(--sf)",
-                  }}
-                />
-              </Field>
+            <div className={styles.priceCardGroup}>
+              <div className={styles.priceCardTitle}>سعر الكيلو</div>
+              <div className={styles.priceInputsGrid}>
+                <div className={styles.priceInputCol}>
+                  <span className={styles.priceInputLabel}>شراء</span>
+                  <div className={styles.inputWithBadge}>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      value={wBuy}
+                      onChange={(e) => setWBuy(e.target.value)}
+                      placeholder="0"
+                    />
+                    <span className={styles.inputBadge}>ج.م</span>
+                  </div>
+                </div>
+                <div className={styles.priceInputCol}>
+                  <span className={styles.priceInputLabel}>بيع</span>
+                  <div className={styles.inputWithBadge}>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      value={wSell}
+                      onChange={(e) => setWSell(e.target.value)}
+                      placeholder="0"
+                    />
+                    <span className={styles.inputBadge}>ج.م</span>
+                  </div>
+                </div>
+              </div>
             </div>
           ) : (
             <>
-              {/* Checkbox for carton */}
-              <label
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  fontSize: 14,
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  userSelect: "none",
-                }}
+              {/* بيتباع كرتونة كمان toggle card */}
+              <div
+                className={styles.cartonToggleCard}
+                onClick={() => setHasPack(!hasPack)}
+                role="checkbox"
+                aria-checked={hasPack}
+                tabIndex={0}
               >
-                <input
-                  type="checkbox"
-                  checked={hasPack}
-                  onChange={(e) => setHasPack(e.target.checked)}
-                  style={{
-                    width: 18,
-                    height: 18,
-                    accentColor: "var(--br, #c8651b)",
-                  }}
-                />
-                <span>بيتباع كرتونة كمان</span>
-              </label>
+                <span className={styles.cartonToggleLabel}>
+                  بيتباع كرتونة كمان
+                </span>
+                <div
+                  className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
+                >
+                  {hasPack && "✓"}
+                </div>
+              </div>
 
               {hasPack && (
                 <>
+                  {/* عدد القطع في الكرتونة */}
                   <Field label="عدد القطع في الكرتونة" err={errors.packN}>
-                    <input
-                      type="number"
-                      min="2"
-                      value={packN}
-                      onChange={(e) => handlePackNChange(e.target.value)}
-                      placeholder="12"
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        borderRadius: 10,
-                        border: "1.5px solid var(--line)",
-                        background: "var(--sf)",
-                      }}
-                    />
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        min="2"
+                        value={packN}
+                        onChange={(e) => handlePackNChange(e.target.value)}
+                        placeholder="12"
+                      />
+                      <span className={styles.inputBadge}>قطعة</span>
+                    </div>
                   </Field>
 
-                  <div
-                    style={{
-                      background: "var(--sf2, #fbf7ef)",
-                      padding: "10px 12px",
-                      borderRadius: 12,
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 8,
-                    }}
-                  >
-                    <div
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 800,
-                        color: "var(--ink)",
-                      }}
-                    >
-                      سعر الكرتونة
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 10,
-                      }}
-                    >
-                      <Field label="شراء الكرتونة (ج.م)">
-                        <input
-                          type="number"
-                          step="0.25"
-                          min="0"
-                          value={pkBuy}
-                          onChange={(e) => handlePackBuyChange(e.target.value)}
-                          placeholder="0.00"
-                          style={{
-                            width: "100%",
-                            padding: "8px 10px",
-                            borderRadius: 8,
-                            border: "1.5px solid var(--line)",
-                            background: "var(--sf)",
-                          }}
-                        />
-                      </Field>
-                      <Field label="بيع الكرتونة (ج.م)">
-                        <input
-                          type="number"
-                          step="0.25"
-                          min="0"
-                          value={pkSell}
-                          onChange={(e) => handlePackSellChange(e.target.value)}
-                          placeholder="0.00"
-                          style={{
-                            width: "100%",
-                            padding: "8px 10px",
-                            borderRadius: 8,
-                            border: "1.5px solid var(--line)",
-                            background: "var(--sf)",
-                          }}
-                        />
-                      </Field>
+                  {/* سعر الكرتونة */}
+                  <div className={styles.priceCardGroup}>
+                    <div className={styles.priceCardTitle}>سعر الكرتونة</div>
+                    <div className={styles.priceInputsGrid}>
+                      <div className={styles.priceInputCol}>
+                        <span className={styles.priceInputLabel}>شراء</span>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            step="0.25"
+                            min="0"
+                            value={pkBuy}
+                            onChange={(e) =>
+                              handlePackBuyChange(e.target.value)
+                            }
+                            placeholder="0"
+                          />
+                          <span className={styles.inputBadge}>ج.م</span>
+                        </div>
+                      </div>
+                      <div className={styles.priceInputCol}>
+                        <span className={styles.priceInputLabel}>بيع</span>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            step="0.25"
+                            min="0"
+                            value={pkSell}
+                            onChange={(e) =>
+                              handlePackSellChange(e.target.value)
+                            }
+                            placeholder="0"
+                          />
+                          <span className={styles.inputBadge}>ج.م</span>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </>
               )}
 
-              <div
-                style={{
-                  background: "var(--sf2, #fbf7ef)",
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 8,
-                }}
-              >
-                <div
-                  style={{ fontSize: 13, fontWeight: 800, color: "var(--ink)" }}
-                >
-                  سعر القطعة{" "}
-                  {hasPack ? (
-                    <em
-                      style={{
-                        fontSize: 11,
-                        color: "var(--ink2)",
-                        fontWeight: 400,
-                      }}
-                    >
-                      (بتتحسب تلقائياً مع الكرتونة)
-                    </em>
-                  ) : (
-                    ""
-                  )}
-                </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 10,
-                  }}
-                >
-                  <Field label="شراء القطعة (ج.م)">
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      value={pcBuy}
-                      onChange={(e) => handlePieceBuyChange(e.target.value)}
-                      placeholder="0.00"
-                      style={{
-                        width: "100%",
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        border: "1.5px solid var(--line)",
-                        background: "var(--sf)",
-                      }}
-                    />
-                  </Field>
-                  <Field label="بيع القطعة (ج.م)" err={errors.price}>
-                    <input
-                      type="number"
-                      step="0.25"
-                      min="0"
-                      value={pcSell}
-                      onChange={(e) => handlePieceSellChange(e.target.value)}
-                      placeholder="0.00"
-                      style={{
-                        width: "100%",
-                        padding: "8px 10px",
-                        borderRadius: 8,
-                        border: "1.5px solid var(--line)",
-                        background: "var(--sf)",
-                      }}
-                    />
-                  </Field>
+              {/* سعر القطعة */}
+              <div className={styles.priceCardGroup}>
+                <div className={styles.priceCardTitle}>سعر القطعة</div>
+                <div className={styles.priceInputsGrid}>
+                  <div className={styles.priceInputCol}>
+                    <span className={styles.priceInputLabel}>شراء</span>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        value={pcBuy}
+                        onChange={(e) => handlePieceBuyChange(e.target.value)}
+                        placeholder="0"
+                      />
+                      <span className={styles.inputBadge}>ج.م</span>
+                    </div>
+                  </div>
+                  <div className={styles.priceInputCol}>
+                    <span className={styles.priceInputLabel}>بيع</span>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        step="0.25"
+                        min="0"
+                        value={pcSell}
+                        onChange={(e) => handlePieceSellChange(e.target.value)}
+                        placeholder="0"
+                      />
+                      <span className={styles.inputBadge}>ج.م</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             </>
@@ -785,78 +689,19 @@ export function ProductFormModal({
 
           {profitHint && (
             <div
-              style={{
-                background:
-                  "color-mix(in srgb, var(--ok, #108e5c) 12%, transparent)",
-                color: "var(--ok, #108e5c)",
-                padding: "8px 14px",
-                borderRadius: 10,
-                fontSize: 13,
-                fontWeight: 800,
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-              }}
+              className={styles.profitLine}
+              style={{ padding: "8px 12px", fontSize: 12 }}
             >
               <span>📈 {profitHint}</span>
-            </div>
-          )}
-
-          {/* Stock input for new product, or Read-only indicator for existing product */}
-          {!isEditing ? (
-            <Field
-              label={
-                kind === "weight"
-                  ? "الكمية المبدئية في المحل (كيلو - اختياري)"
-                  : "الكمية المبدئية في المحل (قطع - اختياري)"
-              }
-            >
-              <input
-                type="number"
-                step={kind === "weight" ? "0.1" : "1"}
-                min="0"
-                value={initialStock}
-                onChange={(e) => setInitialStock(e.target.value)}
-                placeholder="0"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                  background: "var(--sf)",
-                }}
-              />
-            </Field>
-          ) : (
-            <div
-              style={{
-                background: "var(--sf2, #fbf7ef)",
-                border: "1px solid var(--line)",
-                padding: "10px 12px",
-                borderRadius: 10,
-                fontSize: 13,
-                color: "var(--ink2)",
-              }}
-            >
-              <b style={{ color: "var(--ink)" }}>المخزون الحالي: </b>
-              {product?.stock_quantity != null
-                ? kind === "weight"
-                  ? `${(product.stock_quantity / 1000).toFixed(1)} كجم`
-                  : `${product.stock_quantity} قطعة`
-                : "0"}
-              <div style={{ marginTop: 4, fontSize: 11 }}>
-                * للحفاظ على دقة الحسابات، يتم تعديل المخزون من خلال شاشة
-                «المخزون».
-              </div>
             </div>
           )}
         </form>
       </Modal>
 
-      {/* Delete Confirmation Dialog */}
+      {/* Delete / Hide Confirmation Dialog */}
       {showDeleteConfirm && (
         <Modal
-          title="حذف المنتج"
+          title="حذف المنتج من المحل"
           onClose={() => setShowDeleteConfirm(false)}
           footer={
             <div
@@ -867,25 +712,29 @@ export function ProductFormModal({
                 width: "100%",
               }}
             >
-              <Button kind="ghost" onClick={() => setShowDeleteConfirm(false)}>
+              <button
+                type="button"
+                className={styles.modalFooterBtnCancel}
+                onClick={() => setShowDeleteConfirm(false)}
+              >
                 إلغاء
-              </Button>
-              <Button
-                kind="primary"
+              </button>
+              <button
+                type="button"
+                className={styles.modalFooterBtnDelete}
                 onClick={handleDelete}
-                loading={isDeleting}
-                style={{ background: "var(--red, #cf3c3c)" }}
+                disabled={isDeleting}
               >
                 تأكيد الحذف
-              </Button>
+              </button>
             </div>
           }
         >
           <div style={{ fontSize: 14, lineHeight: 1.5, color: "var(--ink)" }}>
-            هل أنت متأكد من حذف المنتج <b>«{product?.name_ar}»</b>؟
+            هل أنت متأكد من إخفاء المنتج <b>«{product?.name_ar}»</b> من محلك؟
             <div style={{ marginTop: 8, color: "var(--ink2)", fontSize: 12 }}>
-              سيتم أرشفة المنتج ومخزونه الحالي، مع الحفاظ الكامل على سجل
-              الفواتير والمبيعات السابقة.
+              لن يظهر المنتج في قائمة البيع اليومية، مع الحفاظ الكامل على
+              فواتيرك السابقة. يمكنك إعادة إظهاره في أي وقت من فلتر «المخفية».
             </div>
           </div>
         </Modal>
