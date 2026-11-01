@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Empty, SearchBox, Button, Icon } from "../../shared/ui";
-import { t, formatMoney } from "../../shared/i18n";
+import { t } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { ProductFormModal } from "./ProductFormModal";
 import { AddStockModal } from "./AddStockModal";
@@ -42,6 +42,14 @@ interface PriceBoxProps {
   sell: number;
 }
 
+function fmtMoney(piasters: number) {
+  if (!piasters || piasters <= 0) return "—";
+  const val = piasters / 100;
+  return (Math.round(val * 100) / 100).toLocaleString("en-US", {
+    maximumFractionDigits: 2,
+  });
+}
+
 function PriceBox({ label, buy, sell }: PriceBoxProps) {
   return (
     <div className={styles.pr}>
@@ -49,15 +57,51 @@ function PriceBox({ label, buy, sell }: PriceBoxProps) {
       <div className={styles.prvals}>
         <div className={styles.prv}>
           <small>{t("pages.products.buyPrice") || "شراء"}</small>
-          <b>{buy > 0 ? formatMoney(buy) : "—"}</b>
+          <b>{fmtMoney(buy)}</b>
         </div>
         <div className={`${styles.prv} ${styles.prvSell}`}>
           <small>{t("pages.products.sellPrice") || "بيع"}</small>
-          <b>{formatMoney(sell)}</b>
+          <b>{fmtMoney(sell)}</b>
         </div>
       </div>
     </div>
   );
+}
+
+const isWeightProduct = (p: StoreProductItem) =>
+  p.unit === "weight" || p.unit === "kg" || p.unit === "g";
+
+const packCount = (p: StoreProductItem) => {
+  if (isWeightProduct(p)) return 0;
+  const n = p.variants?.[0]?.pack_qty;
+  return n && n > 1 ? n : 0;
+};
+
+function weightText(gramsOrKg: number, unit?: string) {
+  const kg = unit === "g" ? gramsOrKg / 1000 : gramsOrKg;
+  if (kg <= 0) return "0 كجم";
+  if (kg < 1) return `${Math.round(kg * 1000)} جرام`;
+  return `${String(Math.round(kg * 100) / 100).replace(/\.0+$/, "")} كجم`;
+}
+
+function qtyText(p: StoreProductItem, q: number) {
+  if (isWeightProduct(p)) return weightText(q, p.unit);
+  const n = packCount(p);
+  const qty = Math.round(q);
+  if (!n) return `${qty} قطعة`;
+  const cartons = Math.floor(qty / n);
+  const remainder = qty - cartons * n;
+  const parts: string[] = [];
+  if (cartons > 0) parts.push(`${cartons} كرتونة`);
+  if (remainder > 0 || cartons === 0) parts.push(`${remainder} قطعة`);
+  return parts.join(" و ");
+}
+
+function stockLevel(p: StoreProductItem, q: number): "out" | "low" | "ok" {
+  if (q <= 0.0001) return "out";
+  if (isWeightProduct(p)) return q < 3000 ? "low" : "ok";
+  const n = packCount(p) || 1;
+  return q <= n ? "low" : "ok";
 }
 
 export function ProductsView() {
@@ -440,7 +484,7 @@ export function ProductsView() {
             const hasPack = Boolean(
               firstVariant?.pack_qty && firstVariant.pack_qty > 1,
             );
-            const isWeight = p.unit === "weight" || p.unit === "kg";
+            const isWeight = isWeightProduct(p);
             const packQty = firstVariant?.pack_qty ?? 1;
 
             // Calculations for prices
@@ -449,9 +493,8 @@ export function ProductsView() {
             const packSell = pieceSell * packQty;
             const packBuy = pieceBuy > 0 ? pieceBuy * packQty : 0;
 
-            const pieceProfit =
-              pieceSell > pieceBuy && pieceBuy > 0 ? pieceSell - pieceBuy : 0;
-
+            const stockQty = p.stock_quantity ?? 0;
+            const lv = stockLevel(p, stockQty);
             const isMenuOpen = menuOpenId === p.id;
 
             return (
@@ -459,23 +502,20 @@ export function ProductsView() {
                 className={`${styles.pcard} ${p.is_hidden ? styles.cardHidden : ""}`}
                 key={p.id}
                 data-testid={`product-card-${p.id}`}
+                onClick={() => setEditingProduct(p)}
               >
-                {/* Card Top: 3-dots Menu + Badges + Title */}
+                {/* Card Top: 3-dots Menu + Title matching Demo Screenshot */}
                 <div className={styles.pch}>
                   <div className={styles.pcn}>
-                    {p.is_custom ? (
-                      <span className={styles.customBadge}>
-                        أضافه هذا المحل
-                      </span>
-                    ) : p.brand_name ? (
-                      <span className={styles.brandBadge}>{p.brand_name}</span>
-                    ) : null}
                     <b>{p.name_ar}</b>
                     <small>{formatSubtitle(p)}</small>
                   </div>
 
                   {/* 3-dots menu button */}
-                  <div style={{ position: "relative" }}>
+                  <div
+                    style={{ position: "relative" }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <button
                       type="button"
                       className={styles.menuBtn}
@@ -486,7 +526,7 @@ export function ProductsView() {
                       }}
                       title="خيارات المنتج"
                     >
-                      ⋮
+                      <Icon n="more" s={20} />
                     </button>
 
                     {isMenuOpen && (
@@ -504,6 +544,17 @@ export function ProductsView() {
                         >
                           <Icon n="edit" s={14} />
                           <span>تعديل الأسعار</span>
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.menuItem}
+                          onClick={() => {
+                            setMenuOpenId(null);
+                            setStockModalProduct(p);
+                          }}
+                        >
+                          <Icon n="plus" s={14} />
+                          <span>إضافة إلى المخزون</span>
                         </button>
                         {p.is_hidden ? (
                           <button
@@ -535,21 +586,19 @@ export function ProductsView() {
                   </div>
                 </div>
 
-                {/* Price Boxes Section */}
-                <div
-                  className={styles.pcp}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => setEditingProduct(p)}
-                >
-                  {p.unit === "weight" || p.unit === "kg" ? (
-                    <PriceBox label="الكيلو" buy={pieceBuy} sell={pieceSell} />
-                  ) : p.unit === "g" ? (
-                    <PriceBox label="الجرام" buy={pieceBuy} sell={pieceSell} />
+                {/* Price Boxes Section matching Demo Screenshot */}
+                <div className={styles.pcp}>
+                  {isWeight ? (
+                    <PriceBox
+                      label={p.unit === "g" ? "الجرام" : "الكيلو"}
+                      buy={pieceBuy}
+                      sell={pieceSell}
+                    />
                   ) : (
                     <>
                       {hasPack && (
                         <PriceBox
-                          label={`الكرتونة (${packQty})`}
+                          label="الكرتونة"
                           buy={packBuy}
                           sell={packSell}
                         />
@@ -563,42 +612,13 @@ export function ProductsView() {
                   )}
                 </div>
 
-                {/* Expected Gross Margin Hint (NO STOCK INDICATORS!) */}
-                {pieceProfit > 0 && !p.is_hidden && (
-                  <div className={styles.profitLine}>
-                    مجمل ربح{" "}
-                    {p.unit === "g" ? "الجرام" : isWeight ? "الكيلو" : "القطعة"}
-                    : {formatMoney(pieceProfit)}
-                  </div>
-                )}
-
-                {/* زر إضافة إلى المخزون */}
+                {/* Stock Level line matching Demo media_1793494094570_2888b04c.jpg */}
                 {!p.is_hidden && (
-                  <div className={styles.stockActionRow}>
-                    {(p.stock_quantity ?? 0) > 0 ? (
-                      <button
-                        type="button"
-                        className={styles.stockStatusBtn}
-                        disabled
-                        title="هذا المنتج مسجل بالفعل في المخزون"
-                      >
-                        <Icon n="check" s={14} />
-                        <span>متوفر في المخزون</span>
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className={styles.addStockBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setStockModalProduct(p);
-                        }}
-                        title="إضافة كمية من هذا المنتج للمخزون"
-                      >
-                        <Icon n="plus" s={14} />
-                        <span>إضافة إلى المخزون</span>
-                      </button>
-                    )}
+                  <div className={`${styles.pcs} ${styles[lv]}`}>
+                    <i className={styles.dot} />
+                    <span>
+                      {lv === "out" ? "خلصان" : `متاح ${qtyText(p, stockQty)}`}
+                    </span>
                   </div>
                 )}
 
@@ -609,7 +629,10 @@ export function ProductsView() {
                     <button
                       type="button"
                       className={styles.unhideBtn}
-                      onClick={() => void handleUnhide(p.id)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleUnhide(p.id);
+                      }}
                     >
                       إظهار
                     </button>

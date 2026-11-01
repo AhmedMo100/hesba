@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useMemo } from "react";
-import { Modal, Field, Seg } from "../../shared/ui";
+import { Modal, Field, Seg, Icon } from "../../shared/ui";
 import { HesbaDatabase } from "../../shared/db";
 import {
   searchOfflineCatalog,
@@ -420,7 +420,8 @@ export function ProductFormModal({
                 onClick={() => setShowDeleteConfirm(true)}
                 disabled={isSubmitting || isDeleting}
               >
-                <span>🗑 حذف</span>
+                <Icon n="trash" s={16} />
+                <span>حذف</span>
               </button>
             ) : (
               <span />
@@ -440,7 +441,8 @@ export function ProductFormModal({
                 onClick={handleSubmit}
                 disabled={isSubmitting || isDeleting}
               >
-                <span>✓ {product ? "حفظ" : "إضافة"}</span>
+                <Icon n="check" s={16} />
+                <span>{product ? "حفظ" : "إضافة"}</span>
               </button>
             </div>
           </div>
@@ -551,7 +553,7 @@ export function ProductFormModal({
               onChange={(val) => setKind(val as "unit" | "weight")}
               options={[
                 ["unit", "بالقطعة / الكرتونة", "box"],
-                ["weight", "بالوزن", "scale"],
+                ["weight", "بالوزن (كيلو)", "scale"],
               ]}
             />
           </Field>
@@ -645,7 +647,7 @@ export function ProductFormModal({
                 <div
                   className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
                 >
-                  {hasPack && "✓"}
+                  {hasPack && <Icon n="check" s={14} />}
                 </div>
               </div>
 

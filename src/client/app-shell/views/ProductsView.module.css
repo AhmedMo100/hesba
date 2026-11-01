@@ -384,50 +384,83 @@
 
 /* Demo-matching PriceRow */
 .pr {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+  display: grid;
+  grid-template-columns: auto 1fr 1fr;
+  gap: 6px;
+  align-items: center;
   background: var(--sf2);
-  border: 1px solid color-mix(in srgb, var(--line) 40%, transparent);
-  border-radius: 10px;
-  padding: 6px 9px;
+  border-radius: 9px;
+  padding: 5px 8px;
+  font-size: 13px;
   box-sizing: border-box;
 }
 
 .prl {
-  font-size: 11.5px;
-  font-weight: 700;
-  color: var(--ink2);
-  text-align: center;
+  font-weight: 800;
+  font-size: 13px;
+  color: var(--ink);
 }
 
 .prvals {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  display: contents;
 }
 
 .prv {
   display: flex;
   flex-direction: column;
   align-items: center;
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 .prv small {
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--ink2);
-  margin-bottom: 2px;
 }
 
 .prv b {
-  font-size: 14.5px;
+  font-size: 14px;
   color: var(--ink);
+  font-weight: 700;
 }
 
 .prvSell b {
   color: var(--ok);
   font-weight: 800;
+}
+
+/* Demo-matching stock line (media_1793494094570_2888b04c.jpg) */
+.pcs {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ink2);
+  font-weight: 700;
+  margin-top: 2px;
+}
+
+.pcs .dot,
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+  display: inline-block;
+}
+
+.pcs.low .dot,
+.low .dot {
+  background: var(--yelLine, #d9a92e);
+}
+
+.pcs.out .dot,
+.out .dot {
+  background: var(--red, #cf3c3c);
+}
+
+.pcs.out {
+  color: var(--red, #cf3c3c);
 }
 
 /* Profit indicator line on product card */
