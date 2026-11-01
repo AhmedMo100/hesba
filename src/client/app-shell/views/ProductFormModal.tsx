@@ -592,7 +592,7 @@ export function ProductFormModal({
                   <div className={styles.inputWithBadge}>
                     <input
                       type="number"
-                      step={weightUnit === "g" ? "0.01" : "0.25"}
+                      step="any"
                       min="0"
                       value={wBuy}
                       onChange={(e) => setWBuy(e.target.value)}
@@ -606,7 +606,7 @@ export function ProductFormModal({
                   <div className={styles.inputWithBadge}>
                     <input
                       type="number"
-                      step={weightUnit === "g" ? "0.01" : "0.25"}
+                      step="any"
                       min="0"
                       value={wSell}
                       onChange={(e) => setWSell(e.target.value)}
@@ -688,7 +688,7 @@ export function ProductFormModal({
                         <div className={styles.inputWithBadge}>
                           <input
                             type="number"
-                            step="0.25"
+                            step="any"
                             min="0"
                             value={pkBuy}
                             onChange={(e) =>
@@ -704,7 +704,7 @@ export function ProductFormModal({
                         <div className={styles.inputWithBadge}>
                           <input
                             type="number"
-                            step="0.25"
+                            step="any"
                             min="0"
                             value={pkSell}
                             onChange={(e) =>
@@ -729,7 +729,7 @@ export function ProductFormModal({
                     <div className={styles.inputWithBadge}>
                       <input
                         type="number"
-                        step="0.25"
+                        step="any"
                         min="0"
                         value={pcBuy}
                         onChange={(e) => handlePieceBuyChange(e.target.value)}
@@ -743,7 +743,7 @@ export function ProductFormModal({
                     <div className={styles.inputWithBadge}>
                       <input
                         type="number"
-                        step="0.25"
+                        step="any"
                         min="0"
                         value={pcSell}
                         onChange={(e) => handlePieceSellChange(e.target.value)}

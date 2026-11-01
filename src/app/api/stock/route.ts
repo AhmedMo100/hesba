@@ -19,6 +19,7 @@ const addStockSchema = z.object({
   productionDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
   batchCode: z.string().trim().optional().nullable(),
+  supplierId: z.string().uuid().optional().nullable(),
   opId: z.string().uuid().optional(),
 });
 
@@ -101,6 +102,7 @@ export async function POST(req: Request) {
           productionDate: input.productionDate,
           expiryDate: input.expiryDate,
           batchCode: input.batchCode,
+          supplierId: input.supplierId,
           opId: input.opId,
         },
       );

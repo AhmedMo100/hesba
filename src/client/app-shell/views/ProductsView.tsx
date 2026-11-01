@@ -51,17 +51,19 @@ function fmtMoney(piasters: number) {
 }
 
 function PriceBox({ label, buy, sell }: PriceBoxProps) {
+  const buyFormatted = fmtMoney(buy);
+  const sellFormatted = fmtMoney(sell);
   return (
     <div className={styles.pr}>
       <span className={styles.prl}>{label}</span>
       <div className={styles.prvals}>
         <div className={styles.prv}>
           <small>{t("pages.products.buyPrice") || "شراء"}</small>
-          <b>{fmtMoney(buy)}</b>
+          <b title={buyFormatted}>{buyFormatted}</b>
         </div>
         <div className={`${styles.prv} ${styles.prvSell}`}>
           <small>{t("pages.products.sellPrice") || "بيع"}</small>
-          <b>{fmtMoney(sell)}</b>
+          <b title={sellFormatted}>{sellFormatted}</b>
         </div>
       </div>
     </div>

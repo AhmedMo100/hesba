@@ -279,16 +279,41 @@ export function AddStockModal({
       const costPiasters = Math.round(costNum * 100);
       let targetVariantId = selectedVariantId;
 
-      // If adding a global catalog product that has no storeVariant row yet, upsert storeProduct first
+      const isValidUuid = (val?: string | null): val is string =>
+        Boolean(
+          val &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+            val,
+          ),
+        );
+
+      // If adding a global catalog product that has no confirmed storeVariant row yet, upsert storeProduct first
       if (
         targetProduct &&
         (targetProduct.id.startsWith("gp_") ||
-          targetVariantId.startsWith("temp_"))
+          targetVariantId.startsWith("temp_") ||
+          !isValidUuid(targetVariantId))
       ) {
         const calculatedBuyCost =
           costPiasters > 0 && totalBaseQty > 0
             ? Math.round(costPiasters / totalBaseQty)
             : (targetProduct.buy_cost_piasters ?? 0);
+
+        const rawGlobalProductId =
+          targetProduct.global_product_id ||
+          (targetProduct.id.startsWith("gp_")
+            ? targetProduct.id.replace("gp_", "")
+            : targetProduct.id);
+        const validGlobalProductId = isValidUuid(rawGlobalProductId)
+          ? rawGlobalProductId
+          : null;
+
+        const rawGlobalVariantId =
+          targetProduct.variants?.[0]?.global_variant_id ||
+          targetProduct.variants?.[0]?.id;
+        const validGlobalVariantId = isValidUuid(rawGlobalVariantId)
+          ? rawGlobalVariantId
+          : null;
 
         const prodRes = await fetch("/api/products", {
           method: "POST",
@@ -297,11 +322,12 @@ export function AddStockModal({
             nameAr: targetProduct.name_ar,
             category: targetProduct.category,
             unit: entryMode === "weight" ? weightUnit : "piece",
-            sellPricePiasters: targetProduct.sell_price_piasters,
+            sellPricePiasters:
+              targetProduct.sell_price_piasters > 0
+                ? targetProduct.sell_price_piasters
+                : costPiasters,
             buyCostPiasters: calculatedBuyCost,
-            globalProductId:
-              targetProduct.global_product_id ||
-              targetProduct.id.replace("gp_", ""),
+            globalProductId: validGlobalProductId,
             variants: [
               {
                 flavor: targetProduct.variants?.[0]?.flavor ?? null,
@@ -310,11 +336,10 @@ export function AddStockModal({
                 packQty: packMultiplier,
                 sellPricePiasters:
                   targetProduct.variants?.[0]?.sell_price_piasters ??
-                  targetProduct.sell_price_piasters,
+                  targetProduct.sell_price_piasters ??
+                  costPiasters,
                 costPricePiasters: calculatedBuyCost,
-                globalVariantId:
-                  targetProduct.variants?.[0]?.global_variant_id ??
-                  targetProduct.variants?.[0]?.id,
+                globalVariantId: validGlobalVariantId,
               },
             ],
           }),
@@ -703,7 +728,7 @@ export function AddStockModal({
           >
             <input
               type="number"
-              step="0.5"
+              step="any"
               min="0"
               value={costEgp}
               onChange={(e) => setCostEgp(e.target.value)}
@@ -817,7 +842,7 @@ export function AddStockModal({
                   gap: 8,
                 }}
               >
-                <Field label="تاريخ الإنتاج / البداية">
+                <Field label="تاريخ الإنتاج / البداية (اختياري)">
                   <input
                     type="date"
                     value={prodDate}

@@ -364,4 +364,71 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
 
     expect(noExpDb?.expiry_date).toBeNull();
   });
+
+  it("resolves stock batch creation when given a GlobalVariant ID and throws AppError.notFound on unknown ID", async () => {
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Create a global product and variant
+    const gpId = crypto.randomUUID();
+    const gvId = crypto.randomUUID();
+    await migratorPrisma.globalProduct.create({
+      data: {
+        id: gpId,
+        nameAr: `شاي العروسة تيست ${runId}`,
+        nameNorm: `شاي العروسه تيست ${runId}`,
+        category: "مشروبات",
+        globalVariants: {
+          create: {
+            id: gvId,
+            nameNorm: `شاي العروسه تيست ${runId}`,
+            packQty: 1,
+            sizeValue: 250,
+            sizeUnit: "g",
+          },
+        },
+      },
+    });
+
+    // 2. Add stock using gvId directly for Store A
+    const res = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: gvId,
+      receivedQuantityBase: 10,
+      costPriceMinor: 2500,
+      expiryDate: "2027-12-31",
+    });
+
+    expect(res.batchId).toBeDefined();
+    expect(res.newBalance).toBe(10);
+
+    const [batchRow] = await migratorClient<
+      Array<{ store_product_id: string; store_variant_id: string }>
+    >`
+      SELECT store_product_id::text, store_variant_id::text
+      FROM store_stock_batches
+      WHERE id = ${res.batchId}::uuid
+    `;
+
+    const spRow = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeProduct.findUnique({
+          where: { id: batchRow!.store_product_id },
+        }),
+      appPrisma,
+    );
+
+    expect(spRow).toBeDefined();
+    expect(spRow?.globalProductId).toBe(gpId);
+
+    // 3. Unknown variant ID throws AppError with NOT_FOUND status
+    const fakeVariantId = crypto.randomUUID();
+    await expect(
+      inventory.addStockBatch(storeAId, userAId, {
+        storeVariantId: fakeVariantId,
+        receivedQuantityBase: 5,
+        costPriceMinor: 1000,
+      }),
+    ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
+  });
 });
