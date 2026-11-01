@@ -5,6 +5,7 @@ import { Empty, SearchBox, Button, Icon } from "../../shared/ui";
 import { t, formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { ProductFormModal } from "./ProductFormModal";
+import { AddStockModal } from "./AddStockModal";
 import styles from "./ProductsView.module.css";
 
 export interface StoreProductItem {
@@ -78,6 +79,8 @@ export function ProductsView() {
   const [editingProduct, setEditingProduct] = useState<StoreProductItem | null>(
     null,
   );
+  const [stockModalProduct, setStockModalProduct] =
+    useState<StoreProductItem | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     return typeof navigator !== "undefined" ? navigator.onLine : true;
@@ -252,6 +255,7 @@ export function ProductsView() {
 
   const formatSubtitle = (p: StoreProductItem) => {
     if (p.unit === "weight" || p.unit === "kg") return "بالوزن (كيلو)";
+    if (p.unit === "g") return "بالوزن (جرام)";
     const packQty = p.variants?.[0]?.pack_qty;
     if (packQty && packQty > 1) {
       return `كرتونة ${packQty} قطعة`;
@@ -268,6 +272,27 @@ export function ProductsView() {
           <p>{summary.total} منتج</p>
         </div>
         <div className={styles.pact}>
+          {/* زر عرض المنتجات المخفية */}
+          <button
+            type="button"
+            className={`${styles.hiddenToggleBtn} ${filterMode === "hidden" ? styles.active : ""}`}
+            onClick={() =>
+              setFilterMode((prev) => (prev === "hidden" ? "all" : "hidden"))
+            }
+            title={
+              filterMode === "hidden"
+                ? "العودة لكافة المنتجات"
+                : "عرض المنتجات المخفية"
+            }
+          >
+            <Icon n={filterMode === "hidden" ? "box" : "eyeoff"} s={16} />
+            <span>
+              {filterMode === "hidden"
+                ? "عرض الكل"
+                : `المخفية (${summary.hiddenCount})`}
+            </span>
+          </button>
+
           <Button
             kind="primary"
             icon="plus"
@@ -278,6 +303,23 @@ export function ProductsView() {
           </Button>
         </div>
       </div>
+
+      {/* Hidden view notification banner */}
+      {filterMode === "hidden" && (
+        <div className={styles.hiddenActiveBanner}>
+          <span>
+            أنت تشاهد حالياً المنتجات المخفية من المحل (
+            {filteredProducts.length} منتج)
+          </span>
+          <button
+            type="button"
+            onClick={() => setFilterMode("all")}
+            className={styles.unhideBtn}
+          >
+            عرض المنتجات المعروضة
+          </button>
+        </div>
+      )}
 
       {/* Offline banner if offline */}
       {!isOnline && (
@@ -321,17 +363,15 @@ export function ProductsView() {
           </button>
         )}
 
-        {summary.hiddenCount > 0 && (
-          <button
-            type="button"
-            className={`${styles.chip} ${styles.hiddenChip} ${filterMode === "hidden" ? styles.active : ""}`}
-            onClick={() => {
-              setFilterMode((prev) => (prev === "hidden" ? "all" : "hidden"));
-            }}
-          >
-            المخفية ({summary.hiddenCount})
-          </button>
-        )}
+        <button
+          type="button"
+          className={`${styles.chip} ${styles.hiddenChip} ${filterMode === "hidden" ? styles.active : ""}`}
+          onClick={() => {
+            setFilterMode((prev) => (prev === "hidden" ? "all" : "hidden"));
+          }}
+        >
+          المخفية ({summary.hiddenCount})
+        </button>
 
         {categories.map((cat) => (
           <button
@@ -501,8 +541,10 @@ export function ProductsView() {
                   style={{ cursor: "pointer" }}
                   onClick={() => setEditingProduct(p)}
                 >
-                  {isWeight ? (
+                  {p.unit === "weight" || p.unit === "kg" ? (
                     <PriceBox label="الكيلو" buy={pieceBuy} sell={pieceSell} />
+                  ) : p.unit === "g" ? (
+                    <PriceBox label="الجرام" buy={pieceBuy} sell={pieceSell} />
                   ) : (
                     <>
                       {hasPack && (
@@ -524,8 +566,39 @@ export function ProductsView() {
                 {/* Expected Gross Margin Hint (NO STOCK INDICATORS!) */}
                 {pieceProfit > 0 && !p.is_hidden && (
                   <div className={styles.profitLine}>
-                    مجمل ربح {isWeight ? "الكيلو" : "القطعة"}:{" "}
-                    {formatMoney(pieceProfit)}
+                    مجمل ربح{" "}
+                    {p.unit === "g" ? "الجرام" : isWeight ? "الكيلو" : "القطعة"}
+                    : {formatMoney(pieceProfit)}
+                  </div>
+                )}
+
+                {/* زر إضافة إلى المخزون */}
+                {!p.is_hidden && (
+                  <div className={styles.stockActionRow}>
+                    {(p.stock_quantity ?? 0) > 0 ? (
+                      <button
+                        type="button"
+                        className={styles.stockStatusBtn}
+                        disabled
+                        title="هذا المنتج مسجل بالفعل في المخزون"
+                      >
+                        <Icon n="check" s={14} />
+                        <span>متوفر في المخزون</span>
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.addStockBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setStockModalProduct(p);
+                        }}
+                        title="إضافة كمية من هذا المنتج للمخزون"
+                      >
+                        <Icon n="plus" s={14} />
+                        <span>إضافة إلى المخزون</span>
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -546,6 +619,19 @@ export function ProductsView() {
             );
           })}
         </div>
+      )}
+
+      {/* Add Stock Modal */}
+      {stockModalProduct && (
+        <AddStockModal
+          targetProduct={stockModalProduct}
+          options={[]}
+          onClose={() => setStockModalProduct(null)}
+          onAdded={() => {
+            setStockModalProduct(null);
+            void loadProducts();
+          }}
+        />
       )}
 
       {/* Add Product Modal */}

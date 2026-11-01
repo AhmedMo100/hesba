@@ -53,12 +53,22 @@ export function ProductFormModal({
         : "",
   );
   const [kind, setKind] = useState<"unit" | "weight">(
-    product?.unit === "weight" || product?.unit === "kg" ? "weight" : "unit",
+    product?.unit === "weight" ||
+      product?.unit === "kg" ||
+      product?.unit === "g"
+      ? "weight"
+      : "unit",
+  );
+  const [weightUnit, setWeightUnit] = useState<"kg" | "g">(
+    product?.unit === "g" ? "g" : "kg",
   );
 
   // Weight pricing (in pounds for user display/entry)
   const [wBuy, setWBuy] = useState(
-    product && (product.unit === "weight" || product.unit === "kg")
+    product &&
+      (product.unit === "weight" ||
+        product.unit === "kg" ||
+        product.unit === "g")
       ? (product.buy_cost_piasters
           ? product.buy_cost_piasters / 100
           : ""
@@ -66,7 +76,10 @@ export function ProductFormModal({
       : "",
   );
   const [wSell, setWSell] = useState(
-    product && (product.unit === "weight" || product.unit === "kg")
+    product &&
+      (product.unit === "weight" ||
+        product.unit === "kg" ||
+        product.unit === "g")
       ? (product.sell_price_piasters / 100).toString()
       : "",
   );
@@ -260,7 +273,8 @@ export function ProductFormModal({
       const buy = parseFloat(wBuy);
       if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
         const diffPiasters = Math.round((sell - buy) * 100);
-        return `مجمل الربح المتوقع في الكيلو: ${formatMoney(diffPiasters)}`;
+        const unitLabel = weightUnit === "g" ? "الجرام" : "الكيلو";
+        return `مجمل الربح المتوقع في ${unitLabel}: ${formatMoney(diffPiasters)}`;
       }
     } else {
       const sell = parseFloat(pcSell);
@@ -271,7 +285,7 @@ export function ProductFormModal({
       }
     }
     return "";
-  }, [kind, wSell, wBuy, pcSell, pcBuy]);
+  }, [kind, weightUnit, wSell, wBuy, pcSell, pcBuy]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -288,7 +302,8 @@ export function ProductFormModal({
       sellPriceNum = parseFloat(wSell);
       buyCostNum = parseFloat(wBuy) || 0;
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
-        newErrors.price = "اكتب سعر بيع الكيلو";
+        newErrors.price =
+          weightUnit === "g" ? "اكتب سعر بيع الجرام" : "اكتب سعر بيع الكيلو";
       }
     } else {
       sellPriceNum = parseFloat(pcSell);
@@ -323,7 +338,7 @@ export function ProductFormModal({
         id: product?.id,
         nameAr: name.trim(),
         category,
-        unit: kind === "weight" ? ("kg" as const) : ("piece" as const),
+        unit: kind === "weight" ? weightUnit : ("piece" as const),
         sellPricePiasters,
         buyCostPiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
         isCustom,
@@ -335,8 +350,10 @@ export function ProductFormModal({
           {
             id: firstVariant?.id,
             flavor: flavor.trim() || null,
-            sizeValue: sizeValue ? parseFloat(sizeValue) : null,
-            sizeUnit: sizeValue ? sizeUnit : null,
+            sizeValue:
+              kind === "weight" ? 1 : sizeValue ? parseFloat(sizeValue) : null,
+            sizeUnit:
+              kind === "weight" ? weightUnit : sizeValue ? sizeUnit : null,
             packQty: packQtyNum,
             sellPricePiasters,
             costPricePiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
@@ -534,21 +551,46 @@ export function ProductFormModal({
               onChange={(val) => setKind(val as "unit" | "weight")}
               options={[
                 ["unit", "بالقطعة / الكرتونة", "box"],
-                ["weight", "بالوزن (كيلو)", "scale"],
+                ["weight", "بالوزن", "scale"],
               ]}
             />
           </Field>
 
           {kind === "weight" ? (
             <div className={styles.priceCardGroup}>
-              <div className={styles.priceCardTitle}>سعر الكيلو</div>
+              {/* خيارات وحدة تسعير الوزن */}
+              <div style={{ marginBottom: 12 }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginBottom: 6,
+                    color: "var(--ink2)",
+                  }}
+                >
+                  التسعير بالوزن:
+                </span>
+                <Seg
+                  value={weightUnit}
+                  onChange={(val) => setWeightUnit(val as "kg" | "g")}
+                  options={[
+                    ["kg", "بالكيلو (كجم)"],
+                    ["g", "بالجرام (جم)"],
+                  ]}
+                />
+              </div>
+
+              <div className={styles.priceCardTitle}>
+                {weightUnit === "kg" ? "سعر الكيلو" : "سعر الجرام"}
+              </div>
               <div className={styles.priceInputsGrid}>
                 <div className={styles.priceInputCol}>
                   <span className={styles.priceInputLabel}>شراء</span>
                   <div className={styles.inputWithBadge}>
                     <input
                       type="number"
-                      step="0.25"
+                      step={weightUnit === "g" ? "0.01" : "0.25"}
                       min="0"
                       value={wBuy}
                       onChange={(e) => setWBuy(e.target.value)}
@@ -562,7 +604,7 @@ export function ProductFormModal({
                   <div className={styles.inputWithBadge}>
                     <input
                       type="number"
-                      step="0.25"
+                      step={weightUnit === "g" ? "0.01" : "0.25"}
                       min="0"
                       value={wSell}
                       onChange={(e) => setWSell(e.target.value)}
@@ -572,6 +614,20 @@ export function ProductFormModal({
                   </div>
                 </div>
               </div>
+              {Number(wSell) > 0 && (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: "var(--ink2)",
+                    marginTop: 8,
+                    fontWeight: 600,
+                  }}
+                >
+                  {weightUnit === "kg"
+                    ? `(100 جرام تعادل ${(Number(wSell) / 10).toFixed(2)} ج.م)`
+                    : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
+                </div>
+              )}
             </div>
           ) : (
             <>

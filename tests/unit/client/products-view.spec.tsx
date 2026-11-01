@@ -23,9 +23,10 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain("بحث بالصوت");
   });
 
-  it("renders filter chips for all products", () => {
+  it("renders filter chips for all products and toggle button for hidden products", () => {
     const html = renderToStaticMarkup(<ProductsView />);
     expect(html).toContain("الكل (0)");
+    expect(html).toContain("المخفية (0)");
   });
 
   it("strictly omits stock balance, stock quantities, and stock badges from products view", () => {
@@ -46,11 +47,42 @@ describe("ProductFormModal Component", () => {
     expect(html).toContain("اسم المنتج");
     expect(html).toContain("بيتباع إزاي؟");
     expect(html).toContain("بالقطعة / الكرتونة");
-    expect(html).toContain("بالوزن (كيلو)");
+    expect(html).toContain("بالوزن");
     expect(html).toContain("بيتباع كرتونة كمان");
     expect(html).toContain("سعر القطعة");
     expect(html).toContain("إضافة");
     expect(html).toContain("إلغاء");
+  });
+
+  it("renders weight pricing options (kilo and gram) when weighed product is passed", () => {
+    const sampleWeighedProduct = {
+      id: "prod-weight",
+      name_ar: "جبنة رومي قديمة",
+      category: "ألبان وجبن",
+      unit: "kg",
+      sell_price_piasters: 24000,
+      buy_cost_piasters: 20000,
+      variants: [
+        {
+          id: "var-w",
+          pack_qty: 1,
+          sell_price_piasters: 24000,
+          buy_cost_piasters: 20000,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ProductFormModal
+        product={sampleWeighedProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(html).toContain("التسعير بالوزن:");
+    expect(html).toContain("بالكيلو (كجم)");
+    expect(html).toContain("بالجرام (جم)");
+    expect(html).toContain("سعر الكيلو");
   });
 
   it("renders carton fields and pricing when packaged product is passed", () => {
