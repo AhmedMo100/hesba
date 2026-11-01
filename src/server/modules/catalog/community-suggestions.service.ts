@@ -34,6 +34,7 @@ export interface PromotionEvaluationResult {
   globalProductId?: string;
   globalVariantId?: string;
   reason: string;
+  discoveryNotificationsSent?: boolean;
   metrics: {
     ageDays: number;
     requiredAgeDays: number;
@@ -147,6 +148,10 @@ export class CommunitySuggestionsService {
     // 3. If there is an ambiguous potential match, flag for internal review (status='pending')
     const initialStatus = potentialMatchFound ? "pending" : "suggestable";
 
+    const eligibleStoresCount = await this.prisma.store.count({
+      where: { shareCustomProducts: true },
+    });
+
     const candidate = await db.catalogCandidate.create({
       data: {
         submittedByStoreId: input.submittingStoreId,
@@ -161,6 +166,7 @@ export class CommunitySuggestionsService {
         status: initialStatus,
         acceptsCount: 1,
         reportsCount: 0,
+        eligibleStoresSnapshot: Math.max(1, eligibleStoresCount),
         firstSubmittedAt: now,
         lastUpdatedAt: now,
         publishedAt: initialStatus === "suggestable" ? now : null,
@@ -218,22 +224,28 @@ export class CommunitySuggestionsService {
       if (!isUniqueViolation) {
         throw err;
       }
+
+      const existingCandidate = await this.prisma.catalogCandidate.findUnique({
+        where: { id: candidateId },
+        select: { acceptsCount: true },
+      });
+      return {
+        added: false,
+        totalUniqueAdoptions: existingCandidate?.acceptsCount ?? 1,
+      };
     }
 
-    // Recalculate distinct adopting stores count accurately
-    const totalCount = await db.candidateAdoption.count({
-      where: { candidateId },
-    });
-
-    await db.catalogCandidate.update({
+    // Increment acceptsCount reliably on the global catalog_candidates table
+    const updated = await this.prisma.catalogCandidate.update({
       where: { id: candidateId },
       data: {
-        acceptsCount: totalCount,
+        acceptsCount: { increment: 1 },
         lastUpdatedAt: now,
       },
+      select: { acceptsCount: true },
     });
 
-    return { added: true, totalUniqueAdoptions: totalCount };
+    return { added: true, totalUniqueAdoptions: updated.acceptsCount };
   }
 
   /**
@@ -308,31 +320,68 @@ export class CommunitySuggestionsService {
 
     const elapsedMs = now.getTime() - candidate.publishedAt.getTime();
     const ageDays = elapsedMs / ONE_DAY_MS;
-    const uniqueAdoptions = candidate.adoptions.length;
+    const uniqueAdoptions = candidate.acceptsCount;
+    const eligibleStores = Math.max(1, candidate.eligibleStoresSnapshot ?? 1);
+    const adoptionRatio = uniqueAdoptions / eligibleStores;
 
+    // Trigger Discovery Notifications if strictly > 50%
+    const discoveryNotificationsSent = adoptionRatio > 0.5;
+    if (discoveryNotificationsSent) {
+      const unnotifiedStores = await this.prisma.store.findMany({
+        where: {
+          shareCustomProducts: true,
+          catalogNotifications: { none: { candidateId: candidate.id } },
+          candidateAdoptions: { none: { candidateId: candidate.id } },
+        },
+        select: { id: true },
+      });
+
+      for (const st of unnotifiedStores) {
+        await this.prisma.catalogNotification.upsert({
+          where: {
+            storeId_candidateId: {
+              storeId: st.id,
+              candidateId: candidate.id,
+            },
+          },
+          update: {},
+          create: {
+            storeId: st.id,
+            candidateId: candidate.id,
+            title: "اكتشاف صنف جديد متداول",
+            body: `أكثر من 50% من المحلات أضافت المنتج «${candidate.nameAr}» لمخزونها.`,
+            createdAt: now,
+          },
+        });
+      }
+    }
+
+    // Strict inequality criteria:
+    // 1. Exactly 1 full week (>= 7 days)
+    // 2. Strictly > 70% of eligible stores (not >=)
     const meetsAgeRequirement = ageDays >= MIN_PROMOTION_AGE_DAYS;
-    const meetsStoreRequirement =
-      uniqueAdoptions >= MIN_ADOPTING_STORES_FOR_PROMOTION;
+    const meetsStoreRequirement = adoptionRatio > 0.7;
 
     // Both conditions must be met: Time alone is not enough; count alone before 7 days is not enough.
     if (!meetsAgeRequirement || !meetsStoreRequirement) {
       let unmetReason = "";
       if (!meetsAgeRequirement && !meetsStoreRequirement) {
-        unmetReason = `Both 7 full days (currently ${ageDays.toFixed(1)} days) and 10 stores (currently ${uniqueAdoptions} stores) are required.`;
+        unmetReason = `Both 7 full days (currently ${ageDays.toFixed(1)} days) and > 70% of stores (currently ${(adoptionRatio * 100).toFixed(1)}%) are required.`;
       } else if (!meetsAgeRequirement) {
         unmetReason = `Waiting period of 7 full days not completed (currently ${ageDays.toFixed(1)} days elapsed).`;
       } else {
-        unmetReason = `Minimum of 10 distinct shops required (currently ${uniqueAdoptions} shops adopted).`;
+        unmetReason = `More than 70% of eligible shops required (currently ${(adoptionRatio * 100).toFixed(1)}% adopted).`;
       }
 
       return {
         promoted: false,
         reason: unmetReason,
+        discoveryNotificationsSent,
         metrics: {
           ageDays: Number(ageDays.toFixed(2)),
           requiredAgeDays: MIN_PROMOTION_AGE_DAYS,
           uniqueAdoptions,
-          requiredAdoptions: MIN_ADOPTING_STORES_FOR_PROMOTION,
+          requiredAdoptions: Math.floor(eligibleStores * 0.7) + 1,
         },
       };
     }
@@ -453,12 +502,13 @@ export class CommunitySuggestionsService {
       globalProductId: globalProduct.id,
       globalVariantId: globalVariant.id,
       reason:
-        "Successfully promoted: 7 full days and 10+ distinct shops confirmed.",
+        "Successfully promoted: 7 full days and > 70% of eligible shops confirmed.",
+      discoveryNotificationsSent,
       metrics: {
         ageDays: Number(ageDays.toFixed(2)),
         requiredAgeDays: MIN_PROMOTION_AGE_DAYS,
         uniqueAdoptions,
-        requiredAdoptions: MIN_ADOPTING_STORES_FOR_PROMOTION,
+        requiredAdoptions: Math.floor(eligibleStores * 0.7) + 1,
       },
     };
   }
