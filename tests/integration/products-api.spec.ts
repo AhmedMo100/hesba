@@ -414,4 +414,163 @@ describe("Products API & Service (Phase 3.4 Integration)", () => {
     );
     expect(leakedItem).toBeUndefined();
   });
+
+  it("creates initial stock batch on creation and protects stock from direct edit overwrite", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    // 1. Create product with buy cost and initial stock
+    const payload = {
+      nameAr: `زيت ذرة كريستال ${runId}`,
+      category: "زيوت وسمن",
+      unit: "piece" as const,
+      sellPricePiasters: 8500, // 85.00 EGP
+      buyCostPiasters: 7200, // 72.00 EGP
+      initialQuantity: 15, // 15 pieces
+      isCustom: true,
+      variants: [
+        {
+          flavor: "ذرة",
+          sizeValue: 800,
+          sizeUnit: "ml" as const,
+          packQty: 1,
+          sellPricePiasters: 8500,
+          costPricePiasters: 7200,
+        },
+      ],
+    };
+
+    const req = new Request("http://localhost:3000/api/products", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `hesba_session=${sessionA.rawToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const res = await postProductsRoute(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const productId = json.data.id;
+    const variantId = json.data.variants[0].id;
+
+    // Verify initial batch was created
+    const batch = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.storeStockBatch.findFirst({
+          where: { storeProductId: productId, storeId: storeAId },
+        });
+      },
+      appPrisma,
+    );
+    expect(batch).not.toBeNull();
+    expect(Number(batch?.receivedQuantityBase)).toBe(15);
+    expect(Number(batch?.remainingQuantityBase)).toBe(15);
+    expect(Number(batch?.costPriceMinor)).toBe(7200);
+
+    // Verify stock movement was recorded
+    const movement = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.stockMovement.findFirst({
+          where: { storeProductId: productId, storeId: storeAId },
+        });
+      },
+      appPrisma,
+    );
+    expect(movement).not.toBeNull();
+    expect(movement?.type).toBe("initial_stock");
+    expect(Number(movement?.quantityBase)).toBe(15);
+
+    // Verify stock level is 15
+    const stockLevel = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId: storeAId,
+              storeVariantId: variantId,
+            },
+          },
+        });
+      },
+      appPrisma,
+    );
+    expect(stockLevel).not.toBeNull();
+    expect(Number(stockLevel?.quantityBase)).toBe(15);
+
+    // 2. Verify editing the product preserves stock quantity and does not overwrite inventory directly
+    const editPayload = {
+      id: productId,
+      nameAr: `زيت ذرة كريستال ممتاز ${runId}`,
+      category: "زيوت وسمن",
+      unit: "piece" as const,
+      sellPricePiasters: 9000,
+      buyCostPiasters: 7500,
+      initialQuantity: 999, // Should be ignored during edit to preserve inventory integrity!
+      variants: [
+        {
+          id: variantId,
+          flavor: "ذرة صافي",
+          sizeValue: 800,
+          sizeUnit: "ml" as const,
+          packQty: 1,
+          sellPricePiasters: 9000,
+        },
+      ],
+    };
+
+    const editReq = new Request("http://localhost:3000/api/products", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `hesba_session=${sessionA.rawToken}`,
+      },
+      body: JSON.stringify(editPayload),
+    });
+
+    const editRes = await postProductsRoute(editReq);
+    expect(editRes.status).toBe(200);
+
+    // Stock level must STILL be 15, NOT 999
+    const afterEditStock = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId: storeAId,
+              storeVariantId: variantId,
+            },
+          },
+        });
+      },
+      appPrisma,
+    );
+    expect(Number(afterEditStock?.quantityBase)).toBe(15);
+
+    // 3. Verify GET /api/products returns summary and stock level
+    const getReq = new Request("http://localhost:3000/api/products", {
+      headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+    });
+    const getRes = await getProductsRoute(getReq);
+    expect(getRes.status).toBe(200);
+    const getJson = await getRes.json();
+    expect(getJson.summary).toBeDefined();
+    expect(getJson.summary.total).toBeGreaterThanOrEqual(1);
+
+    const productInList = getJson.products.find(
+      (p: { id: string }) => p.id === productId,
+    );
+    expect(productInList).toBeDefined();
+    expect(productInList.stock_quantity).toBe(15);
+    expect(productInList.buy_cost_piasters).toBe(7200);
+    expect(productInList.sell_price_piasters).toBe(9000);
+  });
 });

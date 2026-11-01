@@ -22,29 +22,65 @@ export async function GET(req: Request) {
       context.user.id,
     );
 
-    // Format BigInt values for JSON response
-    const formatted = products.map((p) => ({
-      id: p.id,
-      name_ar: p.nameAr,
-      name_norm: p.nameNorm,
-      category: p.category,
-      unit: p.unit,
-      sell_price_piasters: Number(p.sellPricePiasters),
-      is_custom: p.isCustom,
-      global_product_id: p.globalProductId,
-      variants: p.storeVariants.map((v) => ({
-        id: v.id,
-        flavor: v.flavor,
-        size_value: v.sizeValue ? Number(v.sizeValue) : null,
-        size_unit: v.sizeUnit,
-        pack_qty: v.packQty,
-        sell_price_piasters: Number(v.sellPricePiasters),
-        global_variant_id: v.globalVariantId,
-        is_active: v.isActive,
-      })),
-    }));
+    // Format BigInt values and calculate stock levels for JSON response
+    const formatted = products.map((p) => {
+      let totalProductStock = 0;
+      let latestBuyCost = 0;
 
-    return NextResponse.json({ products: formatted });
+      const formattedVariants = p.storeVariants.map((v) => {
+        const variantStock = v.stockLevels.reduce(
+          (acc, sl) => acc + Number(sl.quantityBase),
+          0,
+        );
+        totalProductStock += variantStock;
+
+        const variantCost = v.storeStockBatches[0]?.costPriceMinor
+          ? Number(v.storeStockBatches[0].costPriceMinor)
+          : 0;
+        if (variantCost > 0 && latestBuyCost === 0) {
+          latestBuyCost = variantCost;
+        }
+
+        return {
+          id: v.id,
+          flavor: v.flavor,
+          size_value: v.sizeValue ? Number(v.sizeValue) : null,
+          size_unit: v.sizeUnit,
+          pack_qty: v.packQty,
+          sell_price_piasters: Number(v.sellPricePiasters),
+          buy_cost_piasters: variantCost,
+          stock_quantity: variantStock,
+          global_variant_id: v.globalVariantId,
+          is_active: v.isActive,
+        };
+      });
+
+      return {
+        id: p.id,
+        name_ar: p.nameAr,
+        name_norm: p.nameNorm,
+        category: p.category,
+        unit: p.unit,
+        sell_price_piasters: Number(p.sellPricePiasters),
+        buy_cost_piasters: latestBuyCost,
+        stock_quantity: totalProductStock,
+        brand_name: p.globalProduct?.brand?.nameAr || null,
+        is_custom: p.isCustom,
+        global_product_id: p.globalProductId,
+        variants: formattedVariants,
+      };
+    });
+
+    const summary = {
+      total: formatted.length,
+      lowStock: formatted.filter((p) => {
+        const threshold = p.unit === "kg" ? 2000 : 5;
+        return p.stock_quantity > 0 && p.stock_quantity <= threshold;
+      }).length,
+      outOfStock: formatted.filter((p) => p.stock_quantity <= 0).length,
+    };
+
+    return NextResponse.json({ products: formatted, summary });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }

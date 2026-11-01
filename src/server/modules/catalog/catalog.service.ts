@@ -204,8 +204,20 @@ export class CatalogService {
         return tx.storeProduct.findMany({
           where: { storeId, isActive: true },
           include: {
+            globalProduct: {
+              include: {
+                brand: true,
+              },
+            },
             storeVariants: {
               where: { isActive: true },
+              include: {
+                stockLevels: true,
+                storeStockBatches: {
+                  orderBy: { createdAt: "desc" },
+                  take: 1,
+                },
+              },
             },
           },
           orderBy: { createdAt: "desc" },
@@ -229,6 +241,9 @@ export class CatalogService {
       category: string;
       unit: "piece" | "kg" | "g" | "ml" | "l";
       sellPricePiasters: number;
+      buyCostPiasters?: number | null;
+      initialQuantity?: number | null;
+      barcode?: string | null;
       isCustom?: boolean;
       globalProductId?: string | null;
       brandName?: string | null;
@@ -239,6 +254,8 @@ export class CatalogService {
         sizeUnit?: string | null;
         packQty?: number;
         sellPricePiasters: number;
+        costPricePiasters?: number | null;
+        barcode?: string | null;
         globalVariantId?: string | null;
         isActive?: boolean;
       }>;
@@ -338,6 +355,68 @@ export class CatalogService {
               },
             });
             variantResults.push(createdVar);
+          }
+        }
+
+        // If newly created and initial stock quantity is provided, record initial batch & movement
+        if (
+          isNewProduct &&
+          input.initialQuantity &&
+          input.initialQuantity > 0
+        ) {
+          const primaryVariant = variantResults[0];
+          if (primaryVariant) {
+            const qtyBase = BigInt(Math.round(input.initialQuantity));
+            const costMinor = BigInt(input.buyCostPiasters ?? 0);
+
+            const batch = await tx.storeStockBatch.create({
+              data: {
+                storeId,
+                storeVariantId: primaryVariant.id,
+                storeProductId,
+                receivedQuantityBase: qtyBase,
+                remainingQuantityBase: qtyBase,
+                costPriceMinor: costMinor,
+                costTotalMinor: costMinor * qtyBase,
+                receivedAt: now,
+                paid: true,
+                createdAt: now,
+                updatedAt: now,
+              },
+            });
+
+            await tx.stockLevel.upsert({
+              where: {
+                storeId_storeVariantId: {
+                  storeId,
+                  storeVariantId: primaryVariant.id,
+                },
+              },
+              update: {
+                quantityBase: qtyBase,
+                updatedAt: now,
+              },
+              create: {
+                storeId,
+                storeVariantId: primaryVariant.id,
+                quantityBase: qtyBase,
+                updatedAt: now,
+              },
+            });
+
+            await tx.stockMovement.create({
+              data: {
+                storeId,
+                storeVariantId: primaryVariant.id,
+                storeProductId,
+                batchId: batch.id,
+                type: "initial_stock",
+                quantityBase: qtyBase,
+                costPriceMinor: costMinor,
+                balanceAfterBase: qtyBase,
+                createdAt: now,
+              },
+            });
           }
         }
 

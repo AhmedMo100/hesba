@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox, Button, Icon, Seg } from "../../shared/ui";
+import { Empty, SearchBox, Button, Icon, Seg, Modal } from "../../shared/ui";
 import { t, formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { db } from "../../shared/db";
@@ -21,6 +21,9 @@ export interface StoreProductItem {
   category: string;
   unit: string;
   sell_price_piasters: number;
+  buy_cost_piasters?: number;
+  stock_quantity?: number;
+  brand_name?: string | null;
   is_custom: boolean;
   global_product_id?: string | null;
   variants: Array<{
@@ -30,9 +33,35 @@ export interface StoreProductItem {
     size_unit?: string | null;
     pack_qty?: number;
     sell_price_piasters: number;
+    buy_cost_piasters?: number;
+    stock_quantity?: number;
     global_variant_id?: string | null;
     is_active?: boolean;
   }>;
+}
+
+interface PriceRowProps {
+  label: string;
+  buy: number;
+  sell: number;
+}
+
+function PriceRow({ label, buy, sell }: PriceRowProps) {
+  return (
+    <div className={styles.pr}>
+      <span className={styles.prl}>{label}</span>
+      <div className={styles.prvals}>
+        <span className={styles.prv}>
+          <small>{t("pages.products.buyPrice") || "شراء"}</small>
+          <b>{buy > 0 ? formatMoney(buy) : "—"}</b>
+        </span>
+        <span className={`${styles.prv} ${styles.prvSell}`}>
+          <small>{t("pages.products.sellPrice") || "بيع"}</small>
+          <b>{formatMoney(sell)}</b>
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export function ProductsView() {
@@ -40,6 +69,14 @@ export function ProductsView() {
   const [products, setProducts] = useState<StoreProductItem[]>([]);
   const [catalogItems, setCatalogItems] = useState<CatalogSearchResult[]>([]);
   const [catalogCategory, setCatalogCategory] = useState<string>("all");
+  const [storeCategory, setStoreCategory] = useState<string>("all");
+  const [stockFilter, setStockFilter] = useState<"all" | "low" | "out">("all");
+  const [summary, setSummary] = useState({
+    total: 0,
+    lowStock: 0,
+    outOfStock: 0,
+  });
+
   const [loading, setLoading] = useState(true);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,6 +85,9 @@ export function ProductsView() {
   const [selectedCatalogItem, setSelectedCatalogItem] =
     useState<CatalogSearchResult | null>(null);
   const [editingProduct, setEditingProduct] = useState<StoreProductItem | null>(
+    null,
+  );
+  const [detailsProduct, setDetailsProduct] = useState<StoreProductItem | null>(
     null,
   );
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -76,7 +116,22 @@ export function ProductsView() {
         throw new Error("فشل تحميل قائمة المنتجات");
       }
       const data = await res.json();
-      setProducts(data.products || []);
+      const loadedProducts: StoreProductItem[] = data.products || [];
+      setProducts(loadedProducts);
+      if (data.summary) {
+        setSummary(data.summary);
+      } else {
+        setSummary({
+          total: loadedProducts.length,
+          lowStock: loadedProducts.filter(
+            (p) =>
+              (p.stock_quantity ?? 0) > 0 &&
+              (p.stock_quantity ?? 0) <= (p.unit === "kg" ? 2000 : 5),
+          ).length,
+          outOfStock: loadedProducts.filter((p) => (p.stock_quantity ?? 0) <= 0)
+            .length,
+        });
+      }
     } catch (err: unknown) {
       console.error("Failed to load products from API:", err);
       setError("تعذر تحميل المنتجات، برجاء التحقق من الاتصال");
@@ -87,6 +142,7 @@ export function ProductsView() {
 
   useEffect(() => {
     let ignore = false;
+
     fetch("/api/products")
       .then((res) => {
         if (!res.ok) throw new Error("فشل تحميل قائمة المنتجات");
@@ -94,7 +150,23 @@ export function ProductsView() {
       })
       .then((data) => {
         if (!ignore) {
-          setProducts(data.products || []);
+          const loadedProducts: StoreProductItem[] = data.products || [];
+          setProducts(loadedProducts);
+          if (data.summary) {
+            setSummary(data.summary);
+          } else {
+            setSummary({
+              total: loadedProducts.length,
+              lowStock: loadedProducts.filter(
+                (p) =>
+                  (p.stock_quantity ?? 0) > 0 &&
+                  (p.stock_quantity ?? 0) <= (p.unit === "kg" ? 2000 : 5),
+              ).length,
+              outOfStock: loadedProducts.filter(
+                (p) => (p.stock_quantity ?? 0) <= 0,
+              ).length,
+            });
+          }
           setLoading(false);
         }
       })
@@ -177,7 +249,7 @@ export function ProductsView() {
     return () => {
       ignore = true;
     };
-  }, []);
+  }, [loadProducts]);
 
   const handleDelete = async (productId: string) => {
     if (!window.confirm("هل أنت متأكد من حذف هذا المنتج من المحل؟")) return;
@@ -188,6 +260,7 @@ export function ProductsView() {
       });
       if (!res.ok) throw new Error("فشل حذف المنتج");
       setProducts((prev) => prev.filter((p) => p.id !== productId));
+      setSummary((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
     } catch (err: unknown) {
       console.error("Delete failed:", err);
       alert("تعذر حذف المنتج، برجاء المحاولة لاحقاً");
@@ -196,17 +269,16 @@ export function ProductsView() {
     }
   };
 
-  const filteredStoreProducts = useMemo(() => {
-    const normQ = normalizeArabic(query.trim());
-    if (!normQ) return products;
-    return products.filter((p) => {
-      const normName = normalizeArabic(p.name_ar || "");
-      const normCat = normalizeArabic(p.category || "");
-      return normName.includes(normQ) || normCat.includes(normQ);
+  // Categories list for store products
+  const storeCategories = useMemo(() => {
+    const cats = new Set<string>();
+    products.forEach((p) => {
+      if (p.category) cats.add(p.category);
     });
-  }, [products, query]);
+    return Array.from(cats);
+  }, [products]);
 
-  // Catalog category list
+  // Categories list for catalog products
   const catalogCategories = useMemo(() => {
     const cats = new Set<string>();
     catalogItems.forEach((item) => {
@@ -215,6 +287,38 @@ export function ProductsView() {
     return Array.from(cats);
   }, [catalogItems]);
 
+  // Filtered store products
+  const filteredStoreProducts = useMemo(() => {
+    let list = products;
+    if (storeCategory !== "all") {
+      list = list.filter((p) => p.category === storeCategory);
+    }
+    if (stockFilter === "low") {
+      list = list.filter((p) => {
+        const qty = p.stock_quantity ?? 0;
+        const threshold = p.unit === "kg" ? 2000 : 5;
+        return qty > 0 && qty <= threshold;
+      });
+    } else if (stockFilter === "out") {
+      list = list.filter((p) => (p.stock_quantity ?? 0) <= 0);
+    }
+
+    const normQ = normalizeArabic(query.trim());
+    if (!normQ) return list;
+
+    return list.filter((p) => {
+      const normName = normalizeArabic(p.name_ar || "");
+      const normCat = normalizeArabic(p.category || "");
+      const normBrand = normalizeArabic(p.brand_name || "");
+      return (
+        normName.includes(normQ) ||
+        normCat.includes(normQ) ||
+        normBrand.includes(normQ)
+      );
+    });
+  }, [products, storeCategory, stockFilter, query]);
+
+  // Filtered catalog items
   const filteredCatalogItems = useMemo(() => {
     let items = catalogItems;
     if (catalogCategory !== "all") {
@@ -234,7 +338,7 @@ export function ProductsView() {
     });
   }, [catalogItems, catalogCategory, query]);
 
-  // Set of global product IDs already in store
+  // Map of global product IDs already in store
   const storeAdoptedMap = useMemo(() => {
     const map = new Map<string, StoreProductItem>();
     for (const p of products) {
@@ -246,7 +350,7 @@ export function ProductsView() {
   }, [products]);
 
   const formatUnitLabel = (p: StoreProductItem) => {
-    if (p.unit === "weight") return "بالوزن";
+    if (p.unit === "weight" || p.unit === "kg") return "بالوزن";
     const packQty = p.variants?.[0]?.pack_qty;
     if (packQty && packQty > 1) {
       return `كرتونة ${packQty} قطعة`;
@@ -254,16 +358,30 @@ export function ProductsView() {
     return "بالقطعة";
   };
 
+  const getStockStatus = (p: StoreProductItem) => {
+    const qty = p.stock_quantity ?? 0;
+    const threshold = p.unit === "kg" ? 2000 : 5;
+    if (qty <= 0) return { lv: "out", text: "خلصان" };
+    if (qty <= threshold) {
+      const label =
+        p.unit === "kg" ? `${(qty / 1000).toFixed(1)} كجم` : `${qty} قطعة`;
+      return { lv: "low", text: `قرب يخلص (${label})` };
+    }
+    const label =
+      p.unit === "kg" ? `${(qty / 1000).toFixed(1)} كجم` : `${qty} قطعة`;
+    return { lv: "ok", text: `متاح ${label}` };
+  };
+
   return (
     <div className={styles.view} data-testid="page-products">
       {/* Header */}
       <div className={styles.phead}>
         <div>
-          <h1>{t("pages.products.title")}</h1>
+          <h1>{t("pages.products.title") || "المنتجات"}</h1>
           <p>
             {tab === "store"
-              ? `${filteredStoreProducts.length} منتج مسجل بمحلك`
-              : `${filteredCatalogItems.length} صنف متاح بالكتالوج العام`}
+              ? `${summary.total} منتج مسجل بمحلك`
+              : `${catalogItems.length} صنف متاح بالكتالوج المصري`}
           </p>
         </div>
         <div className={styles.pact}>
@@ -276,7 +394,7 @@ export function ProductsView() {
             }}
             data-testid="add-product-btn"
           >
-            {t("pages.products.add")}
+            {t("pages.products.add") || "إضافة منتج"}
           </Button>
         </div>
       </div>
@@ -288,7 +406,7 @@ export function ProductsView() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Segmented Tabs: Store vs Egyptian Catalog */}
       <div className={styles.segWrap}>
         <Seg
           value={tab}
@@ -298,10 +416,28 @@ export function ProductsView() {
           }}
           options={[
             ["store", `منتجات المحل (${products.length})`],
-            ["catalog", `الكتالوج العام (${catalogItems.length})`],
+            ["catalog", `الكتالوج المصري (${catalogItems.length})`],
           ]}
         />
       </div>
+
+      {/* Summary counters bar for Store tab */}
+      {tab === "store" && (
+        <div className={styles.sumBar}>
+          <div className={styles.sumCard}>
+            <small>إجمالي الأصناف</small>
+            <b>{summary.total}</b>
+          </div>
+          <div className={`${styles.sumCard} ${styles.low}`}>
+            <small>قرب يخلص</small>
+            <b>{summary.lowStock}</b>
+          </div>
+          <div className={`${styles.sumCard} ${styles.out}`}>
+            <small>خلصان</small>
+            <b>{summary.outOfStock}</b>
+          </div>
+        </div>
+      )}
 
       {/* Search box */}
       <SearchBox
@@ -309,10 +445,50 @@ export function ProductsView() {
         onChange={setQuery}
         placeholder={
           tab === "store"
-            ? t("pages.products.searchPlaceholder")
-            : "دوّر في الكتالوج العام… شاي، جهينة، جبنة، مياه"
+            ? t("pages.products.searchPlaceholder") ||
+              "دوّر على منتج… اكتب أو اتكلم"
+            : "دوّر في الكتالوج المصري… شاي، جبنة، مياه، شيبسي"
         }
       />
+
+      {/* Stock status filter chips (Store tab only) */}
+      {tab === "store" && (
+        <div className={styles.chips}>
+          <button
+            type="button"
+            className={`${styles.chip} ${stockFilter === "all" ? styles.active : ""}`}
+            onClick={() => setStockFilter("all")}
+          >
+            الكل ({products.length})
+          </button>
+          <button
+            type="button"
+            className={`${styles.chip} ${stockFilter === "low" ? styles.active : ""}`}
+            onClick={() => setStockFilter("low")}
+          >
+            قرب يخلص ({summary.lowStock})
+          </button>
+          <button
+            type="button"
+            className={`${styles.chip} ${stockFilter === "out" ? styles.active : ""}`}
+            onClick={() => setStockFilter("out")}
+          >
+            خلصان ({summary.outOfStock})
+          </button>
+          {storeCategories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              className={`${styles.chip} ${storeCategory === cat ? styles.active : ""}`}
+              onClick={() =>
+                setStoreCategory((prev) => (prev === cat ? "all" : cat))
+              }
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Error notification if any */}
       {error && (
@@ -328,7 +504,7 @@ export function ProductsView() {
       )}
 
       {tab === "catalog" ? (
-        /* Global Catalog Tab */
+        /* ================= Egyptian Global Catalog Tab ================= */
         <>
           {/* Category Filter Chips */}
           <div className={styles.chips}>
@@ -359,7 +535,7 @@ export function ProductsView() {
                 color: "var(--ink2)",
               }}
             >
-              جارٍ تحميل الكتالوج العام...
+              جارٍ تحميل الكتالوج المصري...
             </div>
           ) : filteredCatalogItems.length === 0 ? (
             <div className={styles.pcard}>
@@ -450,7 +626,7 @@ export function ProductsView() {
           )}
         </>
       ) : (
-        /* Store Products Tab */
+        /* ================= Store Products Tab ================= */
         <>
           {loading ? (
             <div
@@ -467,17 +643,19 @@ export function ProductsView() {
               <Empty
                 icon={query ? "search" : "box"}
                 title={
-                  query ? "مفيش منتج بالاسم ده" : t("pages.products.empty")
+                  query
+                    ? "مفيش منتج بالاسم ده"
+                    : t("pages.products.empty") || "مفيش منتجات متسجلة"
                 }
                 sub={
                   query
                     ? "جرّب كلمة تانية أو ضيف منتج جديد"
-                    : "محلك مفيش فيه منتجات لسه. اختار من الكتالوج العام أو ضيف منتجك"
+                    : "محلك مفيش فيه منتجات لسه. اختار من الكتالوج المصري أو ضيف منتجك"
                 }
                 action={
                   <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                     <Button kind="primary" onClick={() => setTab("catalog")}>
-                      تصفح الكتالوج العام
+                      تصفح الكتالوج المصري
                     </Button>
                     <Button
                       kind="ghost"
@@ -487,7 +665,7 @@ export function ProductsView() {
                         setIsAdding(true);
                       }}
                     >
-                      {t("pages.products.add")}
+                      {t("pages.products.add") || "إضافة منتج"}
                     </Button>
                   </div>
                 }
@@ -497,7 +675,11 @@ export function ProductsView() {
             <div className={styles.grid}>
               {filteredStoreProducts.map((p) => {
                 const firstVariant = p.variants?.[0];
-                const hasMultipleVariants = p.variants.length > 1;
+                const hasPack = Boolean(
+                  firstVariant?.pack_qty && firstVariant.pack_qty > 1,
+                );
+                const isWeight = p.unit === "weight" || p.unit === "kg";
+                const status = getStockStatus(p);
 
                 return (
                   <div
@@ -506,7 +688,16 @@ export function ProductsView() {
                     data-testid={`product-card-${p.id}`}
                   >
                     <div className={styles.pch}>
-                      <div className={styles.pcn}>
+                      <div
+                        className={styles.pcn}
+                        style={{ cursor: "pointer" }}
+                        onClick={() => setDetailsProduct(p)}
+                      >
+                        {p.brand_name && (
+                          <span className={styles.brandBadge}>
+                            {p.brand_name}
+                          </span>
+                        )}
                         <b>{p.name_ar}</b>
                         <small>{formatUnitLabel(p)}</small>
                       </div>
@@ -535,41 +726,44 @@ export function ProductsView() {
                       </div>
                     </div>
 
-                    <div className={styles.pcp}>
-                      <div className={styles.pr}>
-                        <span className={styles.prl}>
-                          {p.unit === "weight" ? "الكيلو" : "سعر البيع"}
-                        </span>
-                        <div className={styles.prv}>
-                          <small>بيع</small>
-                          <b>{formatMoney(p.sell_price_piasters)}</b>
-                        </div>
-                      </div>
-
-                      {firstVariant?.pack_qty && firstVariant.pack_qty > 1 && (
-                        <div className={styles.pr}>
-                          <span className={styles.prl}>الكرتونة</span>
-                          <div className={styles.prv}>
-                            <small>{firstVariant.pack_qty} قطعة</small>
-                            <b>
-                              {formatMoney(
-                                p.sell_price_piasters * firstVariant.pack_qty,
-                              )}
-                            </b>
-                          </div>
-                        </div>
-                      )}
-
-                      {hasMultipleVariants && (
-                        <small style={{ color: "var(--ink2)", fontSize: 11 }}>
-                          + {p.variants.length - 1} نكهات/أحجام أخرى
-                        </small>
+                    <div
+                      className={styles.pcp}
+                      style={{ cursor: "pointer" }}
+                      onClick={() => setDetailsProduct(p)}
+                    >
+                      {isWeight ? (
+                        <PriceRow
+                          label="الكيلو"
+                          buy={p.buy_cost_piasters || 0}
+                          sell={p.sell_price_piasters}
+                        />
+                      ) : (
+                        <>
+                          {hasPack && firstVariant?.pack_qty && (
+                            <PriceRow
+                              label={`الكرتونة (${firstVariant.pack_qty})`}
+                              buy={
+                                p.buy_cost_piasters
+                                  ? p.buy_cost_piasters * firstVariant.pack_qty
+                                  : 0
+                              }
+                              sell={
+                                p.sell_price_piasters * firstVariant.pack_qty
+                              }
+                            />
+                          )}
+                          <PriceRow
+                            label="القطعة"
+                            buy={p.buy_cost_piasters || 0}
+                            sell={p.sell_price_piasters}
+                          />
+                        </>
                       )}
                     </div>
 
-                    <div className={styles.pcs}>
+                    <div className={`${styles.pcs} ${styles[status.lv] || ""}`}>
                       <i />
-                      <span>متاح في المحل</span>
+                      <span>{status.text}</span>
                     </div>
                   </div>
                 );
@@ -604,7 +798,169 @@ export function ProductsView() {
             setEditingProduct(null);
             void loadProducts();
           }}
+          onDeleted={(id) => {
+            setEditingProduct(null);
+            setProducts((prev) => prev.filter((p) => p.id !== id));
+            setSummary((prev) => ({
+              ...prev,
+              total: Math.max(0, prev.total - 1),
+            }));
+          }}
         />
+      )}
+
+      {/* Product Details Drawer / Modal */}
+      {detailsProduct && (
+        <Modal
+          title={detailsProduct.name_ar}
+          onClose={() => setDetailsProduct(null)}
+          footer={
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                width: "100%",
+              }}
+            >
+              <Button
+                kind="dangerghost"
+                icon="trash"
+                onClick={() => {
+                  const id = detailsProduct.id;
+                  setDetailsProduct(null);
+                  void handleDelete(id);
+                }}
+              >
+                حذف المنتج
+              </Button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <Button kind="ghost" onClick={() => setDetailsProduct(null)}>
+                  إغلاق
+                </Button>
+                <Button
+                  kind="primary"
+                  icon="edit"
+                  onClick={() => {
+                    const p = detailsProduct;
+                    setDetailsProduct(null);
+                    setEditingProduct(p);
+                  }}
+                >
+                  تعديل
+                </Button>
+              </div>
+            </div>
+          }
+        >
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 1fr",
+                gap: 10,
+                background: "var(--sf2, #fbf7ef)",
+                padding: 12,
+                borderRadius: 12,
+              }}
+            >
+              <div>
+                <small style={{ color: "var(--ink2)", fontSize: 11 }}>
+                  التصنيف
+                </small>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>
+                  {detailsProduct.category}
+                </div>
+              </div>
+              <div>
+                <small style={{ color: "var(--ink2)", fontSize: 11 }}>
+                  طريقة البيع
+                </small>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>
+                  {formatUnitLabel(detailsProduct)}
+                </div>
+              </div>
+              {detailsProduct.brand_name && (
+                <div>
+                  <small style={{ color: "var(--ink2)", fontSize: 11 }}>
+                    العلامة التجارية
+                  </small>
+                  <div style={{ fontWeight: 800, fontSize: 14 }}>
+                    {detailsProduct.brand_name}
+                  </div>
+                </div>
+              )}
+              <div>
+                <small style={{ color: "var(--ink2)", fontSize: 11 }}>
+                  المخزون الحالي
+                </small>
+                <div
+                  style={{ fontWeight: 800, fontSize: 14, color: "var(--ink)" }}
+                >
+                  {getStockStatus(detailsProduct).text}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                border: "1px solid var(--line)",
+                padding: 12,
+                borderRadius: 12,
+                display: "flex",
+                flexDirection: "column",
+                gap: 8,
+              }}
+            >
+              <div style={{ fontWeight: 800, fontSize: 14 }}>
+                الأسعار والأرباح
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 13,
+                }}
+              >
+                <span>سعر البيع:</span>
+                <b>{formatMoney(detailsProduct.sell_price_piasters)}</b>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  fontSize: 13,
+                }}
+              >
+                <span>سعر الشراء:</span>
+                <b>
+                  {detailsProduct.buy_cost_piasters
+                    ? formatMoney(detailsProduct.buy_cost_piasters)
+                    : "غير محدد"}
+                </b>
+              </div>
+              {detailsProduct.buy_cost_piasters &&
+                detailsProduct.buy_cost_piasters > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: 13,
+                      color: "var(--ok, #108e5c)",
+                      fontWeight: 800,
+                    }}
+                  >
+                    <span>مجمل الربح:</span>
+                    <span>
+                      {formatMoney(
+                        detailsProduct.sell_price_piasters -
+                          detailsProduct.buy_cost_piasters,
+                      )}
+                    </span>
+                  </div>
+                )}
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,16 +1,16 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   width: 100%;
   box-sizing: border-box;
-  animation: viewIn 0.36s var(--ease);
+  animation: viewIn 0.3s var(--ease);
 }
 
 @keyframes viewIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
 }
 
@@ -25,7 +25,7 @@
 
 .phead h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 800;
   line-height: 1.2;
   letter-spacing: -0.2px;
@@ -35,7 +35,8 @@
 .phead p {
   margin: 4px 0 0;
   color: var(--ink2);
-  font-size: 14px;
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .pact {
@@ -52,7 +53,7 @@
   background: var(--sf2, #fbf7ef);
   border: 1px solid var(--line);
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: 12px;
   font-size: 13px;
   font-weight: 700;
   color: var(--ink2);
@@ -62,6 +63,50 @@
   gap: 8px;
 }
 
+/* Summary statistics counters bar */
+.sumBar {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  padding-bottom: 2px;
+}
+
+.sumCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 8px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 95px;
+  flex: 1;
+  box-shadow: var(--sh);
+}
+
+.sumCard small {
+  font-size: 11px;
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+.sumCard b {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.sumCard.low b {
+  color: var(--yelLine, #d9822b);
+}
+
+.sumCard.out b {
+  color: var(--red, #cf3c3c);
+}
+
+/* Chips filter row */
 .chips {
   display: flex;
   gap: 8px;
@@ -69,6 +114,11 @@
   padding-bottom: 4px;
   width: 100%;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
 }
 
 .chip {
@@ -83,6 +133,10 @@
   white-space: nowrap;
   transition: all 0.15s ease;
   flex-shrink: 0;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .chip.active {
@@ -91,6 +145,7 @@
   border-color: var(--ink);
 }
 
+/* Responsive cards grid */
 .grid {
   display: grid;
   gap: 10px;
@@ -101,20 +156,23 @@
 @media (min-width: 640px) {
   .grid {
     grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
   }
 }
 
 @media (min-width: 1100px) {
   .grid {
     grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
   }
 }
 
+/* Demo product card */
 .pcard {
   background: var(--sf);
   border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 12px 12px 10px;
+  border-radius: 16px;
+  padding: 12px 10px 10px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -122,19 +180,29 @@
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
+  transition:
+    transform 0.2s var(--ease),
+    box-shadow 0.2s;
+}
+
+@media (hover: hover) {
+  .pcard:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px rgba(60, 50, 20, 0.08);
+  }
 }
 
 .pch {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 6px;
+  gap: 4px;
 }
 
 .cardActions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 2px;
   flex-shrink: 0;
 }
 
@@ -148,6 +216,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  min-width: 36px;
+  min-height: 36px;
   transition:
     background 0.15s ease,
     color 0.15s ease;
@@ -171,7 +241,7 @@
 
 .pcn b {
   font-size: 15px;
-  line-height: 1.3;
+  line-height: 1.35;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -181,13 +251,14 @@
 .pcn small {
   color: var(--ink2);
   font-size: 12px;
+  margin-top: 2px;
 }
 
 .brandBadge {
   font-size: 11px;
   font-weight: 700;
   color: var(--br, #c8651b);
-  background: color-mix(in srgb, var(--br, #c8651b) 10%, transparent);
+  background: color-mix(in srgb, var(--br, #c8651b) 12%, transparent);
   padding: 2px 6px;
   border-radius: 4px;
   display: inline-block;
@@ -200,7 +271,7 @@
   font-weight: 700;
   color: var(--ok, #108e5c);
   background: color-mix(in srgb, var(--ok, #108e5c) 12%, transparent);
-  padding: 3px 8px;
+  padding: 4px 8px;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
@@ -213,11 +284,12 @@
   color: #fff;
   border: none;
   border-radius: 8px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
   margin-top: auto;
+  min-height: 36px;
   transition: opacity 0.15s;
   display: flex;
   align-items: center;
@@ -232,30 +304,37 @@
 .pcp {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
 }
 
+/* Demo-matching PriceRow */
 .pr {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 6px;
-  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   background: var(--sf2, #fbf7ef);
-  border-radius: 9px;
-  padding: 5px 8px;
-  font-size: 13px;
+  border-radius: 10px;
+  padding: 6px 9px;
+  box-sizing: border-box;
 }
 
 .prl {
-  font-weight: 800;
-  color: var(--ink);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.prvals {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
 }
 
 .prv {
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  line-height: 1.15;
+  align-items: flex-start;
+  line-height: 1.2;
 }
 
 .prv small {
@@ -264,10 +343,15 @@
 }
 
 .prv b {
-  font-size: 14px;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.prvSell b {
   color: var(--br, #c8651b);
 }
 
+/* Stock status indicator */
 .pcs {
   display: flex;
   gap: 6px;
@@ -276,11 +360,12 @@
   color: var(--ink2);
   font-weight: 700;
   margin-top: auto;
+  padding-top: 2px;
 }
 
 .pcs i {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: var(--ok, #108e5c);
   flex: none;
@@ -312,4 +397,55 @@
   padding: 2px 6px;
   border-radius: 4px;
   font-size: 11px;
+}
+
+/* Catalog suggestions in modal */
+.catalogMatches {
+  background: var(--sf2, #fbf7ef);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.catalogMatchesTitle {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink2);
+  margin-bottom: 2px;
+}
+
+.matchCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.matchCard:hover {
+  background: color-mix(in srgb, var(--br, #c8651b) 8%, var(--sf));
+}
+
+.matchInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.matchName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.matchCategory {
+  font-size: 11px;
+  color: var(--ink2);
 }

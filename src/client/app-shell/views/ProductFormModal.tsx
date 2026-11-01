@@ -7,6 +7,7 @@ import {
   searchOfflineCatalog,
   type CatalogSearchResult,
 } from "../../shared/catalog";
+import { formatMoney } from "../../shared/i18n";
 import styles from "./ProductsView.module.css";
 
 export interface ProductFormModalProps {
@@ -16,6 +17,10 @@ export interface ProductFormModalProps {
     category: string;
     unit: string;
     sell_price_piasters: number;
+    buy_cost_piasters?: number;
+    stock_quantity?: number;
+    is_custom?: boolean;
+    global_product_id?: string | null;
     variants: Array<{
       id?: string;
       flavor?: string | null;
@@ -23,11 +28,14 @@ export interface ProductFormModalProps {
       size_unit?: string | null;
       pack_qty?: number;
       sell_price_piasters: number;
+      buy_cost_piasters?: number;
+      stock_quantity?: number;
     }>;
   } | null;
   initialCatalogProduct?: CatalogSearchResult | null;
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
+  onDeleted?: (productId: string) => void;
 }
 
 export function ProductFormModal({
@@ -35,7 +43,11 @@ export function ProductFormModal({
   initialCatalogProduct,
   onClose,
   onSaved,
+  onDeleted,
 }: ProductFormModalProps) {
+  const isEditing = Boolean(product);
+  const firstVariant = product?.variants?.[0];
+
   const [name, setName] = useState(
     product
       ? product.name_ar
@@ -43,12 +55,63 @@ export function ProductFormModal({
         ? initialCatalogProduct.product.nameAr
         : "",
   );
-  const [unit, setUnit] = useState<"piece" | "weight">(
-    product?.unit === "weight" ? "weight" : "piece",
+  const [kind, setKind] = useState<"unit" | "weight">(
+    product?.unit === "weight" || product?.unit === "kg" ? "weight" : "unit",
   );
-  const [sellPriceEgp, setSellPriceEgp] = useState(
-    product ? (product.sell_price_piasters / 100).toString() : "",
+
+  // Weight pricing
+  const [wBuy, setWBuy] = useState(
+    product && (product.unit === "weight" || product.unit === "kg")
+      ? (product.buy_cost_piasters
+          ? product.buy_cost_piasters / 100
+          : ""
+        ).toString()
+      : "",
   );
+  const [wSell, setWSell] = useState(
+    product && (product.unit === "weight" || product.unit === "kg")
+      ? (product.sell_price_piasters / 100).toString()
+      : "",
+  );
+
+  // Unit packaging & pricing
+  const hasCartonInitial = Boolean(
+    firstVariant?.pack_qty && firstVariant.pack_qty > 1,
+  );
+  const [hasPack, setHasPack] = useState(hasCartonInitial);
+  const [packN, setPackN] = useState(
+    firstVariant?.pack_qty && firstVariant.pack_qty > 1
+      ? firstVariant.pack_qty.toString()
+      : initialCatalogProduct?.variants?.[0]?.packQty &&
+          initialCatalogProduct.variants[0].packQty > 1
+        ? initialCatalogProduct.variants[0].packQty.toString()
+        : "12",
+  );
+
+  const initialPieceSell = product
+    ? (product.sell_price_piasters / 100).toString()
+    : "";
+  const initialPieceBuy = product?.buy_cost_piasters
+    ? (product.buy_cost_piasters / 100).toString()
+    : "";
+
+  const [pcSell, setPcSell] = useState(initialPieceSell);
+  const [pcBuy, setPcBuy] = useState(initialPieceBuy);
+
+  const [pkSell, setPkSell] = useState(
+    product && hasCartonInitial && firstVariant?.pack_qty
+      ? ((product.sell_price_piasters / 100) * firstVariant.pack_qty).toString()
+      : "",
+  );
+  const [pkBuy, setPkBuy] = useState(
+    product?.buy_cost_piasters && hasCartonInitial && firstVariant?.pack_qty
+      ? ((product.buy_cost_piasters / 100) * firstVariant.pack_qty).toString()
+      : "",
+  );
+
+  // Initial stock for new product only
+  const [initialStock, setInitialStock] = useState("");
+
   const [category, setCategory] = useState(
     product
       ? product.category
@@ -60,27 +123,18 @@ export function ProductFormModal({
     initialCatalogProduct?.brand?.nameAr ?? "",
   );
   const [flavor, setFlavor] = useState(
-    product?.variants[0]?.flavor ??
-      initialCatalogProduct?.variants[0]?.flavor ??
-      "",
+    firstVariant?.flavor ?? initialCatalogProduct?.variants[0]?.flavor ?? "",
   );
   const [sizeValue, setSizeValue] = useState(
-    product?.variants[0]?.size_value?.toString() ??
+    firstVariant?.size_value?.toString() ??
       initialCatalogProduct?.variants[0]?.sizeValue?.toString() ??
       "",
   );
   const [sizeUnit, setSizeUnit] = useState<"g" | "kg" | "ml" | "l" | "piece">(
-    (product?.variants[0]?.size_unit as "g" | "kg" | "ml" | "l" | "piece") ??
+    (firstVariant?.size_unit as "g" | "kg" | "ml" | "l" | "piece") ??
       (initialCatalogProduct?.variants[0]?.sizeUnit as
         "g" | "kg" | "ml" | "l" | "piece") ??
       "piece",
-  );
-  const [packQty, setPackQty] = useState(
-    product?.variants[0]?.pack_qty
-      ? product.variants[0].pack_qty.toString()
-      : initialCatalogProduct?.variants[0]?.packQty
-        ? initialCatalogProduct.variants[0].packQty.toString()
-        : "1",
   );
 
   const [matches, setMatches] = useState<CatalogSearchResult[]>([]);
@@ -92,6 +146,8 @@ export function ProductFormModal({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   // Live offline search against IndexedDB when name changes
   useEffect(() => {
@@ -107,15 +163,13 @@ export function ProductFormModal({
       }
 
       const db = new HesbaDatabase();
-      searchOfflineCatalog(db, trimmed, { limit: 5 })
+      searchOfflineCatalog(db, trimmed, { limit: 4 })
         .then((results) => {
           if (isMounted) {
             setMatches(results);
           }
         })
-        .catch(() => {
-          // Fallback gracefully
-        });
+        .catch(() => {});
     }, 150);
 
     return () => {
@@ -123,6 +177,60 @@ export function ProductFormModal({
       clearTimeout(timer);
     };
   }, [name, product, selectedGlobalProduct]);
+
+  // Bidirectional price calculations between carton and piece
+  const handlePackSellChange = (val: string) => {
+    setPkSell(val);
+    const n = parseFloat(packN);
+    const p = parseFloat(val);
+    if (!isNaN(n) && n > 0 && !isNaN(p)) {
+      setPcSell((p / n).toFixed(2).replace(/\.00$/, ""));
+    }
+  };
+
+  const handlePieceSellChange = (val: string) => {
+    setPcSell(val);
+    const n = parseFloat(packN);
+    const p = parseFloat(val);
+    if (!isNaN(n) && n > 0 && !isNaN(p)) {
+      setPkSell((p * n).toFixed(2).replace(/\.00$/, ""));
+    }
+  };
+
+  const handlePackBuyChange = (val: string) => {
+    setPkBuy(val);
+    const n = parseFloat(packN);
+    const p = parseFloat(val);
+    if (!isNaN(n) && n > 0 && !isNaN(p)) {
+      setPcBuy((p / n).toFixed(2).replace(/\.00$/, ""));
+    }
+  };
+
+  const handlePieceBuyChange = (val: string) => {
+    setPcBuy(val);
+    const n = parseFloat(packN);
+    const p = parseFloat(val);
+    if (!isNaN(n) && n > 0 && !isNaN(p)) {
+      setPkBuy((p * n).toFixed(2).replace(/\.00$/, ""));
+    }
+  };
+
+  const handlePackNChange = (val: string) => {
+    setPackN(val);
+    const n = parseFloat(val);
+    if (!isNaN(n) && n > 0) {
+      if (pkSell && !pcSell) {
+        setPcSell((parseFloat(pkSell) / n).toFixed(2).replace(/\.00$/, ""));
+      } else if (pcSell) {
+        setPkSell((parseFloat(pcSell) * n).toFixed(2).replace(/\.00$/, ""));
+      }
+      if (pkBuy && !pcBuy) {
+        setPcBuy((parseFloat(pkBuy) / n).toFixed(2).replace(/\.00$/, ""));
+      } else if (pcBuy) {
+        setPkBuy((parseFloat(pcBuy) * n).toFixed(2).replace(/\.00$/, ""));
+      }
+    }
+  };
 
   const handleSelectCatalogMatch = (match: CatalogSearchResult) => {
     setSelectedGlobalProduct(match);
@@ -138,7 +246,10 @@ export function ProductFormModal({
       if (first.sizeValue) setSizeValue(first.sizeValue.toString());
       if (first.sizeUnit)
         setSizeUnit(first.sizeUnit as "g" | "kg" | "ml" | "l" | "piece");
-      if (first.packQty) setPackQty(first.packQty.toString());
+      if (first.packQty && first.packQty > 1) {
+        setHasPack(true);
+        setPackN(first.packQty.toString());
+      }
     }
     setMatches([]);
   };
@@ -148,17 +259,55 @@ export function ProductFormModal({
     setSelectedVariantId(null);
   };
 
+  // Profit calculation for helpful feedback pill
+  const profitHint = React.useMemo(() => {
+    if (kind === "weight") {
+      const sell = parseFloat(wSell);
+      const buy = parseFloat(wBuy);
+      if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
+        const diffPiasters = Math.round((sell - buy) * 100);
+        return `ربحك في الكيلو ${formatMoney(diffPiasters)}`;
+      }
+    } else {
+      const sell = parseFloat(pcSell);
+      const buy = parseFloat(pcBuy);
+      if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
+        const diffPiasters = Math.round((sell - buy) * 100);
+        return `ربحك في القطعة ${formatMoney(diffPiasters)}`;
+      }
+    }
+    return "";
+  }, [kind, wSell, wBuy, pcSell, pcBuy]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
 
     if (!name.trim()) {
-      newErrors.name = "اسم المنتج مطلوب";
+      newErrors.name = "اكتب اسم المنتج";
     }
 
-    const priceNum = parseFloat(sellPriceEgp);
-    if (isNaN(priceNum) || priceNum < 0) {
-      newErrors.price = "سعر البيع يجب أن يكون رقماً صحيحاً أو عشرياً موجباً";
+    let sellPriceNum = 0;
+    let buyCostNum = 0;
+
+    if (kind === "weight") {
+      sellPriceNum = parseFloat(wSell);
+      buyCostNum = parseFloat(wBuy) || 0;
+      if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
+        newErrors.price = "اكتب سعر بيع الكيلو";
+      }
+    } else {
+      sellPriceNum = parseFloat(pcSell);
+      buyCostNum = parseFloat(pcBuy) || 0;
+      if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
+        newErrors.price = "اكتب سعر بيع القطعة";
+      }
+      if (hasPack) {
+        const n = parseInt(packN, 10);
+        if (isNaN(n) || n < 2) {
+          newErrors.packN = "عدد القطع في الكرتونة (2 أو أكثر)";
+        }
+      }
     }
 
     if (Object.keys(newErrors).length > 0) {
@@ -170,15 +319,30 @@ export function ProductFormModal({
     setErrors({});
 
     try {
-      const pricePiasters = Math.round(priceNum * 100);
+      const sellPricePiasters = Math.round(sellPriceNum * 100);
+      const buyCostPiasters = buyCostNum > 0 ? Math.round(buyCostNum * 100) : 0;
       const isCustom = !selectedGlobalProduct;
+      const packQtyNum =
+        hasPack && kind === "unit" ? parseInt(packN, 10) || 1 : 1;
+
+      // Handle initial stock if brand new product
+      let initialQtyNum: number | null = null;
+      if (!isEditing && initialStock.trim()) {
+        const parsed = parseFloat(initialStock);
+        if (!isNaN(parsed) && parsed > 0) {
+          initialQtyNum =
+            kind === "weight" ? Math.round(parsed * 1000) : Math.round(parsed);
+        }
+      }
 
       const payload = {
         id: product?.id,
         nameAr: name.trim(),
         category,
-        unit: unit === "weight" ? "kg" : "piece",
-        sellPricePiasters: pricePiasters,
+        unit: kind === "weight" ? ("kg" as const) : ("piece" as const),
+        sellPricePiasters,
+        buyCostPiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
+        initialQuantity: initialQtyNum,
         isCustom,
         globalProductId: selectedGlobalProduct
           ? selectedGlobalProduct.product.id
@@ -186,12 +350,13 @@ export function ProductFormModal({
         brandName: brandName.trim() || null,
         variants: [
           {
-            id: product?.variants[0]?.id,
+            id: firstVariant?.id,
             flavor: flavor.trim() || null,
             sizeValue: sizeValue ? parseFloat(sizeValue) : null,
             sizeUnit: sizeValue ? sizeUnit : null,
-            packQty: packQty ? parseInt(packQty, 10) : 1,
-            sellPricePiasters: pricePiasters,
+            packQty: packQtyNum,
+            sellPricePiasters,
+            costPricePiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
             globalVariantId: selectedVariantId || null,
           },
         ],
@@ -222,185 +387,175 @@ export function ProductFormModal({
     }
   };
 
+  const handleDelete = async () => {
+    if (!product) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch(`/api/products?id=${product.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error("فشل حذف المنتج");
+      if (onDeleted) onDeleted(product.id);
+      onClose();
+    } catch (err) {
+      console.error("Delete failed:", err);
+      alert("تعذر حذف المنتج، برجاء المحاولة لاحقاً");
+    } finally {
+      setIsDeleting(false);
+      setShowDeleteConfirm(false);
+    }
+  };
+
   return (
-    <Modal
-      title={product ? "تعديل المنتج" : "إضافة منتج"}
-      onClose={onClose}
-      footer={
-        <>
-          <Button kind="ghost" onClick={onClose} disabled={isSubmitting}>
-            إلغاء
-          </Button>
-          <Button
-            kind="primary"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
-            loading={isSubmitting}
-          >
-            {product ? "حفظ التعديلات" : "إضافة للمحل"}
-          </Button>
-        </>
-      }
-    >
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 14 }}
-      >
-        {errors.submit && (
+    <>
+      <Modal
+        title={product ? "تعديل المنتج" : "إضافة منتج"}
+        onClose={onClose}
+        footer={
           <div
             style={{
-              color: "var(--red, #cf3c3c)",
-              fontSize: 13,
-              fontWeight: 700,
-            }}
-          >
-            {errors.submit}
-          </div>
-        )}
-
-        <Field label="اسم المنتج" err={errors.name}>
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="اكتب اسم المنتج (مثل: شاي العروسة)"
-            autoFocus={!product}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1.5px solid var(--line)",
-            }}
-          />
-        </Field>
-
-        {/* Display Catalog Suggestions Match If Found */}
-        {matches.length > 0 && !selectedGlobalProduct && (
-          <div className={styles.catalogMatches}>
-            <div className={styles.catalogMatchesTitle}>
-              هل تقصد أحد هذه المنتجات من الكتالوج العام؟
-            </div>
-            {matches.map((m) => (
-              <div
-                key={m.product.id}
-                className={styles.matchCard}
-                onClick={() => handleSelectCatalogMatch(m)}
-              >
-                <div className={styles.matchInfo}>
-                  <span className={styles.matchName}>
-                    {m.product.nameAr} {m.brand ? `(${m.brand.nameAr})` : ""}
-                  </span>
-                  <span className={styles.matchCategory}>
-                    {m.product.category}
-                  </span>
-                </div>
-                <Button size="sm" kind="soft">
-                  اختيار
-                </Button>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {selectedGlobalProduct && (
-          <div
-            style={{
-              background: "var(--soft, #f5efe6)",
-              padding: "8px 12px",
-              borderRadius: 10,
               display: "flex",
               justifyContent: "space-between",
+              width: "100%",
               alignItems: "center",
             }}
           >
-            <span
+            {product ? (
+              <Button
+                kind="ghost"
+                icon="trash"
+                onClick={() => setShowDeleteConfirm(true)}
+                disabled={isSubmitting || isDeleting}
+                style={{ color: "var(--red, #cf3c3c)" }}
+              >
+                حذف
+              </Button>
+            ) : (
+              <span />
+            )}
+            <div style={{ display: "flex", gap: 8 }}>
+              <Button
+                kind="ghost"
+                onClick={onClose}
+                disabled={isSubmitting || isDeleting}
+              >
+                إلغاء
+              </Button>
+              <Button
+                kind="primary"
+                onClick={handleSubmit}
+                disabled={isSubmitting || isDeleting}
+                loading={isSubmitting}
+                icon="check"
+              >
+                {product ? "حفظ التعديلات" : "إضافة للمحل"}
+              </Button>
+            </div>
+          </div>
+        }
+      >
+        <form
+          onSubmit={handleSubmit}
+          style={{ display: "flex", flexDirection: "column", gap: 14 }}
+        >
+          {errors.submit && (
+            <div
               style={{
+                color: "var(--red, #cf3c3c)",
                 fontSize: 13,
                 fontWeight: 700,
-                color: "var(--br, #c8651b)",
               }}
             >
-              ✓ مربوط بكتالوج: {selectedGlobalProduct.product.nameAr}
-            </span>
-            <Button size="sm" kind="ghost" onClick={handleClearCatalogMatch}>
-              إلغاء الربط
-            </Button>
-          </div>
-        )}
-
-        <Field label="طريقة البيع">
-          <Seg
-            value={unit}
-            onChange={(val) => setUnit(val as "piece" | "weight")}
-            options={[
-              ["piece", "بالقطعة / الكرتونة", "box"],
-              ["weight", "بالوزن (كيلو)", "scale"],
-            ]}
-          />
-        </Field>
-
-        <Field
-          label={
-            unit === "weight" ? "سعر بيع الكيلو (ج.م)" : "سعر بيع القطعة (ج.م)"
-          }
-          err={errors.price}
-        >
-          <input
-            type="number"
-            step="0.25"
-            min="0"
-            value={sellPriceEgp}
-            onChange={(e) => setSellPriceEgp(e.target.value)}
-            placeholder="0.00"
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1.5px solid var(--line)",
-            }}
-          />
-        </Field>
-
-        {unit === "piece" && (
-          <>
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr",
-                gap: 10,
-              }}
-            >
-              <Field label="النكهة / الصنف (اختياري)">
-                <input
-                  type="text"
-                  value={flavor}
-                  onChange={(e) => setFlavor(e.target.value)}
-                  placeholder="مثال: شطة وليمون"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1.5px solid var(--line)",
-                  }}
-                />
-              </Field>
-              <Field label="عدد العبوات في الكرتونة">
-                <input
-                  type="number"
-                  min="1"
-                  value={packQty}
-                  onChange={(e) => setPackQty(e.target.value)}
-                  placeholder="1"
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1.5px solid var(--line)",
-                  }}
-                />
-              </Field>
+              {errors.submit}
             </div>
+          )}
 
+          <Field label="اسم المنتج" err={errors.name}>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="مثال: بيبسي 330 مل أو شاي العروسة"
+              autoFocus={!product}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1.5px solid var(--line)",
+                fontSize: 15,
+                background: "var(--sf)",
+                color: "var(--ink)",
+              }}
+            />
+          </Field>
+
+          {/* Autocomplete suggestions from Egyptian Global Catalog */}
+          {matches.length > 0 && !selectedGlobalProduct && (
+            <div className={styles.catalogMatches}>
+              <div className={styles.catalogMatchesTitle}>
+                هل تقصد أحد هذه الأصناف من الكتالوج المصري؟
+              </div>
+              {matches.map((m) => (
+                <div
+                  key={m.product.id}
+                  className={styles.matchCard}
+                  onClick={() => handleSelectCatalogMatch(m)}
+                >
+                  <div className={styles.matchInfo}>
+                    <span className={styles.matchName}>
+                      {m.product.nameAr} {m.brand ? `(${m.brand.nameAr})` : ""}
+                    </span>
+                    <span className={styles.matchCategory}>
+                      {m.product.category}
+                    </span>
+                  </div>
+                  <Button size="sm" kind="soft">
+                    اختيار
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {selectedGlobalProduct && (
+            <div
+              style={{
+                background: "var(--sf2, #fbf7ef)",
+                padding: "8px 12px",
+                borderRadius: 10,
+                border: "1px solid var(--line)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "var(--br, #c8651b)",
+                }}
+              >
+                ✓ مربوط بالكتالوج: {selectedGlobalProduct.product.nameAr}
+              </span>
+              <Button size="sm" kind="ghost" onClick={handleClearCatalogMatch}>
+                إلغاء الربط
+              </Button>
+            </div>
+          )}
+
+          <Field label="بيتباع إزاي؟">
+            <Seg
+              value={kind}
+              onChange={(val) => setKind(val as "unit" | "weight")}
+              options={[
+                ["unit", "بالقطعة / الكرتونة", "box"],
+                ["weight", "بالوزن (كيلو)", "scale"],
+              ]}
+            />
+          </Field>
+
+          {kind === "weight" ? (
             <div
               style={{
                 display: "grid",
@@ -408,49 +563,335 @@ export function ProductFormModal({
                 gap: 10,
               }}
             >
-              <Field label="قيمة الحجم / الوزن">
+              <Field label="سعر شراء الكيلو (ج.م)">
                 <input
                   type="number"
-                  step="any"
+                  step="0.25"
                   min="0"
-                  value={sizeValue}
-                  onChange={(e) => setSizeValue(e.target.value)}
-                  placeholder="مثال: 250"
+                  value={wBuy}
+                  onChange={(e) => setWBuy(e.target.value)}
+                  placeholder="0.00"
                   style={{
                     width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1.5px solid var(--line)",
-                  }}
-                />
-              </Field>
-              <Field label="الوحدة">
-                <select
-                  value={sizeUnit}
-                  onChange={(e) =>
-                    setSizeUnit(
-                      e.target.value as "g" | "kg" | "ml" | "l" | "piece",
-                    )
-                  }
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 8,
+                    padding: "10px 12px",
+                    borderRadius: 10,
                     border: "1.5px solid var(--line)",
                     background: "var(--sf)",
                   }}
-                >
-                  <option value="piece">قطعة</option>
-                  <option value="g">جرام (جم)</option>
-                  <option value="kg">كيلو (كجم)</option>
-                  <option value="ml">مليلتر (مل)</option>
-                  <option value="l">لتر</option>
-                </select>
+                />
+              </Field>
+              <Field label="سعر بيع الكيلو (ج.م)" err={errors.price}>
+                <input
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  value={wSell}
+                  onChange={(e) => setWSell(e.target.value)}
+                  placeholder="0.00"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1.5px solid var(--line)",
+                    background: "var(--sf)",
+                  }}
+                />
               </Field>
             </div>
-          </>
-        )}
-      </form>
-    </Modal>
+          ) : (
+            <>
+              {/* Checkbox for carton */}
+              <label
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  userSelect: "none",
+                }}
+              >
+                <input
+                  type="checkbox"
+                  checked={hasPack}
+                  onChange={(e) => setHasPack(e.target.checked)}
+                  style={{
+                    width: 18,
+                    height: 18,
+                    accentColor: "var(--br, #c8651b)",
+                  }}
+                />
+                <span>بيتباع كرتونة كمان</span>
+              </label>
+
+              {hasPack && (
+                <>
+                  <Field label="عدد القطع في الكرتونة" err={errors.packN}>
+                    <input
+                      type="number"
+                      min="2"
+                      value={packN}
+                      onChange={(e) => handlePackNChange(e.target.value)}
+                      placeholder="12"
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        border: "1.5px solid var(--line)",
+                        background: "var(--sf)",
+                      }}
+                    />
+                  </Field>
+
+                  <div
+                    style={{
+                      background: "var(--sf2, #fbf7ef)",
+                      padding: "10px 12px",
+                      borderRadius: 12,
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 8,
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 800,
+                        color: "var(--ink)",
+                      }}
+                    >
+                      سعر الكرتونة
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: 10,
+                      }}
+                    >
+                      <Field label="شراء الكرتونة (ج.م)">
+                        <input
+                          type="number"
+                          step="0.25"
+                          min="0"
+                          value={pkBuy}
+                          onChange={(e) => handlePackBuyChange(e.target.value)}
+                          placeholder="0.00"
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            border: "1.5px solid var(--line)",
+                            background: "var(--sf)",
+                          }}
+                        />
+                      </Field>
+                      <Field label="بيع الكرتونة (ج.م)">
+                        <input
+                          type="number"
+                          step="0.25"
+                          min="0"
+                          value={pkSell}
+                          onChange={(e) => handlePackSellChange(e.target.value)}
+                          placeholder="0.00"
+                          style={{
+                            width: "100%",
+                            padding: "8px 10px",
+                            borderRadius: 8,
+                            border: "1.5px solid var(--line)",
+                            background: "var(--sf)",
+                          }}
+                        />
+                      </Field>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              <div
+                style={{
+                  background: "var(--sf2, #fbf7ef)",
+                  padding: "10px 12px",
+                  borderRadius: 12,
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 8,
+                }}
+              >
+                <div
+                  style={{ fontSize: 13, fontWeight: 800, color: "var(--ink)" }}
+                >
+                  سعر القطعة{" "}
+                  {hasPack ? (
+                    <em
+                      style={{
+                        fontSize: 11,
+                        color: "var(--ink2)",
+                        fontWeight: 400,
+                      }}
+                    >
+                      (بتتحسب تلقائياً مع الكرتونة)
+                    </em>
+                  ) : (
+                    ""
+                  )}
+                </div>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 10,
+                  }}
+                >
+                  <Field label="شراء القطعة (ج.م)">
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      value={pcBuy}
+                      onChange={(e) => handlePieceBuyChange(e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: "1.5px solid var(--line)",
+                        background: "var(--sf)",
+                      }}
+                    />
+                  </Field>
+                  <Field label="بيع القطعة (ج.م)" err={errors.price}>
+                    <input
+                      type="number"
+                      step="0.25"
+                      min="0"
+                      value={pcSell}
+                      onChange={(e) => handlePieceSellChange(e.target.value)}
+                      placeholder="0.00"
+                      style={{
+                        width: "100%",
+                        padding: "8px 10px",
+                        borderRadius: 8,
+                        border: "1.5px solid var(--line)",
+                        background: "var(--sf)",
+                      }}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </>
+          )}
+
+          {profitHint && (
+            <div
+              style={{
+                background:
+                  "color-mix(in srgb, var(--ok, #108e5c) 12%, transparent)",
+                color: "var(--ok, #108e5c)",
+                padding: "8px 14px",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 800,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              <span>📈 {profitHint}</span>
+            </div>
+          )}
+
+          {/* Stock input for new product, or Read-only indicator for existing product */}
+          {!isEditing ? (
+            <Field
+              label={
+                kind === "weight"
+                  ? "الكمية المبدئية في المحل (كيلو - اختياري)"
+                  : "الكمية المبدئية في المحل (قطع - اختياري)"
+              }
+            >
+              <input
+                type="number"
+                step={kind === "weight" ? "0.1" : "1"}
+                min="0"
+                value={initialStock}
+                onChange={(e) => setInitialStock(e.target.value)}
+                placeholder="0"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--line)",
+                  background: "var(--sf)",
+                }}
+              />
+            </Field>
+          ) : (
+            <div
+              style={{
+                background: "var(--sf2, #fbf7ef)",
+                border: "1px solid var(--line)",
+                padding: "10px 12px",
+                borderRadius: 10,
+                fontSize: 13,
+                color: "var(--ink2)",
+              }}
+            >
+              <b style={{ color: "var(--ink)" }}>المخزون الحالي: </b>
+              {product?.stock_quantity != null
+                ? kind === "weight"
+                  ? `${(product.stock_quantity / 1000).toFixed(1)} كجم`
+                  : `${product.stock_quantity} قطعة`
+                : "0"}
+              <div style={{ marginTop: 4, fontSize: 11 }}>
+                * للحفاظ على دقة الحسابات، يتم تعديل المخزون من خلال شاشة
+                «المخزون».
+              </div>
+            </div>
+          )}
+        </form>
+      </Modal>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteConfirm && (
+        <Modal
+          title="حذف المنتج"
+          onClose={() => setShowDeleteConfirm(false)}
+          footer={
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                justifyContent: "flex-end",
+                width: "100%",
+              }}
+            >
+              <Button kind="ghost" onClick={() => setShowDeleteConfirm(false)}>
+                إلغاء
+              </Button>
+              <Button
+                kind="primary"
+                onClick={handleDelete}
+                loading={isDeleting}
+                style={{ background: "var(--red, #cf3c3c)" }}
+              >
+                تأكيد الحذف
+              </Button>
+            </div>
+          }
+        >
+          <div style={{ fontSize: 14, lineHeight: 1.5, color: "var(--ink)" }}>
+            هل أنت متأكد من حذف المنتج <b>«{product?.name_ar}»</b>؟
+            <div style={{ marginTop: 8, color: "var(--ink2)", fontSize: 12 }}>
+              سيتم أرشفة المنتج ومخزونه الحالي، مع الحفاظ الكامل على سجل
+              الفواتير والمبيعات السابقة.
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
   );
 }
+
+export default ProductFormModal;
