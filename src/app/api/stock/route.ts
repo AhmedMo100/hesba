@@ -4,7 +4,7 @@ import { z } from "zod";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { InventoryService } from "@/server/modules/inventory";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { AppError, toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -35,9 +35,17 @@ const wasteStockSchema = z.object({
   opId: z.string().uuid().optional(),
 });
 
+const voidStockSchema = z.object({
+  action: z.literal("void"),
+  batchId: z.string().uuid(),
+  reason: z.string().trim().optional(),
+  opId: z.string().uuid().optional(),
+});
+
 const stockActionSchema = z.discriminatedUnion("action", [
   addStockSchema,
   wasteStockSchema,
+  voidStockSchema,
 ]);
 
 /**
@@ -107,7 +115,7 @@ export async function POST(req: Request) {
         },
       );
       return NextResponse.json({ success: true, data: result });
-    } else {
+    } else if (input.action === "waste") {
       const result = await inventoryService.recordWaste(
         context.store.id,
         context.user.id,
@@ -120,7 +128,43 @@ export async function POST(req: Request) {
         },
       );
       return NextResponse.json({ success: true, data: result });
+    } else {
+      const result = await inventoryService.voidStockBatch(
+        context.store.id,
+        context.user.id,
+        {
+          batchId: input.batchId,
+          reason: input.reason,
+          opId: input.opId,
+        },
+      );
+      return NextResponse.json({ success: true, data: result });
     }
+  } catch (err: unknown) {
+    return toSafeErrorResponse(err);
+  }
+}
+
+/**
+ * DELETE /api/stock?batchId=<uuid>
+ * Voids an added stock batch under tenant isolation.
+ */
+export async function DELETE(req: Request) {
+  try {
+    const context = await requireSession(req);
+    const { searchParams } = new URL(req.url);
+    const batchId = searchParams.get("batchId");
+    if (!batchId) {
+      throw AppError.badRequest("معرّف الإضافة أو التشغيلة مطلوب");
+    }
+
+    const inventoryService = new InventoryService(prisma);
+    const result = await inventoryService.voidStockBatch(
+      context.store.id,
+      context.user.id,
+      { batchId },
+    );
+    return NextResponse.json({ success: true, data: result });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }

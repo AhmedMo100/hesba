@@ -421,7 +421,22 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     expect(spRow).toBeDefined();
     expect(spRow?.globalProductId).toBe(gpId);
 
-    // 3. Unknown variant ID throws AppError with NOT_FOUND status
+    // 4. Void / revert the added batch
+    const voidRes = await inventory.voidStockBatch(storeAId, userAId, {
+      batchId: res.batchId!,
+    });
+    expect(voidRes.voidedQuantity).toBe(10);
+    expect(voidRes.newBalance).toBe(0);
+
+    const levelAfterVoid = await migratorPrisma.stockLevel.findFirst({
+      where: {
+        storeId: storeAId,
+        storeVariantId: res.batchId ? batchRow!.store_variant_id : "",
+      },
+    });
+    expect(Number(levelAfterVoid?.quantityBase)).toBe(0);
+
+    // 5. Unknown variant ID throws AppError with NOT_FOUND status
     const fakeVariantId = crypto.randomUUID();
     await expect(
       inventory.addStockBatch(storeAId, userAId, {

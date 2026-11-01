@@ -1,120 +1,122 @@
 .view {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 14px;
   width: 100%;
   box-sizing: border-box;
-  animation: viewIn 0.36s var(--ease);
+  animation: viewIn 0.3s var(--ease);
 }
 
 @keyframes viewIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(8px);
   }
 }
 
+/* Header section matching Image 4 */
 .phead {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  flex-wrap: wrap;
   width: 100%;
 }
 
-.phead h1 {
+.pheadTitle {
+  display: flex;
+  flex-direction: column;
+}
+
+.pheadTitle h1 {
   margin: 0;
-  font-size: 26px;
+  font-size: 24px;
   font-weight: 800;
   color: var(--ink);
+  line-height: 1.2;
 }
 
-.phead p {
+.pheadTitle p {
   margin: 4px 0 0;
   color: var(--ink2);
+  font-size: 13px;
+}
+
+/* Top primary add button matching Demo pill */
+.addBtn {
+  background: var(--br, #5a7d5a);
+  color: var(--brInk, #fff);
+  border: none;
+  border-radius: 12px;
+  padding: 8px 16px;
   font-size: 14px;
-}
-
-.pact {
-  display: flex;
-  gap: 8px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
   align-items: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--br, #5a7d5a) 25%, transparent);
+  transition:
+    opacity 0.15s,
+    transform 0.15s;
+  flex-shrink: 0;
 }
 
-.onlyM {
-  display: flex;
+.addBtn:hover {
+  opacity: 0.94;
+  transform: translateY(-1px);
+}
+
+/* Tabs: Segmented control matching Image 4 & 7 */
+.tabsBar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  background: var(--sf2, #fbf7ef);
+  border: 1px solid var(--line);
+  padding: 4px;
+  border-radius: 12px;
   width: 100%;
-}
-
-.onlyD {
-  display: none;
-}
-
-.twoCol {
-  display: flex;
-  flex-direction: column;
-  gap: 20px;
-  width: 100%;
-}
-
-@media (min-width: 900px) {
-  .onlyM {
-    display: none !important;
-  }
-
-  .onlyD {
-    display: block;
-  }
-
-  .twoCol {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    align-items: start;
-    width: 100%;
-  }
-}
-
-.col {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  width: 100%;
-  min-width: 0;
   box-sizing: border-box;
 }
 
-.hideM {
-  display: none !important;
+.tabBtn {
+  background: transparent;
+  border: none;
+  padding: 9px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink2);
+  border-radius: 9px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-align: center;
 }
 
-@media (min-width: 900px) {
-  .hideM {
-    display: flex !important;
-  }
+.tabBtn.active {
+  background: var(--ink);
+  color: var(--bg, #fff);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
-.secTitle {
-  font-size: 17px;
-  font-weight: 800;
-  color: var(--ink);
-  margin: 0 0 4px;
-}
-
+/* Filter Chips Bar */
 .chips {
   display: flex;
   gap: 8px;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding-bottom: 2px;
   width: 100%;
   -webkit-overflow-scrolling: touch;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
 }
 
 .chip {
   background: var(--sf);
   border: 1px solid var(--line);
-  padding: 6px 14px;
+  padding: 7px 16px;
   border-radius: 20px;
   font-size: 13px;
   font-weight: 700;
@@ -126,171 +128,218 @@
 }
 
 .chip.active {
-  background: var(--ink);
-  color: #fff;
-  border-color: var(--ink);
+  background: var(--br, #5a7d5a);
+  color: var(--brInk, #fff);
+  border-color: var(--br, #5a7d5a);
 }
 
-.list {
+/* Tab 1: Current Quantities List matching Image 4 */
+.stockList {
   display: flex;
   flex-direction: column;
-  gap: 8px;
   width: 100%;
-}
-
-.lrow {
   background: var(--sf);
   border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 12px 14px;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: var(--sh);
+}
+
+.stockItem {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  width: 100%;
+  padding: 13px 14px;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  transition: background 0.15s;
   box-sizing: border-box;
-  box-shadow: var(--sh);
 }
 
-.lrowLeft {
+.stockItem:last-child {
+  border-bottom: none;
+}
+
+.stockItem:hover {
+  background: var(--sf2, #fbf7ef);
+}
+
+.stockItemRight {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   min-width: 0;
   flex: 1;
 }
 
 .dot {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
   border-radius: 50%;
-  background: var(--ok, #108e5c);
   flex-shrink: 0;
 }
 
+.dot.ok {
+  background: #108e5c;
+}
+
 .dot.low {
-  background: var(--yelLine, #d9822b);
+  background: #d9822b;
 }
 
 .dot.out {
-  background: var(--red, #cf3c3c);
+  background: #cf3c3c;
 }
 
-.lrn {
+.stockItemInfo {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  flex: 1;
 }
 
-.lrn b {
+.stockItemInfo b {
   font-size: 15px;
+  font-weight: 700;
   color: var(--ink);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.lrn small {
-  color: var(--ink2);
+.stockItemInfo small {
   font-size: 12px;
+  color: var(--ink2);
+  margin-top: 2px;
 }
 
-.lrq {
+.stockItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.stockQtyText {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.outBadge {
+  background: rgba(207, 60, 60, 0.12);
+  color: #cf3c3c;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 3px 9px;
+  border-radius: 6px;
+}
+
+.warnBadge {
+  background: rgba(217, 130, 43, 0.12);
+  color: #d9822b;
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+/* Tab 2: Movements Log matching Image 7 */
+.summaryRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 2px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.dateGroupHeader {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink2);
+  margin: 12px 2px 4px;
+}
+
+.batchCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 14px;
+  display: flex;
+  justify-content: space-between;
+  align-items: stretch;
+  margin-bottom: 8px;
+  box-shadow: var(--sh);
+  box-sizing: border-box;
+}
+
+.batchCardRight {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.batchCardRight b {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.batchMeta {
+  font-size: 12px;
+  color: var(--ink2);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.batchExpiry {
+  font-size: 11.5px;
+  color: var(--ink2);
+}
+
+.batchCardLeft {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
-  gap: 4px;
+  justify-content: space-between;
   flex-shrink: 0;
-  margin-inline-start: auto;
-  text-align: end;
 }
 
-.lrq b {
-  font-size: 15px;
-  color: var(--ink);
-}
-
-.badge {
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 6px;
-  font-weight: 700;
-}
-
-.badge.out {
-  background: #fde8e8;
-  color: var(--red, #cf3c3c);
-}
-
-.badge.warn {
-  background: #fef3c7;
-  color: #b45309;
-}
-
-.sumline {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 12px;
-  background: var(--sf2, #fbf7ef);
-  border-radius: 10px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--ink);
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.dgroup {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  width: 100%;
-}
-
-.dgh {
-  font-size: 12px;
-  font-weight: 800;
-  color: var(--ink2);
-  margin-top: 6px;
-}
-
-.lgi {
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: var(--r);
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  width: 100%;
-  box-sizing: border-box;
-}
-
-.lgTop {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  width: 100%;
-}
-
-.lgTop b {
-  font-size: 14px;
-  color: var(--ink);
-}
-
-.lgq {
-  font-size: 14px;
+.batchQty {
+  font-size: 14.5px;
   font-weight: 800;
   color: var(--ok, #108e5c);
 }
 
-.lgMeta {
-  display: flex;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--ink2);
-  flex-wrap: wrap;
-  width: 100%;
+.batchQty.negative {
+  color: var(--red, #cf3c3c);
+}
+
+.batchDeleteBtn {
+  background: transparent;
+  border: none;
+  color: var(--red, #cf3c3c);
+  font-size: 12.5px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 4px 0 0;
+  transition: opacity 0.15s;
+}
+
+.batchDeleteBtn:hover {
+  opacity: 0.8;
+  text-decoration: underline;
+}
+
+/* Responsive adjustments */
+@media (min-width: 768px) {
+  .stockList {
+    border-radius: 16px;
+  }
 }

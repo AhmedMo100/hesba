@@ -587,6 +587,119 @@ export class InventoryService {
   }
 
   /**
+   * Reverses / voids an added stock batch.
+   * Transactional & Tenant-isolated.
+   * Decrements remaining batch stock, updates stock_levels balance, and creates an append-only "purchase_void" movement.
+   */
+  async voidStockBatch(
+    storeId: string,
+    userId: string | null,
+    input: {
+      batchId: string;
+      reason?: string;
+      opId?: string | null;
+    },
+  ) {
+    const now = new Date();
+
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        // 1. Verify batch
+        const batch = await tx.storeStockBatch.findFirst({
+          where: { id: input.batchId, storeId },
+        });
+        if (!batch) {
+          throw AppError.notFound("التشغيلة أو الإضافة غير موجودة");
+        }
+
+        // 2. Check opId idempotency
+        if (input.opId) {
+          const existing = await tx.stockMovement.findFirst({
+            where: { storeId, opId: input.opId },
+          });
+          if (existing) {
+            return { duplicate: true };
+          }
+        }
+
+        const voidQty = batch.remainingQuantityBase;
+        if (voidQty <= ZERO) {
+          throw AppError.badRequest(
+            "تم بيع أو صرف كمية هذه التشغيلة بالكامل ولا يمكن التراجع عنها",
+          );
+        }
+
+        // 3. Mark batch remaining as 0
+        await tx.storeStockBatch.update({
+          where: { id: batch.id },
+          data: {
+            remainingQuantityBase: ZERO,
+            updatedAt: now,
+          },
+        });
+
+        // 4. Update stock_levels
+        const currentLevel = await tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: batch.storeVariantId,
+            },
+          },
+        });
+
+        const newBalance = (currentLevel?.quantityBase ?? ZERO) - voidQty;
+
+        await tx.stockLevel.upsert({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: batch.storeVariantId,
+            },
+          },
+          update: {
+            quantityBase: newBalance,
+            updatedAt: now,
+          },
+          create: {
+            storeId,
+            storeVariantId: batch.storeVariantId,
+            quantityBase: newBalance,
+            updatedAt: now,
+          },
+        });
+
+        // 5. Append-only reversing StockMovement
+        const movement = await tx.stockMovement.create({
+          data: {
+            storeId,
+            storeVariantId: batch.storeVariantId,
+            storeProductId: batch.storeProductId,
+            batchId: batch.id,
+            type: "purchase_void",
+            quantityBase: -voidQty,
+            costPriceMinor: batch.costPriceMinor,
+            balanceAfterBase: newBalance,
+            negative: newBalance < ZERO,
+            opId: input.opId ?? null,
+            createdAt: now,
+          },
+        });
+
+        return {
+          batchId: batch.id,
+          movementId: movement.id,
+          voidedQuantity: Number(voidQty),
+          newBalance: Number(newBalance),
+        };
+      },
+      this.prisma,
+    );
+  }
+
+  /**
    * Retrieves stock movements log for a store.
    */
   async getStockMovements(
@@ -606,7 +719,7 @@ export class InventoryService {
               : {}),
           },
           orderBy: { createdAt: "desc" },
-          take: options?.limit ?? 50,
+          take: options?.limit ?? 100,
           include: {
             storeVariant: {
               include: { storeProduct: true },
@@ -615,13 +728,42 @@ export class InventoryService {
           },
         });
 
+        const supplierIds = movements
+          .map((m) => m.storeStockBatch?.supplierId)
+          .filter((id): id is string => Boolean(id));
+
+        const suppliers =
+          supplierIds.length > 0
+            ? await tx.supplier.findMany({
+                where: { storeId, id: { in: supplierIds } },
+                select: { id: true, nameAr: true },
+              })
+            : [];
+        const supplierMap = new Map(suppliers.map((s) => [s.id, s.nameAr]));
+
         return movements.map((m) => ({
           id: m.id,
+          batchId: m.batchId,
           variantId: m.storeVariantId,
           productName: m.storeVariant.storeProduct?.nameAr ?? "",
+          flavor: m.storeVariant.flavor,
+          packQty: m.storeVariant.packQty,
+          unitMode:
+            m.storeVariant.storeProduct?.unit === "kg" ||
+            m.storeVariant.storeProduct?.unit === "g"
+              ? ("weight" as const)
+              : ("piece" as const),
           type: m.type,
           quantityBase: Number(m.quantityBase),
           costPricePiasters: m.costPriceMinor ? Number(m.costPriceMinor) : null,
+          costTotalMinor: m.storeStockBatch?.costTotalMinor
+            ? Number(m.storeStockBatch.costTotalMinor)
+            : m.costPriceMinor
+              ? Number(m.costPriceMinor) * Number(m.quantityBase)
+              : null,
+          supplierName: m.storeStockBatch?.supplierId
+            ? (supplierMap.get(m.storeStockBatch.supplierId) ?? null)
+            : null,
           balanceAfterBase: m.balanceAfterBase
             ? Number(m.balanceAfterBase)
             : null,
