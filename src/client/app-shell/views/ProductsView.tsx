@@ -77,33 +77,6 @@ const packCount = (p: StoreProductItem) => {
   return n && n > 1 ? n : 0;
 };
 
-function weightText(gramsOrKg: number, unit?: string) {
-  const kg = unit === "g" ? gramsOrKg / 1000 : gramsOrKg;
-  if (kg <= 0) return "0 كجم";
-  if (kg < 1) return `${Math.round(kg * 1000)} جرام`;
-  return `${String(Math.round(kg * 100) / 100).replace(/\.0+$/, "")} كجم`;
-}
-
-function qtyText(p: StoreProductItem, q: number) {
-  if (isWeightProduct(p)) return weightText(q, p.unit);
-  const n = packCount(p);
-  const qty = Math.round(q);
-  if (!n) return `${qty} قطعة`;
-  const cartons = Math.floor(qty / n);
-  const remainder = qty - cartons * n;
-  const parts: string[] = [];
-  if (cartons > 0) parts.push(`${cartons} كرتونة`);
-  if (remainder > 0 || cartons === 0) parts.push(`${remainder} قطعة`);
-  return parts.join(" و ");
-}
-
-function stockLevel(p: StoreProductItem, q: number): "out" | "low" | "ok" {
-  if (q <= 0.0001) return "out";
-  if (isWeightProduct(p)) return q < 3000 ? "low" : "ok";
-  const n = packCount(p) || 1;
-  return q <= n ? "low" : "ok";
-}
-
 export function ProductsView() {
   const [products, setProducts] = useState<StoreProductItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>("all");
@@ -300,8 +273,8 @@ export function ProductsView() {
   const formatSubtitle = (p: StoreProductItem) => {
     if (p.unit === "weight" || p.unit === "kg") return "بالوزن (كيلو)";
     if (p.unit === "g") return "بالوزن (جرام)";
-    const packQty = p.variants?.[0]?.pack_qty;
-    if (packQty && packQty > 1) {
+    const packQty = packCount(p);
+    if (packQty > 1) {
       return `كرتونة ${packQty} قطعة`;
     }
     return "بالقطعة";
@@ -316,25 +289,21 @@ export function ProductsView() {
           <p>{summary.total} منتج</p>
         </div>
         <div className={styles.pact}>
-          {/* زر عرض المنتجات المخفية */}
+          {/* زر أيقونة صغير جانبي لعرض المنتجات المخفية بدون زحمة */}
           <button
             type="button"
-            className={`${styles.hiddenToggleBtn} ${filterMode === "hidden" ? styles.active : ""}`}
+            className={`${styles.hiddenIconBtn} ${filterMode === "hidden" ? styles.active : ""}`}
             onClick={() =>
               setFilterMode((prev) => (prev === "hidden" ? "all" : "hidden"))
             }
             title={
               filterMode === "hidden"
                 ? "العودة لكافة المنتجات"
-                : "عرض المنتجات المخفية"
+                : `المخفية (${summary.hiddenCount})`
             }
+            aria-label={`المخفية (${summary.hiddenCount})`}
           >
-            <Icon n={filterMode === "hidden" ? "box" : "eyeoff"} s={16} />
-            <span>
-              {filterMode === "hidden"
-                ? "عرض الكل"
-                : `المخفية (${summary.hiddenCount})`}
-            </span>
+            <Icon n={filterMode === "hidden" ? "eye" : "eyeoff"} s={18} />
           </button>
 
           <Button
@@ -406,16 +375,6 @@ export function ProductsView() {
             أضافه المحل ({summary.customCount})
           </button>
         )}
-
-        <button
-          type="button"
-          className={`${styles.chip} ${styles.hiddenChip} ${filterMode === "hidden" ? styles.active : ""}`}
-          onClick={() => {
-            setFilterMode((prev) => (prev === "hidden" ? "all" : "hidden"));
-          }}
-        >
-          المخفية ({summary.hiddenCount})
-        </button>
 
         {categories.map((cat) => (
           <button
@@ -493,8 +452,6 @@ export function ProductsView() {
             const packSell = pieceSell * packQty;
             const packBuy = pieceBuy > 0 ? pieceBuy * packQty : 0;
 
-            const stockQty = p.stock_quantity ?? 0;
-            const lv = stockLevel(p, stockQty);
             const isMenuOpen = menuOpenId === p.id;
 
             return (
@@ -611,16 +568,6 @@ export function ProductsView() {
                     </>
                   )}
                 </div>
-
-                {/* Stock Level line matching Demo media_1793494094570_2888b04c.jpg */}
-                {!p.is_hidden && (
-                  <div className={`${styles.pcs} ${styles[lv]}`}>
-                    <i className={styles.dot} />
-                    <span>
-                      {lv === "out" ? "خلصان" : `متاح ${qtyText(p, stockQty)}`}
-                    </span>
-                  </div>
-                )}
 
                 {/* Hidden Notice if hidden */}
                 {p.is_hidden && (

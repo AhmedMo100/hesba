@@ -3,6 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ProductsView } from "@/client/app-shell/views/ProductsView";
 import { ProductFormModal } from "@/client/app-shell/views/ProductFormModal";
+import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
 
 describe("ProductsView Client Component", () => {
   beforeEach(() => {
@@ -146,5 +147,44 @@ describe("ProductFormModal Component", () => {
     expect(html).toContain("حذف");
     expect(html).toContain("حفظ");
     expect(html).not.toContain("المخزون الحالي:");
+  });
+});
+
+describe("AddStockModal Component", () => {
+  it("renders quantity mode choice (carton/piece vs weight) and total purchase cost input", () => {
+    const sampleProduct = {
+      id: "prod-sample",
+      name_ar: "بيبسي 1 لتر",
+      category: "مشروبات",
+      unit: "piece",
+      sell_price_piasters: 1500,
+      buy_cost_piasters: 1350,
+      is_custom: false,
+      variants: [
+        {
+          id: "var-p1",
+          pack_qty: 12,
+          sell_price_piasters: 1500,
+          buy_cost_piasters: 1350,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={sampleProduct}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إضافة للمخزون: بيبسي 1 لتر");
+    expect(html).toContain("نوع الكمية التي يتم إدخالها:");
+    expect(html).toContain("بالقطعة / الكرتونة");
+    expect(html).toContain("بالوزن");
+    expect(html).toContain("كراتين");
+    expect(html).toContain("قطع زيادة (مفرد)");
+    expect(html).toContain("قطع/كرتونة");
+    expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
   });
 });
