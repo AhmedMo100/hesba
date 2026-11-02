@@ -337,6 +337,110 @@
   text-decoration: underline;
 }
 
+/* Date Range Picker Container for Custom Period */
+.dateRangeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  background: var(--sf);
+  border: 1px solid var(--line);
+  padding: 10px 12px;
+  border-radius: 12px;
+  margin-top: 2px;
+}
+
+.dateInputGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dateInputGroup label {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.dateInput {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  background: var(--bg);
+  box-sizing: border-box;
+}
+
+/* Action Sheet & Modals */
+.actionCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.actionItemBtn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--sf2, #fbf7ef);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: right;
+  transition: all 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.actionItemBtn:hover {
+  background: var(--sf);
+  border-color: var(--br, #5a7d5a);
+}
+
+.actionItemBtn.danger {
+  color: var(--red, #cf3c3c);
+  background: rgba(207, 60, 60, 0.05);
+  border-color: rgba(207, 60, 60, 0.2);
+}
+
+.actionItemBtn.danger:hover {
+  background: rgba(207, 60, 60, 0.1);
+  border-color: var(--red, #cf3c3c);
+}
+
+.diffBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  font-weight: 800;
+  margin-top: 6px;
+}
+
+.diffPositive {
+  background: rgba(16, 142, 92, 0.12);
+  color: #108e5c;
+}
+
+.diffNegative {
+  background: rgba(207, 60, 60, 0.12);
+  color: #cf3c3c;
+}
+
+.diffNeutral {
+  background: var(--sf2);
+  color: var(--ink2);
+}
+
 /* Responsive adjustments */
 @media (min-width: 768px) {
   .stockList {

@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox } from "../../shared/ui";
+import { Empty, SearchBox, Modal } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
+import { AdjustStockModal } from "./AdjustStockModal";
+import { ClearStockModal } from "./ClearStockModal";
 import type { StoreProductItem } from "./ProductsView";
 import styles from "./StockView.module.css";
 
@@ -16,6 +18,7 @@ export interface StockInventoryItem {
   unitMode: "piece" | "weight";
   packQty: number;
   sellPricePiasters: number;
+  buyPricePiasters?: number;
   currentStockBase: number;
   status: "ok" | "low" | "out";
   hasNearExpiry: boolean;
@@ -138,8 +141,18 @@ function formatMovementQty(m: StockMovementItem): string {
 export function StockView() {
   const [tab, setTab] = useState<"qty" | "log">("qty");
   const [filter, setFilter] = useState<"all" | "low" | "out">("all");
-  const [period, setPeriod] = useState<"week" | "month" | "year" | "all">(
-    "week",
+  const [period, setPeriod] = useState<
+    "day" | "week" | "month" | "year" | "custom"
+  >("week");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const [activeItemAction, setActiveItemAction] =
+    useState<StockInventoryItem | null>(null);
+  const [adjustingItem, setAdjustingItem] = useState<StockInventoryItem | null>(
+    null,
+  );
+  const [clearingItem, setClearingItem] = useState<StockInventoryItem | null>(
+    null,
   );
   const [query, setQuery] = useState("");
   const [isAdding, setIsAdding] = useState(false);
@@ -234,6 +247,7 @@ export function StockView() {
       unitMode: i.unitMode,
       packQty: i.packQty,
       currentStockBase: i.currentStockBase,
+      buyCostPiasters: i.buyPricePiasters,
     }));
   }, [inventory]);
 
@@ -243,6 +257,29 @@ export function StockView() {
       // Only purchase movements (goods additions) appear in "سجل الإضافات"
       if (m.type !== "purchase") return false;
       const mTime = new Date(m.createdAt).getTime();
+
+      if (period === "day") {
+        const now = new Date(nowTimestamp);
+        const dayStart = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          0,
+          0,
+          0,
+          0,
+        ).getTime();
+        const dayEnd = new Date(
+          now.getFullYear(),
+          now.getMonth(),
+          now.getDate(),
+          23,
+          59,
+          59,
+          999,
+        ).getTime();
+        return mTime >= dayStart && mTime <= dayEnd;
+      }
       if (period === "week") return nowTimestamp - mTime <= 7 * 86400000;
       if (period === "month") return nowTimestamp - mTime <= 30 * 86400000;
       if (period === "year") {
@@ -251,9 +288,21 @@ export function StockView() {
           new Date(nowTimestamp).getFullYear()
         );
       }
+      if (period === "custom") {
+        let matches = true;
+        if (customFrom) {
+          const fromTime = new Date(`${customFrom}T00:00:00`).getTime();
+          if (!isNaN(fromTime) && mTime < fromTime) matches = false;
+        }
+        if (customTo) {
+          const toTime = new Date(`${customTo}T23:59:59.999`).getTime();
+          if (!isNaN(toTime) && mTime > toTime) matches = false;
+        }
+        return matches;
+      }
       return true;
     });
-  }, [movements, period, nowTimestamp]);
+  }, [movements, period, nowTimestamp, customFrom, customTo]);
 
   // Tab 2 summary total cost and additions count
   const movementSummary = useMemo(() => {
@@ -418,25 +467,7 @@ export function StockView() {
                   className={styles.stockItem}
                   key={item.variantId}
                   data-testid={`stock-row-${item.variantId}`}
-                  onClick={() => {
-                    setSelectedStockProduct({
-                      id: item.productId,
-                      name_ar: item.productName,
-                      category: "المخزون",
-                      unit: item.unitMode === "weight" ? "kg" : "piece",
-                      sell_price_piasters: item.sellPricePiasters,
-                      is_custom: false,
-                      variants: [
-                        {
-                          id: item.variantId,
-                          flavor: item.flavor,
-                          pack_qty: item.packQty,
-                          sell_price_piasters: item.sellPricePiasters,
-                        },
-                      ],
-                    });
-                    setIsAdding(true);
-                  }}
+                  onClick={() => setActiveItemAction(item)}
                 >
                   <div className={styles.stockItemRight}>
                     <div
@@ -476,8 +507,15 @@ export function StockView() {
       ) : (
         /* Tab 2: Additions Log matching Image 7 */
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Period Filter Chips matching Image 7 */}
+          {/* Period Filter Chips matching Requirements */}
           <div className={styles.chips}>
+            <button
+              type="button"
+              className={`${styles.chip} ${period === "day" ? styles.active : ""}`}
+              onClick={() => setPeriod("day")}
+            >
+              اليوم
+            </button>
             <button
               type="button"
               className={`${styles.chip} ${period === "week" ? styles.active : ""}`}
@@ -501,12 +539,36 @@ export function StockView() {
             </button>
             <button
               type="button"
-              className={`${styles.chip} ${period === "all" ? styles.active : ""}`}
-              onClick={() => setPeriod("all")}
+              className={`${styles.chip} ${period === "custom" ? styles.active : ""}`}
+              onClick={() => setPeriod("custom")}
             >
-              يوم/فترة
+              فترة مخصصة
             </button>
           </div>
+
+          {/* Custom Date Range Picker */}
+          {period === "custom" && (
+            <div className={styles.dateRangeRow}>
+              <div className={styles.dateInputGroup}>
+                <label>من تاريخ:</label>
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                />
+              </div>
+              <div className={styles.dateInputGroup}>
+                <label>إلى تاريخ:</label>
+                <input
+                  type="date"
+                  className={styles.dateInput}
+                  value={customTo}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Summary Row matching Image 7 */}
           <div className={styles.summaryRow}>
@@ -585,6 +647,126 @@ export function StockView() {
             ))
           )}
         </div>
+      )}
+
+      {/* Item Action Sheet Modal */}
+      {activeItemAction && (
+        <Modal
+          title={`${activeItemAction.productName} ${activeItemAction.flavor ? `(${activeItemAction.flavor})` : ""}`}
+          onClose={() => setActiveItemAction(null)}
+        >
+          <div className={styles.actionCard}>
+            <div
+              style={{
+                padding: "4px 0 10px",
+                color: "var(--ink2)",
+                fontSize: 13.5,
+              }}
+            >
+              الرصيد بالمخزن حالياً:{" "}
+              <b style={{ color: "var(--ink)" }}>
+                {formatInventoryStock(activeItemAction)}
+              </b>
+            </div>
+
+            <button
+              type="button"
+              className={styles.actionItemBtn}
+              onClick={() => {
+                const itm = activeItemAction;
+                setActiveItemAction(null);
+                setSelectedStockProduct({
+                  id: itm.productId,
+                  name_ar: itm.productName,
+                  category: "المخزون",
+                  unit: itm.unitMode === "weight" ? "kg" : "piece",
+                  sell_price_piasters: itm.sellPricePiasters,
+                  buy_cost_piasters: itm.buyPricePiasters,
+                  is_custom: false,
+                  variants: [
+                    {
+                      id: itm.variantId,
+                      flavor: itm.flavor,
+                      pack_qty: itm.packQty,
+                      sell_price_piasters: itm.sellPricePiasters,
+                      buy_cost_piasters: itm.buyPricePiasters,
+                    },
+                  ],
+                });
+                setIsAdding(true);
+              }}
+            >
+              <span style={{ fontSize: 18, color: "var(--br, #5a7d5a)" }}>
+                +
+              </span>
+              <span>إضافة بضاعة جديدة للمخزون</span>
+            </button>
+
+            <button
+              type="button"
+              className={styles.actionItemBtn}
+              onClick={() => {
+                const itm = activeItemAction;
+                setActiveItemAction(null);
+                setAdjustingItem(itm);
+              }}
+            >
+              <span style={{ fontSize: 16 }}>✏️</span>
+              <span>تعديل الكمية (جرد وتسوية)</span>
+            </button>
+
+            <button
+              type="button"
+              className={`${styles.actionItemBtn} ${styles.danger}`}
+              onClick={() => {
+                const itm = activeItemAction;
+                setActiveItemAction(null);
+                setClearingItem(itm);
+              }}
+            >
+              <span style={{ fontSize: 16 }}>🗑️</span>
+              <span>تصفير وإزالة من المخزون</span>
+            </button>
+
+            <button
+              type="button"
+              className={styles.actionItemBtn}
+              style={{
+                justifyContent: "center",
+                background: "transparent",
+                border: "none",
+                marginTop: 4,
+              }}
+              onClick={() => setActiveItemAction(null)}
+            >
+              إلغاء
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Adjust Stock Modal */}
+      {adjustingItem && (
+        <AdjustStockModal
+          item={adjustingItem}
+          onClose={() => setAdjustingItem(null)}
+          onSaved={() => {
+            setAdjustingItem(null);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* Clear Stock Modal */}
+      {clearingItem && (
+        <ClearStockModal
+          item={clearingItem}
+          onClose={() => setClearingItem(null)}
+          onCleared={() => {
+            setClearingItem(null);
+            void loadData();
+          }}
+        />
       )}
 
       {/* Add Stock Modal */}

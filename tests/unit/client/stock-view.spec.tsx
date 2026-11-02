@@ -1,8 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { StockView } from "@/client/app-shell/views/StockView";
+import {
+  StockView,
+  type StockInventoryItem,
+} from "@/client/app-shell/views/StockView";
 import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
+import { AdjustStockModal } from "@/client/app-shell/views/AdjustStockModal";
+import { ClearStockModal } from "@/client/app-shell/views/ClearStockModal";
 
 describe("StockView Component (Phase 2 Inventory UI)", () => {
   beforeEach(() => {
@@ -100,5 +105,85 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
     expect(html).toContain("بعد 6 شهور");
     expect(html).toContain("بعد سنة");
     expect(html).toContain("تأكيد الإضافة للمخزون ✓");
+  });
+
+  it("renders auto-calculated expected cost hint based on registered buy price", () => {
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={{
+          id: "prod-pepsi",
+          name_ar: "بيبسي تفاح",
+          category: "مشروبات",
+          unit: "piece",
+          sell_price_piasters: 2000,
+          buy_cost_piasters: 1500, // 15 EGP per piece -> 180 EGP per carton (12 pack)
+          is_custom: false,
+          variants: [
+            {
+              id: "var-pepsi",
+              pack_qty: 12,
+              sell_price_piasters: 2000,
+              buy_cost_piasters: 1500,
+            },
+          ],
+        }}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+
+    expect(html).toContain("تكلفة تقديرية محسوبة");
+  });
+});
+
+describe("AdjustStockModal & ClearStockModal Components (Stock Mutations UI)", () => {
+  const mockItem: StockInventoryItem = {
+    variantId: "var-100",
+    productId: "prod-100",
+    productName: "جبنة بيضاء دومتي",
+    flavor: "فيتا",
+    unitMode: "piece",
+    packQty: 12,
+    sellPricePiasters: 2500,
+    buyPricePiasters: 2000,
+    currentStockBase: 28, // 2 cartons + 4 pieces
+    status: "ok",
+    hasNearExpiry: false,
+    batches: [],
+  };
+
+  it("renders AdjustStockModal with current balance, mode tabs, and difference indicator", () => {
+    const html = renderToStaticMarkup(
+      <AdjustStockModal
+        item={mockItem}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html).toContain("تعديل الكمية (جرد وتسوية)");
+    expect(html).toContain("جبنة بيضاء دومتي (فيتا)");
+    expect(html).toContain("الرصيد الحالي");
+    expect(html).toContain("2 كرتونة و 4 قطعة");
+    expect(html).toContain("تعيين الرصيد الفعلي (جرد)");
+    expect(html).toContain("إضافة أو خصم كمية (+ / -)");
+    expect(html).toContain("سبب التعديل");
+    expect(html).toContain("فرق التسوية:");
+  });
+
+  it("renders ClearStockModal with warning, details and checkbox to hide from active view", () => {
+    const html = renderToStaticMarkup(
+      <ClearStockModal
+        item={mockItem}
+        onClose={() => {}}
+        onCleared={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إزالة وتصفير المخزون");
+    expect(html).toContain("تنبيه هام قبل تصفير المخزون");
+    expect(html).toContain("جبنة بيضاء دومتي (فيتا)");
+    expect(html).toContain("إخفاء الصنف من شاشة المخزون الحالية");
+    expect(html).toContain("تأكيد الإزالة والتصفير");
   });
 });

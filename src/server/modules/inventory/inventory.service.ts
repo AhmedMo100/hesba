@@ -575,6 +575,9 @@ export class InventoryService {
             unitMode: v.storeProduct?.unit === "kg" ? "weight" : "piece",
             packQty: v.packQty,
             sellPricePiasters: Number(v.sellPricePiasters),
+            buyPricePiasters: v.buyPricePiasters
+              ? Number(v.buyPricePiasters)
+              : 0,
             currentStockBase: Number(currentQty),
             status,
             hasNearExpiry,
@@ -693,6 +696,333 @@ export class InventoryService {
           movementId: movement.id,
           voidedQuantity: Number(voidQty),
           newBalance: Number(newBalance),
+        };
+      },
+      this.prisma,
+    );
+  }
+
+  /**
+   * Adjusts stock quantity for a variant.
+   * Supports:
+   * 1) mode === "set": Sets final balance to `targetQuantityBase`.
+   * 2) mode === "delta": Increments or decrements balance by `deltaQuantityBase`.
+   * Enforces tenant isolation and append-only audit trail.
+   */
+  async adjustStockQuantity(
+    storeId: string,
+    userId: string | null,
+    input: {
+      storeVariantId: string;
+      mode: "set" | "delta";
+      targetQuantityBase?: number | bigint;
+      deltaQuantityBase?: number | bigint;
+      reason?: string;
+      opId?: string | null;
+    },
+  ) {
+    const now = new Date();
+
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        // 1. Verify variant
+        const variant = await tx.storeVariant.findFirst({
+          where: { id: input.storeVariantId, storeId },
+          include: { storeProduct: true },
+        });
+        if (!variant) {
+          throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
+        }
+
+        // 2. Check opId idempotency
+        if (input.opId) {
+          const existing = await tx.stockMovement.findFirst({
+            where: { storeId, opId: input.opId },
+          });
+          if (existing) {
+            return {
+              variantId: variant.id,
+              movementId: existing.id,
+              newBalance: Number(existing.balanceAfterBase ?? 0),
+              duplicate: true,
+            };
+          }
+        }
+
+        // 3. Current balance
+        const currentLevel = await tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: variant.id,
+            },
+          },
+        });
+        const currentQty = currentLevel?.quantityBase ?? ZERO;
+
+        let delta: bigint;
+        let newBalance: bigint;
+
+        if (input.mode === "set") {
+          const target = BigInt(input.targetQuantityBase ?? 0);
+          if (target < ZERO) {
+            throw AppError.badRequest("الرصيد الفعلي لا يمكن أن يكون سالباً");
+          }
+          newBalance = target;
+          delta = target - currentQty;
+        } else {
+          delta = BigInt(input.deltaQuantityBase ?? 0);
+          newBalance = currentQty + delta;
+          if (newBalance < ZERO) {
+            throw AppError.badRequest(
+              "الكمية الناتجة بعد الخصم لا يمكن أن تكون سالبة",
+            );
+          }
+        }
+
+        if (delta === ZERO) {
+          return {
+            variantId: variant.id,
+            movementId: null,
+            adjustedDelta: 0,
+            newBalance: Number(newBalance),
+            duplicate: false,
+          };
+        }
+
+        let createdBatchId: string | null = null;
+        const buyCost = variant.buyPricePiasters ?? ZERO;
+
+        if (delta > ZERO) {
+          // Increase stock: create an adjustment batch
+          const batch = await tx.storeStockBatch.create({
+            data: {
+              storeId,
+              storeVariantId: variant.id,
+              storeProductId: variant.storeProductId,
+              batchCode: `ADJ-${Date.now().toString(36).toUpperCase()}`,
+              receivedQuantityBase: delta,
+              remainingQuantityBase: delta,
+              costPriceMinor: buyCost,
+              costTotalMinor: buyCost * delta,
+              receivedAt: now,
+              paid: true,
+            },
+          });
+          createdBatchId = batch.id;
+        } else {
+          // Decrease stock: deplete active batches using FEFO
+          const qtyToDeduct = -delta;
+          const activeBatches = await tx.storeStockBatch.findMany({
+            where: {
+              storeId,
+              storeVariantId: variant.id,
+              remainingQuantityBase: { gt: ZERO },
+            },
+            orderBy: [{ expiryDate: "asc" }, { receivedAt: "asc" }],
+          });
+
+          const candidates: StockBatchCandidate[] = activeBatches.map((b) => ({
+            id: b.id,
+            storeVariantId: b.storeVariantId,
+            remainingQuantityBase: b.remainingQuantityBase,
+            costPriceMinor: b.costPriceMinor,
+            expiryDate: b.expiryDate,
+            receivedAt: b.receivedAt,
+          }));
+
+          const depletion = depleteStockFEFO(candidates, qtyToDeduct);
+          for (const updated of depletion.updatedBatches) {
+            await tx.storeStockBatch.update({
+              where: { id: updated.id },
+              data: {
+                remainingQuantityBase: updated.remainingQuantityBase,
+                updatedAt: now,
+              },
+            });
+          }
+        }
+
+        // 4. Update stock levels
+        await tx.stockLevel.upsert({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: variant.id,
+            },
+          },
+          update: {
+            quantityBase: newBalance,
+            updatedAt: now,
+          },
+          create: {
+            storeId,
+            storeVariantId: variant.id,
+            quantityBase: newBalance,
+            updatedAt: now,
+          },
+        });
+
+        // 5. Append-only adjustment movement
+        const movement = await tx.stockMovement.create({
+          data: {
+            storeId,
+            storeVariantId: variant.id,
+            storeProductId: variant.storeProductId,
+            batchId: createdBatchId,
+            type: "adjustment",
+            quantityBase: delta,
+            costPriceMinor: buyCost,
+            balanceAfterBase: newBalance,
+            negative: newBalance < ZERO,
+            opId: input.opId ?? null,
+            createdAt: now,
+          },
+        });
+
+        return {
+          variantId: variant.id,
+          movementId: movement.id,
+          adjustedDelta: Number(delta),
+          newBalance: Number(newBalance),
+          duplicate: false,
+        };
+      },
+      this.prisma,
+    );
+  }
+
+  /**
+   * Clears all stock for a variant (zeros remaining on all active batches and stock level).
+   * Records an adjustment movement.
+   * Optionally soft-removes the variant from active inventory view (isActive = false).
+   */
+  async clearVariantStock(
+    storeId: string,
+    userId: string | null,
+    input: {
+      storeVariantId: string;
+      reason?: string;
+      removeFromView?: boolean;
+      opId?: string | null;
+    },
+  ) {
+    const now = new Date();
+
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        // 1. Verify variant
+        const variant = await tx.storeVariant.findFirst({
+          where: { id: input.storeVariantId, storeId },
+          include: { storeProduct: true },
+        });
+        if (!variant) {
+          throw AppError.notFound("الصنف غير موجود في هذا المحل");
+        }
+
+        // 2. Check opId idempotency
+        if (input.opId) {
+          const existing = await tx.stockMovement.findFirst({
+            where: { storeId, opId: input.opId },
+          });
+          if (existing) {
+            return {
+              variantId: variant.id,
+              movementId: existing.id,
+              clearedQuantity: Number(
+                existing.quantityBase ? -existing.quantityBase : 0,
+              ),
+              duplicate: true,
+            };
+          }
+        }
+
+        // 3. Current stock
+        const currentLevel = await tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: variant.id,
+            },
+          },
+        });
+        const currentQty = currentLevel?.quantityBase ?? ZERO;
+
+        // 4. Zero all active batches
+        await tx.storeStockBatch.updateMany({
+          where: {
+            storeId,
+            storeVariantId: variant.id,
+            remainingQuantityBase: { gt: ZERO },
+          },
+          data: {
+            remainingQuantityBase: ZERO,
+            updatedAt: now,
+          },
+        });
+
+        // 5. Zero stock_level
+        await tx.stockLevel.upsert({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: variant.id,
+            },
+          },
+          update: {
+            quantityBase: ZERO,
+            updatedAt: now,
+          },
+          create: {
+            storeId,
+            storeVariantId: variant.id,
+            quantityBase: ZERO,
+            updatedAt: now,
+          },
+        });
+
+        // 6. Record adjustment movement if there was stock
+        let movementId: string | null = null;
+        if (currentQty > ZERO) {
+          const movement = await tx.stockMovement.create({
+            data: {
+              storeId,
+              storeVariantId: variant.id,
+              storeProductId: variant.storeProductId,
+              batchId: null,
+              type: "adjustment",
+              quantityBase: -currentQty,
+              costPriceMinor: variant.buyPricePiasters ?? ZERO,
+              balanceAfterBase: ZERO,
+              negative: false,
+              opId: input.opId ?? null,
+              createdAt: now,
+            },
+          });
+          movementId = movement.id;
+        }
+
+        // 7. If removeFromView is true, deactivate variant
+        if (input.removeFromView) {
+          await tx.storeVariant.update({
+            where: { id: variant.id },
+            data: {
+              isActive: false,
+              updatedAt: now,
+            },
+          });
+        }
+
+        return {
+          variantId: variant.id,
+          movementId,
+          clearedQuantity: Number(currentQty),
+          removedFromView: Boolean(input.removeFromView),
+          duplicate: false,
         };
       },
       this.prisma,

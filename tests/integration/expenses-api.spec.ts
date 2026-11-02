@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
+import { toCairoDateString } from "@/domain/time";
 import { createSession } from "@/server/modules/auth/session.service";
 import {
   GET as getExpensesRoute,
@@ -228,7 +229,7 @@ describe("Expenses API & Tenancy Integration", () => {
     expect(jsonWeek.expenses.length).toBeGreaterThanOrEqual(1);
 
     // Custom date range encompassing today
-    const nowIso = new Date().toISOString().slice(0, 10);
+    const nowIso = toCairoDateString(new Date());
     const getCustom = new Request(
       `http://localhost:3000/api/expenses?period=custom&from=${nowIso}&to=${nowIso}`,
       {

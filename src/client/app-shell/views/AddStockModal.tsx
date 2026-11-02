@@ -97,6 +97,7 @@ export function AddStockModal({
   );
   const [weightInput, setWeightInput] = useState(isInitialWeight ? "1" : "");
   const [costEgp, setCostEgp] = useState("");
+  const [isCostManuallyEdited, setIsCostManuallyEdited] = useState(false);
   const [prodDate, setProdDate] = useState("");
   const [expiry, setExpiry] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
@@ -155,9 +156,49 @@ export function AddStockModal({
     }
   }, [entryMode, weightUnit, weightInput, cartons, pieces, packMultiplier]);
 
+  const regPiecePiasters =
+    targetProduct?.buy_cost_piasters ?? selectedOption?.buyCostPiasters ?? 0;
+  const regPieceCost = regPiecePiasters > 0 ? regPiecePiasters / 100 : 0;
+  const regCartonCost = regPieceCost * packMultiplier;
+
+  // Auto-calculated expected cost based on registered product pricing
+  const expectedCostEgp = useMemo(() => {
+    if (regPieceCost <= 0) return 0;
+    if (entryMode === "weight") {
+      const wNum = parseFloat(weightInput) || 0;
+      if (wNum <= 0) return 0;
+      if (weightUnit === "kg") {
+        return Math.round(wNum * regPieceCost * 100) / 100;
+      }
+      return Math.round((wNum / 1000) * regPieceCost * 100) / 100;
+    } else {
+      const cartonsNum = parseInt(cartons, 10) || 0;
+      const piecesNum = parseInt(pieces, 10) || 0;
+      if (cartonsNum <= 0 && piecesNum <= 0) return 0;
+      const totalExpected =
+        cartonsNum * regCartonCost + piecesNum * regPieceCost;
+      return Math.round(totalExpected * 100) / 100;
+    }
+  }, [
+    regPieceCost,
+    regCartonCost,
+    entryMode,
+    weightUnit,
+    weightInput,
+    cartons,
+    pieces,
+  ]);
+
+  // If not manually edited by user, use expectedCostEgp if available
+  const effectiveCostEgp = isCostManuallyEdited
+    ? costEgp
+    : expectedCostEgp > 0
+      ? expectedCostEgp.toString()
+      : costEgp;
+
   // Compute effective unit cost entered
   const unitCostEgp = useMemo(() => {
-    const costNum = parseFloat(costEgp) || 0;
+    const costNum = parseFloat(effectiveCostEgp) || 0;
     if (costNum <= 0 || totalBaseQty <= 0) return 0;
     if (entryMode === "weight") {
       if (weightUnit === "kg") {
@@ -166,20 +207,15 @@ export function AddStockModal({
       return costNum / totalBaseQty;
     }
     return costNum / totalBaseQty;
-  }, [costEgp, totalBaseQty, entryMode, weightUnit]);
+  }, [effectiveCostEgp, totalBaseQty, entryMode, weightUnit]);
 
   // Price comparison feedback against the registered cost in Products
   const priceComparison = useMemo(() => {
-    const costNum = parseFloat(costEgp) || 0;
+    const costNum = parseFloat(effectiveCostEgp) || 0;
     if (costNum <= 0 || totalBaseQty <= 0) return null;
 
     const cartonsNum = parseInt(cartons, 10) || 0;
     const piecesNum = parseInt(pieces, 10) || 0;
-
-    const regPiecePiasters =
-      targetProduct?.buy_cost_piasters ?? selectedOption?.buyCostPiasters ?? 0;
-    const regPieceCost = regPiecePiasters > 0 ? regPiecePiasters / 100 : 0;
-    const regCartonCost = regPieceCost * packMultiplier;
 
     if (entryMode === "unit") {
       // إذا أدخل كراتين فقط
@@ -256,14 +292,13 @@ export function AddStockModal({
 
     return null;
   }, [
-    costEgp,
+    effectiveCostEgp,
     totalBaseQty,
     cartons,
     pieces,
-    packMultiplier,
     entryMode,
-    targetProduct,
-    selectedOption,
+    regCartonCost,
+    regPieceCost,
   ]);
 
   const computeExpiryDate = (baseIso: string, months: number) => {
@@ -292,7 +327,7 @@ export function AddStockModal({
           : "اكتب الكمية التي دخلت";
     }
 
-    const costNum = parseFloat(costEgp);
+    const costNum = parseFloat(effectiveCostEgp);
     if (isNaN(costNum) || costNum < 0) {
       newErrors.cost = "اكتب إجمالي سعر الشراء";
     }
@@ -941,21 +976,26 @@ export function AddStockModal({
               label="إجمالي سعر الشراء للكمية دي (ج.م)"
               err={errors.cost}
               hint={
-                unitCostEgp > 0
-                  ? entryMode === "weight"
-                    ? weightUnit === "kg"
-                      ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                      : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                    : `القطعة بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
-                  : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
+                expectedCostEgp > 0 && !isCostManuallyEdited
+                  ? `✨ تكلفة تقديرية محسوبة: ${formatMoney(Math.round(expectedCostEgp * 100))} — تقدر تعدلها لو سعر المورد مختلف`
+                  : unitCostEgp > 0
+                    ? entryMode === "weight"
+                      ? weightUnit === "kg"
+                        ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
+                        : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
+                      : `القطعة بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
+                    : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
               }
             >
               <input
                 type="number"
                 step="any"
                 min="0"
-                value={costEgp}
-                onChange={(e) => setCostEgp(e.target.value)}
+                value={effectiveCostEgp}
+                onChange={(e) => {
+                  setCostEgp(e.target.value);
+                  setIsCostManuallyEdited(true);
+                }}
                 placeholder="مثال: 1000"
                 style={{
                   width: "100%",
@@ -967,6 +1007,34 @@ export function AddStockModal({
                 }}
               />
             </Field>
+
+            {expectedCostEgp > 0 &&
+              isCostManuallyEdited &&
+              parseFloat(effectiveCostEgp) !== expectedCostEgp && (
+                <div
+                  style={{ marginTop: 6, fontSize: 12.5, color: "var(--ink2)" }}
+                >
+                  سعر مخصص من المورد &bull;{" "}
+                  <button
+                    type="button"
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: "var(--br, #5a7d5a)",
+                      fontWeight: 700,
+                      textDecoration: "underline",
+                      cursor: "pointer",
+                      padding: 0,
+                    }}
+                    onClick={() => {
+                      setCostEgp("");
+                      setIsCostManuallyEdited(false);
+                    }}
+                  >
+                    استخدام السعر المسجل ({expectedCostEgp} ج.م)
+                  </button>
+                </div>
+              )}
 
             {/* تنبيه المقارنة مع سعر الشراء المسجل في صفحة المنتجات */}
             {priceComparison && (

@@ -446,4 +446,159 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       }),
     ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
   });
+
+  it("adjusts stock quantity via 'set' and 'delta' modes and creates append-only adjustment movements", async () => {
+    const catalog = new CatalogService(appPrisma);
+    const prod = await catalog.upsertStoreProduct(storeAId, userAId, {
+      nameAr: `شيبسي ملح تيست ${runId}`,
+      category: "سناكس",
+      unit: "piece",
+      sellPricePiasters: 1000,
+      isCustom: true,
+      variants: [{ flavor: "ملح", packQty: 1, sellPricePiasters: 1000 }],
+    });
+    const testVarId = prod.variants[0]!.id;
+
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Initial batch: 20 units
+    const addRes = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: testVarId,
+      receivedQuantityBase: 20,
+      costPriceMinor: 1200,
+    });
+    expect(addRes.batchId).toBeDefined();
+
+    // 2. Adjust using mode="set" to 35 (an increase of 15)
+    const adjSetRes = await inventory.adjustStockQuantity(storeAId, userAId, {
+      storeVariantId: testVarId,
+      mode: "set",
+      targetQuantityBase: 35,
+      reason: "جرد دوري شهري",
+    });
+
+    expect(adjSetRes.newBalance).toBe(35);
+    expect(adjSetRes.adjustedDelta).toBe(15);
+    expect(adjSetRes.movementId).toBeDefined();
+
+    // Verify stock_levels
+    const level1 = await migratorPrisma.stockLevel.findUnique({
+      where: {
+        storeId_storeVariantId: {
+          storeId: storeAId,
+          storeVariantId: testVarId,
+        },
+      },
+    });
+    expect(Number(level1?.quantityBase)).toBe(35);
+
+    // 3. Adjust using mode="delta" by -10 (a decrease of 10)
+    const adjDeltaRes = await inventory.adjustStockQuantity(storeAId, userAId, {
+      storeVariantId: testVarId,
+      mode: "delta",
+      deltaQuantityBase: -10,
+      reason: "تسوية عجز تالف",
+    });
+
+    expect(adjDeltaRes.newBalance).toBe(25);
+    expect(adjDeltaRes.adjustedDelta).toBe(-10);
+
+    // Verify movement
+    const movement = await migratorPrisma.stockMovement.findUnique({
+      where: { id: adjDeltaRes.movementId! },
+    });
+    expect(movement?.type).toBe("adjustment");
+    expect(Number(movement?.quantityBase)).toBe(-10);
+    expect(Number(movement?.balanceAfterBase)).toBe(25);
+
+    // 4. Negative resulting balance throws error
+    await expect(
+      inventory.adjustStockQuantity(storeAId, userAId, {
+        storeVariantId: testVarId,
+        mode: "delta",
+        deltaQuantityBase: -50, // exceeds current 25
+      }),
+    ).rejects.toThrow("الكمية الناتجة بعد الخصم لا يمكن أن تكون سالبة");
+
+    // 5. Tenant isolation: Store B cannot adjust Store A variant
+    await expect(
+      inventory.adjustStockQuantity(storeBId, userBId, {
+        storeVariantId: testVarId,
+        mode: "set",
+        targetQuantityBase: 10,
+      }),
+    ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
+  });
+
+  it("clears variant stock to zero, records adjustment movement, and optionally deactivates variant", async () => {
+    const catalog = new CatalogService(appPrisma);
+    const prod = await catalog.upsertStoreProduct(storeAId, userAId, {
+      nameAr: `عصير تفاح تيست ${runId}`,
+      category: "مشروبات",
+      unit: "piece",
+      sellPricePiasters: 1500,
+      isCustom: true,
+      variants: [{ flavor: "تفاح", packQty: 1, sellPricePiasters: 1500 }],
+    });
+    const clearVarId = prod.variants[0]!.id;
+
+    const inventory = new InventoryService(appPrisma);
+
+    // Add initial stock: 10 units
+    await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: clearVarId,
+      receivedQuantityBase: 10,
+      costPriceMinor: 1000,
+    });
+
+    // Clear stock and remove from view
+    const clearRes = await inventory.clearVariantStock(storeAId, userAId, {
+      storeVariantId: clearVarId,
+      removeFromView: true,
+      reason: "توقف التعامل مع المنتج وتصفيره",
+    });
+
+    expect(clearRes.clearedQuantity).toBe(10);
+    expect(clearRes.removedFromView).toBe(true);
+
+    // Verify stock_levels is 0
+    const levelAfterClear = await migratorPrisma.stockLevel.findUnique({
+      where: {
+        storeId_storeVariantId: {
+          storeId: storeAId,
+          storeVariantId: clearVarId,
+        },
+      },
+    });
+    expect(Number(levelAfterClear?.quantityBase)).toBe(0);
+
+    // Verify all active batches are zeroed
+    const activeBatches = await migratorPrisma.storeStockBatch.findMany({
+      where: {
+        storeId: storeAId,
+        storeVariantId: clearVarId,
+        remainingQuantityBase: { gt: BigInt(0) },
+      },
+    });
+    expect(activeBatches).toHaveLength(0);
+
+    // Verify StoreVariant.isActive is false
+    const variantRow = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeVariant.findUnique({
+          where: { id: clearVarId },
+        }),
+      appPrisma,
+    );
+    expect(variantRow?.isActive).toBe(false);
+
+    // Store B cannot clear Store A variant
+    await expect(
+      inventory.clearVariantStock(storeBId, userBId, {
+        storeVariantId: clearVarId,
+      }),
+    ).rejects.toThrow("الصنف غير موجود في هذا المحل");
+  });
 });
