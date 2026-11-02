@@ -126,6 +126,11 @@ export function ProductFormModal({
         ? initialCatalogProduct.product.category
         : "السلع الاستهلاكية",
   );
+  const isServiceCategory =
+    category === "فواتير إنترنت" ||
+    category === "شحن رصيد" ||
+    category === "تحويل أموال" ||
+    product?.unit === "service";
   const [brandName, setBrandName] = useState(
     initialCatalogProduct?.brand?.nameAr ?? "",
   );
@@ -298,7 +303,13 @@ export function ProductFormModal({
     let sellPriceNum = 0;
     let buyCostNum = 0;
 
-    if (kind === "weight") {
+    if (isServiceCategory) {
+      sellPriceNum = parseFloat(pcSell);
+      buyCostNum = parseFloat(pcBuy) || 0;
+      if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
+        newErrors.price = "اكتب قيمة عمولة الخدمة";
+      }
+    } else if (kind === "weight") {
       sellPriceNum = parseFloat(wSell);
       buyCostNum = parseFloat(wBuy) || 0;
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
@@ -546,142 +557,217 @@ export function ProductFormModal({
             </div>
           )}
 
-          {/* بيتباع إزاي؟ */}
-          <Field label="بيتباع إزاي؟">
-            <Seg
-              value={kind}
-              onChange={(val) => setKind(val as "unit" | "weight")}
-              options={[
-                ["unit", "بالقطعة / الكرتونة", "box"],
-                ["weight", "بالوزن (كيلو)", "scale"],
-              ]}
-            />
-          </Field>
-
-          {kind === "weight" ? (
+          {isServiceCategory ? (
             <div className={styles.priceCardGroup}>
-              {/* خيارات وحدة تسعير الوزن */}
-              <div style={{ marginBottom: 12 }}>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    marginBottom: 6,
-                    color: "var(--ink2)",
-                  }}
-                >
-                  التسعير بالوزن:
-                </span>
-                <Seg
-                  value={weightUnit}
-                  onChange={(val) => setWeightUnit(val as "kg" | "g")}
-                  options={[
-                    ["kg", "بالكيلو (كجم)"],
-                    ["g", "بالجرام (جم)"],
-                  ]}
-                />
+              <div className={styles.priceCardTitle}>عمولة الخدمة للمحل</div>
+              <Field label="قيمة العمولة (ج.م)" err={errors.price}>
+                <div className={styles.inputWithBadge}>
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={pcSell}
+                    onChange={(e) => setPcSell(e.target.value)}
+                    placeholder="5"
+                  />
+                  <span className={styles.inputBadge}>ج.م</span>
+                </div>
+              </Field>
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--ink2)",
+                  marginTop: -6,
+                  fontWeight: 600,
+                }}
+              >
+                العمولة التي يحصل عليها المحل عند تنفيذ هذه المعاملة (يمكنك
+                تعديلها في أي وقت).
               </div>
-
-              <div className={styles.priceCardTitle}>
-                {weightUnit === "kg" ? "سعر الكيلو" : "سعر الجرام"}
-              </div>
-              <div className={styles.priceInputsGrid}>
-                <div className={styles.priceInputCol}>
-                  <span className={styles.priceInputLabel}>شراء</span>
-                  <div className={styles.inputWithBadge}>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={wBuy}
-                      onChange={(e) => setWBuy(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className={styles.inputBadge}>ج.م</span>
-                  </div>
-                </div>
-                <div className={styles.priceInputCol}>
-                  <span className={styles.priceInputLabel}>بيع</span>
-                  <div className={styles.inputWithBadge}>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={wSell}
-                      onChange={(e) => setWSell(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className={styles.inputBadge}>ج.م</span>
-                  </div>
-                </div>
-              </div>
-              {Number(wSell) > 0 && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--ink2)",
-                    marginTop: 8,
-                    fontWeight: 600,
-                  }}
-                >
-                  {weightUnit === "kg"
-                    ? `(100 جرام تعادل ${(Number(wSell) / 10).toFixed(2)} ج.م)`
-                    : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
-                </div>
-              )}
-              {errors.price && (
-                <div
-                  style={{
-                    color: "var(--red, #cf3c3c)",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    marginTop: 6,
-                  }}
-                >
-                  {errors.price}
-                </div>
-              )}
             </div>
           ) : (
             <>
-              {/* بيتباع كرتونة كمان toggle card */}
-              <div
-                className={styles.cartonToggleCard}
-                onClick={() => setHasPack(!hasPack)}
-                role="checkbox"
-                aria-checked={hasPack}
-                tabIndex={0}
-              >
-                <span className={styles.cartonToggleLabel}>
-                  بيتباع كرتونة كمان
-                </span>
-                <div
-                  className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
-                >
-                  {hasPack && <Icon n="check" s={14} />}
-                </div>
-              </div>
+              {/* بيتباع إزاي؟ */}
+              <Field label="بيتباع إزاي؟">
+                <Seg
+                  value={kind}
+                  onChange={(val) => setKind(val as "unit" | "weight")}
+                  options={[
+                    ["unit", "بالقطعة / الكرتونة", "box"],
+                    ["weight", "بالوزن (كيلو)", "scale"],
+                  ]}
+                />
+              </Field>
 
-              {hasPack && (
-                <>
-                  {/* عدد القطع في الكرتونة */}
-                  <Field label="عدد القطع في الكرتونة" err={errors.packN}>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        min="2"
-                        value={packN}
-                        onChange={(e) => handlePackNChange(e.target.value)}
-                        placeholder="12"
-                      />
-                      <span className={styles.inputBadge}>قطعة</span>
+              {kind === "weight" ? (
+                <div className={styles.priceCardGroup}>
+                  {/* خيارات وحدة تسعير الوزن */}
+                  <div style={{ marginBottom: 12 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        marginBottom: 6,
+                        color: "var(--ink2)",
+                      }}
+                    >
+                      التسعير بالوزن:
+                    </span>
+                    <Seg
+                      value={weightUnit}
+                      onChange={(val) => setWeightUnit(val as "kg" | "g")}
+                      options={[
+                        ["kg", "بالكيلو (كجم)"],
+                        ["g", "بالجرام (جم)"],
+                      ]}
+                    />
+                  </div>
+
+                  <div className={styles.priceCardTitle}>
+                    {weightUnit === "kg" ? "سعر الكيلو" : "سعر الجرام"}
+                  </div>
+                  <div className={styles.priceInputsGrid}>
+                    <div className={styles.priceInputCol}>
+                      <span className={styles.priceInputLabel}>شراء</span>
+                      <div className={styles.inputWithBadge}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={wBuy}
+                          onChange={(e) => setWBuy(e.target.value)}
+                          placeholder="0"
+                        />
+                        <span className={styles.inputBadge}>ج.م</span>
+                      </div>
                     </div>
-                  </Field>
+                    <div className={styles.priceInputCol}>
+                      <span className={styles.priceInputLabel}>بيع</span>
+                      <div className={styles.inputWithBadge}>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={wSell}
+                          onChange={(e) => setWSell(e.target.value)}
+                          placeholder="0"
+                        />
+                        <span className={styles.inputBadge}>ج.م</span>
+                      </div>
+                    </div>
+                  </div>
+                  {Number(wSell) > 0 && (
+                    <div
+                      style={{
+                        fontSize: 12,
+                        color: "var(--ink2)",
+                        marginTop: 8,
+                        fontWeight: 600,
+                      }}
+                    >
+                      {weightUnit === "kg"
+                        ? `(100 جرام تعادل ${(Number(wSell) / 10).toFixed(2)} ج.م)`
+                        : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
+                    </div>
+                  )}
+                  {errors.price && (
+                    <div
+                      style={{
+                        color: "var(--red, #cf3c3c)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        marginTop: 6,
+                      }}
+                    >
+                      {errors.price}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {/* بيتباع كرتونة كمان toggle card */}
+                  <div
+                    className={styles.cartonToggleCard}
+                    onClick={() => setHasPack(!hasPack)}
+                    role="checkbox"
+                    aria-checked={hasPack}
+                    tabIndex={0}
+                  >
+                    <span className={styles.cartonToggleLabel}>
+                      بيتباع كرتونة كمان
+                    </span>
+                    <div
+                      className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
+                    >
+                      {hasPack && <Icon n="check" s={14} />}
+                    </div>
+                  </div>
 
-                  {/* سعر الكرتونة */}
+                  {hasPack && (
+                    <>
+                      {/* عدد القطع في الكرتونة */}
+                      <Field label="عدد القطع في الكرتونة" err={errors.packN}>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            min="2"
+                            value={packN}
+                            onChange={(e) => handlePackNChange(e.target.value)}
+                            placeholder="12"
+                          />
+                          <span className={styles.inputBadge}>قطعة</span>
+                        </div>
+                      </Field>
+
+                      {/* سعر الكرتونة */}
+                      <div className={styles.priceCardGroup}>
+                        <div className={styles.priceCardTitle}>
+                          سعر الكرتونة
+                        </div>
+                        <div className={styles.priceInputsGrid}>
+                          <div className={styles.priceInputCol}>
+                            <span className={styles.priceInputLabel}>شراء</span>
+                            <div className={styles.inputWithBadge}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={pkBuy}
+                                onChange={(e) =>
+                                  handlePackBuyChange(e.target.value)
+                                }
+                                placeholder="0"
+                              />
+                              <span className={styles.inputBadge}>ج.م</span>
+                            </div>
+                          </div>
+                          <div className={styles.priceInputCol}>
+                            <span className={styles.priceInputLabel}>بيع</span>
+                            <div className={styles.inputWithBadge}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={pkSell}
+                                onChange={(e) =>
+                                  handlePackSellChange(e.target.value)
+                                }
+                                placeholder="0"
+                              />
+                              <span className={styles.inputBadge}>ج.م</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* سعر القطعة / الكارت */}
                   <div className={styles.priceCardGroup}>
-                    <div className={styles.priceCardTitle}>سعر الكرتونة</div>
+                    <div className={styles.priceCardTitle}>
+                      {category === "كروت شحن" ? "سعر الكارت" : "سعر القطعة"}
+                    </div>
                     <div className={styles.priceInputsGrid}>
                       <div className={styles.priceInputCol}>
                         <span className={styles.priceInputLabel}>شراء</span>
@@ -690,9 +776,9 @@ export function ProductFormModal({
                             type="number"
                             step="any"
                             min="0"
-                            value={pkBuy}
+                            value={pcBuy}
                             onChange={(e) =>
-                              handlePackBuyChange(e.target.value)
+                              handlePieceBuyChange(e.target.value)
                             }
                             placeholder="0"
                           />
@@ -706,9 +792,9 @@ export function ProductFormModal({
                             type="number"
                             step="any"
                             min="0"
-                            value={pkSell}
+                            value={pcSell}
                             onChange={(e) =>
-                              handlePackSellChange(e.target.value)
+                              handlePieceSellChange(e.target.value)
                             }
                             placeholder="0"
                           />
@@ -716,56 +802,21 @@ export function ProductFormModal({
                         </div>
                       </div>
                     </div>
+                    {errors.price && (
+                      <div
+                        style={{
+                          color: "var(--red, #cf3c3c)",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          marginTop: 6,
+                        }}
+                      >
+                        {errors.price}
+                      </div>
+                    )}
                   </div>
                 </>
               )}
-
-              {/* سعر القطعة */}
-              <div className={styles.priceCardGroup}>
-                <div className={styles.priceCardTitle}>سعر القطعة</div>
-                <div className={styles.priceInputsGrid}>
-                  <div className={styles.priceInputCol}>
-                    <span className={styles.priceInputLabel}>شراء</span>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={pcBuy}
-                        onChange={(e) => handlePieceBuyChange(e.target.value)}
-                        placeholder="0"
-                      />
-                      <span className={styles.inputBadge}>ج.م</span>
-                    </div>
-                  </div>
-                  <div className={styles.priceInputCol}>
-                    <span className={styles.priceInputLabel}>بيع</span>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={pcSell}
-                        onChange={(e) => handlePieceSellChange(e.target.value)}
-                        placeholder="0"
-                      />
-                      <span className={styles.inputBadge}>ج.م</span>
-                    </div>
-                  </div>
-                </div>
-                {errors.price && (
-                  <div
-                    style={{
-                      color: "var(--red, #cf3c3c)",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      marginTop: 6,
-                    }}
-                  >
-                    {errors.price}
-                  </div>
-                )}
-              </div>
             </>
           )}
 

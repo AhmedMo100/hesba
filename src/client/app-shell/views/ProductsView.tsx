@@ -73,6 +73,12 @@ function PriceBox({ label, buy, sell }: PriceBoxProps) {
 const isWeightProduct = (p: StoreProductItem) =>
   p.unit === "weight" || p.unit === "kg" || p.unit === "g";
 
+const isServiceProduct = (p: StoreProductItem) =>
+  p.category === "فواتير إنترنت" ||
+  p.category === "شحن رصيد" ||
+  p.category === "تحويل أموال" ||
+  p.unit === "service";
+
 const packCount = (p: StoreProductItem) => {
   if (isWeightProduct(p)) return 0;
   const n = p.variants?.[0]?.pack_qty;
@@ -273,6 +279,16 @@ export function ProductsView() {
   }, [products, filterMode, activeCategory, query]);
 
   const formatSubtitle = (p: StoreProductItem) => {
+    if (
+      p.category === "فواتير إنترنت" ||
+      p.category === "شحن رصيد" ||
+      p.category === "تحويل أموال"
+    ) {
+      return p.category;
+    }
+    if (p.category === "كروت شحن") {
+      return "كارت شحن فوري";
+    }
     if (p.unit === "weight" || p.unit === "kg") return "بالوزن (كيلو)";
     if (p.unit === "g") return "بالوزن (جرام)";
     const packQty = packCount(p);
@@ -466,7 +482,25 @@ export function ProductsView() {
                 {/* Card Top: 3-dots Menu + Title matching Demo Screenshot */}
                 <div className={styles.pch}>
                   <div className={styles.pcn}>
-                    <b>{p.name_ar}</b>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      <b>{p.name_ar}</b>
+                      {(p.is_custom || p.added_by_this_store) && (
+                        <span
+                          className={styles.customStoreBadge}
+                          title="منتج تم إنشاؤه بواسطة هذا المحل"
+                        >
+                          <Icon n="store" s={11} />
+                          <span>من محلك</span>
+                        </span>
+                      )}
+                    </div>
                     <small>{formatSubtitle(p)}</small>
                   </div>
 
@@ -547,7 +581,27 @@ export function ProductsView() {
 
                 {/* Price Boxes Section matching Demo Screenshot */}
                 <div className={styles.pcp}>
-                  {isWeight ? (
+                  {isServiceProduct(p) ? (
+                    <div className={styles.serviceBox}>
+                      <div className={styles.serviceBoxRow}>
+                        <span className={styles.serviceLabel}>
+                          عمولة الخدمة
+                        </span>
+                        <span className={styles.serviceAmount}>
+                          {fmtMoney(pieceSell)} ج.م
+                        </span>
+                      </div>
+                      <div className={styles.serviceHint}>
+                        {p.category === "تحويل أموال"
+                          ? "عمولة التحويل / السحب"
+                          : p.category === "فواتير إنترنت"
+                            ? "عمولة سداد الفاتورة"
+                            : "عمولة الشحن على الهواء"}
+                      </div>
+                    </div>
+                  ) : p.category === "كروت شحن" ? (
+                    <PriceBox label="الكارت" buy={pieceBuy} sell={pieceSell} />
+                  ) : isWeight ? (
                     <PriceBox
                       label={p.unit === "g" ? "الجرام" : "الكيلو"}
                       buy={pieceBuy}

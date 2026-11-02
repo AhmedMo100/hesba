@@ -29,6 +29,34 @@ export interface CreateStoreProductResult {
   suggestedToCommunity: boolean;
 }
 
+function getDefaultTelecomPrice(
+  nameAr: string,
+  category: string,
+  flavor?: string | null,
+): { sell: number; buy: number } {
+  if (category === "كروت شحن") {
+    if (flavor?.includes("100") || nameAr.includes("100"))
+      return { sell: 11200, buy: 10600 };
+    if (flavor?.includes("50") || nameAr.includes("50"))
+      return { sell: 5600, buy: 5300 };
+    if (flavor?.includes("25") || nameAr.includes("25"))
+      return { sell: 2800, buy: 2650 };
+    if (flavor?.includes("10") || nameAr.includes("10"))
+      return { sell: 1100, buy: 1050 };
+    return { sell: 1100, buy: 1050 };
+  }
+  if (category === "فواتير إنترنت") {
+    return { sell: 500, buy: 0 };
+  }
+  if (category === "شحن رصيد") {
+    return { sell: 300, buy: 0 };
+  }
+  if (category === "تحويل أموال") {
+    return { sell: 500, buy: 0 };
+  }
+  return { sell: 0, buy: 0 };
+}
+
 export class CatalogService {
   private readonly communityService: CommunitySuggestionsService;
 
@@ -327,7 +355,14 @@ export class CatalogService {
           const primaryGlobalVar = gp.globalVariants[0];
           const overrideVar = override?.storeVariants[0];
 
-          const sellPrice = override ? Number(override.sellPricePiasters) : 0;
+          const defaultTelecom = getDefaultTelecomPrice(
+            gp.nameAr,
+            gp.category,
+            primaryGlobalVar?.flavor,
+          );
+          const sellPrice = override
+            ? Number(override.sellPricePiasters)
+            : defaultTelecom.sell;
           const buyCost = override
             ? Number(
                 overrideVar?.storeStockBatches[0]?.costPriceMinor ??
@@ -335,7 +370,7 @@ export class CatalogService {
                   overrideVar?.buyPricePiasters ??
                   0,
               )
-            : 0;
+            : defaultTelecom.buy;
 
           let productStock = 0;
           const variants: FormattedVariantItem[] =
@@ -377,27 +412,34 @@ export class CatalogService {
                     storeStockBatches: [{ costPriceMinor: BigInt(bCost) }],
                   };
                 })
-              : gp.globalVariants.map((gv) => ({
-                  id: gv.id,
-                  flavor: gv.flavor,
-                  size_value: gv.sizeValue ? Number(gv.sizeValue) : null,
-                  sizeValue: gv.sizeValue ? Number(gv.sizeValue) : null,
-                  size_unit: gv.sizeUnit,
-                  sizeUnit: gv.sizeUnit,
-                  pack_qty: gv.packQty,
-                  packQty: gv.packQty,
-                  sell_price_piasters: 0,
-                  sellPricePiasters: BigInt(0),
-                  buy_cost_piasters: 0,
-                  buyPricePiasters: BigInt(0),
-                  stock_quantity: 0,
-                  global_variant_id: gv.id,
-                  globalVariantId: gv.id,
-                  is_active: true,
-                  isActive: true,
-                  stockLevels: [],
-                  storeStockBatches: [{ costPriceMinor: BigInt(0) }],
-                }));
+              : gp.globalVariants.map((gv) => {
+                  const def = getDefaultTelecomPrice(
+                    gp.nameAr,
+                    gp.category,
+                    gv.flavor,
+                  );
+                  return {
+                    id: gv.id,
+                    flavor: gv.flavor,
+                    size_value: gv.sizeValue ? Number(gv.sizeValue) : null,
+                    sizeValue: gv.sizeValue ? Number(gv.sizeValue) : null,
+                    size_unit: gv.sizeUnit,
+                    sizeUnit: gv.sizeUnit,
+                    pack_qty: gv.packQty,
+                    packQty: gv.packQty,
+                    sell_price_piasters: def.sell,
+                    sellPricePiasters: BigInt(def.sell),
+                    buy_cost_piasters: def.buy,
+                    buyPricePiasters: BigInt(def.buy),
+                    stock_quantity: 0,
+                    global_variant_id: gv.id,
+                    globalVariantId: gv.id,
+                    is_active: true,
+                    isActive: true,
+                    stockLevels: [],
+                    storeStockBatches: [{ costPriceMinor: BigInt(def.buy) }],
+                  };
+                });
 
           const item: FormattedProductItem = {
             id: override ? override.id : `gp_${gp.id}`,
