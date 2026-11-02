@@ -148,6 +148,64 @@ describe("ProductFormModal Component", () => {
     expect(html).toContain("حفظ");
     expect(html).not.toContain("المخزون الحالي:");
   });
+
+  it("renders service commission input when service category is edited (e.g. internet bills, money transfer)", () => {
+    const serviceProduct = {
+      id: "prod-bill",
+      name_ar: "دفع فاتورة إنترنت منزلي وي",
+      category: "فواتير إنترنت",
+      unit: "piece",
+      sell_price_piasters: 500,
+      variants: [
+        {
+          id: "var-bill",
+          pack_qty: 1,
+          sell_price_piasters: 500,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ProductFormModal
+        product={serviceProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html).toContain("عمولة الخدمة للمحل");
+    expect(html).toContain("قيمة العمولة (ج.م)");
+    expect(html).not.toContain("بيتباع إزاي؟");
+  });
+
+  it("renders scratch card title 'سعر الكارت' when prepaid card category is edited", () => {
+    const cardProduct = {
+      id: "prod-card",
+      name_ar: "كارت شحن فودافون فكة 10",
+      category: "كروت شحن",
+      unit: "piece",
+      sell_price_piasters: 1100,
+      buy_cost_piasters: 1050,
+      variants: [
+        {
+          id: "var-card",
+          pack_qty: 1,
+          sell_price_piasters: 1100,
+          buy_cost_piasters: 1050,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ProductFormModal
+        product={cardProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html).toContain("سعر الكارت");
+  });
 });
 
 describe("AddStockModal Component", () => {

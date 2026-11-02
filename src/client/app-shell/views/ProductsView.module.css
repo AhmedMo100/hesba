@@ -653,3 +653,51 @@
   font-size: 11px;
   color: var(--ink2);
 }
+
+.customStoreBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: color-mix(in srgb, var(--ok, #108e5c) 15%, transparent);
+  color: var(--ok, #108e5c);
+  border: 1px solid color-mix(in srgb, var(--ok, #108e5c) 30%, transparent);
+  border-radius: 6px;
+  padding: 2px 6px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.serviceBox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  background: var(--sf, #ffffff);
+  border: 1px solid var(--line, #e2d8c3);
+  border-radius: 10px;
+}
+
+.serviceBoxRow {
+  display: flex;
+  justifycontent: space-between;
+  align-items: center;
+}
+
+.serviceLabel {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink2);
+}
+
+.serviceAmount {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ok, #108e5c);
+  font-feature-settings: "tnum";
+}
+
+.serviceHint {
+  font-size: 11px;
+  color: var(--ink2);
+}
