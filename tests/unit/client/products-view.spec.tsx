@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ProductsView } from "@/client/app-shell/views/ProductsView";
 import { ProductFormModal } from "@/client/app-shell/views/ProductFormModal";
 import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
+import { MachinesModal } from "@/client/app-shell/views/MachinesModal";
 
 describe("ProductsView Client Component", () => {
   beforeEach(() => {
@@ -16,6 +17,12 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain("المنتجات");
     expect(html).toContain('data-testid="add-product-btn"');
     expect(html).toContain("إضافة منتج");
+  });
+
+  it("renders top segmented tabs switching between 'المنتجات' and 'الفواتير والشحن'", () => {
+    const html = renderToStaticMarkup(<ProductsView />);
+    expect(html).toContain("المنتجات");
+    expect(html).toContain("الفواتير والشحن");
   });
 
   it("renders search box with Arabic placeholder and microphone button", () => {
@@ -325,7 +332,7 @@ describe("AddStockModal Component", () => {
 
     expect(html).toContain("إضافة للمخزون: شيبسي عائلي بالجبنة");
     expect(html).toContain("الرصيد الحالي: <b>4 كرتونة</b>");
-    expect(html).toContain("تأكيد الإضافة للمخزون ✓");
+    expect(html).toContain("إضافة ✓");
   });
 
   it("renders bag-specific labels when adding stock for a product sold in bags", () => {
@@ -358,5 +365,25 @@ describe("AddStockModal Component", () => {
 
     expect(html).toContain("أكياس زيادة");
     expect(html).toContain("أكياس/كرتونة");
+  });
+});
+
+describe("MachinesModal Component (Payment POS Terminals & Providers)", () => {
+  it("renders POS machines manager with registered machines and action to add machine", () => {
+    const html = renderToStaticMarkup(
+      <MachinesModal onClose={() => {}} onMachinesUpdated={() => {}} />,
+    );
+
+    expect(html).toContain("ماكينات الدفع ومزودو الخدمة");
+    expect(html).toContain("+ إضافة ماكينة دفع");
+  });
+
+  it("renders safety and privacy disclaimer without asking for PIN or OTP", () => {
+    const html = renderToStaticMarkup(
+      <MachinesModal onClose={() => {}} onMachinesUpdated={() => {}} />,
+    );
+
+    expect(html).not.toContain("رمز PIN");
+    expect(html).not.toContain("كلمة المرور");
   });
 });

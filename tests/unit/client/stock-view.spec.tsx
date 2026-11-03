@@ -23,19 +23,15 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
     expect(html).toContain("إضافة");
   });
 
-  it("renders segmented control tabs with 'الكميات' and 'سجل الحركات'", () => {
+  it("renders segmented control tabs with 'الكميات' and 'سجل الإضافات'", () => {
     const html = renderToStaticMarkup(<StockView />);
     expect(html).toContain("الكميات");
-    expect(html).toContain("سجل الحركات");
+    expect(html).toContain("سجل الإضافات");
   });
 
-  it("renders search box, stock type filters, and status filter chips on Tab 1", () => {
+  it("renders search box and status filter chips on Tab 1 matching Image 1", () => {
     const html = renderToStaticMarkup(<StockView />);
     expect(html).toContain("دوّر في المخزون");
-    expect(html).toContain("كافة الأنواع");
-    expect(html).toContain("منتجات مادية");
-    expect(html).toContain("كروت فيزيائية");
-    expect(html).toContain("وحدات رقمية");
     expect(html).toContain("الكل");
     expect(html).toContain("قرب يخلص (0)");
     expect(html).toContain("خلصان (0)");
@@ -43,7 +39,7 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
 });
 
 describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
-  it("renders dropdown selector trigger with search icon and arrow when no preset product is passed", () => {
+  it("renders dropdown selector trigger with search icon and arrow when no preset product is passed matching Image 2", () => {
     const html = renderToStaticMarkup(
       <AddStockModal
         options={[
@@ -71,9 +67,9 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
 
     expect(html).toContain("إضافة للمخزون");
     expect(html).toContain("المنتج");
-    expect(html).toContain("نوع الكمية التي يتم إدخالها:");
-    expect(html).toContain("بالقطعة / الكرتونة");
-    expect(html).toContain("بالوزن");
+    expect(html).toContain("دوّر على المنتج أو اختاره");
+    expect(html).toContain("إلغاء");
+    expect(html).toContain("إضافة ✓");
   });
 
   it("renders price comparison hint and expiry management options", () => {
@@ -110,7 +106,7 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
     expect(html).toContain("بعد 3 شهور");
     expect(html).toContain("بعد 6 شهور");
     expect(html).toContain("بعد سنة");
-    expect(html).toContain("تأكيد الإضافة للمخزون ✓");
+    expect(html).toContain("إضافة ✓");
   });
 
   it("renders auto-calculated expected cost hint based on registered buy price", () => {

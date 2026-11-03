@@ -18,6 +18,8 @@ export interface ProductFormModalProps {
     unit: string;
     sell_price_piasters: number;
     buy_cost_piasters?: number;
+    barcode?: string | null;
+    brand_name?: string | null;
     is_custom?: boolean;
     global_product_id?: string | null;
     variants: Array<{
@@ -26,11 +28,15 @@ export interface ProductFormModalProps {
       size_value?: number | null;
       size_unit?: string | null;
       pack_qty?: number;
+      barcode?: string | null;
       sell_price_piasters: number;
       buy_cost_piasters?: number;
     }>;
   } | null;
+  presetName?: string;
   initialCatalogProduct?: CatalogSearchResult | null;
+  initialSection?: "products" | "services";
+  defaultCategory?: string;
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
   onDeleted?: (productId: string) => void;
@@ -38,7 +44,10 @@ export interface ProductFormModalProps {
 
 export function ProductFormModal({
   product,
+  presetName,
   initialCatalogProduct,
+  initialSection = "products",
+  defaultCategory,
   onClose,
   onSaved,
   onDeleted,
@@ -48,9 +57,8 @@ export function ProductFormModal({
   const [name, setName] = useState(
     product
       ? product.name_ar
-      : initialCatalogProduct
-        ? initialCatalogProduct.product.nameAr
-        : "",
+      : presetName ||
+          (initialCatalogProduct ? initialCatalogProduct.product.nameAr : ""),
   );
   const [kind, setKind] = useState<"unit" | "weight" | "bag">(
     product?.unit === "bag"
@@ -140,9 +148,13 @@ export function ProductFormModal({
   const [category, setCategory] = useState(
     product
       ? product.category
-      : initialCatalogProduct
-        ? initialCatalogProduct.product.category
-        : "السلع الاستهلاكية",
+      : defaultCategory
+        ? defaultCategory
+        : initialCatalogProduct
+          ? initialCatalogProduct.product.category
+          : initialSection === "services"
+            ? "فواتير إنترنت"
+            : "السلع الاستهلاكية",
   );
   const isServiceCategory =
     category === "فواتير إنترنت" ||
@@ -151,6 +163,10 @@ export function ProductFormModal({
     category === "خدمات مرافق" ||
     category === "خدمات رقمية" ||
     product?.unit === "service";
+
+  const [barcode, setBarcode] = useState(
+    product?.barcode || firstVariant?.barcode || "",
+  );
 
   // Dedicated Digital Services configuration
   const [commissionModel, setCommissionModel] = useState<
@@ -455,6 +471,7 @@ export function ProductFormModal({
           ? selectedGlobalProduct.product.id
           : (product?.global_product_id ?? null),
         brandName: brandName.trim() || null,
+        barcode: barcode.trim() || null,
         variants: [
           {
             id: firstVariant?.id,
@@ -465,6 +482,7 @@ export function ProductFormModal({
             sellPricePiasters,
             costPricePiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
             globalVariantId: selectedVariantId || null,
+            barcode: barcode.trim() || null,
           },
         ],
       };
@@ -657,6 +675,59 @@ export function ProductFormModal({
             <div className={styles.priceCardGroup}>
               <div className={styles.priceCardTitle}>
                 إعدادات عمولة الخدمة الرقمية
+              </div>
+
+              {/* اختيار تصنيف الخدمة والشركة */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                  marginBottom: 12,
+                }}
+              >
+                <Field label="تصنيف الخدمة">
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1.5px solid var(--line)",
+                      fontSize: 13,
+                      background: "var(--sf)",
+                      color: "var(--ink)",
+                    }}
+                  >
+                    <option value="شحن مرافق">
+                      شحن مرافق (كهرباء/مياه/غاز)
+                    </option>
+                    <option value="فواتير إنترنت">فواتير إنترنت وتليفون</option>
+                    <option value="كروت شحن">كروت شحن</option>
+                    <option value="تحويل أموال">تحويل أموال ومحافظ</option>
+                    <option value="شحن رصيد">شحن رصيد على الهواء</option>
+                    <option value="خدمات رقمية">خدمات رقمية أخرى</option>
+                  </select>
+                </Field>
+
+                <Field label="الشركة أو المزود">
+                  <input
+                    type="text"
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="مثال: فودافون، وي، فوري..."
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1.5px solid var(--line)",
+                      fontSize: 13,
+                      background: "var(--sf)",
+                      color: "var(--ink)",
+                    }}
+                  />
+                </Field>
               </div>
 
               {/* اختيار نموذج احتساب العمولة */}
@@ -894,6 +965,79 @@ export function ProductFormModal({
             </div>
           ) : (
             <>
+              {/* تصنيف وبراند وباركود المنتج الفيزيائي */}
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 10,
+                }}
+              >
+                <Field label="التصنيف">
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1.5px solid var(--line)",
+                      fontSize: 13,
+                      background: "var(--sf)",
+                      color: "var(--ink)",
+                    }}
+                  >
+                    <option value="السلع الاستهلاكية">السلع الاستهلاكية</option>
+                    <option value="سلع أساسية">سلع أساسية</option>
+                    <option value="ألبان وجبن">ألبان وجبن</option>
+                    <option value="مشروبات">مشروبات</option>
+                    <option value="سناكس ومقرمشات">سناكس ومقرمشات</option>
+                    <option value="معلبات">معلبات</option>
+                    <option value="منظفات وورقيات">منظفات وورقيات</option>
+                    <option value="حلويات وبسكويت">حلويات وبسكويت</option>
+                    <option value="مجمدات ولحوم">مجمدات ولحوم</option>
+                    <option value="كروت شحن">كروت شحن فيزيائية</option>
+                    <option value="أخرى">أخرى</option>
+                  </select>
+                </Field>
+
+                <Field label="البراند / الماركة (اختياري)">
+                  <input
+                    type="text"
+                    value={brandName}
+                    onChange={(e) => setBrandName(e.target.value)}
+                    placeholder="مثال: جهينة، عبور لاند..."
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      borderRadius: 8,
+                      border: "1.5px solid var(--line)",
+                      fontSize: 13,
+                      background: "var(--sf)",
+                      color: "var(--ink)",
+                    }}
+                  />
+                </Field>
+              </div>
+
+              <Field label="الباركود (اختياري)">
+                <input
+                  type="text"
+                  value={barcode}
+                  onChange={(e) => setBarcode(e.target.value)}
+                  placeholder="مثال: 6223000..."
+                  style={{
+                    width: "100%",
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    border: "1.5px solid var(--line)",
+                    fontSize: 13,
+                    background: "var(--sf)",
+                    color: "var(--ink)",
+                  }}
+                />
+              </Field>
+
               {/* بيتباع إزاي؟ */}
               <Field label="بيتباع إزاي؟">
                 <Seg

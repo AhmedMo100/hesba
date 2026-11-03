@@ -68,15 +68,14 @@ export function AddStockModal({
   }, [initialOption, extraOptions, options]);
 
   const [selectedVariantId, setSelectedVariantId] = useState(
-    presetVariantId ||
-      initialOption?.variantId ||
-      (options[0]?.variantId ?? ""),
+    presetVariantId || initialOption?.variantId || "",
   );
 
   const selectedOption = useMemo(
     () =>
-      activeOptions.find((o) => o.variantId === selectedVariantId) ||
-      initialOption,
+      (selectedVariantId
+        ? activeOptions.find((o) => o.variantId === selectedVariantId)
+        : undefined) || initialOption,
     [activeOptions, selectedVariantId, initialOption],
   );
 
@@ -488,7 +487,7 @@ export function AddStockModal({
               disabled={isSubmitting}
               loading={isSubmitting}
             >
-              تأكيد الإضافة للمخزون ✓
+              إضافة ✓
             </Button>
           </>
         }
@@ -614,7 +613,7 @@ export function AddStockModal({
                         type="text"
                         value={searchDropdown}
                         onChange={(e) => setSearchDropdown(e.target.value)}
-                        placeholder="ابحث بالاسم أو النكهة..."
+                        placeholder="دوّر على المنتج أو اختاره"
                         autoFocus
                         style={{
                           width: "100%",
@@ -710,7 +709,7 @@ export function AddStockModal({
                       }}
                     >
                       <Icon n="plus" s={16} />
-                      <span>مش لاقيه؟ ضيف منتج جديد للمحل</span>
+                      <span>+ مش لاقيه؟ ضيف منتج جديد</span>
                     </div>
                   </div>
                 )}
@@ -718,148 +717,526 @@ export function AddStockModal({
             </Field>
           )}
 
-          {/* اختيار نوع الكمية: قطعة/كرتونة أو بالوزن */}
-          <div>
-            <span
-              style={{
-                display: "block",
-                fontSize: 12.5,
-                fontWeight: 700,
-                marginBottom: 6,
-                color: "var(--ink2)",
-              }}
-            >
-              نوع الكمية التي يتم إدخالها:
-            </span>
-            <Seg
-              value={entryMode}
-              onChange={(val) => setEntryMode(val as "unit" | "weight")}
-              options={[
-                [
-                  "unit",
-                  isBag
-                    ? "بالكيس / الكرتونة"
-                    : isCard
-                      ? "بالكارت"
-                      : "بالقطعة / الكرتونة",
-                  "box",
-                ],
-                ["weight", "بالوزن", "scale"],
-              ]}
-            />
-          </div>
+          {selectedOption && (
+            <>
+              <div
+                style={{
+                  fontSize: 13,
+                  color: "var(--ink2)",
+                  margin: "0 0 6px",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 6,
+                }}
+              >
+                <span>الموجود دلوقتي:</span>
+                <b style={{ color: "var(--ink)" }}>
+                  {formatOptionStock(selectedOption)}
+                </b>
+              </div>
 
-          {entryMode === "weight" ? (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+              {/* اختيار نوع الكمية: قطعة/كرتونة أو بالوزن */}
               <div>
                 <span
                   style={{
                     display: "block",
-                    fontSize: 12,
+                    fontSize: 12.5,
                     fontWeight: 700,
                     marginBottom: 6,
                     color: "var(--ink2)",
                   }}
                 >
-                  وحدة الوزن المدخلة:
+                  نوع الكمية التي يتم إدخالها:
                 </span>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 8,
-                  }}
-                >
-                  <button
-                    type="button"
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      border:
-                        weightUnit === "kg"
-                          ? "1.5px solid var(--ink)"
-                          : "1px solid var(--line)",
-                      background:
-                        weightUnit === "kg" ? "var(--ink)" : "var(--sf)",
-                      color: weightUnit === "kg" ? "var(--bg)" : "var(--ink)",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      cursor: "pointer",
-                    }}
-                    onClick={() => setWeightUnit("kg")}
-                  >
-                    بالكيلو (كجم)
-                  </button>
-                  <button
-                    type="button"
-                    style={{
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      border:
-                        weightUnit === "g"
-                          ? "1.5px solid var(--ink)"
-                          : "1px solid var(--line)",
-                      background:
-                        weightUnit === "g" ? "var(--ink)" : "var(--sf)",
-                      color: weightUnit === "g" ? "var(--bg)" : "var(--ink)",
-                      fontWeight: 700,
-                      fontSize: 13,
-                      cursor: "pointer",
-                    }}
-                    onClick={() => setWeightUnit("g")}
-                  >
-                    بالجرام (جم)
-                  </button>
-                </div>
+                <Seg
+                  value={entryMode}
+                  onChange={(val) => setEntryMode(val as "unit" | "weight")}
+                  options={[
+                    [
+                      "unit",
+                      isBag
+                        ? "بالكيس / الكرتونة"
+                        : isCard
+                          ? "بالكارت"
+                          : "بالقطعة / الكرتونة",
+                      "box",
+                    ],
+                    ["weight", "بالوزن", "scale"],
+                  ]}
+                />
               </div>
 
-              <Field
-                label={
-                  weightUnit === "kg"
-                    ? "الوزن اللي دخل (بالكيلو)"
-                    : "الوزن اللي دخل (بالجرام)"
-                }
-                err={errors.qty}
-                hint={
-                  totalBaseQty > 0
-                    ? weightUnit === "kg"
-                      ? `(تعادل ${totalBaseQty.toLocaleString("ar-EG")} جرام)`
-                      : `(تعادل ${(totalBaseQty / 1000).toFixed(3)} كيلو)`
-                    : undefined
-                }
-              >
-                <input
-                  type="number"
-                  step={weightUnit === "kg" ? "0.05" : "1"}
-                  min="0"
-                  value={weightInput}
-                  onChange={(e) => setWeightInput(e.target.value)}
-                  placeholder={weightUnit === "kg" ? "مثال: 5.5" : "مثال: 500"}
+              {entryMode === "weight" ? (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  <div>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        marginBottom: 6,
+                        color: "var(--ink2)",
+                      }}
+                    >
+                      وحدة الوزن المدخلة:
+                    </span>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: 8,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border:
+                            weightUnit === "kg"
+                              ? "1.5px solid var(--ink)"
+                              : "1px solid var(--line)",
+                          background:
+                            weightUnit === "kg" ? "var(--ink)" : "var(--sf)",
+                          color:
+                            weightUnit === "kg" ? "var(--bg)" : "var(--ink)",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: "pointer",
+                        }}
+                        onClick={() => setWeightUnit("kg")}
+                      >
+                        بالكيلو (كجم)
+                      </button>
+                      <button
+                        type="button"
+                        style={{
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border:
+                            weightUnit === "g"
+                              ? "1.5px solid var(--ink)"
+                              : "1px solid var(--line)",
+                          background:
+                            weightUnit === "g" ? "var(--ink)" : "var(--sf)",
+                          color:
+                            weightUnit === "g" ? "var(--bg)" : "var(--ink)",
+                          fontWeight: 700,
+                          fontSize: 13,
+                          cursor: "pointer",
+                        }}
+                        onClick={() => setWeightUnit("g")}
+                      >
+                        بالجرام (جم)
+                      </button>
+                    </div>
+                  </div>
+
+                  <Field
+                    label={
+                      weightUnit === "kg"
+                        ? "الوزن اللي دخل (بالكيلو)"
+                        : "الوزن اللي دخل (بالجرام)"
+                    }
+                    err={errors.qty}
+                    hint={
+                      totalBaseQty > 0
+                        ? weightUnit === "kg"
+                          ? `(تعادل ${totalBaseQty.toLocaleString("ar-EG")} جرام)`
+                          : `(تعادل ${(totalBaseQty / 1000).toFixed(3)} كيلو)`
+                        : undefined
+                    }
+                  >
+                    <input
+                      type="number"
+                      step={weightUnit === "kg" ? "0.05" : "1"}
+                      min="0"
+                      value={weightInput}
+                      onChange={(e) => setWeightInput(e.target.value)}
+                      placeholder={
+                        weightUnit === "kg" ? "مثال: 5.5" : "مثال: 500"
+                      }
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        borderRadius: 10,
+                        border: "1.5px solid var(--line)",
+                      }}
+                    />
+                  </Field>
+                </div>
+              ) : (
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr 1fr",
+                      gap: 8,
+                    }}
+                  >
+                    <Field label="كراتين">
+                      <input
+                        type="number"
+                        min="0"
+                        value={cartons}
+                        onChange={(e) => setCartons(e.target.value)}
+                        placeholder="عدد الكراتين"
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1.5px solid var(--line)",
+                        }}
+                      />
+                    </Field>
+
+                    <Field
+                      label={
+                        isBag
+                          ? "أكياس زيادة"
+                          : isCard
+                            ? "كروت مفردة"
+                            : "قطع زيادة"
+                      }
+                    >
+                      <input
+                        type="number"
+                        min="0"
+                        value={pieces}
+                        onChange={(e) => setPieces(e.target.value)}
+                        placeholder={
+                          isBag
+                            ? "أكياس مفرد"
+                            : isCard
+                              ? "كروت مفرد"
+                              : "قطع مفرد"
+                        }
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1.5px solid var(--line)",
+                        }}
+                      />
+                    </Field>
+
+                    <Field
+                      label={
+                        isBag
+                          ? "أكياس/كرتونة"
+                          : isCard
+                            ? "كروت/كرتونة"
+                            : "قطع/كرتونة"
+                      }
+                    >
+                      <input
+                        type="number"
+                        min="1"
+                        value={packN}
+                        onChange={(e) => setPackN(e.target.value)}
+                        placeholder="12"
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1.5px solid var(--line)",
+                        }}
+                      />
+                    </Field>
+                  </div>
+
+                  {totalBaseQty > 0 && (
+                    <div
+                      style={{
+                        fontSize: 12.5,
+                        color: "var(--ok)",
+                        fontWeight: 700,
+                        background: "var(--soft)",
+                        padding: "6px 10px",
+                        borderRadius: 8,
+                      }}
+                    >
+                      إجمالي الكمية: {totalBaseQty}{" "}
+                      {isBag ? "كيس" : isCard ? "كارت" : "قطعة"}
+                      {parseInt(cartons, 10) > 0 &&
+                        ` (${cartons} كرتونة${
+                          parseInt(pieces, 10) > 0
+                            ? ` و ${pieces} ${isBag ? "كيس" : isCard ? "كارت" : "قطعة"}`
+                            : ""
+                        })`}
+                    </div>
+                  )}
+                  {errors.qty && (
+                    <span
+                      style={{
+                        color: "var(--red, #cf3c3c)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                      }}
+                    >
+                      {errors.qty}
+                    </span>
+                  )}
+                </div>
+              )}
+
+              {/* إجمالي سعر الشراء */}
+              <div>
+                <Field
+                  label="إجمالي سعر الشراء للكمية دي (ج.م)"
+                  err={errors.cost}
+                  hint={
+                    unitCostEgp > 0
+                      ? entryMode === "weight"
+                        ? weightUnit === "kg"
+                          ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
+                          : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
+                        : `${isBag ? "الكيس" : isCard ? "الكارت" : "القطعة"} بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
+                      : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
+                  }
+                >
+                  <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    value={costEgp}
+                    onChange={(e) => setCostEgp(e.target.value)}
+                    placeholder="مثال: 1000"
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: "1.5px solid var(--line)",
+                      fontSize: 15,
+                      fontWeight: 700,
+                    }}
+                  />
+                </Field>
+
+                {expectedCostEgp > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      fontSize: 12,
+                      color: "var(--ink2)",
+                      marginTop: 4,
+                      marginBottom: 4,
+                      background: "var(--sf2)",
+                      padding: "6px 10px",
+                      borderRadius: 8,
+                      border: "1px solid var(--line)",
+                    }}
+                  >
+                    <span>
+                      السعر المتوقع بناءً على سعر الشراء المسجل:{" "}
+                      <b>{expectedCostEgp.toFixed(2)} ج.م</b>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setCostEgp(expectedCostEgp.toString())}
+                      style={{
+                        background: "var(--sf)",
+                        border: "1px solid var(--line)",
+                        borderRadius: 6,
+                        padding: "3px 8px",
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        color: "var(--ok, #108e5c)",
+                      }}
+                    >
+                      تطبيق السعر المتوقع
+                    </button>
+                  </div>
+                )}
+
+                {/* تنبيه المقارنة مع سعر الشراء المسجل في صفحة المنتجات */}
+                {priceComparison && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      fontSize: 12.5,
+                      lineHeight: 1.5,
+                      fontWeight: 700,
+                      display: "flex",
+                      gap: 8,
+                      alignItems: "flex-start",
+                      background:
+                        priceComparison.status === "higher"
+                          ? "var(--yelBg, #fdf6e2)"
+                          : priceComparison.status === "lower"
+                            ? "var(--sf2, #f5f0e1)"
+                            : "var(--soft, #e1e8d4)",
+                      border: `1.5px solid ${
+                        priceComparison.status === "higher"
+                          ? "var(--yelLine, #d9a92e)"
+                          : priceComparison.status === "lower"
+                            ? "var(--line, #ddd4bc)"
+                            : "var(--ok, #4f6b46)"
+                      }`,
+                    }}
+                  >
+                    <span>
+                      {priceComparison.status === "higher"
+                        ? "⚠️"
+                        : priceComparison.status === "lower"
+                          ? "ℹ️"
+                          : "✅"}
+                    </span>
+                    <span>{priceComparison.msg}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* الصلاحية والدفعات */}
+              <div>
+                <div
                   style={{
-                    width: "100%",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1.5px solid var(--line)",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                    marginBottom: 8,
+                    cursor: "pointer",
                   }}
-                />
-              </Field>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  onClick={() => {
+                    const next = !noExpiry;
+                    setNoExpiry(next);
+                    if (next) {
+                      setExpiry("");
+                      setProdDate("");
+                    }
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    id="noExpiryCheck"
+                    checked={noExpiry}
+                    onChange={(e) => {
+                      setNoExpiry(e.target.checked);
+                      if (e.target.checked) {
+                        setExpiry("");
+                        setProdDate("");
+                      }
+                    }}
+                    style={{ width: 18, height: 18, cursor: "pointer" }}
+                  />
+                  <label
+                    htmlFor="noExpiryCheck"
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                    }}
+                  >
+                    المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)
+                  </label>
+                </div>
+
+                {!noExpiry && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      gap: 10,
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateColumns: "1fr 1fr",
+                        gap: 8,
+                      }}
+                    >
+                      <Field label="تاريخ الإنتاج / البداية (اختياري)">
+                        <input
+                          type="date"
+                          value={prodDate}
+                          onChange={(e) => setProdDate(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            border: "1.5px solid var(--line)",
+                          }}
+                        />
+                      </Field>
+
+                      <Field label="تاريخ الانتهاء" err={errors.expiry}>
+                        <input
+                          type="date"
+                          value={expiry}
+                          onChange={(e) => setExpiry(e.target.value)}
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px",
+                            borderRadius: 10,
+                            border: "1.5px solid var(--line)",
+                          }}
+                        />
+                      </Field>
+                    </div>
+
+                    <div>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 11.5,
+                          fontWeight: 700,
+                          color: "var(--ink2)",
+                          marginBottom: 6,
+                        }}
+                      >
+                        حساب مدة الصلاحية سريعاً من الإنتاج:
+                      </span>
+                      <div
+                        style={{ display: "flex", gap: 6, flexWrap: "wrap" }}
+                      >
+                        {quickExpiryChips.map((chip) => (
+                          <button
+                            key={chip.label}
+                            type="button"
+                            onClick={() => applyDurationMonths(chip.months)}
+                            style={{
+                              padding: "5px 10px",
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              borderRadius: 8,
+                              border: "1px solid var(--line)",
+                              background: "var(--sf2)",
+                              color: "var(--ink)",
+                              cursor: "pointer",
+                            }}
+                          >
+                            {chip.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
               <div
                 style={{
                   display: "grid",
-                  gridTemplateColumns: "1fr 1fr 1fr",
+                  gridTemplateColumns: "1fr 1fr",
                   gap: 8,
                 }}
               >
-                <Field label="كراتين">
+                <Field label="كود التشغيلة / الباتش (اختياري)">
                   <input
-                    type="number"
-                    min="0"
-                    value={cartons}
-                    onChange={(e) => setCartons(e.target.value)}
-                    placeholder="عدد الكراتين"
+                    type="text"
+                    value={batchCode}
+                    onChange={(e) => setBatchCode(e.target.value)}
+                    placeholder="مثال: B-2026-11"
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -869,43 +1246,12 @@ export function AddStockModal({
                   />
                 </Field>
 
-                <Field
-                  label={
-                    isBag ? "أكياس زيادة" : isCard ? "كروت مفردة" : "قطع زيادة"
-                  }
-                >
+                <Field label="اسم المورد (اختياري)">
                   <input
-                    type="number"
-                    min="0"
-                    value={pieces}
-                    onChange={(e) => setPieces(e.target.value)}
-                    placeholder={
-                      isBag ? "أكياس مفرد" : isCard ? "كروت مفرد" : "قطع مفرد"
-                    }
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1.5px solid var(--line)",
-                    }}
-                  />
-                </Field>
-
-                <Field
-                  label={
-                    isBag
-                      ? "أكياس/كرتونة"
-                      : isCard
-                        ? "كروت/كرتونة"
-                        : "قطع/كرتونة"
-                  }
-                >
-                  <input
-                    type="number"
-                    min="1"
-                    value={packN}
-                    onChange={(e) => setPackN(e.target.value)}
-                    placeholder="12"
+                    type="text"
+                    value={supplierName}
+                    onChange={(e) => setSupplierName(e.target.value)}
+                    placeholder="مثال: شركة الأمل للتوزيع"
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -915,319 +1261,15 @@ export function AddStockModal({
                   />
                 </Field>
               </div>
-
-              {totalBaseQty > 0 && (
-                <div
-                  style={{
-                    fontSize: 12.5,
-                    color: "var(--ok)",
-                    fontWeight: 700,
-                    background: "var(--soft)",
-                    padding: "6px 10px",
-                    borderRadius: 8,
-                  }}
-                >
-                  إجمالي الكمية: {totalBaseQty}{" "}
-                  {isBag ? "كيس" : isCard ? "كارت" : "قطعة"}
-                  {parseInt(cartons, 10) > 0 &&
-                    ` (${cartons} كرتونة${
-                      parseInt(pieces, 10) > 0
-                        ? ` و ${pieces} ${isBag ? "كيس" : isCard ? "كارت" : "قطعة"}`
-                        : ""
-                    })`}
-                </div>
-              )}
-              {errors.qty && (
-                <span
-                  style={{
-                    color: "var(--red, #cf3c3c)",
-                    fontSize: 12,
-                    fontWeight: 700,
-                  }}
-                >
-                  {errors.qty}
-                </span>
-              )}
-            </div>
+            </>
           )}
-
-          {/* إجمالي سعر الشراء */}
-          <div>
-            <Field
-              label="إجمالي سعر الشراء للكمية دي (ج.م)"
-              err={errors.cost}
-              hint={
-                unitCostEgp > 0
-                  ? entryMode === "weight"
-                    ? weightUnit === "kg"
-                      ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                      : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                    : `${isBag ? "الكيس" : isCard ? "الكارت" : "القطعة"} بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
-                  : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
-              }
-            >
-              <input
-                type="number"
-                step="any"
-                min="0"
-                value={costEgp}
-                onChange={(e) => setCostEgp(e.target.value)}
-                placeholder="مثال: 1000"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                  fontSize: 15,
-                  fontWeight: 700,
-                }}
-              />
-            </Field>
-
-            {expectedCostEgp > 0 && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  fontSize: 12,
-                  color: "var(--ink2)",
-                  marginTop: 4,
-                  marginBottom: 4,
-                  background: "var(--sf2)",
-                  padding: "6px 10px",
-                  borderRadius: 8,
-                  border: "1px solid var(--line)",
-                }}
-              >
-                <span>
-                  السعر المتوقع بناءً على سعر الشراء المسجل:{" "}
-                  <b>{expectedCostEgp.toFixed(2)} ج.م</b>
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setCostEgp(expectedCostEgp.toString())}
-                  style={{
-                    background: "var(--sf)",
-                    border: "1px solid var(--line)",
-                    borderRadius: 6,
-                    padding: "3px 8px",
-                    fontSize: 11,
-                    fontWeight: 700,
-                    cursor: "pointer",
-                    color: "var(--ok, #108e5c)",
-                  }}
-                >
-                  تطبيق السعر المتوقع
-                </button>
-              </div>
-            )}
-
-            {/* تنبيه المقارنة مع سعر الشراء المسجل في صفحة المنتجات */}
-            {priceComparison && (
-              <div
-                style={{
-                  marginTop: 8,
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  fontSize: 12.5,
-                  lineHeight: 1.5,
-                  fontWeight: 700,
-                  display: "flex",
-                  gap: 8,
-                  alignItems: "flex-start",
-                  background:
-                    priceComparison.status === "higher"
-                      ? "var(--yelBg, #fdf6e2)"
-                      : priceComparison.status === "lower"
-                        ? "var(--sf2, #f5f0e1)"
-                        : "var(--soft, #e1e8d4)",
-                  border: `1.5px solid ${
-                    priceComparison.status === "higher"
-                      ? "var(--yelLine, #d9a92e)"
-                      : priceComparison.status === "lower"
-                        ? "var(--line, #ddd4bc)"
-                        : "var(--ok, #4f6b46)"
-                  }`,
-                }}
-              >
-                <span>
-                  {priceComparison.status === "higher"
-                    ? "⚠️"
-                    : priceComparison.status === "lower"
-                      ? "ℹ️"
-                      : "✅"}
-                </span>
-                <span>{priceComparison.msg}</span>
-              </div>
-            )}
-          </div>
-
-          {/* الصلاحية والدفعات */}
-          <div>
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                marginBottom: 8,
-                cursor: "pointer",
-              }}
-              onClick={() => {
-                const next = !noExpiry;
-                setNoExpiry(next);
-                if (next) {
-                  setExpiry("");
-                  setProdDate("");
-                }
-              }}
-            >
-              <input
-                type="checkbox"
-                id="noExpiryCheck"
-                checked={noExpiry}
-                onChange={(e) => {
-                  setNoExpiry(e.target.checked);
-                  if (e.target.checked) {
-                    setExpiry("");
-                    setProdDate("");
-                  }
-                }}
-                style={{ width: 18, height: 18, cursor: "pointer" }}
-              />
-              <label
-                htmlFor="noExpiryCheck"
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                }}
-              >
-                المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)
-              </label>
-            </div>
-
-            {!noExpiry && (
-              <div
-                style={{ display: "flex", flexDirection: "column", gap: 10 }}
-              >
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 8,
-                  }}
-                >
-                  <Field label="تاريخ الإنتاج / البداية (اختياري)">
-                    <input
-                      type="date"
-                      value={prodDate}
-                      onChange={(e) => setProdDate(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        borderRadius: 10,
-                        border: "1.5px solid var(--line)",
-                      }}
-                    />
-                  </Field>
-
-                  <Field label="تاريخ الانتهاء" err={errors.expiry}>
-                    <input
-                      type="date"
-                      value={expiry}
-                      onChange={(e) => setExpiry(e.target.value)}
-                      style={{
-                        width: "100%",
-                        padding: "10px 12px",
-                        borderRadius: 10,
-                        border: "1.5px solid var(--line)",
-                      }}
-                    />
-                  </Field>
-                </div>
-
-                <div>
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      color: "var(--ink2)",
-                      marginBottom: 6,
-                    }}
-                  >
-                    حساب مدة الصلاحية سريعاً من الإنتاج:
-                  </span>
-                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {quickExpiryChips.map((chip) => (
-                      <button
-                        key={chip.label}
-                        type="button"
-                        onClick={() => applyDurationMonths(chip.months)}
-                        style={{
-                          padding: "5px 10px",
-                          fontSize: 11.5,
-                          fontWeight: 700,
-                          borderRadius: 8,
-                          border: "1px solid var(--line)",
-                          background: "var(--sf2)",
-                          color: "var(--ink)",
-                          cursor: "pointer",
-                        }}
-                      >
-                        {chip.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 8,
-            }}
-          >
-            <Field label="كود التشغيلة / الباتش (اختياري)">
-              <input
-                type="text"
-                value={batchCode}
-                onChange={(e) => setBatchCode(e.target.value)}
-                placeholder="مثال: B-2026-11"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                }}
-              />
-            </Field>
-
-            <Field label="اسم المورد (اختياري)">
-              <input
-                type="text"
-                value={supplierName}
-                onChange={(e) => setSupplierName(e.target.value)}
-                placeholder="مثال: شركة الأمل للتوزيع"
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                }}
-              />
-            </Field>
-          </div>
         </form>
       </Modal>
 
       {/* New Product Modal for adding product inline */}
       {showNewProductModal && (
         <ProductFormModal
+          presetName={searchDropdown}
           onClose={() => setShowNewProductModal(false)}
           onSaved={(newProduct: unknown) => {
             setShowNewProductModal(false);
