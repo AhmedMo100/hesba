@@ -16,6 +16,8 @@ const TELECOM_BRANDS = [
   { nameAr: "اتصالات", nameEn: "Etisalat" },
   { nameAr: "وي", nameEn: "WE" },
   { nameAr: "إنستاباي", nameEn: "InstaPay" },
+  { nameAr: "شركة الكهرباء", nameEn: "Electricity Company" },
+  { nameAr: "شركة مياه الشرب", nameEn: "Water Company" },
 ];
 
 const TELECOM_PRODUCTS = [
@@ -295,6 +297,43 @@ const TELECOM_PRODUCTS = [
     flavor: "إيداع أو سحب",
     sellPricePiasters: 500,
     buyCostPiasters: 0,
+  },
+  // خدمات مرافق وكروت ذكية
+  {
+    brandAr: "شركة الكهرباء",
+    nameAr: "شحن كارت كهرباء مسبق الدفع",
+    category: "خدمات مرافق",
+    type: "service" as const,
+    flavor: "شحن رصيد كارت",
+    sellPricePiasters: 500,
+    buyCostPiasters: 0,
+  },
+  {
+    brandAr: "شركة مياه الشرب",
+    nameAr: "شحن كارت مياه مسبق الدفع",
+    category: "خدمات مرافق",
+    type: "service" as const,
+    flavor: "شحن رصيد كارت",
+    sellPricePiasters: 500,
+    buyCostPiasters: 0,
+  },
+  {
+    brandAr: "شركة الكهرباء",
+    nameAr: "كارت كهرباء ذكي جديد",
+    category: "كروت مرافق",
+    type: "stock" as const,
+    flavor: "كارت فيزيائي جديد",
+    sellPricePiasters: 10000,
+    buyCostPiasters: 8000,
+  },
+  {
+    brandAr: "شركة مياه الشرب",
+    nameAr: "كارت مياه ذكي جديد",
+    category: "كروت مرافق",
+    type: "stock" as const,
+    flavor: "كارت فيزيائي جديد",
+    sellPricePiasters: 10000,
+    buyCostPiasters: 8000,
   },
 ];
 

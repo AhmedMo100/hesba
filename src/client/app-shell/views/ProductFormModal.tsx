@@ -52,15 +52,33 @@ export function ProductFormModal({
         ? initialCatalogProduct.product.nameAr
         : "",
   );
-  const [kind, setKind] = useState<"unit" | "weight">(
-    product?.unit === "weight" ||
-      product?.unit === "kg" ||
-      product?.unit === "g"
-      ? "weight"
-      : "unit",
+  const [kind, setKind] = useState<"unit" | "weight" | "bag">(
+    product?.unit === "bag"
+      ? "bag"
+      : product?.unit === "weight" ||
+          product?.unit === "kg" ||
+          product?.unit === "g"
+        ? "weight"
+        : "unit",
   );
   const [weightUnit, setWeightUnit] = useState<"kg" | "g">(
     product?.unit === "g" ? "g" : "kg",
+  );
+
+  // Bag packaging state
+  const [bagContentType, setBagContentType] = useState<"weight" | "count">(
+    firstVariant?.size_unit === "piece" ? "count" : "weight",
+  );
+  const [bagWeightVal, setBagWeightVal] = useState<string>(
+    firstVariant?.size_value ? firstVariant.size_value.toString() : "500",
+  );
+  const [bagWeightUnit, setBagWeightUnit] = useState<"g" | "kg">(
+    firstVariant?.size_unit === "kg" ? "kg" : "g",
+  );
+  const [bagCountVal, setBagCountVal] = useState<string>(
+    firstVariant?.size_unit === "piece" && firstVariant?.size_value
+      ? firstVariant.size_value.toString()
+      : "10",
   );
 
   // Weight pricing (in pounds for user display/entry)
@@ -130,7 +148,24 @@ export function ProductFormModal({
     category === "فواتير إنترنت" ||
     category === "شحن رصيد" ||
     category === "تحويل أموال" ||
+    category === "خدمات مرافق" ||
+    category === "خدمات رقمية" ||
     product?.unit === "service";
+
+  // Dedicated Digital Services configuration
+  const [commissionModel, setCommissionModel] = useState<
+    "fixed" | "percent" | "tiers"
+  >("fixed");
+  const [commissionValue, setCommissionValue] = useState<string>(
+    product ? (product.sell_price_piasters / 100).toString() : "5",
+  );
+  const [percentRate, setPercentRate] = useState<string>("1.5");
+  const [providerFee, setProviderFee] = useState<string>(
+    product?.buy_cost_piasters
+      ? (product.buy_cost_piasters / 100).toString()
+      : "0",
+  );
+  const [simAmount, setSimAmount] = useState<string>("100");
   const [brandName, setBrandName] = useState(
     initialCatalogProduct?.brand?.nameAr ?? "",
   );
@@ -281,6 +316,13 @@ export function ProductFormModal({
         const unitLabel = weightUnit === "g" ? "الجرام" : "الكيلو";
         return `مجمل الربح المتوقع في ${unitLabel}: ${formatMoney(diffPiasters)}`;
       }
+    } else if (kind === "bag") {
+      const sell = parseFloat(pcSell);
+      const buy = parseFloat(pcBuy);
+      if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
+        const diffPiasters = Math.round((sell - buy) * 100);
+        return `مجمل الربح المتوقع في الكيس: ${formatMoney(diffPiasters)}`;
+      }
     } else {
       const sell = parseFloat(pcSell);
       const buy = parseFloat(pcBuy);
@@ -304,8 +346,20 @@ export function ProductFormModal({
     let buyCostNum = 0;
 
     if (isServiceCategory) {
-      sellPriceNum = parseFloat(pcSell);
-      buyCostNum = parseFloat(pcBuy) || 0;
+      if (commissionModel === "fixed") {
+        sellPriceNum = parseFloat(commissionValue) || 0;
+        buyCostNum = parseFloat(providerFee) || 0;
+      } else if (commissionModel === "percent") {
+        const sim = parseFloat(simAmount) || 100;
+        const rate = parseFloat(percentRate) || 0;
+        sellPriceNum = (sim * rate) / 100;
+        buyCostNum = parseFloat(providerFee) || 0;
+      } else {
+        // tiers
+        sellPriceNum = parseFloat(commissionValue) || 5;
+        buyCostNum = parseFloat(providerFee) || 0;
+      }
+
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
         newErrors.price = "اكتب قيمة عمولة الخدمة";
       }
@@ -315,6 +369,18 @@ export function ProductFormModal({
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
         newErrors.price =
           weightUnit === "g" ? "اكتب سعر بيع الجرام" : "اكتب سعر بيع الكيلو";
+      }
+    } else if (kind === "bag") {
+      sellPriceNum = parseFloat(pcSell);
+      buyCostNum = parseFloat(pcBuy) || 0;
+      if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
+        newErrors.price = "اكتب سعر بيع الكيس";
+      }
+      if (hasPack) {
+        const n = parseInt(packN, 10);
+        if (isNaN(n) || n < 2) {
+          newErrors.packN = "عدد الأكياس في الكرتونة (2 أو أكثر)";
+        }
       }
     } else {
       sellPriceNum = parseFloat(pcSell);
@@ -343,13 +409,45 @@ export function ProductFormModal({
       const buyCostPiasters = buyCostNum > 0 ? Math.round(buyCostNum * 100) : 0;
       const isCustom = product ? product.is_custom : !selectedGlobalProduct;
       const packQtyNum =
-        hasPack && kind === "unit" ? parseInt(packN, 10) || 1 : 1;
+        hasPack && (kind === "unit" || kind === "bag")
+          ? parseInt(packN, 10) || 1
+          : 1;
+
+      const targetUnit = isServiceCategory
+        ? ("service" as const)
+        : kind === "weight"
+          ? weightUnit
+          : kind === "bag"
+            ? ("bag" as const)
+            : ("piece" as const);
+
+      const targetSizeValue =
+        kind === "weight"
+          ? 1
+          : kind === "bag"
+            ? bagContentType === "weight"
+              ? parseFloat(bagWeightVal) || 500
+              : parseInt(bagCountVal, 10) || 10
+            : sizeValue
+              ? parseFloat(sizeValue)
+              : null;
+
+      const targetSizeUnit =
+        kind === "weight"
+          ? weightUnit
+          : kind === "bag"
+            ? bagContentType === "weight"
+              ? bagWeightUnit
+              : "piece"
+            : sizeValue
+              ? sizeUnit
+              : null;
 
       const payload = {
         id: product?.id,
         nameAr: name.trim(),
         category,
-        unit: kind === "weight" ? weightUnit : ("piece" as const),
+        unit: targetUnit,
         sellPricePiasters,
         buyCostPiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
         isCustom,
@@ -361,10 +459,8 @@ export function ProductFormModal({
           {
             id: firstVariant?.id,
             flavor: flavor.trim() || null,
-            sizeValue:
-              kind === "weight" ? 1 : sizeValue ? parseFloat(sizeValue) : null,
-            sizeUnit:
-              kind === "weight" ? weightUnit : sizeValue ? sizeUnit : null,
+            sizeValue: targetSizeValue,
+            sizeUnit: targetSizeUnit,
             packQty: packQtyNum,
             sellPricePiasters,
             costPricePiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
@@ -559,30 +655,241 @@ export function ProductFormModal({
 
           {isServiceCategory ? (
             <div className={styles.priceCardGroup}>
-              <div className={styles.priceCardTitle}>عمولة الخدمة للمحل</div>
-              <Field label="قيمة العمولة (ج.م)" err={errors.price}>
+              <div className={styles.priceCardTitle}>
+                إعدادات عمولة الخدمة الرقمية
+              </div>
+
+              {/* اختيار نموذج احتساب العمولة */}
+              <div style={{ marginBottom: 12 }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginBottom: 6,
+                    color: "var(--ink2)",
+                  }}
+                >
+                  طريقة احتساب عمولة المحل:
+                </span>
+                <Seg
+                  value={commissionModel}
+                  onChange={(val) =>
+                    setCommissionModel(val as "fixed" | "percent" | "tiers")
+                  }
+                  options={[
+                    ["fixed", "مبلغ ثابت (ج.م)"],
+                    ["percent", "نسبة مئوية (%)"],
+                    ["tiers", "شرائح مبالغ"],
+                  ]}
+                />
+              </div>
+
+              {commissionModel === "fixed" && (
+                <Field
+                  label="عمولة المحل الثابتة لكل معاملة (ج.م)"
+                  err={errors.price}
+                >
+                  <div className={styles.inputWithBadge}>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={commissionValue}
+                      onChange={(e) => setCommissionValue(e.target.value)}
+                      placeholder="5"
+                    />
+                    <span className={styles.inputBadge}>ج.م</span>
+                  </div>
+                </Field>
+              )}
+
+              {commissionModel === "percent" && (
+                <Field
+                  label="نسبة عمولة المحل من إجمالي المعاملة (%)"
+                  err={errors.price}
+                >
+                  <div className={styles.inputWithBadge}>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={percentRate}
+                      onChange={(e) => setPercentRate(e.target.value)}
+                      placeholder="1.5"
+                    />
+                    <span className={styles.inputBadge}>%</span>
+                  </div>
+                </Field>
+              )}
+
+              {commissionModel === "tiers" && (
+                <div
+                  style={{
+                    background: "var(--sf2)",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1px solid var(--line)",
+                    marginBottom: 10,
+                  }}
+                >
+                  <span
+                    style={{
+                      display: "block",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      marginBottom: 6,
+                      color: "var(--ink)",
+                    }}
+                  >
+                    شرائح العمولة الافتراضية:
+                  </span>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: "var(--ink2)",
+                      lineHeight: 1.6,
+                    }}
+                  >
+                    • حتى 100 ج.م: <b>2 ج.م</b>
+                    <br />• من 101 حتى 500 ج.م: <b>5 ج.م</b>
+                    <br />• أكثر من 500 ج.م: <b>10 ج.م</b>
+                  </div>
+                </div>
+              )}
+
+              {/* تكلفة أو رسوم مزود الخدمة */}
+              <Field label="رسوم المزود أو تكلفة الخدمة إن وجدت (ج.م)">
                 <div className={styles.inputWithBadge}>
                   <input
                     type="number"
                     step="any"
                     min="0"
-                    value={pcSell}
-                    onChange={(e) => setPcSell(e.target.value)}
-                    placeholder="5"
+                    value={providerFee}
+                    onChange={(e) => setProviderFee(e.target.value)}
+                    placeholder="0"
                   />
                   <span className={styles.inputBadge}>ج.م</span>
                 </div>
               </Field>
+
+              {/* محاكي حساب الأرباح الحية */}
               <div
                 style={{
-                  fontSize: 12,
-                  color: "var(--ink2)",
-                  marginTop: -6,
-                  fontWeight: 600,
+                  background: "var(--sf2)",
+                  border: "1.5px dashed var(--line)",
+                  borderRadius: 12,
+                  padding: "12px",
+                  marginTop: 6,
                 }}
               >
-                العمولة التي يحصل عليها المحل عند تنفيذ هذه المعاملة (يمكنك
-                تعديلها في أي وقت).
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 8,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 12.5,
+                      fontWeight: 700,
+                      color: "var(--ink)",
+                    }}
+                  >
+                    محاكي الأرباح لمعاملة تجريبية:
+                  </span>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      maxWidth: 110,
+                    }}
+                  >
+                    <input
+                      type="number"
+                      step="any"
+                      min="1"
+                      value={simAmount}
+                      onChange={(e) => setSimAmount(e.target.value)}
+                      placeholder="100"
+                      style={{
+                        padding: "4px 8px",
+                        fontSize: 12,
+                        borderRadius: 6,
+                        border: "1px solid var(--line)",
+                        width: "100%",
+                        textAlign: "center",
+                        background: "var(--sf)",
+                        color: "var(--ink)",
+                      }}
+                    />
+                    <span style={{ fontSize: 11, color: "var(--ink2)" }}>
+                      ج.م
+                    </span>
+                  </div>
+                </div>
+
+                {(() => {
+                  const amt = parseFloat(simAmount) || 100;
+                  let comm = 0;
+                  if (commissionModel === "fixed") {
+                    comm = parseFloat(commissionValue) || 0;
+                  } else if (commissionModel === "percent") {
+                    comm = (amt * (parseFloat(percentRate) || 0)) / 100;
+                  } else {
+                    comm = amt <= 100 ? 2 : amt <= 500 ? 5 : 10;
+                  }
+                  const fee = parseFloat(providerFee) || 0;
+                  const net = Math.max(0, comm - fee);
+
+                  return (
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        fontSize: 12,
+                      }}
+                    >
+                      <span style={{ color: "var(--ink2)" }}>
+                        عمولة المحل: <b>{comm.toFixed(2)} ج.م</b> | تكلفة
+                        المزود: <b>{fee.toFixed(2)} ج.م</b>
+                      </span>
+                      <span
+                        style={{
+                          fontWeight: 800,
+                          color: "var(--ok, #108e5c)",
+                          fontSize: 13,
+                        }}
+                      >
+                        صافي ربحك: {net.toFixed(2)} ج.م
+                      </span>
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* إخلاء مسؤولية تنبيهي بارز */}
+              <div
+                style={{
+                  fontSize: 11.5,
+                  color: "var(--ink2)",
+                  marginTop: 8,
+                  lineHeight: 1.5,
+                  background:
+                    "color-mix(in srgb, var(--yel, #b8841a) 8%, transparent)",
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border:
+                    "1px solid color-mix(in srgb, var(--yel, #b8841a) 25%, transparent)",
+                }}
+              >
+                ℹ️ <b>تنبيه تنظيمي:</b> تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات
+                التشغيلية وأرباح المحل فقط، ولا يقوم بتنفيذ أي تحويلات بنكية أو
+                معاملات دفع نقدي فعلي عبر الشبكات.
               </div>
             </div>
           ) : (
@@ -591,9 +898,10 @@ export function ProductFormModal({
               <Field label="بيتباع إزاي؟">
                 <Seg
                   value={kind}
-                  onChange={(val) => setKind(val as "unit" | "weight")}
+                  onChange={(val) => setKind(val as "unit" | "weight" | "bag")}
                   options={[
                     ["unit", "بالقطعة / الكرتونة", "box"],
+                    ["bag", "بالكيس", "layers"],
                     ["weight", "بالوزن (كيلو)", "scale"],
                   ]}
                 />
@@ -684,6 +992,208 @@ export function ProductFormModal({
                     </div>
                   )}
                 </div>
+              ) : kind === "bag" ? (
+                <>
+                  {/* إعدادات محتوى الكيس */}
+                  <div className={styles.priceCardGroup}>
+                    <div className={styles.priceCardTitle}>محتوى الكيس</div>
+                    <div style={{ marginBottom: 10 }}>
+                      <Seg
+                        value={bagContentType}
+                        onChange={(val) =>
+                          setBagContentType(val as "weight" | "count")
+                        }
+                        options={[
+                          ["weight", "كيس بالوزن (جرام / كجم)"],
+                          ["count", "كيس بالعدد (قطع)"],
+                        ]}
+                      />
+                    </div>
+
+                    {bagContentType === "weight" ? (
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "2fr 1fr",
+                          gap: 8,
+                        }}
+                      >
+                        <Field label="وزن الكيس">
+                          <input
+                            type="number"
+                            step="any"
+                            min="1"
+                            value={bagWeightVal}
+                            onChange={(e) => setBagWeightVal(e.target.value)}
+                            placeholder="500"
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              borderRadius: 10,
+                              border: "1.5px solid var(--line)",
+                              fontSize: 14,
+                              background: "var(--sf)",
+                              color: "var(--ink)",
+                            }}
+                          />
+                        </Field>
+                        <Field label="الوحدة">
+                          <Seg
+                            value={bagWeightUnit}
+                            onChange={(val) =>
+                              setBagWeightUnit(val as "g" | "kg")
+                            }
+                            options={[
+                              ["g", "جم"],
+                              ["kg", "كجم"],
+                            ]}
+                          />
+                        </Field>
+                      </div>
+                    ) : (
+                      <Field label="عدد القطع داخل الكيس">
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            min="1"
+                            value={bagCountVal}
+                            onChange={(e) => setBagCountVal(e.target.value)}
+                            placeholder="10"
+                          />
+                          <span className={styles.inputBadge}>قطعة</span>
+                        </div>
+                      </Field>
+                    )}
+                  </div>
+
+                  {/* بيتباع كرتونة كمان للأكياس */}
+                  <div
+                    className={styles.cartonToggleCard}
+                    onClick={() => setHasPack(!hasPack)}
+                    role="checkbox"
+                    aria-checked={hasPack}
+                    tabIndex={0}
+                  >
+                    <span className={styles.cartonToggleLabel}>
+                      بيتباع كرتونة كمان (تحتوي على أكياس)
+                    </span>
+                    <div
+                      className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
+                    >
+                      {hasPack && <Icon n="check" s={14} />}
+                    </div>
+                  </div>
+
+                  {hasPack && (
+                    <>
+                      <Field label="عدد الأكياس في الكرتونة" err={errors.packN}>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            min="2"
+                            value={packN}
+                            onChange={(e) => handlePackNChange(e.target.value)}
+                            placeholder="20"
+                          />
+                          <span className={styles.inputBadge}>كيس</span>
+                        </div>
+                      </Field>
+
+                      <div className={styles.priceCardGroup}>
+                        <div className={styles.priceCardTitle}>
+                          سعر الكرتونة
+                        </div>
+                        <div className={styles.priceInputsGrid}>
+                          <div className={styles.priceInputCol}>
+                            <span className={styles.priceInputLabel}>شراء</span>
+                            <div className={styles.inputWithBadge}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={pkBuy}
+                                onChange={(e) =>
+                                  handlePackBuyChange(e.target.value)
+                                }
+                                placeholder="0"
+                              />
+                              <span className={styles.inputBadge}>ج.م</span>
+                            </div>
+                          </div>
+                          <div className={styles.priceInputCol}>
+                            <span className={styles.priceInputLabel}>بيع</span>
+                            <div className={styles.inputWithBadge}>
+                              <input
+                                type="number"
+                                step="any"
+                                min="0"
+                                value={pkSell}
+                                onChange={(e) =>
+                                  handlePackSellChange(e.target.value)
+                                }
+                                placeholder="0"
+                              />
+                              <span className={styles.inputBadge}>ج.م</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* سعر الكيس الواحد */}
+                  <div className={styles.priceCardGroup}>
+                    <div className={styles.priceCardTitle}>
+                      سعر الكيس الواحد
+                    </div>
+                    <div className={styles.priceInputsGrid}>
+                      <div className={styles.priceInputCol}>
+                        <span className={styles.priceInputLabel}>شراء</span>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={pcBuy}
+                            onChange={(e) =>
+                              handlePieceBuyChange(e.target.value)
+                            }
+                            placeholder="0"
+                          />
+                          <span className={styles.inputBadge}>ج.م</span>
+                        </div>
+                      </div>
+                      <div className={styles.priceInputCol}>
+                        <span className={styles.priceInputLabel}>بيع</span>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={pcSell}
+                            onChange={(e) =>
+                              handlePieceSellChange(e.target.value)
+                            }
+                            placeholder="0"
+                          />
+                          <span className={styles.inputBadge}>ج.م</span>
+                        </div>
+                      </div>
+                    </div>
+                    {errors.price && (
+                      <div
+                        style={{
+                          color: "var(--red, #cf3c3c)",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          marginTop: 6,
+                        }}
+                      >
+                        {errors.price}
+                      </div>
+                    )}
+                  </div>
+                </>
               ) : (
                 <>
                   {/* بيتباع كرتونة كمان toggle card */}

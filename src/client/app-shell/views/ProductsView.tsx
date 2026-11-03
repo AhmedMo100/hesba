@@ -77,6 +77,8 @@ const isServiceProduct = (p: StoreProductItem) =>
   p.category === "فواتير إنترنت" ||
   p.category === "شحن رصيد" ||
   p.category === "تحويل أموال" ||
+  p.category === "خدمات مرافق" ||
+  p.category === "خدمات رقمية" ||
   p.unit === "service";
 
 const packCount = (p: StoreProductItem) => {
@@ -282,12 +284,23 @@ export function ProductsView() {
     if (
       p.category === "فواتير إنترنت" ||
       p.category === "شحن رصيد" ||
-      p.category === "تحويل أموال"
+      p.category === "تحويل أموال" ||
+      p.category === "خدمات رقمية"
     ) {
       return p.category;
     }
+    if (p.category === "خدمات مرافق") {
+      return "شحن كارت مسبق الدفع";
+    }
     if (p.category === "كروت شحن") {
       return "كارت شحن فوري";
+    }
+    if (p.category === "كروت مرافق") {
+      return "كارت مرافق ذكي";
+    }
+    if (p.unit === "bag") {
+      const packQty = packCount(p);
+      return packQty > 1 ? `كرتونة (${packQty} كيس)` : "بالكيس";
     }
     if (p.unit === "weight" || p.unit === "kg") return "بالوزن (كيلو)";
     if (p.unit === "g") return "بالوزن (جرام)";
@@ -538,17 +551,31 @@ export function ProductsView() {
                           <Icon n="edit" s={14} />
                           <span>تعديل الأسعار</span>
                         </button>
-                        <button
-                          type="button"
-                          className={styles.menuItem}
-                          onClick={() => {
-                            setMenuOpenId(null);
-                            setStockModalProduct(p);
-                          }}
-                        >
-                          <Icon n="plus" s={14} />
-                          <span>إضافة إلى المخزون</span>
-                        </button>
+                        {!isServiceProduct(p) &&
+                          ((p.stock_quantity ?? 0) > 0 ? (
+                            <button
+                              type="button"
+                              className={styles.menuItem}
+                              disabled
+                              title="المنتج موجود بالفعل في المخزون. يمكنك إضافة شحنة جديدة عندما ينفد الرصيد الحالي (0)."
+                              style={{ opacity: 0.55, cursor: "not-allowed" }}
+                            >
+                              <Icon n="check" s={14} />
+                              <span>موجود بالمخزون</span>
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className={styles.menuItem}
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                setStockModalProduct(p);
+                              }}
+                            >
+                              <Icon n="plus" s={14} />
+                              <span>إضافة إلى المخزون</span>
+                            </button>
+                          ))}
                         {p.is_hidden ? (
                           <button
                             type="button"
@@ -596,10 +623,13 @@ export function ProductsView() {
                           ? "عمولة التحويل / السحب"
                           : p.category === "فواتير إنترنت"
                             ? "عمولة سداد الفاتورة"
-                            : "عمولة الشحن على الهواء"}
+                            : p.category === "خدمات مرافق"
+                              ? "عمولة شحن كارت مسبق الدفع"
+                              : "عمولة الشحن على الهواء"}
                       </div>
                     </div>
-                  ) : p.category === "كروت شحن" ? (
+                  ) : p.category === "كروت شحن" ||
+                    p.category === "كروت مرافق" ? (
                     <PriceBox label="الكارت" buy={pieceBuy} sell={pieceSell} />
                   ) : isWeight ? (
                     <PriceBox
@@ -607,6 +637,17 @@ export function ProductsView() {
                       buy={pieceBuy}
                       sell={pieceSell}
                     />
+                  ) : p.unit === "bag" ? (
+                    <>
+                      {hasPack && (
+                        <PriceBox
+                          label="الكرتونة"
+                          buy={packBuy}
+                          sell={packSell}
+                        />
+                      )}
+                      <PriceBox label="الكيس" buy={pieceBuy} sell={pieceSell} />
+                    </>
                   ) : (
                     <>
                       {hasPack && (

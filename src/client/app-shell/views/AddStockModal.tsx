@@ -132,6 +132,32 @@ export function AddStockModal({
     return costNum / totalBaseQty;
   }, [costEgp, totalBaseQty, entryMode, weightUnit]);
 
+  // Protection: prevent adding stock if already in stock (> 0)
+  const isAlreadyInStock = useMemo(() => {
+    if (targetProduct) {
+      return (targetProduct.stock_quantity ?? 0) > 0;
+    }
+    if (selectedOption) {
+      return (selectedOption.currentStockBase ?? 0) > 0;
+    }
+    return false;
+  }, [targetProduct, selectedOption]);
+
+  // Expected purchase cost calculated from registered purchase price in Products
+  const expectedCostEgp = useMemo(() => {
+    const regPiecePiasters =
+      targetProduct?.buy_cost_piasters ?? selectedOption?.buyCostPiasters ?? 0;
+    if (regPiecePiasters <= 0) return 0;
+    const regPieceCost = regPiecePiasters / 100;
+
+    if (entryMode === "weight") {
+      const kg = totalBaseQty / 1000;
+      return Math.round(kg * regPieceCost * 100) / 100;
+    } else {
+      return Math.round(totalBaseQty * regPieceCost * 100) / 100;
+    }
+  }, [entryMode, totalBaseQty, targetProduct, selectedOption]);
+
   // Price comparison feedback against the registered cost in Products
   const priceComparison = useMemo(() => {
     const costNum = parseFloat(costEgp) || 0;
@@ -244,6 +270,13 @@ export function AddStockModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const newErrors: Record<string, string> = {};
+
+    if (isAlreadyInStock) {
+      newErrors.submit =
+        "هذا الصنف موجود بالفعل في المخزون برصيد نشط. يمكنك إضافة بضاعة جديدة فقط عندما ينفد الرصيد الحالي (0).";
+      setErrors(newErrors);
+      return;
+    }
 
     if (!selectedVariantId && !targetProduct) {
       newErrors.product = "اختر المنتج أولاً";
@@ -417,7 +450,7 @@ export function AddStockModal({
           <Button
             kind="primary"
             onClick={handleSubmit}
-            disabled={isSubmitting}
+            disabled={isSubmitting || isAlreadyInStock}
             loading={isSubmitting}
           >
             تأكيد الإضافة للمخزون ✓
@@ -429,6 +462,34 @@ export function AddStockModal({
         onSubmit={handleSubmit}
         style={{ display: "flex", flexDirection: "column", gap: 14 }}
       >
+        {isAlreadyInStock && (
+          <div
+            style={{
+              background:
+                "color-mix(in srgb, var(--yel, #b8841a) 12%, transparent)",
+              border: "1.5px solid var(--yel, #b8841a)",
+              borderRadius: 12,
+              padding: "10px 14px",
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              fontSize: 13,
+              color: "var(--ink)",
+              fontWeight: 700,
+            }}
+          >
+            <span>⚠️</span>
+            <span>
+              هذا الصنف <b>موجود بالفعل في المخزون</b> (الرصيد الحالي:{" "}
+              {targetProduct
+                ? `${targetProduct.stock_quantity} ${targetProduct.unit === "weight" || targetProduct.unit === "kg" ? "كجم" : targetProduct.unit === "bag" ? "كيس" : "قطعة"}`
+                : `${selectedOption?.currentStockBase} ${selectedOption?.unitMode === "weight" ? "كجم" : "قطعة"}`}
+              ). لا يمكن تسجيل كمية جديدة حتى تنفد الكمية الحالية (0) لتجنب
+              تكرار الأرصدة.
+            </span>
+          </div>
+        )}
+
         {errors.submit && (
           <div
             style={{
@@ -467,13 +528,15 @@ export function AddStockModal({
               style={{
                 fontSize: 12,
                 fontWeight: 700,
-                color: "var(--ok)",
-                background: "color-mix(in srgb, var(--ok) 12%, transparent)",
+                color: isAlreadyInStock ? "var(--ink2)" : "var(--ok)",
+                background: isAlreadyInStock
+                  ? "var(--line)"
+                  : "color-mix(in srgb, var(--ok) 12%, transparent)",
                 padding: "2px 8px",
                 borderRadius: 6,
               }}
             >
-              إضافة للمخزون
+              {isAlreadyInStock ? "موجود بالمخزون" : "إضافة للمخزون"}
             </span>
           </div>
         ) : (
@@ -492,15 +555,21 @@ export function AddStockModal({
                 fontSize: 14,
               }}
             >
-              {activeOptions.map((opt) => (
-                <option key={opt.variantId} value={opt.variantId}>
-                  {opt.productName} {opt.flavor ? `(${opt.flavor})` : ""} —
-                  الموجود:{" "}
-                  {opt.unitMode === "weight"
-                    ? `${opt.currentStockBase / 1000} كجم`
-                    : `${opt.currentStockBase} قطعة`}
-                </option>
-              ))}
+              {activeOptions.map((opt) => {
+                const hasStock = opt.currentStockBase > 0;
+                return (
+                  <option
+                    key={opt.variantId}
+                    value={opt.variantId}
+                    disabled={hasStock}
+                  >
+                    {opt.productName} {opt.flavor ? `(${opt.flavor})` : ""} —{" "}
+                    {hasStock
+                      ? `موجود بالمخزون (${opt.unitMode === "weight" ? `${opt.currentStockBase / 1000} كجم` : `${opt.currentStockBase} قطعة`})`
+                      : "خلصان (0) — متاح للإضافة"}
+                  </option>
+                );
+              })}
             </select>
           </Field>
         )}
@@ -648,13 +717,19 @@ export function AddStockModal({
                 />
               </Field>
 
-              <Field label="قطع زيادة">
+              <Field
+                label={
+                  targetProduct?.unit === "bag" ? "أكياس زيادة" : "قطع زيادة"
+                }
+              >
                 <input
                   type="number"
                   min="0"
                   value={pieces}
                   onChange={(e) => setPieces(e.target.value)}
-                  placeholder="قطع مفرد"
+                  placeholder={
+                    targetProduct?.unit === "bag" ? "أكياس مفرد" : "قطع مفرد"
+                  }
                   style={{
                     width: "100%",
                     padding: "10px 12px",
@@ -664,7 +739,11 @@ export function AddStockModal({
                 />
               </Field>
 
-              <Field label="قطع/كرتونة">
+              <Field
+                label={
+                  targetProduct?.unit === "bag" ? "أكياس/كرتونة" : "قطع/كرتونة"
+                }
+              >
                 <input
                   type="number"
                   min="1"
@@ -692,9 +771,14 @@ export function AddStockModal({
                   borderRadius: 8,
                 }}
               >
-                إجمالي الكمية: {totalBaseQty} قطعة
+                إجمالي الكمية: {totalBaseQty}{" "}
+                {targetProduct?.unit === "bag" ? "كيس" : "قطعة"}
                 {parseInt(cartons, 10) > 0 &&
-                  ` (${cartons} كرتونة${parseInt(pieces, 10) > 0 ? ` و ${pieces} قطعة` : ""})`}
+                  ` (${cartons} كرتونة${
+                    parseInt(pieces, 10) > 0
+                      ? ` و ${pieces} ${targetProduct?.unit === "bag" ? "كيس" : "قطعة"}`
+                      : ""
+                  })`}
               </div>
             )}
             {errors.qty && (
@@ -722,7 +806,7 @@ export function AddStockModal({
                   ? weightUnit === "kg"
                     ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
                     : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                  : `القطعة بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
+                  : `${targetProduct?.unit === "bag" ? "الكيس" : "القطعة"} بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
                 : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
             }
           >
@@ -743,6 +827,45 @@ export function AddStockModal({
               }}
             />
           </Field>
+
+          {expectedCostEgp > 0 && (
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                fontSize: 12,
+                color: "var(--ink2)",
+                marginTop: 4,
+                marginBottom: 4,
+                background: "var(--sf2)",
+                padding: "6px 10px",
+                borderRadius: 8,
+                border: "1px solid var(--line)",
+              }}
+            >
+              <span>
+                السعر المتوقع بناءً على سعر الشراء المسجل:{" "}
+                <b>{expectedCostEgp.toFixed(2)} ج.م</b>
+              </span>
+              <button
+                type="button"
+                onClick={() => setCostEgp(expectedCostEgp.toString())}
+                style={{
+                  background: "var(--sf)",
+                  border: "1px solid var(--line)",
+                  borderRadius: 6,
+                  padding: "3px 8px",
+                  fontSize: 11,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  color: "var(--ok, #108e5c)",
+                }}
+              >
+                تطبيق السعر المتوقع
+              </button>
+            </div>
+          )}
 
           {/* تنبيه المقارنة مع سعر الشراء المسجل في صفحة المنتجات */}
           {priceComparison && (

@@ -149,7 +149,7 @@ describe("ProductFormModal Component", () => {
     expect(html).not.toContain("المخزون الحالي:");
   });
 
-  it("renders service commission input when service category is edited (e.g. internet bills, money transfer)", () => {
+  it("renders dedicated digital service form with commission models, simulator, and disclaimer", () => {
     const serviceProduct = {
       id: "prod-bill",
       name_ar: "دفع فاتورة إنترنت منزلي وي",
@@ -173,9 +173,50 @@ describe("ProductFormModal Component", () => {
       />,
     );
 
-    expect(html).toContain("عمولة الخدمة للمحل");
-    expect(html).toContain("قيمة العمولة (ج.م)");
+    expect(html).toContain("إعدادات عمولة الخدمة الرقمية");
+    expect(html).toContain("طريقة احتساب عمولة المحل:");
+    expect(html).toContain("مبلغ ثابت (ج.م)");
+    expect(html).toContain("نسبة مئوية (%)");
+    expect(html).toContain("شرائح مبالغ");
+    expect(html).toContain("محاكي الأرباح لمعاملة تجريبية:");
+    expect(html).toContain("تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات");
     expect(html).not.toContain("بيتباع إزاي؟");
+  });
+
+  it("renders bag packaging options (content type, weight/count, carton of bags) when bag unit product is passed", () => {
+    const bagProduct = {
+      id: "prod-bag",
+      name_ar: "مكرونة الملكة 400 جم",
+      category: "مكرونة وأرز",
+      unit: "bag",
+      sell_price_piasters: 1500,
+      buy_cost_piasters: 1200,
+      variants: [
+        {
+          id: "var-b1",
+          pack_qty: 20,
+          size_value: 400,
+          size_unit: "g",
+          sell_price_piasters: 1500,
+          buy_cost_piasters: 1200,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ProductFormModal
+        product={bagProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html).toContain("بالكيس");
+    expect(html).toContain("محتوى الكيس");
+    expect(html).toContain("كيس بالوزن (جرام / كجم)");
+    expect(html).toContain("كيس بالعدد (قطع)");
+    expect(html).toContain("بيتباع كرتونة كمان (تحتوي على أكياس)");
+    expect(html).toContain("سعر الكيس الواحد");
   });
 
   it("renders scratch card title 'سعر الكارت' when prepaid card category is edited", () => {
@@ -249,5 +290,72 @@ describe("AddStockModal Component", () => {
     expect(html).toContain("المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)");
     expect(html).toContain("بعد 3 شهور");
     expect(html).toContain("بعد سنة");
+  });
+
+  it("shows active stock warning and blocks re-addition when product already has stock > 0", () => {
+    const stockedProduct = {
+      id: "prod-stocked",
+      name_ar: "شيبسي عائلي بالجبنة",
+      category: "سناكس ومقرمشات",
+      unit: "piece",
+      sell_price_piasters: 1000,
+      buy_cost_piasters: 800,
+      stock_quantity: 48,
+      is_custom: false,
+      variants: [
+        {
+          id: "var-s1",
+          pack_qty: 12,
+          sell_price_piasters: 1000,
+          buy_cost_piasters: 800,
+          stock_quantity: 48,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={stockedProduct}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+
+    expect(html).toContain("موجود بالفعل في المخزون");
+    expect(html).toContain("الرصيد الحالي: 48 قطعة");
+    expect(html).toContain("لا يمكن تسجيل كمية جديدة حتى تنفد الكمية الحالية");
+    expect(html).toContain("موجود بالمخزون");
+  });
+
+  it("renders bag-specific labels when adding stock for a product sold in bags", () => {
+    const bagProduct = {
+      id: "prod-bag-stock",
+      name_ar: "سكر الأسرة 1 كجم",
+      category: "سلع أساسية",
+      unit: "bag",
+      sell_price_piasters: 3500,
+      buy_cost_piasters: 3000,
+      stock_quantity: 0,
+      is_custom: false,
+      variants: [
+        {
+          id: "var-b2",
+          pack_qty: 10,
+          sell_price_piasters: 3500,
+          buy_cost_piasters: 3000,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={bagProduct}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+
+    expect(html).toContain("أكياس زيادة");
+    expect(html).toContain("أكياس/كرتونة");
   });
 });
