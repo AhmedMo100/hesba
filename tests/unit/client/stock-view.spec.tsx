@@ -157,6 +157,37 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
 
     expect(html).toContain("السعر المتوقع بناءً على سعر الشراء المسجل");
   });
+
+  it("renders explicit 'بالكيس' entry mode in AddStockModal", () => {
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={{
+          id: "prod-pasta",
+          name_ar: "مكرونة الملكة 400 جم",
+          category: "مكرونة وأرز",
+          unit: "bag",
+          sell_price_piasters: 1500,
+          buy_cost_piasters: 1200,
+          is_custom: false,
+          variants: [
+            {
+              id: "var-pasta",
+              pack_qty: 20,
+              sell_price_piasters: 1500,
+              buy_cost_piasters: 1200,
+            },
+          ],
+        }}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+
+    expect(html).toContain("بالكيس");
+    expect(html).toContain("كراتين أكياس");
+    expect(html).toContain("أكياس زيادة");
+    expect(html).toContain("أكياس/كرتونة");
+  });
 });
 
 describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Archiving)", () => {

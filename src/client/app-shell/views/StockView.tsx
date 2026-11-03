@@ -468,8 +468,8 @@ export function StockView() {
           }}
           data-testid="add-stock-btn"
         >
-          <span>+</span>
-          <span>إضافة</span>
+          <Icon n="plus" s={18} />
+          <span>إضافة بضاعة للمخزون</span>
         </button>
       </div>
 
@@ -829,8 +829,15 @@ export function StockView() {
       >
         <div className={styles.valCardHeader}>
           <div className={styles.valCardTitle}>
-            <Icon n="wallet" s={18} />
-            <span>تقييم إجمالي البضاعة ورؤوس الأموال</span>
+            <div className={styles.valCardIcon}>
+              <Icon n="wallet" s={18} />
+            </div>
+            <div>
+              <h3>تقييم إجمالي البضاعة ورؤوس الأموال</h3>
+              <p className={styles.valCardSubtitle}>
+                مجموع القيمة المالية للمخزون الفعلي وأرصدة التشغيل بالمحل
+              </p>
+            </div>
           </div>
           <span className={styles.valTimestamp}>
             حُسبت في:{" "}
@@ -841,41 +848,75 @@ export function StockView() {
           </span>
         </div>
 
-        <div className={styles.valBreakdownGrid}>
-          <div className={styles.valRow}>
-            <span className={styles.valRowLabel}>
-              قيمة بضاعة المخزون المادي (بسعر الشراء):
-            </span>
-            <b className={styles.valRowValue}>
-              {formatMoney(physicalValuationPiasters)}
-            </b>
-          </div>
-
-          <div className={styles.valRow}>
-            <span className={styles.valRowLabel}>
-              قيمة كروت الشحن والوحدات الرقمية:
-            </span>
-            <b className={styles.valRowValue}>
-              {formatMoney(cardsValuationPiasters)}
-            </b>
-          </div>
-
-          <div className={styles.valRow}>
-            <span className={styles.valRowLabel}>
-              أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):
-            </span>
-            <b className={styles.valRowValue}>
-              {formatMoney(totalProviderBalancesPiasters)}
-            </b>
-          </div>
-
-          <div className={`${styles.valRow} ${styles.valTotalRow}`}>
+        {/* Hero Total Banner */}
+        <div className={styles.valHeroCard}>
+          <div className={styles.valHeroInner}>
             <span className={styles.valTotalLabel}>
               إجمالي رأس المال والأرصدة:
             </span>
-            <b className={styles.valTotalValue}>
-              {formatMoney(totalWorkingCapitalPiasters)}
-            </b>
+            <div className={styles.valHeroAmount}>
+              <b className={styles.valTotalValue}>
+                {formatMoney(totalWorkingCapitalPiasters)}
+              </b>
+              <span className={styles.valHeroCurrency}>ج.م</span>
+            </div>
+          </div>
+        </div>
+
+        {/* 3-Cards Breakdown Grid */}
+        <div className={styles.valBreakdownGrid}>
+          <div className={styles.valItemCard}>
+            <div className={styles.valItemHeader}>
+              <span className={styles.valItemEmoji}>📦</span>
+              <span className={styles.valRowLabel}>
+                قيمة بضاعة المخزون المادي (بسعر الشراء):
+              </span>
+            </div>
+            <div className={styles.valItemValue}>
+              <b className={styles.valRowValue}>
+                {formatMoney(physicalValuationPiasters)}
+              </b>
+              <span className={styles.valCurrencySmall}>ج.م</span>
+            </div>
+            <span className={styles.valItemHint}>
+              وفقاً لتكلفة الشراء المسجلة بالدفعات
+            </span>
+          </div>
+
+          <div className={styles.valItemCard}>
+            <div className={styles.valItemHeader}>
+              <span className={styles.valItemEmoji}>💳</span>
+              <span className={styles.valRowLabel}>
+                قيمة كروت الشحن والوحدات الرقمية:
+              </span>
+            </div>
+            <div className={styles.valItemValue}>
+              <b className={styles.valRowValue}>
+                {formatMoney(cardsValuationPiasters)}
+              </b>
+              <span className={styles.valCurrencySmall}>ج.م</span>
+            </div>
+            <span className={styles.valItemHint}>
+              كروت الشحن الفيزيائية بالمخزن
+            </span>
+          </div>
+
+          <div className={styles.valItemCard}>
+            <div className={styles.valItemHeader}>
+              <span className={styles.valItemEmoji}>📱</span>
+              <span className={styles.valRowLabel}>
+                أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):
+              </span>
+            </div>
+            <div className={styles.valItemValue}>
+              <b className={styles.valRowValue}>
+                {formatMoney(totalProviderBalancesPiasters)}
+              </b>
+              <span className={styles.valCurrencySmall}>ج.م</span>
+            </div>
+            <span className={styles.valItemHint}>
+              أرصدة ماكينات الكاشير والتحصيل
+            </span>
           </div>
         </div>
 

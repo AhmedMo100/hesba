@@ -548,6 +548,8 @@ export function ProductsView() {
               <Button
                 kind="primary"
                 icon="plus"
+                style={{ flex: 1 }}
+                className={styles.addBtnFull}
                 onClick={() => {
                   setAddingSection("products");
                   setIsAdding(true);
@@ -559,6 +561,21 @@ export function ProductsView() {
             </>
           ) : (
             <>
+              {/* زر أيقونة صغير جانبي لعرض الخدمات المخفية */}
+              <button
+                type="button"
+                className={`${styles.hiddenIconBtn} ${filterMode === "hidden" ? styles.active : ""}`}
+                onClick={() =>
+                  setFilterMode((prev) =>
+                    prev === "hidden" ? "all" : "hidden",
+                  )
+                }
+                title={filterMode === "hidden" ? "العودة للخدمات" : "المخفية"}
+                aria-label="المخفية"
+              >
+                <Icon n={filterMode === "hidden" ? "eye" : "eyeoff"} s={18} />
+              </button>
+
               <button
                 type="button"
                 className={styles.manageMachinesBtn}
@@ -572,6 +589,8 @@ export function ProductsView() {
               <Button
                 kind="primary"
                 icon="plus"
+                style={{ flex: 1 }}
+                className={styles.addBtnFull}
                 onClick={() => {
                   setAddingSection("services");
                   setIsAdding(true);
@@ -1174,7 +1193,7 @@ export function ProductsView() {
               />
             </div>
           ) : (
-            <div className={styles.grid}>
+            <div className={styles.serviceGrid}>
               {filteredServiceProducts.map((p) => {
                 const brand = getBrandBadge(p);
                 const nature = getServiceNature(p);
@@ -1302,8 +1321,8 @@ export function ProductsView() {
                           <span>
                             التكلفة: <b>{fmtMoney(pieceBuy)} ج.م</b>
                           </span>
-                          <span style={{ color: "var(--ok, #108e5c)" }}>
-                            ربحك: <b>{fmtMoney(profitPiasters)} ج.م</b>
+                          <span className={styles.serviceProfitPill}>
+                            ربحك: {fmtMoney(profitPiasters)} ج.م
                           </span>
                         </div>
                       ) : (
@@ -1318,8 +1337,8 @@ export function ProductsView() {
                               رسوم المزود: {fmtMoney(pieceBuy)} ج.م
                             </span>
                           )}
-                          <span style={{ color: "var(--ok, #108e5c)" }}>
-                            صافي ربحك: <b>{fmtMoney(profitPiasters)} ج.م</b>
+                          <span className={styles.serviceProfitPill}>
+                            صافي ربحك: {fmtMoney(profitPiasters)} ج.م
                           </span>
                         </div>
                       )}

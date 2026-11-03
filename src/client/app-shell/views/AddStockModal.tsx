@@ -93,10 +93,12 @@ export function AddStockModal({
     selectedOption?.category === "كروت شحن" ||
     selectedOption?.category === "كروت مرافق";
 
-  // المستخدم يختار بحرية بين بالقطعة/الكرتونة أو بالوزن
-  const [entryMode, setEntryMode] = useState<"unit" | "weight">(
-    isInitialWeight ? "weight" : "unit",
-  );
+  // المستخدم يختار بحرية بين بالقطعة/الكرتونة أو بالوزن أو بالكيس
+  const [entryMode, setEntryMode] = useState<"unit" | "weight" | "bag">(() => {
+    if (isBag) return "bag";
+    if (isInitialWeight) return "weight";
+    return "unit";
+  });
 
   const defaultPackN =
     targetProduct?.variants?.[0]?.pack_qty &&
@@ -750,18 +752,13 @@ export function AddStockModal({
                 </span>
                 <Seg
                   value={entryMode}
-                  onChange={(val) => setEntryMode(val as "unit" | "weight")}
+                  onChange={(val) =>
+                    setEntryMode(val as "unit" | "weight" | "bag")
+                  }
                   options={[
-                    [
-                      "unit",
-                      isBag
-                        ? "بالكيس / الكرتونة"
-                        : isCard
-                          ? "بالكارت"
-                          : "بالقطعة / الكرتونة",
-                      "box",
-                    ],
+                    ["unit", isCard ? "بالكارت" : "بالقطعة / الكرتونة", "box"],
                     ["weight", "بالوزن", "scale"],
+                    ["bag", "بالكيس", "layers"],
                   ]}
                 />
               </div>
@@ -878,7 +875,9 @@ export function AddStockModal({
                       gap: 8,
                     }}
                   >
-                    <Field label="كراتين">
+                    <Field
+                      label={entryMode === "bag" ? "كراتين أكياس" : "كراتين"}
+                    >
                       <input
                         type="number"
                         min="0"
@@ -896,7 +895,7 @@ export function AddStockModal({
 
                     <Field
                       label={
-                        isBag
+                        entryMode === "bag" || isBag
                           ? "أكياس زيادة"
                           : isCard
                             ? "كروت مفردة"
@@ -909,7 +908,7 @@ export function AddStockModal({
                         value={pieces}
                         onChange={(e) => setPieces(e.target.value)}
                         placeholder={
-                          isBag
+                          entryMode === "bag" || isBag
                             ? "أكياس مفرد"
                             : isCard
                               ? "كروت مفرد"
@@ -926,7 +925,7 @@ export function AddStockModal({
 
                     <Field
                       label={
-                        isBag
+                        entryMode === "bag" || isBag
                           ? "أكياس/كرتونة"
                           : isCard
                             ? "كروت/كرتونة"
@@ -961,11 +960,15 @@ export function AddStockModal({
                       }}
                     >
                       إجمالي الكمية: {totalBaseQty}{" "}
-                      {isBag ? "كيس" : isCard ? "كارت" : "قطعة"}
+                      {entryMode === "bag" || isBag
+                        ? "كيس"
+                        : isCard
+                          ? "كارت"
+                          : "قطعة"}
                       {parseInt(cartons, 10) > 0 &&
                         ` (${cartons} كرتونة${
                           parseInt(pieces, 10) > 0
-                            ? ` و ${pieces} ${isBag ? "كيس" : isCard ? "كارت" : "قطعة"}`
+                            ? ` و ${pieces} ${entryMode === "bag" || isBag ? "كيس" : isCard ? "كارت" : "قطعة"}`
                             : ""
                         })`}
                     </div>
@@ -995,7 +998,7 @@ export function AddStockModal({
                         ? weightUnit === "kg"
                           ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
                           : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                        : `${isBag ? "الكيس" : isCard ? "الكارت" : "القطعة"} بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
+                        : `${entryMode === "bag" || isBag ? "الكيس" : isCard ? "الكارت" : "القطعة"} بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
                       : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
                   }
                 >

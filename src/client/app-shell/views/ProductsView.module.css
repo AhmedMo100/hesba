@@ -33,9 +33,8 @@
     display: none;
   }
   .phead {
-    justify-content: flex-end;
-    gap: 8px;
-    margin-bottom: -4px;
+    width: 100%;
+    margin-bottom: 2px;
   }
 }
 
@@ -59,6 +58,12 @@
   display: flex;
   gap: 8px;
   align-items: center;
+  width: 100%;
+}
+
+.addBtnFull {
+  flex: 1;
+  justify-content: center;
 }
 
 .hiddenIconBtn {
@@ -778,42 +783,70 @@
   border-color: var(--ink);
 }
 
+/* Service Grid: 1 column on mobile for spacious, comfortable layout */
+.serviceGrid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr;
+  width: 100%;
+}
+
+@media (min-width: 640px) {
+  .serviceGrid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+  }
+}
+
+@media (min-width: 1100px) {
+  .serviceGrid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+  }
+}
+
 .serviceCard {
   background: var(--sf);
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: 16px;
-  padding: 14px;
+  padding: 16px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--sh);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
   position: relative;
-  transition:
-    transform 0.15s,
-    border-color 0.15s;
+  transition: all 0.15s ease;
   box-sizing: border-box;
+  cursor: pointer;
+}
+
+.serviceCard:hover {
+  border-color: var(--br, #5a7d5a);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
 
 .serviceCardHeader {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 8px;
+  gap: 12px;
 }
 
 .serviceCardInfo {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   flex: 1;
 }
 
 .serviceCardInfo b {
-  font-size: 15px;
+  font-size: 15.5px;
   font-weight: 800;
   color: var(--ink);
-  line-height: 1.3;
+  line-height: 1.4;
+  word-break: break-word;
 }
 
 .serviceCardBadges {
@@ -821,14 +854,13 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 2px;
 }
 
 .brandBadge {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 800;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px 10px;
+  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -879,11 +911,13 @@
 .natureBadge {
   font-size: 11px;
   font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 6px;
+  padding: 3px 8px;
+  border-radius: 8px;
   background: var(--sf2);
   color: var(--ink2);
   border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
 }
 
 .natureBadgeStock {
@@ -895,28 +929,60 @@
 .serviceDetailsRow {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  background: var(--sf2, #fbf7ef);
-  border-radius: 10px;
-  border: 1px solid var(--line);
-  font-size: 12.5px;
+  gap: 8px;
+  margin-top: auto;
+  border-top: 1px solid var(--line);
+  padding-top: 10px;
 }
 
 .serviceEconomics {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-weight: 700;
-  color: var(--ink);
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 13px;
+  background: var(--sf2, #fbf7ef);
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
 }
 
-.serviceMachineTag {
+.serviceEconomics span {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+}
+
+.serviceEconomics b {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.serviceProfitPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ok, #108e5c);
+  background: rgba(16, 142, 92, 0.1);
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.serviceMachineTag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 11.5px;
   color: var(--ink2);
+  padding: 2px 4px;
+}
+
+.serviceMachineTag b {
+  color: var(--ink);
+  font-weight: 700;
 }
 
 .serviceActionsRow {
@@ -1063,114 +1129,6 @@
 .manageMachinesBtn:hover {
   background: var(--sf2);
   border-color: var(--ink);
-}
-
-.serviceCard {
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  box-shadow: var(--sh);
-  position: relative;
-  transition:
-    transform 0.15s,
-    border-color 0.15s;
-  box-sizing: border-box;
-}
-
-.serviceCardHeader {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.serviceCardInfo {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-  flex: 1;
-}
-
-.serviceCardInfo b {
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--ink);
-  line-height: 1.3;
-}
-
-.serviceCardBadges {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 2px;
-}
-
-.brandBadge {
-  font-size: 11px;
-  font-weight: 800;
-  padding: 2px 8px;
-  border-radius: 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.brandVodafone {
-  background: rgba(230, 0, 0, 0.1);
-  color: #e60000;
-  border: 1px solid rgba(230, 0, 0, 0.25);
-}
-
-.brandWe {
-  background: rgba(94, 20, 141, 0.1);
-  color: #5e148d;
-  border: 1px solid rgba(94, 20, 141, 0.25);
-}
-
-.brandOrange {
-  background: rgba(255, 121, 0, 0.1);
-  color: #ff7900;
-  border: 1px solid rgba(255, 121, 0, 0.25);
-}
-
-.brandEtisalat {
-  background: rgba(121, 155, 63, 0.12);
-  color: #5a7d2f;
-  border: 1px solid rgba(121, 155, 63, 0.25);
-}
-
-.brandUtility {
-  background: rgba(217, 130, 43, 0.1);
-  color: #d9822b;
-  border: 1px solid rgba(217, 130, 43, 0.25);
-}
-
-.brandFawry {
-  background: rgba(254, 209, 0, 0.15);
-  color: #b58900;
-  border: 1px solid rgba(254, 209, 0, 0.35);
-}
-
-.brandInstapay {
-  background: rgba(30, 144, 255, 0.1);
-  color: #1e90ff;
-  border: 1px solid rgba(30, 144, 255, 0.25);
-}
-
-.natureBadge {
-  font-size: 11px;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 6px;
-  background: var(--sf2);
-  color: var(--ink2);
-  border: 1px solid var(--line);
 }
 
 /* Styled custom select with arrow */

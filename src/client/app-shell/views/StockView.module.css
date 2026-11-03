@@ -32,6 +32,14 @@
   .pheadTitle {
     display: none;
   }
+  .phead {
+    width: 100%;
+    margin-bottom: 2px;
+  }
+  .addBtn {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 .pheadTitle h1 {
@@ -672,67 +680,85 @@
 
 /* Valuation Summary Card at the bottom of the page */
 .valuationSummaryCard {
-  margin-top: 16px;
+  margin-top: 20px;
   background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  padding: 16px 18px;
+  border: 1.5px solid var(--line);
+  border-radius: 18px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
 .valCardHeader {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 12px;
   flex-wrap: wrap;
   border-bottom: 1px solid var(--line);
-  padding-bottom: 10px;
+  padding-bottom: 12px;
 }
 
 .valCardTitle {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--ink);
+  gap: 10px;
 }
 
-.valTimestamp {
+.valCardIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(90, 125, 90, 0.12);
+  color: var(--br, #5a7d5a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.valCardTitle h3 {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 800;
+  color: var(--ink);
+  line-height: 1.3;
+}
+
+.valCardSubtitle {
+  margin: 2px 0 0;
   font-size: 12px;
   color: var(--ink2);
 }
 
-.valBreakdownGrid {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.valTimestamp {
+  font-size: 11.5px;
+  color: var(--ink2);
+  background: var(--sf2);
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.valRow {
+/* Hero total banner */
+.valHeroCard {
+  background: color-mix(in srgb, var(--br, #5a7d5a) 8%, var(--sf));
+  border: 1.5px solid color-mix(in srgb, var(--br, #5a7d5a) 25%, transparent);
+  border-radius: 14px;
+  padding: 16px 18px;
+}
+
+.valHeroInner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  font-size: 13.5px;
-}
-
-.valRowLabel {
-  color: var(--ink2);
-}
-
-.valRowValue {
-  color: var(--ink);
-  font-weight: 700;
-}
-
-.valTotalRow {
-  border-top: 1px dashed var(--line);
-  padding-top: 10px;
-  margin-top: 4px;
+  flex-wrap: wrap;
 }
 
 .valTotalLabel {
@@ -741,10 +767,94 @@
   color: var(--ink);
 }
 
+.valHeroAmount {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
 .valTotalValue {
-  font-size: 17px;
+  font-size: 22px;
   font-weight: 900;
   color: var(--br, #5a7d5a);
+  letter-spacing: -0.3px;
+}
+
+.valHeroCurrency {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--br, #5a7d5a);
+}
+
+/* 3-Cards Breakdown Grid */
+.valBreakdownGrid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+}
+
+@media (min-width: 680px) {
+  .valBreakdownGrid {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+  }
+}
+
+.valItemCard {
+  background: var(--sf2);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.valItemCard:hover {
+  border-color: var(--br, #5a7d5a);
+}
+
+.valItemHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.valItemEmoji {
+  font-size: 14px;
+}
+
+.valRowLabel {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink2);
+  line-height: 1.3;
+}
+
+.valItemValue {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.valRowValue {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.valCurrencySmall {
+  font-size: 11.5px;
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+.valItemHint {
+  font-size: 11px;
+  color: var(--ink2);
+  opacity: 0.85;
 }
 
 .valDisclaimer {
@@ -752,4 +862,8 @@
   font-size: 11.5px;
   color: var(--ink2);
   line-height: 1.5;
+  background: var(--sf2);
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
 }
