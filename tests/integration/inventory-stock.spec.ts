@@ -299,4 +299,136 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const storeBInv = await inventory.getStoreInventory(storeBId, userBId);
     expect(storeBInv).toHaveLength(0);
   });
+
+  it("handles productionDate and expiryDate with validation and supports products with no expiry", async () => {
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Success: batch with productionDate and expiryDate where expiryDate >= productionDate
+    const batchRes = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: variantAId,
+      receivedQuantityBase: 12,
+      costPriceMinor: 1000,
+      productionDate: "2026-11-01",
+      expiryDate: "2027-05-01",
+      batchCode: "BATCH-EXP-01",
+    });
+
+    expect(batchRes.batchId).toBeDefined();
+
+    const [batchDb] = await migratorClient<
+      Array<{
+        production_date: string | null;
+        expiry_date: string | null;
+        batch_code: string;
+      }>
+    >`
+      SELECT production_date::text, expiry_date::text, batch_code
+      FROM store_stock_batches
+      WHERE id = ${batchRes.batchId}::uuid
+    `;
+
+    expect(batchDb?.production_date).toBe("2026-11-01");
+    expect(batchDb?.expiry_date).toBe("2027-05-01");
+    expect(batchDb?.batch_code).toBe("BATCH-EXP-01");
+
+    // 2. Failure: batch where expiryDate < productionDate
+    await expect(
+      inventory.addStockBatch(storeAId, userAId, {
+        storeVariantId: variantAId,
+        receivedQuantityBase: 6,
+        costPriceMinor: 1000,
+        productionDate: "2026-11-01",
+        expiryDate: "2026-10-01", // before production date!
+      }),
+    ).rejects.toThrow("تاريخ الانتهاء يجب ألا يكون قبل تاريخ الإنتاج");
+
+    // 3. Success: product with no expiry (e.g. detergents / tissues)
+    const noExpBatch = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: variantAId,
+      receivedQuantityBase: 24,
+      costPriceMinor: 800,
+      productionDate: null,
+      expiryDate: null,
+      batchCode: "NO-EXP-01",
+    });
+
+    expect(noExpBatch.batchId).toBeDefined();
+
+    const [noExpDb] = await migratorClient<
+      Array<{ expiry_date: string | null }>
+    >`
+      SELECT expiry_date::text
+      FROM store_stock_batches
+      WHERE id = ${noExpBatch.batchId}::uuid
+    `;
+
+    expect(noExpDb?.expiry_date).toBeNull();
+  });
+
+  it("resolves stock batch creation when given a GlobalVariant ID and throws AppError.notFound on unknown ID", async () => {
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Create a global product and variant
+    const gpId = crypto.randomUUID();
+    const gvId = crypto.randomUUID();
+    await migratorPrisma.globalProduct.create({
+      data: {
+        id: gpId,
+        nameAr: `شاي العروسة تيست ${runId}`,
+        nameNorm: `شاي العروسه تيست ${runId}`,
+        category: "مشروبات",
+        globalVariants: {
+          create: {
+            id: gvId,
+            nameNorm: `شاي العروسه تيست ${runId}`,
+            packQty: 1,
+            sizeValue: 250,
+            sizeUnit: "g",
+          },
+        },
+      },
+    });
+
+    // 2. Add stock using gvId directly for Store A
+    const res = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: gvId,
+      receivedQuantityBase: 10,
+      costPriceMinor: 2500,
+      expiryDate: "2027-12-31",
+    });
+
+    expect(res.batchId).toBeDefined();
+    expect(res.newBalance).toBe(10);
+
+    const [batchRow] = await migratorClient<
+      Array<{ store_product_id: string; store_variant_id: string }>
+    >`
+      SELECT store_product_id::text, store_variant_id::text
+      FROM store_stock_batches
+      WHERE id = ${res.batchId}::uuid
+    `;
+
+    const spRow = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeProduct.findUnique({
+          where: { id: batchRow!.store_product_id },
+        }),
+      appPrisma,
+    );
+
+    expect(spRow).toBeDefined();
+    expect(spRow?.globalProductId).toBe(gpId);
+
+    // 3. Unknown variant ID throws AppError with NOT_FOUND status
+    const fakeVariantId = crypto.randomUUID();
+    await expect(
+      inventory.addStockBatch(storeAId, userAId, {
+        storeVariantId: fakeVariantId,
+        receivedQuantityBase: 5,
+        costPriceMinor: 1000,
+      }),
+    ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
+  });
 });

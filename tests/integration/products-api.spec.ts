@@ -414,4 +414,487 @@ describe("Products API & Service (Phase 3.4 Integration)", () => {
     );
     expect(leakedItem).toBeUndefined();
   });
+
+  it("creates initial stock batch on creation and protects stock from direct edit overwrite", async () => {
+    const sessionA = await createSession(userAId, storeAId);
+
+    // 1. Create product with buy cost and initial stock
+    const payload = {
+      nameAr: `زيت ذرة كريستال ${runId}`,
+      category: "زيوت وسمن",
+      unit: "piece" as const,
+      sellPricePiasters: 8500, // 85.00 EGP
+      buyCostPiasters: 7200, // 72.00 EGP
+      initialQuantity: 15, // 15 pieces
+      isCustom: true,
+      variants: [
+        {
+          flavor: "ذرة",
+          sizeValue: 800,
+          sizeUnit: "ml" as const,
+          packQty: 1,
+          sellPricePiasters: 8500,
+          costPricePiasters: 7200,
+        },
+      ],
+    };
+
+    const req = new Request("http://localhost:3000/api/products", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `hesba_session=${sessionA.rawToken}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    const res = await postProductsRoute(req);
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    const productId = json.data.id;
+    const variantId = json.data.variants[0].id;
+
+    // Verify initial batch was created
+    const batch = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.storeStockBatch.findFirst({
+          where: { storeProductId: productId, storeId: storeAId },
+        });
+      },
+      appPrisma,
+    );
+    expect(batch).not.toBeNull();
+    expect(Number(batch?.receivedQuantityBase)).toBe(15);
+    expect(Number(batch?.remainingQuantityBase)).toBe(15);
+    expect(Number(batch?.costPriceMinor)).toBe(7200);
+
+    // Verify stock movement was recorded
+    const movement = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.stockMovement.findFirst({
+          where: { storeProductId: productId, storeId: storeAId },
+        });
+      },
+      appPrisma,
+    );
+    expect(movement).not.toBeNull();
+    expect(movement?.type).toBe("initial_stock");
+    expect(Number(movement?.quantityBase)).toBe(15);
+
+    // Verify stock level is 15
+    const stockLevel = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId: storeAId,
+              storeVariantId: variantId,
+            },
+          },
+        });
+      },
+      appPrisma,
+    );
+    expect(stockLevel).not.toBeNull();
+    expect(Number(stockLevel?.quantityBase)).toBe(15);
+
+    // 2. Verify editing the product preserves stock quantity and does not overwrite inventory directly
+    const editPayload = {
+      id: productId,
+      nameAr: `زيت ذرة كريستال ممتاز ${runId}`,
+      category: "زيوت وسمن",
+      unit: "piece" as const,
+      sellPricePiasters: 9000,
+      buyCostPiasters: 7500,
+      initialQuantity: 999, // Should be ignored during edit to preserve inventory integrity!
+      variants: [
+        {
+          id: variantId,
+          flavor: "ذرة صافي",
+          sizeValue: 800,
+          sizeUnit: "ml" as const,
+          packQty: 1,
+          sellPricePiasters: 9000,
+        },
+      ],
+    };
+
+    const editReq = new Request("http://localhost:3000/api/products", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `hesba_session=${sessionA.rawToken}`,
+      },
+      body: JSON.stringify(editPayload),
+    });
+
+    const editRes = await postProductsRoute(editReq);
+    expect(editRes.status).toBe(200);
+
+    // Stock level must STILL be 15, NOT 999
+    const afterEditStock = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) => {
+        return tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId: storeAId,
+              storeVariantId: variantId,
+            },
+          },
+        });
+      },
+      appPrisma,
+    );
+    expect(Number(afterEditStock?.quantityBase)).toBe(15);
+
+    // 3. Verify GET /api/products returns summary and stock level
+    const getReq = new Request("http://localhost:3000/api/products", {
+      headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+    });
+    const getRes = await getProductsRoute(getReq);
+    expect(getRes.status).toBe(200);
+    const getJson = await getRes.json();
+    expect(getJson.summary).toBeDefined();
+    expect(getJson.summary.total).toBeGreaterThanOrEqual(1);
+
+    const productInList = getJson.products.find(
+      (p: { id: string }) => p.id === productId,
+    );
+    expect(productInList).toBeDefined();
+    expect(productInList.stock_quantity).toBe(15);
+    expect(productInList.buy_cost_piasters).toBe(7200);
+    expect(productInList.sell_price_piasters).toBe(9000);
+  });
+
+  it("unified shared global catalog: Store A and Store B both see approved global products without duplicate rows", async () => {
+    // Seed an approved global product in global_products
+    const globalBrand = await migratorPrisma.brand.create({
+      data: {
+        nameAr: `علامة تجارية ${runId}`,
+      },
+    });
+
+    const globalProd = await migratorPrisma.globalProduct.create({
+      data: {
+        brandId: globalBrand.id,
+        nameAr: `شاي عالمي موحد ${runId}`,
+        nameNorm: `شاي عالمي موحد ${runId}`,
+        category: "مشروبات",
+        type: "stock",
+        status: "approved",
+      },
+    });
+
+    const globalVar = await migratorPrisma.globalVariant.create({
+      data: {
+        globalProductId: globalProd.id,
+        flavor: "سادة",
+        sizeValue: 100,
+        sizeUnit: "g",
+        packQty: 12,
+        nameNorm: `شاي عالمي موحد ${runId} سادة 100g`,
+      },
+    });
+
+    // 1. Store A queries products
+    const sessionA = await createSession(userAId, storeAId);
+    const reqA = new Request("http://localhost:3000/api/products", {
+      headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+    });
+    const resA = await getProductsRoute(reqA);
+    const jsonA = await resA.json();
+
+    const itemA = jsonA.products.find(
+      (p: { global_product_id: string }) =>
+        p.global_product_id === globalProd.id,
+    );
+    expect(itemA).toBeDefined();
+    expect(itemA.name_ar).toBe(`شاي عالمي موحد ${runId}`);
+    expect(itemA.brand_name).toBe(`علامة تجارية ${runId}`);
+    expect(itemA.variants).toHaveLength(1);
+    expect(itemA.variants[0].pack_qty).toBe(12);
+
+    // 2. Store B queries products without any import step
+    const sessionB = await createSession(userBId, storeBId);
+    const reqB = new Request("http://localhost:3000/api/products", {
+      headers: { cookie: `hesba_session=${sessionB.rawToken}` },
+    });
+    const resB = await getProductsRoute(reqB);
+    const jsonB = await resB.json();
+
+    const itemB = jsonB.products.find(
+      (p: { global_product_id: string }) =>
+        p.global_product_id === globalProd.id,
+    );
+    expect(itemB).toBeDefined();
+    expect(itemB.name_ar).toBe(`شاي عالمي موحد ${runId}`);
+
+    // Verify zero rows in store_products for this global product before any customization
+    const storeARows = await migratorPrisma.storeProduct.count({
+      where: { globalProductId: globalProd.id },
+    });
+    expect(storeARows).toBe(0);
+
+    // Clean up
+    await migratorPrisma.globalVariant.delete({ where: { id: globalVar.id } });
+    await migratorPrisma.globalProduct.delete({ where: { id: globalProd.id } });
+    await migratorPrisma.brand.delete({ where: { id: globalBrand.id } });
+  });
+
+  it("store price overrides and isolation: Store A sets custom prices on global item without affecting Store B", async () => {
+    const globalProd = await migratorPrisma.globalProduct.create({
+      data: {
+        nameAr: `لبن طبيعي ${runId}`,
+        nameNorm: `لبن طبيعي ${runId}`,
+        category: "ألبان",
+        type: "stock",
+        status: "approved",
+      },
+    });
+
+    const globalVar = await migratorPrisma.globalVariant.create({
+      data: {
+        globalProductId: globalProd.id,
+        sizeValue: 1,
+        sizeUnit: "l",
+        packQty: 1,
+        nameNorm: `لبن طبيعي 1l`,
+      },
+    });
+
+    const sessionA = await createSession(userAId, storeAId);
+    const sessionB = await createSession(userBId, storeBId);
+
+    // Store A overrides price to 40.00 EGP (4000 piasters) and buy price 34.00 EGP (3400 piasters)
+    const overrideReqA = new Request("http://localhost:3000/api/products", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        cookie: `hesba_session=${sessionA.rawToken}`,
+      },
+      body: JSON.stringify({
+        id: `gp_${globalProd.id}`,
+        nameAr: `لبن طبيعي ${runId}`,
+        category: "ألبان",
+        unit: "piece",
+        sellPricePiasters: 4000,
+        buyCostPiasters: 3400,
+        globalProductId: globalProd.id,
+        isCustom: false,
+        variants: [
+          {
+            id: `gp_${globalVar.id}`,
+            packQty: 1,
+            sellPricePiasters: 4000,
+            costPricePiasters: 3400,
+            globalVariantId: globalVar.id,
+          },
+        ],
+      }),
+    });
+    const overrideResA = await postProductsRoute(overrideReqA);
+    expect(overrideResA.status).toBe(200);
+
+    // Query Store A
+    const reqA = new Request("http://localhost:3000/api/products", {
+      headers: { cookie: `hesba_session=${sessionA.rawToken}` },
+    });
+    const resA = await getProductsRoute(reqA);
+    const jsonA = await resA.json();
+    const itemA = jsonA.products.find(
+      (p: { global_product_id: string }) =>
+        p.global_product_id === globalProd.id,
+    );
+    expect(itemA.sell_price_piasters).toBe(4000);
+    expect(itemA.buy_cost_piasters).toBe(3400);
+
+    // Query Store B: Store B does NOT see Store A's override
+    const reqB = new Request("http://localhost:3000/api/products", {
+      headers: { cookie: `hesba_session=${sessionB.rawToken}` },
+    });
+    const resB = await getProductsRoute(reqB);
+    const jsonB = await resB.json();
+    const itemB = jsonB.products.find(
+      (p: { global_product_id: string }) =>
+        p.global_product_id === globalProd.id,
+    );
+    expect(itemB.sell_price_piasters).toBe(0); // Store B has not set its own price yet
+
+    // Clean up
+    await migratorPrisma.storeVariant.deleteMany({
+      where: { productId: globalProd.id },
+    });
+    await migratorPrisma.storeProduct.deleteMany({
+      where: { globalProductId: globalProd.id },
+    });
+    await migratorPrisma.globalVariant.delete({ where: { id: globalVar.id } });
+    await migratorPrisma.globalProduct.delete({ where: { id: globalProd.id } });
+  });
+
+  it("hiding and unhiding: Store A hides global product for itself only without affecting Store B", async () => {
+    const globalProd = await migratorPrisma.globalProduct.create({
+      data: {
+        nameAr: `بسكويت بالشوكولاتة ${runId}`,
+        nameNorm: `بسكويت بالشوكولاتة ${runId}`,
+        category: "حلويات",
+        type: "stock",
+        status: "approved",
+      },
+    });
+
+    const catalogService = new CatalogService(appPrisma);
+
+    // Store A hides the product
+    const hideRes = await catalogService.hideStoreProduct(
+      storeAId,
+      userAId,
+      `gp_${globalProd.id}`,
+    );
+    expect(hideRes.success).toBe(true);
+
+    // Store A queries active products -> hidden
+    const prodsA = await catalogService.getStoreProducts(storeAId, userAId);
+    const foundA = prodsA.find((p) => p.globalProductId === globalProd.id);
+    expect(foundA).toBeUndefined();
+
+    // Store A queries with includeHidden -> found with is_hidden: true
+    const prodsAHidden = await catalogService.getStoreProducts(
+      storeAId,
+      userAId,
+      { includeHidden: true },
+    );
+    const hiddenFound = prodsAHidden.find(
+      (p) => p.globalProductId === globalProd.id,
+    );
+    expect(hiddenFound).toBeDefined();
+    expect(hiddenFound?.is_hidden).toBe(true);
+
+    // Store B queries active products -> STILL ACTIVE and visible for Store B!
+    const prodsB = await catalogService.getStoreProducts(storeBId, userBId);
+    const foundB = prodsB.find((p) => p.globalProductId === globalProd.id);
+    expect(foundB).toBeDefined();
+    expect(foundB?.is_hidden).toBe(false);
+
+    // Store A unhides the product
+    const unhideRes = await catalogService.unhideStoreProduct(
+      storeAId,
+      userAId,
+      `gp_${globalProd.id}`,
+    );
+    expect(unhideRes.success).toBe(true);
+
+    // Store A queries active products -> visible again!
+    const prodsAAfter = await catalogService.getStoreProducts(
+      storeAId,
+      userAId,
+    );
+    const restoredFound = prodsAAfter.find(
+      (p) => p.globalProductId === globalProd.id,
+    );
+    expect(restoredFound).toBeDefined();
+    expect(restoredFound?.is_hidden).toBe(false);
+
+    // Clean up
+    await migratorPrisma.storeProduct.deleteMany({
+      where: { globalProductId: globalProd.id },
+    });
+    await migratorPrisma.globalProduct.delete({ where: { id: globalProd.id } });
+  });
+
+  it("safely handles editing prices for a catalog product where variant id is a GlobalVariant id", async () => {
+    // 1. Create a global product with a global variant
+    const gvId = crypto.randomUUID();
+    const gpId = crypto.randomUUID();
+
+    await migratorPrisma.globalProduct.create({
+      data: {
+        id: gpId,
+        nameAr: `منتج كتالوج للتعديل ${runId}`,
+        nameNorm: `منتج كتالوج للتعديل ${runId}`,
+        category: "مشروبات",
+        globalVariants: {
+          create: {
+            id: gvId,
+            packQty: 12,
+            nameNorm: `منتج كتالوج للتعديل ${runId}`,
+          },
+        },
+      },
+    });
+
+    const catalogService = new CatalogService(appPrisma);
+
+    // 2. Call upsertStoreProduct passing the GlobalVariant id as v.id
+    // This simulates the frontend sending the ID it received from getStoreProducts
+    const upsertRes = await catalogService.upsertStoreProduct(
+      storeAId,
+      userAId,
+      {
+        id: `gp_${gpId}`,
+        nameAr: `منتج كتالوج للتعديل ${runId}`,
+        category: "مشروبات",
+        unit: "piece",
+        sellPricePiasters: 1800,
+        buyCostPiasters: 1400,
+        globalProductId: gpId,
+        variants: [
+          {
+            id: gvId, // GlobalVariant id, NOT storeVariant id!
+            packQty: 12,
+            sellPricePiasters: 1800,
+            costPricePiasters: 1400,
+            globalVariantId: gvId,
+          },
+        ],
+      },
+    );
+
+    expect(upsertRes.storeProductId).toBeDefined();
+    expect(upsertRes.variants).toHaveLength(1);
+    expect(upsertRes.variants[0]?.sellPricePiasters).toBe(BigInt(1800));
+    expect(upsertRes.variants[0]?.buyPricePiasters).toBe(BigInt(1400));
+    expect(upsertRes.variants[0]?.globalVariantId).toBe(gvId);
+
+    // 3. Now update it again with the newly created store variant ID
+    const createdStoreVariantId = upsertRes.variants[0]!.id;
+    const updateRes = await catalogService.upsertStoreProduct(
+      storeAId,
+      userAId,
+      {
+        id: upsertRes.storeProductId,
+        nameAr: `منتج كتالوج للتعديل ${runId}`,
+        category: "مشروبات",
+        unit: "piece",
+        sellPricePiasters: 2000,
+        buyCostPiasters: 1500,
+        globalProductId: gpId,
+        variants: [
+          {
+            id: createdStoreVariantId,
+            packQty: 12,
+            sellPricePiasters: 2000,
+            costPricePiasters: 1500,
+            globalVariantId: gvId,
+          },
+        ],
+      },
+    );
+
+    expect(updateRes.variants[0]?.sellPricePiasters).toBe(BigInt(2000));
+    expect(updateRes.variants[0]?.buyPricePiasters).toBe(BigInt(1500));
+
+    // Cleanup
+    await migratorPrisma.storeProduct.deleteMany({
+      where: { id: upsertRes.storeProductId },
+    });
+    await migratorPrisma.globalProduct.delete({ where: { id: gpId } });
+  });
 });

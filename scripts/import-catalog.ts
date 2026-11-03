@@ -589,8 +589,9 @@ export async function runCatalogImport(args: string[]): Promise<number> {
   const isDryRun = !isApply || args.includes("--dry-run");
 
   // Filter out flag args to find target directory or file
+  const dirArg = args.find((arg) => arg.startsWith("--dir="));
   const pathArgs = args.filter((arg) => !arg.startsWith("--"));
-  const targetPath = pathArgs[0] || "data/catalog/";
+  const targetPath = dirArg ? dirArg.slice(6) : pathArgs[0] || "data/catalog/";
 
   console.log("==================================================");
   console.log(`Hesba Catalog Seed Tooling`);

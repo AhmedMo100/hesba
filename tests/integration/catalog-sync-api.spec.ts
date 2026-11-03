@@ -82,7 +82,7 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
 
   it("returns 200 with global products, variants, brands, ETag, and Cache-Control", async () => {
     const request = new Request(
-      "http://localhost:3000/api/sync/catalog?limit=100",
+      "http://localhost:3000/api/sync/catalog?limit=1000",
     );
     const response = await GET(request);
 

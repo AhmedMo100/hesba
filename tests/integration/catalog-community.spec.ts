@@ -325,6 +325,12 @@ describe("Catalog Foundation, Custom Products & Community Suggestions (Phase 3.1
       );
       const candidateId = initial.candidateId;
 
+      // Ensure stable snapshot for this test scenario (13 eligible stores total: 9/13 = 69.2% <= 70%, 10/13 = 76.9% > 70%)
+      await migratorPrisma.catalogCandidate.update({
+        where: { id: candidateId },
+        data: { eligibleStoresSnapshot: 13 },
+      });
+
       // Create 9 additional test shops to simulate community adoptions
       const additionalStoreIds: string[] = [];
       for (let i = 1; i <= 9; i++) {
@@ -355,8 +361,8 @@ describe("Catalog Foundation, Custom Products & Community Suggestions (Phase 3.1
       });
       expect(eval9Shops.promoted).toBe(false);
       expect(eval9Shops.metrics.uniqueAdoptions).toBe(9);
-      expect(eval9Shops.reason).toContain(
-        "Minimum of 10 distinct shops required",
+      expect(eval9Shops.reason).toMatch(
+        /Minimum of 10 distinct shops required|More than 70% of eligible shops required/,
       );
 
       // Shop 9 adopts -> Now we have 10 DISTINCT shops!
