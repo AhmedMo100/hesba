@@ -42,6 +42,25 @@ export interface ProductFormModalProps {
   onDeleted?: (productId: string) => void;
 }
 
+const PRODUCT_CATEGORIES = [
+  "السلع الاستهلاكية",
+  "سلع أساسية",
+  "ألبان وجبن",
+  "مشروبات",
+  "سناكس ومقرمشات",
+  "معلبات",
+  "منظفات وورقيات",
+  "حلويات وبسكويت",
+  "مجمدات ولحوم",
+  "مكرونة وأرز",
+  "زيوت وسمن",
+  "شاي وقهوة",
+  "عطارة وتوابل",
+  "مخبوزات",
+  "كروت شحن",
+  "أخرى",
+] as const;
+
 export function ProductFormModal({
   product,
   presetName,
@@ -163,6 +182,18 @@ export function ProductFormModal({
     category === "خدمات مرافق" ||
     category === "خدمات رقمية" ||
     product?.unit === "service";
+
+  const availableCategories = useMemo(() => {
+    if (
+      category &&
+      !PRODUCT_CATEGORIES.includes(
+        category as (typeof PRODUCT_CATEGORIES)[number],
+      )
+    ) {
+      return [category, ...PRODUCT_CATEGORIES];
+    }
+    return [...PRODUCT_CATEGORIES];
+  }, [category]);
 
   const [barcode, setBarcode] = useState(
     product?.barcode || firstVariant?.barcode || "",
@@ -687,28 +718,27 @@ export function ProductFormModal({
                 }}
               >
                 <Field label="تصنيف الخدمة">
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      border: "1.5px solid var(--line)",
-                      fontSize: 13,
-                      background: "var(--sf)",
-                      color: "var(--ink)",
-                    }}
-                  >
-                    <option value="شحن مرافق">
-                      شحن مرافق (كهرباء/مياه/غاز)
-                    </option>
-                    <option value="فواتير إنترنت">فواتير إنترنت وتليفون</option>
-                    <option value="كروت شحن">كروت شحن</option>
-                    <option value="تحويل أموال">تحويل أموال ومحافظ</option>
-                    <option value="شحن رصيد">شحن رصيد على الهواء</option>
-                    <option value="خدمات رقمية">خدمات رقمية أخرى</option>
-                  </select>
+                  <div className={styles.selectWrapper}>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className={styles.styledSelect}
+                    >
+                      <option value="شحن مرافق">
+                        شحن مرافق (كهرباء/مياه/غاز)
+                      </option>
+                      <option value="فواتير إنترنت">
+                        فواتير إنترنت وتليفون
+                      </option>
+                      <option value="كروت شحن">كروت شحن</option>
+                      <option value="تحويل أموال">تحويل أموال ومحافظ</option>
+                      <option value="شحن رصيد">شحن رصيد على الهواء</option>
+                      <option value="خدمات رقمية">خدمات رقمية أخرى</option>
+                    </select>
+                    <span className={styles.selectArrow}>
+                      <Icon n="down" s={14} />
+                    </span>
+                  </div>
                 </Field>
 
                 <Field label="الشركة أو المزود">
@@ -966,40 +996,61 @@ export function ProductFormModal({
           ) : (
             <>
               {/* تصنيف وبراند وباركود المنتج الفيزيائي */}
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                }}
-              >
-                <Field label="التصنيف">
-                  <select
-                    value={category}
-                    onChange={(e) => setCategory(e.target.value)}
+              <div className={styles.metaFieldsGrid}>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
+                >
+                  <div
                     style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
                       width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      border: "1.5px solid var(--line)",
-                      fontSize: 13,
-                      background: "var(--sf)",
-                      color: "var(--ink)",
                     }}
                   >
-                    <option value="السلع الاستهلاكية">السلع الاستهلاكية</option>
-                    <option value="سلع أساسية">سلع أساسية</option>
-                    <option value="ألبان وجبن">ألبان وجبن</option>
-                    <option value="مشروبات">مشروبات</option>
-                    <option value="سناكس ومقرمشات">سناكس ومقرمشات</option>
-                    <option value="معلبات">معلبات</option>
-                    <option value="منظفات وورقيات">منظفات وورقيات</option>
-                    <option value="حلويات وبسكويت">حلويات وبسكويت</option>
-                    <option value="مجمدات ولحوم">مجمدات ولحوم</option>
-                    <option value="كروت شحن">كروت شحن فيزيائية</option>
-                    <option value="أخرى">أخرى</option>
-                  </select>
-                </Field>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 700,
+                        color: "var(--ink)",
+                      }}
+                    >
+                      التصنيف
+                    </span>
+                    {product ? (
+                      <span className={styles.categoryAlreadyBadge}>
+                        <Icon n="check" s={11} />
+                        <span>مصنف بالفعل</span>
+                      </span>
+                    ) : (
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: "var(--ink2)",
+                          fontWeight: 500,
+                        }}
+                      >
+                        إلزامي للإضافة
+                      </span>
+                    )}
+                  </div>
+                  <div className={styles.selectWrapper}>
+                    <select
+                      value={category}
+                      onChange={(e) => setCategory(e.target.value)}
+                      className={styles.styledSelect}
+                    >
+                      {availableCategories.map((cat) => (
+                        <option key={cat} value={cat}>
+                          {cat}
+                        </option>
+                      ))}
+                    </select>
+                    <span className={styles.selectArrow}>
+                      <Icon n="down" s={14} />
+                    </span>
+                  </div>
+                </div>
 
                 <Field label="البراند / الماركة (اختياري)">
                   <input
@@ -1009,12 +1060,13 @@ export function ProductFormModal({
                     placeholder="مثال: جهينة، عبور لاند..."
                     style={{
                       width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 8,
+                      padding: "10px 12px",
+                      borderRadius: 10,
                       border: "1.5px solid var(--line)",
-                      fontSize: 13,
+                      fontSize: 13.5,
                       background: "var(--sf)",
                       color: "var(--ink)",
+                      boxSizing: "border-box",
                     }}
                   />
                 </Field>
@@ -1170,16 +1222,28 @@ export function ProductFormModal({
                 <>
                   {/* إعدادات محتوى الكيس */}
                   <div className={styles.priceCardGroup}>
-                    <div className={styles.priceCardTitle}>محتوى الكيس</div>
-                    <div style={{ marginBottom: 10 }}>
+                    <div style={{ marginBottom: 12 }}>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          marginBottom: 6,
+                          color: "var(--ink2)",
+                        }}
+                      >
+                        محتوى الكيس:
+                      </span>
                       <Seg
                         value={bagContentType}
                         onChange={(val) =>
                           setBagContentType(val as "weight" | "count")
                         }
+                        size="sm"
+                        className={styles.compactSeg}
                         options={[
-                          ["weight", "كيس بالوزن (جرام / كجم)"],
-                          ["count", "كيس بالعدد (قطع)"],
+                          ["weight", "بالوزن (جرام / كجم)"],
+                          ["count", "بالعدد (قطع)"],
                         ]}
                       />
                     </div>
@@ -1217,6 +1281,7 @@ export function ProductFormModal({
                             onChange={(val) =>
                               setBagWeightUnit(val as "g" | "kg")
                             }
+                            size="sm"
                             options={[
                               ["g", "جم"],
                               ["kg", "كجم"],

@@ -1173,121 +1173,87 @@
   border: 1px solid var(--line);
 }
 
-.natureBadgeStock {
-  background: rgba(16, 142, 92, 0.12);
-  color: #108e5c;
-  border-color: rgba(16, 142, 92, 0.25);
+/* Styled custom select with arrow */
+.selectWrapper {
+  position: relative;
+  width: 100%;
 }
 
-.serviceDetailsRow {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 10px 12px;
-  background: var(--sf2, #fbf7ef);
+.styledSelect {
+  width: 100%;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  padding: 10px 36px 10px 12px;
   border-radius: 10px;
-  border: 1px solid var(--line);
-  font-size: 12.5px;
-}
-
-.serviceEconomics {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-weight: 700;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
   color: var(--ink);
+  font-size: 13.5px;
+  font-weight: 600;
+  cursor: pointer;
+  outline: none;
+  transition: all 0.15s ease;
+  box-sizing: border-box;
 }
 
-.serviceMachineTag {
+.styledSelect:focus {
+  border-color: var(--br, #5a7d5a);
+  box-shadow: 0 0 0 2px rgba(90, 125, 90, 0.15);
+}
+
+.selectArrow {
+  position: absolute;
+  top: 50%;
+  left: 12px;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--ink2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Category status badge for edit mode */
+.categoryAlreadyBadge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11.5px;
-  color: var(--ink2);
-}
-
-.serviceActionsRow {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-  padding-top: 4px;
-}
-
-.actionItemBtn {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: 12px;
-  background: var(--sf);
-  border: 1.5px solid var(--line);
-  color: var(--ink);
-  font-size: 14px;
+  font-size: 11px;
   font-weight: 700;
-  cursor: pointer;
-  text-align: right;
-  transition: all 0.15s ease;
-  width: 100%;
-  box-sizing: border-box;
+  color: var(--ok, #108e5c);
+  background: rgba(16, 142, 92, 0.1);
+  padding: 2px 7px;
+  border-radius: 6px;
 }
 
-.actionItemBtn:hover {
-  background: var(--sf2);
-  border-color: var(--ink);
-}
-
-/* Compact responsive unit mode grid */
-.unitModeGrid {
+/* Responsive grid for category and brand */
+.metaFieldsGrid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+@media (max-width: 480px) {
+  .metaFieldsGrid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+}
+
+/* Compact Seg buttons for bag content options */
+.compactSeg {
   width: 100%;
-  box-sizing: border-box;
 }
 
-.unitModeCard {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 10px 4px;
-  border-radius: 12px;
-  background: var(--sf);
-  border: 1.5px solid var(--line);
-  color: var(--ink2);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  min-height: 56px;
-  text-align: center;
-}
-
-.unitModeCard:hover {
-  background: var(--sf2);
-  color: var(--ink);
-}
-
-.unitModeCard.active {
-  background: var(--sf2);
-  border-color: var(--br, #5a7d5a);
-  color: var(--br, #5a7d5a);
-  font-weight: 700;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
-}
-
-.unitModeTitle {
-  font-size: 12px;
-  line-height: 1.2;
-  white-space: nowrap;
+.compactSeg button {
+  font-size: 12px !important;
+  padding: 0 6px !important;
 }
 
 @media (max-width: 360px) {
-  .unitModeTitle {
-    font-size: 11px;
-  }
-  .unitModeCard {
-    padding: 8px 2px;
+  .compactSeg button {
+    font-size: 11px !important;
+    padding: 0 2px !important;
   }
 }

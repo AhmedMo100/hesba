@@ -53,6 +53,8 @@ describe("ProductFormModal Component", () => {
     );
     expect(html).toContain("إضافة منتج");
     expect(html).toContain("اسم المنتج");
+    expect(html).toContain("التصنيف");
+    expect(html).toContain("إلزامي للإضافة");
     expect(html).toContain("بيتباع إزاي؟");
     expect(html).toContain("بالقطعة / الكرتونة");
     expect(html).toContain("بالوزن");
@@ -221,10 +223,11 @@ describe("ProductFormModal Component", () => {
 
     expect(html).toContain("بالكيس");
     expect(html).toContain("محتوى الكيس");
-    expect(html).toContain("كيس بالوزن (جرام / كجم)");
-    expect(html).toContain("كيس بالعدد (قطع)");
+    expect(html).toContain("بالوزن (جرام / كجم)");
+    expect(html).toContain("بالعدد (قطع)");
     expect(html).toContain("بيتباع كرتونة كمان (تحتوي على أكياس)");
     expect(html).toContain("سعر الكيس الواحد");
+    expect(html).toContain("مصنف بالفعل");
   });
 
   it("renders scratch card title 'سعر الكارت' when prepaid card category is edited", () => {
