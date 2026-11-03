@@ -982,6 +982,27 @@ describe("People Module API & Tenancy Integration", () => {
       expect(person.amount_piasters).toBe(540000);
       expect(person.supplies).toHaveLength(1);
 
+      // Verify updating supplier to add supplies (including direct UUID and non-UUID/legacy string safely without 500 error)
+      const patchSuppliesRes = await patchPersonRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "شركة النور للتوريدات",
+            supplies: [testProductId, "prod_custom_temp_123"],
+          }),
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(patchSuppliesRes.status).toBe(200);
+      const { person: updatedWithSupplies } = await patchSuppliesRes.json();
+      expect(updatedWithSupplies.name).toBe("شركة النور للتوريدات");
+      expect(updatedWithSupplies.supplies).toHaveLength(1);
+      expect(updatedWithSupplies.supplies[0].id).toBe(testProductId);
+
       // Verify updating supplier to add / remove supplies and update balance atomically
       const patchRes = await patchPersonRoute(
         new Request(`http://localhost:3000/api/people/${person.id}`, {

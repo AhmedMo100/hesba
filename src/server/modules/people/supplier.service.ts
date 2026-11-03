@@ -15,6 +15,148 @@ import {
   type SuppliedProductItem,
 } from "./types";
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+/**
+ * Safely resolves raw product IDs (direct storeProduct UUIDs, global catalog "gp_<uuid>" IDs,
+ * or legacy product strings) to existing or initialized storeProduct records.
+ * Prevents Postgres UUID syntax errors (P2023) when non-UUID strings are passed.
+ */
+async function resolveSuppliedStoreProductIds(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  rawSupplies: string[],
+): Promise<Array<{ id: string; nameAr: string | null }>> {
+  if (!rawSupplies || rawSupplies.length === 0) return [];
+
+  const directUuids: string[] = [];
+  const globalProductIdsToResolve: string[] = [];
+
+  for (const raw of rawSupplies) {
+    if (!raw || typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+
+    if (trimmed.startsWith("gp_")) {
+      const candidateGlobalId = trimmed.slice(3);
+      if (UUID_REGEX.test(candidateGlobalId)) {
+        globalProductIdsToResolve.push(candidateGlobalId);
+      }
+    } else if (UUID_REGEX.test(trimmed)) {
+      directUuids.push(trimmed);
+    }
+  }
+
+  const finalProductMap = new Map<
+    string,
+    { id: string; nameAr: string | null }
+  >();
+
+  // 1. Direct UUIDs against storeProduct
+  if (directUuids.length > 0) {
+    const existingStoreProducts = await tx.storeProduct.findMany({
+      where: {
+        storeId,
+        id: { in: directUuids },
+      },
+      select: { id: true, nameAr: true },
+    });
+
+    for (const p of existingStoreProducts) {
+      finalProductMap.set(p.id, p);
+    }
+
+    // Direct UUIDs that were not storeProduct.id might be globalProductId directly
+    const remainingUuids = directUuids.filter((id) => !finalProductMap.has(id));
+    for (const id of remainingUuids) {
+      globalProductIdsToResolve.push(id);
+    }
+  }
+
+  // 2. Resolve global products (either existing storeProduct override or create one)
+  if (globalProductIdsToResolve.length > 0) {
+    const uniqueGlobalIds = Array.from(new Set(globalProductIdsToResolve));
+
+    const existingGlobalOverrides = await tx.storeProduct.findMany({
+      where: {
+        storeId,
+        globalProductId: { in: uniqueGlobalIds },
+      },
+      select: { id: true, globalProductId: true, nameAr: true },
+    });
+
+    for (const sp of existingGlobalOverrides) {
+      finalProductMap.set(sp.id, { id: sp.id, nameAr: sp.nameAr });
+    }
+
+    const linkedGlobalIds = new Set(
+      existingGlobalOverrides
+        .map((sp) => sp.globalProductId)
+        .filter((gid): gid is string => gid !== null),
+    );
+
+    const uninstantiatedGlobalIds = uniqueGlobalIds.filter(
+      (gid) => !linkedGlobalIds.has(gid),
+    );
+
+    if (uninstantiatedGlobalIds.length > 0) {
+      const globalCatalogItems = await tx.globalProduct.findMany({
+        where: { id: { in: uninstantiatedGlobalIds } },
+        include: { globalVariants: true },
+      });
+
+      const now = new Date();
+      for (const gp of globalCatalogItems) {
+        const primaryGv = gp.globalVariants[0];
+        const newStoreProduct = await tx.storeProduct.create({
+          data: {
+            storeId,
+            globalProductId: gp.id,
+            nameAr: gp.nameAr,
+            nameNorm: gp.nameNorm,
+            category: gp.category,
+            unit:
+              primaryGv?.sizeUnit === "kg" || primaryGv?.sizeUnit === "g"
+                ? "kg"
+                : "piece",
+            sellPricePiasters: BigInt(0),
+            buyPricePiasters: BigInt(0),
+            isCustom: false,
+            isActive: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        await tx.storeVariant.create({
+          data: {
+            storeId,
+            storeProductId: newStoreProduct.id,
+            productId: gp.id,
+            globalVariantId: primaryGv?.id ?? null,
+            flavor: primaryGv?.flavor ?? null,
+            sizeValue: primaryGv?.sizeValue ?? null,
+            sizeUnit: primaryGv?.sizeUnit ?? null,
+            packQty: primaryGv?.packQty ?? 1,
+            sellPricePiasters: BigInt(0),
+            buyPricePiasters: BigInt(0),
+            isActive: true,
+            createdAt: now,
+            updatedAt: now,
+          },
+        });
+
+        finalProductMap.set(newStoreProduct.id, {
+          id: newStoreProduct.id,
+          nameAr: newStoreProduct.nameAr,
+        });
+      }
+    }
+  }
+
+  return Array.from(finalProductMap.values());
+}
+
 /**
  * Lists suppliers (الموردين) and computes their owed balances and supplied products.
  */
@@ -183,13 +325,11 @@ export async function createSupplier(
 
       const supplies: SuppliedProductItem[] = [];
       if (input.supplies && input.supplies.length > 0) {
-        const validProducts = await tx.storeProduct.findMany({
-          where: {
-            storeId,
-            id: { in: input.supplies },
-          },
-          select: { id: true, nameAr: true },
-        });
+        const validProducts = await resolveSuppliedStoreProductIds(
+          tx,
+          storeId,
+          input.supplies,
+        );
 
         if (validProducts.length > 0) {
           await tx.supplierProduct.createMany({
@@ -506,13 +646,11 @@ export async function updateSupplier(
         });
 
         if (input.supplies.length > 0) {
-          const validProducts = await tx.storeProduct.findMany({
-            where: {
-              storeId,
-              id: { in: input.supplies },
-            },
-            select: { id: true },
-          });
+          const validProducts = await resolveSuppliedStoreProductIds(
+            tx,
+            storeId,
+            input.supplies,
+          );
 
           if (validProducts.length > 0) {
             await tx.supplierProduct.createMany({

@@ -8,6 +8,7 @@ import { ProductFormModal } from "./ProductFormModal";
 import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "./AddStockModal";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
+import { getStoredMachines } from "../../shared/machines";
 import styles from "./ProductsView.module.css";
 
 export interface StoreProductItem {
@@ -191,13 +192,7 @@ export function ProductsView() {
   const [machineAssignProduct, setMachineAssignProduct] =
     useState<StoreProductItem | null>(null);
   const [posMachines, setPosMachines] = useState<PosMachine[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const savedMachines = localStorage.getItem("hesba_pos_machines_default");
-      return savedMachines ? JSON.parse(savedMachines) : [];
-    } catch {
-      return [];
-    }
+    return getStoredMachines();
   });
   const [assignedMachines, setAssignedMachines] = useState<
     Record<string, string>
@@ -224,9 +219,19 @@ export function ProductsView() {
       const onOff = () => setIsOnline(false);
       window.addEventListener("online", onOn);
       window.addEventListener("offline", onOff);
+
+      const handleMachinesUpdated = () => {
+        setPosMachines(getStoredMachines());
+      };
+      window.addEventListener("hesba_machines_updated", handleMachinesUpdated);
+
       return () => {
         window.removeEventListener("online", onOn);
         window.removeEventListener("offline", onOff);
+        window.removeEventListener(
+          "hesba_machines_updated",
+          handleMachinesUpdated,
+        );
       };
     }
   }, []);
@@ -583,20 +588,27 @@ export function ProductsView() {
                 title="إدارة ماكينات الدفع والشبكات"
               >
                 <Icon n="store" s={16} />
-                <span>ماكينات الدفع</span>
+                <span className={styles.manageMachinesTextDesktop}>
+                  ماكينات الدفع
+                </span>
+                <span className={styles.manageMachinesTextMobile}>
+                  الماكينات
+                </span>
               </button>
 
               <Button
                 kind="primary"
-                icon="plus"
-                style={{ flex: 1 }}
+                style={{ flex: 1, minWidth: 0 }}
                 className={styles.addBtnFull}
                 onClick={() => {
                   setAddingSection("services");
                   setIsAdding(true);
                 }}
               >
-                + إضافة خدمة / كارت
+                <span className={styles.addBtnTextDesktop}>
+                  + إضافة خدمة أو كارت
+                </span>
+                <span className={styles.addBtnTextMobile}>+ إضافة خدمة</span>
               </Button>
             </>
           )}

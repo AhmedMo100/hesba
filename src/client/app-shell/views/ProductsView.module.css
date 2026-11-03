@@ -59,11 +59,30 @@
   gap: 8px;
   align-items: center;
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .addBtnFull {
   flex: 1;
+  min-width: 0;
   justify-content: center;
+}
+
+.manageMachinesTextDesktop {
+  display: inline;
+}
+
+.manageMachinesTextMobile {
+  display: none;
+}
+
+.addBtnTextDesktop {
+  display: inline;
+}
+
+.addBtnTextMobile {
+  display: none;
 }
 
 .hiddenIconBtn {
@@ -1108,29 +1127,6 @@
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
 }
 
-/* Services & Recharge styling */
-.manageMachinesBtn {
-  background: var(--sf);
-  color: var(--ink);
-  border: 1.5px solid var(--line);
-  border-radius: 12px;
-  padding: 8px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 42px;
-  transition: all 0.15s ease;
-  white-space: nowrap;
-}
-
-.manageMachinesBtn:hover {
-  background: var(--sf2);
-  border-color: var(--ink);
-}
-
 /* Styled custom select with arrow */
 .selectWrapper {
   position: relative;
@@ -1268,5 +1264,85 @@
   }
   .commissionCard {
     padding: 8px 2px;
+  }
+}
+
+/* Header buttons mobile responsive row */
+@media (max-width: 480px) {
+  .pact {
+    gap: 6px;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  .hiddenIconBtn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+    flex-shrink: 0;
+  }
+
+  .manageMachinesBtn {
+    padding: 6px 10px;
+    font-size: 12px;
+    min-height: 38px;
+    height: 38px;
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .manageMachinesTextDesktop {
+    display: none;
+  }
+
+  .manageMachinesTextMobile {
+    display: inline;
+  }
+
+  .addBtnFull {
+    flex: 1;
+    min-width: 0;
+    min-height: 38px;
+    height: 38px;
+    padding: 6px 10px;
+    font-size: 12.5px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .addBtnTextDesktop {
+    display: none;
+  }
+
+  .addBtnTextMobile {
+    display: inline;
+  }
+}
+
+@media (max-width: 360px) {
+  .pact {
+    gap: 4px;
+  }
+
+  .hiddenIconBtn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+  }
+
+  .manageMachinesBtn {
+    padding: 6px 7px;
+    font-size: 11.5px;
+    min-height: 36px;
+    height: 36px;
+  }
+
+  .addBtnFull {
+    padding: 6px 7px;
+    font-size: 11.5px;
+    min-height: 36px;
+    height: 36px;
   }
 }

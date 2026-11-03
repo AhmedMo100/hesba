@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import { Modal, Button, Field } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import { type PosMachine, addMachineTopup } from "../../shared/machines";
+import { normalizeNumberString, parseEgpToPiasters } from "@/domain/money";
 
 export interface MachineTopupModalProps {
   machine: PosMachine;
@@ -28,8 +29,15 @@ export function MachineTopupModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const val = parseFloat(amountEgp);
-    if (!val || val <= 0) {
+    const cleanStr = normalizeNumberString(amountEgp).trim();
+    let amountPiasters = 0;
+    try {
+      amountPiasters = parseEgpToPiasters(cleanStr);
+    } catch {
+      amountPiasters = 0;
+    }
+
+    if (!amountPiasters || amountPiasters <= 0) {
       setError("أدخل مبلغ الشحن / الإيداع بشكل صحيح");
       return;
     }
@@ -37,7 +45,6 @@ export function MachineTopupModal({
     setIsSubmitting(true);
     setError(null);
 
-    const amountPiasters = Math.round(val * 100);
     const resolvedSource =
       source === "أخرى" ? customSource.trim() || "مصدر مخصص" : source;
 

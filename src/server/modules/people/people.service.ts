@@ -139,13 +139,27 @@ export async function updatePerson(
 ): Promise<FormattedPerson> {
   try {
     return await updateCustomer(storeId, personId, input, userId, customPrisma);
-  } catch {}
+  } catch (err: unknown) {
+    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
+      throw err;
+    }
+  }
+
   try {
     return await updatePayable(storeId, personId, input, userId, customPrisma);
-  } catch {}
+  } catch (err: unknown) {
+    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
+      throw err;
+    }
+  }
+
   try {
     return await updateSupplier(storeId, personId, input, userId, customPrisma);
-  } catch {}
+  } catch (err: unknown) {
+    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
+      throw err;
+    }
+  }
 
   throw new Error("الشخص أو المورد غير موجود أو لا تملك صلاحية تعديله");
 }
@@ -161,13 +175,27 @@ export async function deletePerson(
 ): Promise<{ success: boolean; id: string }> {
   try {
     return await deleteCustomer(storeId, personId, userId, customPrisma);
-  } catch {}
+  } catch (err: unknown) {
+    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
+      throw err;
+    }
+  }
+
   try {
     return await deletePayable(storeId, personId, userId, customPrisma);
-  } catch {}
+  } catch (err: unknown) {
+    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
+      throw err;
+    }
+  }
+
   try {
     return await deleteSupplier(storeId, personId, userId, customPrisma);
-  } catch {}
+  } catch (err: unknown) {
+    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
+      throw err;
+    }
+  }
 
   throw new Error("الشخص أو المورد غير موجود أو تم حذفه بالفعل");
 }

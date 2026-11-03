@@ -26,7 +26,10 @@ export interface PosMachine {
 const STORAGE_KEY_PREFIX = "hesba_pos_machines_v2";
 
 export function getMachineStorageKey(storeId?: string): string {
-  return storeId ? `${STORAGE_KEY_PREFIX}_${storeId}` : STORAGE_KEY_PREFIX;
+  if (!storeId || storeId === "default") {
+    return STORAGE_KEY_PREFIX;
+  }
+  return `${STORAGE_KEY_PREFIX}_${storeId}`;
 }
 
 const DEFAULT_MACHINES: PosMachine[] = [
@@ -77,14 +80,32 @@ const DEFAULT_MACHINES: PosMachine[] = [
 ];
 
 export function getStoredMachines(storeId?: string): PosMachine[] {
-  if (typeof window === "undefined") return DEFAULT_MACHINES;
+  if (typeof window === "undefined" || !window.localStorage) {
+    return DEFAULT_MACHINES;
+  }
   try {
-    const raw = localStorage.getItem(getMachineStorageKey(storeId));
-    if (!raw) {
-      localStorage.setItem(
-        getMachineStorageKey(storeId),
-        JSON.stringify(DEFAULT_MACHINES),
+    const key = getMachineStorageKey(storeId);
+    let raw = window.localStorage.getItem(key);
+
+    // Auto-migrate legacy storage keys if present
+    if (!raw && (!storeId || storeId === "default")) {
+      const v2Default = window.localStorage.getItem(
+        "hesba_pos_machines_v2_default",
       );
+      const v1Default = window.localStorage.getItem(
+        "hesba_pos_machines_default",
+      );
+      if (v2Default) {
+        raw = v2Default;
+        window.localStorage.setItem(key, v2Default);
+      } else if (v1Default) {
+        raw = v1Default;
+        window.localStorage.setItem(key, v1Default);
+      }
+    }
+
+    if (!raw) {
+      window.localStorage.setItem(key, JSON.stringify(DEFAULT_MACHINES));
       return DEFAULT_MACHINES;
     }
     const parsed = JSON.parse(raw);
@@ -113,12 +134,17 @@ export function saveStoredMachines(
   machines: PosMachine[],
   storeId?: string,
 ): void {
-  if (typeof window === "undefined") return;
+  if (typeof window === "undefined" || !window.localStorage) return;
   try {
-    localStorage.setItem(
-      getMachineStorageKey(storeId),
-      JSON.stringify(machines),
-    );
+    const key = getMachineStorageKey(storeId);
+    window.localStorage.setItem(key, JSON.stringify(machines));
+    // Keep legacy fallback keys updated for any external consumers
+    if (!storeId || storeId === "default") {
+      window.localStorage.setItem(
+        "hesba_pos_machines_v2_default",
+        JSON.stringify(machines),
+      );
+    }
     window.dispatchEvent(new Event("hesba_machines_updated"));
   } catch (err) {
     console.error("Failed to persist POS machines:", err);
