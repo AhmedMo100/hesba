@@ -5,6 +5,7 @@ import { Empty, SearchBox, Button, Icon, Modal } from "../../shared/ui";
 import { t } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { ProductFormModal } from "./ProductFormModal";
+import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "./AddStockModal";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
 import styles from "./ProductsView.module.css";
@@ -1340,25 +1341,47 @@ export function ProductsView() {
         </>
       )}
 
-      {/* Product Form Modal (Add / Edit) */}
-      {(isAdding || editingProduct) && (
+      {/* Physical Product Form Modal (Add / Edit) */}
+      {((isAdding && addingSection === "products") ||
+        (editingProduct && !isServiceProduct(editingProduct))) && (
         <ProductFormModal
           product={editingProduct}
-          initialSection={addingSection}
           defaultCategory={
-            addingSection === "services"
-              ? serviceCategory === "utilities"
-                ? "شحن مرافق"
-                : serviceCategory === "cards"
-                  ? "كروت شحن"
-                  : serviceCategory === "transfer"
-                    ? "تحويل أموال"
-                    : serviceCategory === "airtime"
-                      ? "شحن رصيد"
-                      : "فواتير إنترنت"
-              : activeCategory !== "all"
-                ? activeCategory
-                : "السلع الاستهلاكية"
+            activeCategory !== "all" ? activeCategory : "السلع الاستهلاكية"
+          }
+          onClose={() => {
+            setIsAdding(false);
+            setEditingProduct(null);
+          }}
+          onSaved={() => {
+            setIsAdding(false);
+            setEditingProduct(null);
+            void loadProducts();
+          }}
+          onDeleted={() => {
+            setIsAdding(false);
+            setEditingProduct(null);
+            void loadProducts();
+          }}
+        />
+      )}
+
+      {/* Digital Services & Bills / Recharge Form Modal (Add / Edit) */}
+      {((isAdding && addingSection === "services") ||
+        (editingProduct && isServiceProduct(editingProduct))) && (
+        <ServiceFormModal
+          product={editingProduct}
+          presetCategory={
+            editingProduct?.category ||
+            (serviceCategory === "utilities"
+              ? "خدمات مرافق"
+              : serviceCategory === "cards"
+                ? "كروت شحن"
+                : serviceCategory === "transfer"
+                  ? "تحويل أموال"
+                  : serviceCategory === "airtime"
+                    ? "شحن رصيد"
+                    : "فواتير إنترنت")
           }
           onClose={() => {
             setIsAdding(false);

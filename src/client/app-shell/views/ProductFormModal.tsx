@@ -35,7 +35,6 @@ export interface ProductFormModalProps {
   } | null;
   presetName?: string;
   initialCatalogProduct?: CatalogSearchResult | null;
-  initialSection?: "products" | "services";
   defaultCategory?: string;
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
@@ -65,7 +64,6 @@ export function ProductFormModal({
   product,
   presetName,
   initialCatalogProduct,
-  initialSection = "products",
   defaultCategory,
   onClose,
   onSaved,
@@ -171,17 +169,8 @@ export function ProductFormModal({
         ? defaultCategory
         : initialCatalogProduct
           ? initialCatalogProduct.product.category
-          : initialSection === "services"
-            ? "فواتير إنترنت"
-            : "السلع الاستهلاكية",
+          : "السلع الاستهلاكية",
   );
-  const isServiceCategory =
-    category === "فواتير إنترنت" ||
-    category === "شحن رصيد" ||
-    category === "تحويل أموال" ||
-    category === "خدمات مرافق" ||
-    category === "خدمات رقمية" ||
-    product?.unit === "service";
 
   const availableCategories = useMemo(() => {
     if (
@@ -199,20 +188,6 @@ export function ProductFormModal({
     product?.barcode || firstVariant?.barcode || "",
   );
 
-  // Dedicated Digital Services configuration
-  const [commissionModel, setCommissionModel] = useState<
-    "fixed" | "percent" | "tiers"
-  >("fixed");
-  const [commissionValue, setCommissionValue] = useState<string>(
-    product ? (product.sell_price_piasters / 100).toString() : "5",
-  );
-  const [percentRate, setPercentRate] = useState<string>("1.5");
-  const [providerFee, setProviderFee] = useState<string>(
-    product?.buy_cost_piasters
-      ? (product.buy_cost_piasters / 100).toString()
-      : "0",
-  );
-  const [simAmount, setSimAmount] = useState<string>("100");
   const [brandName, setBrandName] = useState(
     initialCatalogProduct?.brand?.nameAr ?? "",
   );
@@ -392,25 +367,7 @@ export function ProductFormModal({
     let sellPriceNum = 0;
     let buyCostNum = 0;
 
-    if (isServiceCategory) {
-      if (commissionModel === "fixed") {
-        sellPriceNum = parseFloat(commissionValue) || 0;
-        buyCostNum = parseFloat(providerFee) || 0;
-      } else if (commissionModel === "percent") {
-        const sim = parseFloat(simAmount) || 100;
-        const rate = parseFloat(percentRate) || 0;
-        sellPriceNum = (sim * rate) / 100;
-        buyCostNum = parseFloat(providerFee) || 0;
-      } else {
-        // tiers
-        sellPriceNum = parseFloat(commissionValue) || 5;
-        buyCostNum = parseFloat(providerFee) || 0;
-      }
-
-      if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
-        newErrors.price = "اكتب قيمة عمولة الخدمة";
-      }
-    } else if (kind === "weight") {
+    if (kind === "weight") {
       sellPriceNum = parseFloat(wSell);
       buyCostNum = parseFloat(wBuy) || 0;
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
@@ -460,9 +417,8 @@ export function ProductFormModal({
           ? parseInt(packN, 10) || 1
           : 1;
 
-      const targetUnit = isServiceCategory
-        ? ("service" as const)
-        : kind === "weight"
+      const targetUnit =
+        kind === "weight"
           ? weightUnit
           : kind === "bag"
             ? ("bag" as const)
@@ -702,65 +658,143 @@ export function ProductFormModal({
             </div>
           )}
 
-          {isServiceCategory ? (
-            <div className={styles.priceCardGroup}>
-              <div className={styles.priceCardTitle}>
-                إعدادات عمولة الخدمة الرقمية
-              </div>
-
-              {/* اختيار تصنيف الخدمة والشركة */}
+          {/* تصنيف وبراند وباركود المنتج الفيزيائي */}
+          <div className={styles.metaFieldsGrid}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
               <div
                 style={{
-                  display: "grid",
-                  gridTemplateColumns: "1fr 1fr",
-                  gap: 10,
-                  marginBottom: 12,
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  width: "100%",
                 }}
               >
-                <Field label="تصنيف الخدمة">
-                  <div className={styles.selectWrapper}>
-                    <select
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      className={styles.styledSelect}
-                    >
-                      <option value="شحن مرافق">
-                        شحن مرافق (كهرباء/مياه/غاز)
-                      </option>
-                      <option value="فواتير إنترنت">
-                        فواتير إنترنت وتليفون
-                      </option>
-                      <option value="كروت شحن">كروت شحن</option>
-                      <option value="تحويل أموال">تحويل أموال ومحافظ</option>
-                      <option value="شحن رصيد">شحن رصيد على الهواء</option>
-                      <option value="خدمات رقمية">خدمات رقمية أخرى</option>
-                    </select>
-                    <span className={styles.selectArrow}>
-                      <Icon n="down" s={14} />
-                    </span>
-                  </div>
-                </Field>
-
-                <Field label="الشركة أو المزود">
-                  <input
-                    type="text"
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    placeholder="مثال: فودافون، وي، فوري..."
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--ink)",
+                  }}
+                >
+                  التصنيف
+                </span>
+                {product ? (
+                  <span className={styles.categoryAlreadyBadge}>
+                    <Icon n="check" s={11} />
+                    <span>مصنف بالفعل</span>
+                  </span>
+                ) : (
+                  <span
                     style={{
-                      width: "100%",
-                      padding: "8px 10px",
-                      borderRadius: 8,
-                      border: "1.5px solid var(--line)",
-                      fontSize: 13,
-                      background: "var(--sf)",
-                      color: "var(--ink)",
+                      fontSize: 11,
+                      color: "var(--ink2)",
+                      fontWeight: 500,
                     }}
-                  />
-                </Field>
+                  >
+                    إلزامي للإضافة
+                  </span>
+                )}
               </div>
+              <div className={styles.selectWrapper}>
+                <select
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                  className={styles.styledSelect}
+                >
+                  {availableCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+                <span className={styles.selectArrow}>
+                  <Icon n="down" s={14} />
+                </span>
+              </div>
+            </div>
 
-              {/* اختيار نموذج احتساب العمولة */}
+            <Field label="البراند / الماركة (اختياري)">
+              <input
+                type="text"
+                value={brandName}
+                onChange={(e) => setBrandName(e.target.value)}
+                placeholder="مثال: جهينة، عبور لاند..."
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--line)",
+                  fontSize: 13.5,
+                  background: "var(--sf)",
+                  color: "var(--ink)",
+                  boxSizing: "border-box",
+                }}
+              />
+            </Field>
+          </div>
+
+          <Field label="الباركود (اختياري)">
+            <input
+              type="text"
+              value={barcode}
+              onChange={(e) => setBarcode(e.target.value)}
+              placeholder="مثال: 6223000..."
+              style={{
+                width: "100%",
+                padding: "8px 10px",
+                borderRadius: 8,
+                border: "1.5px solid var(--line)",
+                fontSize: 13,
+                background: "var(--sf)",
+                color: "var(--ink)",
+              }}
+            />
+          </Field>
+
+          {/* طريقة البيع - بيتباع إزاي؟ */}
+          <div style={{ marginBottom: 6 }}>
+            <span
+              style={{
+                display: "block",
+                fontSize: 12.5,
+                fontWeight: 700,
+                marginBottom: 6,
+                color: "var(--ink2)",
+              }}
+            >
+              بيتباع إزاي؟
+            </span>
+            <div className={styles.unitModeGrid}>
+              <button
+                type="button"
+                className={`${styles.unitModeCard} ${kind === "unit" ? styles.active : ""}`}
+                onClick={() => setKind("unit")}
+              >
+                <Icon n="box" s={18} />
+                <span className={styles.unitModeTitle}>بالقطعة / الكرتونة</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.unitModeCard} ${kind === "weight" ? styles.active : ""}`}
+                onClick={() => setKind("weight")}
+              >
+                <Icon n="scale" s={18} />
+                <span className={styles.unitModeTitle}>بالوزن</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.unitModeCard} ${kind === "bag" ? styles.active : ""}`}
+                onClick={() => setKind("bag")}
+              >
+                <Icon n="layers" s={18} />
+                <span className={styles.unitModeTitle}>بالكيس</span>
+              </button>
+            </div>
+          </div>
+
+          {kind === "weight" ? (
+            <div className={styles.priceCardGroup}>
+              {/* خيارات وحدة تسعير الوزن */}
               <div style={{ marginBottom: 12 }}>
                 <span
                   style={{
@@ -771,752 +805,198 @@ export function ProductFormModal({
                     color: "var(--ink2)",
                   }}
                 >
-                  طريقة احتساب عمولة المحل:
+                  التسعير بالوزن:
                 </span>
                 <Seg
-                  value={commissionModel}
-                  onChange={(val) =>
-                    setCommissionModel(val as "fixed" | "percent" | "tiers")
-                  }
+                  value={weightUnit}
+                  onChange={(val) => setWeightUnit(val as "kg" | "g")}
                   options={[
-                    ["fixed", "مبلغ ثابت (ج.م)"],
-                    ["percent", "نسبة مئوية (%)"],
-                    ["tiers", "شرائح مبالغ"],
+                    ["kg", "بالكيلو (كجم)"],
+                    ["g", "بالجرام (جم)"],
                   ]}
                 />
               </div>
 
-              {commissionModel === "fixed" && (
-                <Field
-                  label="عمولة المحل الثابتة لكل معاملة (ج.م)"
-                  err={errors.price}
-                >
+              <div className={styles.priceCardTitle}>
+                {weightUnit === "kg" ? "سعر الكيلو" : "سعر الجرام"}
+              </div>
+              <div className={styles.priceInputsGrid}>
+                <div className={styles.priceInputCol}>
+                  <span className={styles.priceInputLabel}>شراء</span>
                   <div className={styles.inputWithBadge}>
                     <input
                       type="number"
                       step="any"
                       min="0"
-                      value={commissionValue}
-                      onChange={(e) => setCommissionValue(e.target.value)}
-                      placeholder="5"
+                      value={wBuy}
+                      onChange={(e) => setWBuy(e.target.value)}
+                      placeholder="0"
                     />
                     <span className={styles.inputBadge}>ج.م</span>
                   </div>
-                </Field>
-              )}
-
-              {commissionModel === "percent" && (
-                <Field
-                  label="نسبة عمولة المحل من إجمالي المعاملة (%)"
-                  err={errors.price}
-                >
+                </div>
+                <div className={styles.priceInputCol}>
+                  <span className={styles.priceInputLabel}>بيع</span>
                   <div className={styles.inputWithBadge}>
                     <input
                       type="number"
                       step="any"
                       min="0"
-                      value={percentRate}
-                      onChange={(e) => setPercentRate(e.target.value)}
-                      placeholder="1.5"
+                      value={wSell}
+                      onChange={(e) => setWSell(e.target.value)}
+                      placeholder="0"
                     />
-                    <span className={styles.inputBadge}>%</span>
+                    <span className={styles.inputBadge}>ج.م</span>
                   </div>
-                </Field>
-              )}
-
-              {commissionModel === "tiers" && (
+                </div>
+              </div>
+              {Number(wSell) > 0 && (
                 <div
                   style={{
-                    background: "var(--sf2)",
-                    padding: "10px 12px",
-                    borderRadius: 10,
-                    border: "1px solid var(--line)",
-                    marginBottom: 10,
+                    fontSize: 12,
+                    color: "var(--ink2)",
+                    marginTop: 8,
+                    fontWeight: 600,
                   }}
                 >
+                  {weightUnit === "kg"
+                    ? `(100 جرام تعادل ${(Number(wSell) / 10).toFixed(2)} ج.م)`
+                    : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
+                </div>
+              )}
+              {errors.price && (
+                <div
+                  style={{
+                    color: "var(--red, #cf3c3c)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginTop: 6,
+                  }}
+                >
+                  {errors.price}
+                </div>
+              )}
+            </div>
+          ) : kind === "bag" ? (
+            <>
+              {/* إعدادات محتوى الكيس */}
+              <div className={styles.priceCardGroup}>
+                <div style={{ marginBottom: 12 }}>
                   <span
                     style={{
                       display: "block",
                       fontSize: 12,
                       fontWeight: 700,
                       marginBottom: 6,
-                      color: "var(--ink)",
-                    }}
-                  >
-                    شرائح العمولة الافتراضية:
-                  </span>
-                  <div
-                    style={{
-                      fontSize: 12,
                       color: "var(--ink2)",
-                      lineHeight: 1.6,
                     }}
                   >
-                    • حتى 100 ج.م: <b>2 ج.م</b>
-                    <br />• من 101 حتى 500 ج.م: <b>5 ج.م</b>
-                    <br />• أكثر من 500 ج.م: <b>10 ج.م</b>
-                  </div>
-                </div>
-              )}
-
-              {/* تكلفة أو رسوم مزود الخدمة */}
-              <Field label="رسوم المزود أو تكلفة الخدمة إن وجدت (ج.م)">
-                <div className={styles.inputWithBadge}>
-                  <input
-                    type="number"
-                    step="any"
-                    min="0"
-                    value={providerFee}
-                    onChange={(e) => setProviderFee(e.target.value)}
-                    placeholder="0"
-                  />
-                  <span className={styles.inputBadge}>ج.م</span>
-                </div>
-              </Field>
-
-              {/* محاكي حساب الأرباح الحية */}
-              <div
-                style={{
-                  background: "var(--sf2)",
-                  border: "1.5px dashed var(--line)",
-                  borderRadius: 12,
-                  padding: "12px",
-                  marginTop: 6,
-                }}
-              >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 12.5,
-                      fontWeight: 700,
-                      color: "var(--ink)",
-                    }}
-                  >
-                    محاكي الأرباح لمعاملة تجريبية:
+                    محتوى الكيس:
                   </span>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      maxWidth: 110,
-                    }}
-                  >
-                    <input
-                      type="number"
-                      step="any"
-                      min="1"
-                      value={simAmount}
-                      onChange={(e) => setSimAmount(e.target.value)}
-                      placeholder="100"
-                      style={{
-                        padding: "4px 8px",
-                        fontSize: 12,
-                        borderRadius: 6,
-                        border: "1px solid var(--line)",
-                        width: "100%",
-                        textAlign: "center",
-                        background: "var(--sf)",
-                        color: "var(--ink)",
-                      }}
-                    />
-                    <span style={{ fontSize: 11, color: "var(--ink2)" }}>
-                      ج.م
-                    </span>
-                  </div>
-                </div>
-
-                {(() => {
-                  const amt = parseFloat(simAmount) || 100;
-                  let comm = 0;
-                  if (commissionModel === "fixed") {
-                    comm = parseFloat(commissionValue) || 0;
-                  } else if (commissionModel === "percent") {
-                    comm = (amt * (parseFloat(percentRate) || 0)) / 100;
-                  } else {
-                    comm = amt <= 100 ? 2 : amt <= 500 ? 5 : 10;
-                  }
-                  const fee = parseFloat(providerFee) || 0;
-                  const net = Math.max(0, comm - fee);
-
-                  return (
-                    <div
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        fontSize: 12,
-                      }}
-                    >
-                      <span style={{ color: "var(--ink2)" }}>
-                        عمولة المحل: <b>{comm.toFixed(2)} ج.م</b> | تكلفة
-                        المزود: <b>{fee.toFixed(2)} ج.م</b>
-                      </span>
-                      <span
-                        style={{
-                          fontWeight: 800,
-                          color: "var(--ok, #108e5c)",
-                          fontSize: 13,
-                        }}
-                      >
-                        صافي ربحك: {net.toFixed(2)} ج.م
-                      </span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* إخلاء مسؤولية تنبيهي بارز */}
-              <div
-                style={{
-                  fontSize: 11.5,
-                  color: "var(--ink2)",
-                  marginTop: 8,
-                  lineHeight: 1.5,
-                  background:
-                    "color-mix(in srgb, var(--yel, #b8841a) 8%, transparent)",
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border:
-                    "1px solid color-mix(in srgb, var(--yel, #b8841a) 25%, transparent)",
-                }}
-              >
-                ℹ️ <b>تنبيه تنظيمي:</b> تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات
-                التشغيلية وأرباح المحل فقط، ولا يقوم بتنفيذ أي تحويلات بنكية أو
-                معاملات دفع نقدي فعلي عبر الشبكات.
-              </div>
-            </div>
-          ) : (
-            <>
-              {/* تصنيف وبراند وباركود المنتج الفيزيائي */}
-              <div className={styles.metaFieldsGrid}>
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 6 }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      width: "100%",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 700,
-                        color: "var(--ink)",
-                      }}
-                    >
-                      التصنيف
-                    </span>
-                    {product ? (
-                      <span className={styles.categoryAlreadyBadge}>
-                        <Icon n="check" s={11} />
-                        <span>مصنف بالفعل</span>
-                      </span>
-                    ) : (
-                      <span
-                        style={{
-                          fontSize: 11,
-                          color: "var(--ink2)",
-                          fontWeight: 500,
-                        }}
-                      >
-                        إلزامي للإضافة
-                      </span>
-                    )}
-                  </div>
-                  <div className={styles.selectWrapper}>
-                    <select
-                      value={category}
-                      onChange={(e) => setCategory(e.target.value)}
-                      className={styles.styledSelect}
-                    >
-                      {availableCategories.map((cat) => (
-                        <option key={cat} value={cat}>
-                          {cat}
-                        </option>
-                      ))}
-                    </select>
-                    <span className={styles.selectArrow}>
-                      <Icon n="down" s={14} />
-                    </span>
-                  </div>
-                </div>
-
-                <Field label="البراند / الماركة (اختياري)">
-                  <input
-                    type="text"
-                    value={brandName}
-                    onChange={(e) => setBrandName(e.target.value)}
-                    placeholder="مثال: جهينة، عبور لاند..."
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: "1.5px solid var(--line)",
-                      fontSize: 13.5,
-                      background: "var(--sf)",
-                      color: "var(--ink)",
-                      boxSizing: "border-box",
-                    }}
+                  <Seg
+                    value={bagContentType}
+                    onChange={(val) =>
+                      setBagContentType(val as "weight" | "count")
+                    }
+                    size="sm"
+                    className={styles.compactSeg}
+                    options={[
+                      ["weight", "بالوزن (جرام / كجم)"],
+                      ["count", "بالعدد (قطع)"],
+                    ]}
                   />
-                </Field>
-              </div>
-
-              <Field label="الباركود (اختياري)">
-                <input
-                  type="text"
-                  value={barcode}
-                  onChange={(e) => setBarcode(e.target.value)}
-                  placeholder="مثال: 6223000..."
-                  style={{
-                    width: "100%",
-                    padding: "8px 10px",
-                    borderRadius: 8,
-                    border: "1.5px solid var(--line)",
-                    fontSize: 13,
-                    background: "var(--sf)",
-                    color: "var(--ink)",
-                  }}
-                />
-              </Field>
-
-              {/* طريقة البيع - بيتباع إزاي؟ */}
-              <div style={{ marginBottom: 6 }}>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    marginBottom: 6,
-                    color: "var(--ink2)",
-                  }}
-                >
-                  بيتباع إزاي؟
-                </span>
-                <div className={styles.unitModeGrid}>
-                  <button
-                    type="button"
-                    className={`${styles.unitModeCard} ${kind === "unit" ? styles.active : ""}`}
-                    onClick={() => setKind("unit")}
-                  >
-                    <Icon n="box" s={18} />
-                    <span className={styles.unitModeTitle}>
-                      بالقطعة / الكرتونة
-                    </span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.unitModeCard} ${kind === "weight" ? styles.active : ""}`}
-                    onClick={() => setKind("weight")}
-                  >
-                    <Icon n="scale" s={18} />
-                    <span className={styles.unitModeTitle}>بالوزن</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.unitModeCard} ${kind === "bag" ? styles.active : ""}`}
-                    onClick={() => setKind("bag")}
-                  >
-                    <Icon n="layers" s={18} />
-                    <span className={styles.unitModeTitle}>بالكيس</span>
-                  </button>
                 </div>
-              </div>
 
-              {kind === "weight" ? (
-                <div className={styles.priceCardGroup}>
-                  {/* خيارات وحدة تسعير الوزن */}
-                  <div style={{ marginBottom: 12 }}>
-                    <span
-                      style={{
-                        display: "block",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        marginBottom: 6,
-                        color: "var(--ink2)",
-                      }}
-                    >
-                      التسعير بالوزن:
-                    </span>
-                    <Seg
-                      value={weightUnit}
-                      onChange={(val) => setWeightUnit(val as "kg" | "g")}
-                      options={[
-                        ["kg", "بالكيلو (كجم)"],
-                        ["g", "بالجرام (جم)"],
-                      ]}
-                    />
-                  </div>
-
-                  <div className={styles.priceCardTitle}>
-                    {weightUnit === "kg" ? "سعر الكيلو" : "سعر الجرام"}
-                  </div>
-                  <div className={styles.priceInputsGrid}>
-                    <div className={styles.priceInputCol}>
-                      <span className={styles.priceInputLabel}>شراء</span>
-                      <div className={styles.inputWithBadge}>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={wBuy}
-                          onChange={(e) => setWBuy(e.target.value)}
-                          placeholder="0"
-                        />
-                        <span className={styles.inputBadge}>ج.م</span>
-                      </div>
-                    </div>
-                    <div className={styles.priceInputCol}>
-                      <span className={styles.priceInputLabel}>بيع</span>
-                      <div className={styles.inputWithBadge}>
-                        <input
-                          type="number"
-                          step="any"
-                          min="0"
-                          value={wSell}
-                          onChange={(e) => setWSell(e.target.value)}
-                          placeholder="0"
-                        />
-                        <span className={styles.inputBadge}>ج.م</span>
-                      </div>
-                    </div>
-                  </div>
-                  {Number(wSell) > 0 && (
-                    <div
-                      style={{
-                        fontSize: 12,
-                        color: "var(--ink2)",
-                        marginTop: 8,
-                        fontWeight: 600,
-                      }}
-                    >
-                      {weightUnit === "kg"
-                        ? `(100 جرام تعادل ${(Number(wSell) / 10).toFixed(2)} ج.م)`
-                        : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
-                    </div>
-                  )}
-                  {errors.price && (
-                    <div
-                      style={{
-                        color: "var(--red, #cf3c3c)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        marginTop: 6,
-                      }}
-                    >
-                      {errors.price}
-                    </div>
-                  )}
-                </div>
-              ) : kind === "bag" ? (
-                <>
-                  {/* إعدادات محتوى الكيس */}
-                  <div className={styles.priceCardGroup}>
-                    <div style={{ marginBottom: 12 }}>
-                      <span
+                {bagContentType === "weight" ? (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "2fr 1fr",
+                      gap: 8,
+                    }}
+                  >
+                    <Field label="وزن الكيس">
+                      <input
+                        type="number"
+                        step="any"
+                        min="1"
+                        value={bagWeightVal}
+                        onChange={(e) => setBagWeightVal(e.target.value)}
+                        placeholder="500"
                         style={{
-                          display: "block",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          marginBottom: 6,
-                          color: "var(--ink2)",
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1.5px solid var(--line)",
+                          fontSize: 14,
+                          background: "var(--sf)",
+                          color: "var(--ink)",
                         }}
-                      >
-                        محتوى الكيس:
-                      </span>
+                      />
+                    </Field>
+                    <Field label="الوحدة">
                       <Seg
-                        value={bagContentType}
-                        onChange={(val) =>
-                          setBagContentType(val as "weight" | "count")
-                        }
+                        value={bagWeightUnit}
+                        onChange={(val) => setBagWeightUnit(val as "g" | "kg")}
                         size="sm"
-                        className={styles.compactSeg}
                         options={[
-                          ["weight", "بالوزن (جرام / كجم)"],
-                          ["count", "بالعدد (قطع)"],
+                          ["g", "جم"],
+                          ["kg", "كجم"],
                         ]}
                       />
-                    </div>
-
-                    {bagContentType === "weight" ? (
-                      <div
-                        style={{
-                          display: "grid",
-                          gridTemplateColumns: "2fr 1fr",
-                          gap: 8,
-                        }}
-                      >
-                        <Field label="وزن الكيس">
-                          <input
-                            type="number"
-                            step="any"
-                            min="1"
-                            value={bagWeightVal}
-                            onChange={(e) => setBagWeightVal(e.target.value)}
-                            placeholder="500"
-                            style={{
-                              width: "100%",
-                              padding: "10px 12px",
-                              borderRadius: 10,
-                              border: "1.5px solid var(--line)",
-                              fontSize: 14,
-                              background: "var(--sf)",
-                              color: "var(--ink)",
-                            }}
-                          />
-                        </Field>
-                        <Field label="الوحدة">
-                          <Seg
-                            value={bagWeightUnit}
-                            onChange={(val) =>
-                              setBagWeightUnit(val as "g" | "kg")
-                            }
-                            size="sm"
-                            options={[
-                              ["g", "جم"],
-                              ["kg", "كجم"],
-                            ]}
-                          />
-                        </Field>
-                      </div>
-                    ) : (
-                      <Field label="عدد القطع داخل الكيس">
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            min="1"
-                            value={bagCountVal}
-                            onChange={(e) => setBagCountVal(e.target.value)}
-                            placeholder="10"
-                          />
-                          <span className={styles.inputBadge}>قطعة</span>
-                        </div>
-                      </Field>
-                    )}
+                    </Field>
                   </div>
-
-                  {/* بيتباع كرتونة كمان للأكياس */}
-                  <div
-                    className={styles.cartonToggleCard}
-                    onClick={() => setHasPack(!hasPack)}
-                    role="checkbox"
-                    aria-checked={hasPack}
-                    tabIndex={0}
-                  >
-                    <span className={styles.cartonToggleLabel}>
-                      بيتباع كرتونة كمان (تحتوي على أكياس)
-                    </span>
-                    <div
-                      className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
-                    >
-                      {hasPack && <Icon n="check" s={14} />}
+                ) : (
+                  <Field label="عدد القطع داخل الكيس">
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        min="1"
+                        value={bagCountVal}
+                        onChange={(e) => setBagCountVal(e.target.value)}
+                        placeholder="10"
+                      />
+                      <span className={styles.inputBadge}>قطعة</span>
                     </div>
-                  </div>
+                  </Field>
+                )}
+              </div>
 
-                  {hasPack && (
-                    <>
-                      <Field label="عدد الأكياس في الكرتونة" err={errors.packN}>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            min="2"
-                            value={packN}
-                            onChange={(e) => handlePackNChange(e.target.value)}
-                            placeholder="20"
-                          />
-                          <span className={styles.inputBadge}>كيس</span>
-                        </div>
-                      </Field>
+              {/* بيتباع كرتونة كمان للأكياس */}
+              <div
+                className={styles.cartonToggleCard}
+                onClick={() => setHasPack(!hasPack)}
+                role="checkbox"
+                aria-checked={hasPack}
+                tabIndex={0}
+              >
+                <span className={styles.cartonToggleLabel}>
+                  بيتباع كرتونة كمان (تحتوي على أكياس)
+                </span>
+                <div
+                  className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
+                >
+                  {hasPack && <Icon n="check" s={14} />}
+                </div>
+              </div>
 
-                      <div className={styles.priceCardGroup}>
-                        <div className={styles.priceCardTitle}>
-                          سعر الكرتونة
-                        </div>
-                        <div className={styles.priceInputsGrid}>
-                          <div className={styles.priceInputCol}>
-                            <span className={styles.priceInputLabel}>شراء</span>
-                            <div className={styles.inputWithBadge}>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={pkBuy}
-                                onChange={(e) =>
-                                  handlePackBuyChange(e.target.value)
-                                }
-                                placeholder="0"
-                              />
-                              <span className={styles.inputBadge}>ج.م</span>
-                            </div>
-                          </div>
-                          <div className={styles.priceInputCol}>
-                            <span className={styles.priceInputLabel}>بيع</span>
-                            <div className={styles.inputWithBadge}>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={pkSell}
-                                onChange={(e) =>
-                                  handlePackSellChange(e.target.value)
-                                }
-                                placeholder="0"
-                              />
-                              <span className={styles.inputBadge}>ج.م</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* سعر الكيس الواحد */}
-                  <div className={styles.priceCardGroup}>
-                    <div className={styles.priceCardTitle}>
-                      سعر الكيس الواحد
-                    </div>
-                    <div className={styles.priceInputsGrid}>
-                      <div className={styles.priceInputCol}>
-                        <span className={styles.priceInputLabel}>شراء</span>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={pcBuy}
-                            onChange={(e) =>
-                              handlePieceBuyChange(e.target.value)
-                            }
-                            placeholder="0"
-                          />
-                          <span className={styles.inputBadge}>ج.م</span>
-                        </div>
-                      </div>
-                      <div className={styles.priceInputCol}>
-                        <span className={styles.priceInputLabel}>بيع</span>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={pcSell}
-                            onChange={(e) =>
-                              handlePieceSellChange(e.target.value)
-                            }
-                            placeholder="0"
-                          />
-                          <span className={styles.inputBadge}>ج.م</span>
-                        </div>
-                      </div>
-                    </div>
-                    {errors.price && (
-                      <div
-                        style={{
-                          color: "var(--red, #cf3c3c)",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          marginTop: 6,
-                        }}
-                      >
-                        {errors.price}
-                      </div>
-                    )}
-                  </div>
-                </>
-              ) : (
+              {hasPack && (
                 <>
-                  {/* بيتباع كرتونة كمان toggle card */}
-                  <div
-                    className={styles.cartonToggleCard}
-                    onClick={() => setHasPack(!hasPack)}
-                    role="checkbox"
-                    aria-checked={hasPack}
-                    tabIndex={0}
-                  >
-                    <span className={styles.cartonToggleLabel}>
-                      بيتباع كرتونة كمان
-                    </span>
-                    <div
-                      className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
-                    >
-                      {hasPack && <Icon n="check" s={14} />}
+                  <Field label="عدد الأكياس في الكرتونة" err={errors.packN}>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        min="2"
+                        value={packN}
+                        onChange={(e) => handlePackNChange(e.target.value)}
+                        placeholder="20"
+                      />
+                      <span className={styles.inputBadge}>كيس</span>
                     </div>
-                  </div>
+                  </Field>
 
-                  {hasPack && (
-                    <>
-                      {/* عدد القطع في الكرتونة */}
-                      <Field label="عدد القطع في الكرتونة" err={errors.packN}>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            min="2"
-                            value={packN}
-                            onChange={(e) => handlePackNChange(e.target.value)}
-                            placeholder="12"
-                          />
-                          <span className={styles.inputBadge}>قطعة</span>
-                        </div>
-                      </Field>
-
-                      {/* سعر الكرتونة */}
-                      <div className={styles.priceCardGroup}>
-                        <div className={styles.priceCardTitle}>
-                          سعر الكرتونة
-                        </div>
-                        <div className={styles.priceInputsGrid}>
-                          <div className={styles.priceInputCol}>
-                            <span className={styles.priceInputLabel}>شراء</span>
-                            <div className={styles.inputWithBadge}>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={pkBuy}
-                                onChange={(e) =>
-                                  handlePackBuyChange(e.target.value)
-                                }
-                                placeholder="0"
-                              />
-                              <span className={styles.inputBadge}>ج.م</span>
-                            </div>
-                          </div>
-                          <div className={styles.priceInputCol}>
-                            <span className={styles.priceInputLabel}>بيع</span>
-                            <div className={styles.inputWithBadge}>
-                              <input
-                                type="number"
-                                step="any"
-                                min="0"
-                                value={pkSell}
-                                onChange={(e) =>
-                                  handlePackSellChange(e.target.value)
-                                }
-                                placeholder="0"
-                              />
-                              <span className={styles.inputBadge}>ج.م</span>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    </>
-                  )}
-
-                  {/* سعر القطعة / الكارت */}
                   <div className={styles.priceCardGroup}>
-                    <div className={styles.priceCardTitle}>
-                      {category === "كروت شحن" ? "سعر الكارت" : "سعر القطعة"}
-                    </div>
+                    <div className={styles.priceCardTitle}>سعر الكرتونة</div>
                     <div className={styles.priceInputsGrid}>
                       <div className={styles.priceInputCol}>
                         <span className={styles.priceInputLabel}>شراء</span>
@@ -1525,9 +1005,9 @@ export function ProductFormModal({
                             type="number"
                             step="any"
                             min="0"
-                            value={pcBuy}
+                            value={pkBuy}
                             onChange={(e) =>
-                              handlePieceBuyChange(e.target.value)
+                              handlePackBuyChange(e.target.value)
                             }
                             placeholder="0"
                           />
@@ -1541,9 +1021,9 @@ export function ProductFormModal({
                             type="number"
                             step="any"
                             min="0"
-                            value={pcSell}
+                            value={pkSell}
                             onChange={(e) =>
-                              handlePieceSellChange(e.target.value)
+                              handlePackSellChange(e.target.value)
                             }
                             placeholder="0"
                           />
@@ -1551,21 +1031,182 @@ export function ProductFormModal({
                         </div>
                       </div>
                     </div>
-                    {errors.price && (
-                      <div
-                        style={{
-                          color: "var(--red, #cf3c3c)",
-                          fontSize: 12,
-                          fontWeight: 700,
-                          marginTop: 6,
-                        }}
-                      >
-                        {errors.price}
-                      </div>
-                    )}
                   </div>
                 </>
               )}
+
+              {/* سعر الكيس الواحد */}
+              <div className={styles.priceCardGroup}>
+                <div className={styles.priceCardTitle}>سعر الكيس الواحد</div>
+                <div className={styles.priceInputsGrid}>
+                  <div className={styles.priceInputCol}>
+                    <span className={styles.priceInputLabel}>شراء</span>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={pcBuy}
+                        onChange={(e) => handlePieceBuyChange(e.target.value)}
+                        placeholder="0"
+                      />
+                      <span className={styles.inputBadge}>ج.م</span>
+                    </div>
+                  </div>
+                  <div className={styles.priceInputCol}>
+                    <span className={styles.priceInputLabel}>بيع</span>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={pcSell}
+                        onChange={(e) => handlePieceSellChange(e.target.value)}
+                        placeholder="0"
+                      />
+                      <span className={styles.inputBadge}>ج.م</span>
+                    </div>
+                  </div>
+                </div>
+                {errors.price && (
+                  <div
+                    style={{
+                      color: "var(--red, #cf3c3c)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      marginTop: 6,
+                    }}
+                  >
+                    {errors.price}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              {/* بيتباع كرتونة كمان toggle card */}
+              <div
+                className={styles.cartonToggleCard}
+                onClick={() => setHasPack(!hasPack)}
+                role="checkbox"
+                aria-checked={hasPack}
+                tabIndex={0}
+              >
+                <span className={styles.cartonToggleLabel}>
+                  بيتباع كرتونة كمان
+                </span>
+                <div
+                  className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
+                >
+                  {hasPack && <Icon n="check" s={14} />}
+                </div>
+              </div>
+
+              {hasPack && (
+                <>
+                  {/* عدد القطع في الكرتونة */}
+                  <Field label="عدد القطع في الكرتونة" err={errors.packN}>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        min="2"
+                        value={packN}
+                        onChange={(e) => handlePackNChange(e.target.value)}
+                        placeholder="12"
+                      />
+                      <span className={styles.inputBadge}>قطعة</span>
+                    </div>
+                  </Field>
+
+                  {/* سعر الكرتونة */}
+                  <div className={styles.priceCardGroup}>
+                    <div className={styles.priceCardTitle}>سعر الكرتونة</div>
+                    <div className={styles.priceInputsGrid}>
+                      <div className={styles.priceInputCol}>
+                        <span className={styles.priceInputLabel}>شراء</span>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={pkBuy}
+                            onChange={(e) =>
+                              handlePackBuyChange(e.target.value)
+                            }
+                            placeholder="0"
+                          />
+                          <span className={styles.inputBadge}>ج.م</span>
+                        </div>
+                      </div>
+                      <div className={styles.priceInputCol}>
+                        <span className={styles.priceInputLabel}>بيع</span>
+                        <div className={styles.inputWithBadge}>
+                          <input
+                            type="number"
+                            step="any"
+                            min="0"
+                            value={pkSell}
+                            onChange={(e) =>
+                              handlePackSellChange(e.target.value)
+                            }
+                            placeholder="0"
+                          />
+                          <span className={styles.inputBadge}>ج.م</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* سعر القطعة / الكارت */}
+              <div className={styles.priceCardGroup}>
+                <div className={styles.priceCardTitle}>
+                  {category === "كروت شحن" ? "سعر الكارت" : "سعر القطعة"}
+                </div>
+                <div className={styles.priceInputsGrid}>
+                  <div className={styles.priceInputCol}>
+                    <span className={styles.priceInputLabel}>شراء</span>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={pcBuy}
+                        onChange={(e) => handlePieceBuyChange(e.target.value)}
+                        placeholder="0"
+                      />
+                      <span className={styles.inputBadge}>ج.م</span>
+                    </div>
+                  </div>
+                  <div className={styles.priceInputCol}>
+                    <span className={styles.priceInputLabel}>بيع</span>
+                    <div className={styles.inputWithBadge}>
+                      <input
+                        type="number"
+                        step="any"
+                        min="0"
+                        value={pcSell}
+                        onChange={(e) => handlePieceSellChange(e.target.value)}
+                        placeholder="0"
+                      />
+                      <span className={styles.inputBadge}>ج.م</span>
+                    </div>
+                  </div>
+                </div>
+                {errors.price && (
+                  <div
+                    style={{
+                      color: "var(--red, #cf3c3c)",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      marginTop: 6,
+                    }}
+                  >
+                    {errors.price}
+                  </div>
+                )}
+              </div>
             </>
           )}
 

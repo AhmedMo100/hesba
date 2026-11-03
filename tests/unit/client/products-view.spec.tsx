@@ -3,6 +3,7 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { ProductsView } from "@/client/app-shell/views/ProductsView";
 import { ProductFormModal } from "@/client/app-shell/views/ProductFormModal";
+import { ServiceFormModal } from "@/client/app-shell/views/ServiceFormModal";
 import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
 import { MachinesModal } from "@/client/app-shell/views/MachinesModal";
 
@@ -159,38 +160,34 @@ describe("ProductFormModal Component", () => {
     expect(html).not.toContain("المخزون الحالي:");
   });
 
-  it("renders dedicated digital service form with commission models, simulator, and disclaimer", () => {
-    const serviceProduct = {
-      id: "prod-bill",
-      name_ar: "دفع فاتورة إنترنت منزلي وي",
-      category: "فواتير إنترنت",
+  it("strictly keeps physical product form free from digital commission fields", () => {
+    const physicalProduct = {
+      id: "prod-phys",
+      name_ar: "سمن روابي 1.5 كجم",
+      category: "زيوت وسمن",
       unit: "piece",
-      sell_price_piasters: 500,
+      sell_price_piasters: 14000,
       variants: [
         {
-          id: "var-bill",
+          id: "var-phys",
           pack_qty: 1,
-          sell_price_piasters: 500,
+          sell_price_piasters: 14000,
         },
       ],
     };
 
     const html = renderToStaticMarkup(
       <ProductFormModal
-        product={serviceProduct}
+        product={physicalProduct}
         onClose={() => {}}
         onSaved={() => {}}
       />,
     );
 
-    expect(html).toContain("إعدادات عمولة الخدمة الرقمية");
-    expect(html).toContain("طريقة احتساب عمولة المحل:");
-    expect(html).toContain("مبلغ ثابت (ج.م)");
-    expect(html).toContain("نسبة مئوية (%)");
-    expect(html).toContain("شرائح مبالغ");
-    expect(html).toContain("محاكي الأرباح لمعاملة تجريبية:");
-    expect(html).toContain("تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات");
-    expect(html).not.toContain("بيتباع إزاي؟");
+    expect(html).toContain("بيتباع إزاي؟");
+    expect(html).not.toContain("طريقة احتساب عمولة المحل");
+    expect(html).not.toContain("محاكي الأرباح");
+    expect(html).not.toContain("رسوم المزود");
   });
 
   it("renders bag packaging options (content type, weight/count, carton of bags) when bag unit product is passed", () => {
@@ -389,5 +386,69 @@ describe("MachinesModal Component (Payment POS Terminals & Providers)", () => {
 
     expect(html).not.toContain("رمز PIN");
     expect(html).not.toContain("كلمة المرور");
+  });
+});
+
+describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () => {
+  it("renders dedicated digital service form with responsive commission grid and no simulator or provider fee", () => {
+    const serviceProduct = {
+      id: "prod-bill",
+      name_ar: "دفع فاتورة إنترنت منزلي وي",
+      category: "فواتير إنترنت",
+      unit: "service",
+      sell_price_piasters: 500,
+      variants: [
+        {
+          id: "var-bill",
+          pack_qty: 1,
+          sell_price_piasters: 500,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ServiceFormModal
+        product={serviceProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    // Header & Title
+    expect(html).toContain("تعديل الخدمة / الكارت");
+    expect(html).toContain("اسم الخدمة أو الكارت");
+
+    // Preselected Category with badge
+    expect(html).toContain("تصنيف الخدمة");
+    expect(html).toContain("مصنف بالفعل");
+
+    // Commission Model Options
+    expect(html).toContain("طريقة احتساب عمولة المحل:");
+    expect(html).toContain("مبلغ ثابت (ج.م)");
+    expect(html).toContain("نسبة مئوية (%)");
+    expect(html).toContain("شرائح مبالغ");
+
+    // Strictly omitted elements
+    expect(html).not.toContain("محاكي الأرباح");
+    expect(html).not.toContain("رسوم المزود");
+    expect(html).not.toContain("بيتباع إزاي؟");
+
+    // Regulatory disclaimer
+    expect(html).toContain("تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات");
+  });
+
+  it("renders card-specific labels and placeholder when card category is selected", () => {
+    const html = renderToStaticMarkup(
+      <ServiceFormModal
+        presetCategory="كروت شحن"
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إضافة خدمة أو كارت");
+    expect(html).toContain("مثال: كارت شحن فودافون فكة 10");
+    expect(html).toContain("إلزامي للإضافة");
+    expect(html).toContain("سعر بيع الكارت (ج.م)");
   });
 });

@@ -7,6 +7,7 @@ import {
   getStoredMachines,
   saveStoredMachines,
 } from "../../shared/machines";
+import styles from "./ProductsView.module.css";
 
 export type { PosMachine };
 
@@ -219,6 +220,8 @@ export function MachinesModal({
                 borderRadius: 10,
                 border: "1.5px solid var(--line)",
                 fontSize: 14,
+                background: "var(--sf)",
+                color: "var(--ink)",
                 boxSizing: "border-box",
               }}
               autoFocus
@@ -226,26 +229,22 @@ export function MachinesModal({
           </Field>
 
           <Field label="مزود الخدمة أو الشبكة">
-            <select
-              value={provider}
-              onChange={(e) => setProvider(e.target.value)}
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1.5px solid var(--line)",
-                fontSize: 14,
-                boxSizing: "border-box",
-                background: "var(--card-bg, #1e241e)",
-                color: "var(--ink)",
-              }}
-            >
-              {KNOWN_PROVIDERS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
-                </option>
-              ))}
-            </select>
+            <div className={styles.selectWrapper}>
+              <select
+                value={provider}
+                onChange={(e) => setProvider(e.target.value)}
+                className={styles.styledSelect}
+              >
+                {KNOWN_PROVIDERS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <span className={styles.selectArrow}>
+                <Icon n="down" s={14} />
+              </span>
+            </div>
           </Field>
 
           {provider === "أخرى (مزود مخصص)" && (
@@ -261,15 +260,15 @@ export function MachinesModal({
                   borderRadius: 10,
                   border: "1.5px solid var(--line)",
                   fontSize: 14,
+                  background: "var(--sf)",
+                  color: "var(--ink)",
                   boxSizing: "border-box",
                 }}
               />
             </Field>
           )}
 
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}
-          >
+          <div className={styles.metaFieldsGrid}>
             <Field label="معرف / رقم الجهاز (اختياري)">
               <input
                 type="text"
@@ -282,34 +281,32 @@ export function MachinesModal({
                   borderRadius: 10,
                   border: "1.5px solid var(--line)",
                   fontSize: 14,
+                  background: "var(--sf)",
+                  color: "var(--ink)",
                   boxSizing: "border-box",
                 }}
               />
             </Field>
 
             <Field label="حالة الماكينة">
-              <select
-                value={status}
-                onChange={(e) =>
-                  setStatus(
-                    e.target.value as "active" | "inactive" | "maintenance",
-                  )
-                }
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                  fontSize: 14,
-                  boxSizing: "border-box",
-                  background: "var(--card-bg, #1e241e)",
-                  color: "var(--ink)",
-                }}
-              >
-                <option value="active">جاهزة ونشطة ✓</option>
-                <option value="inactive">غير مفعلة</option>
-                <option value="maintenance">تحت الصيانة</option>
-              </select>
+              <div className={styles.selectWrapper}>
+                <select
+                  value={status}
+                  onChange={(e) =>
+                    setStatus(
+                      e.target.value as "active" | "inactive" | "maintenance",
+                    )
+                  }
+                  className={styles.styledSelect}
+                >
+                  <option value="active">جاهزة ونشطة ✓</option>
+                  <option value="inactive">غير مفعلة</option>
+                  <option value="maintenance">تحت الصيانة</option>
+                </select>
+                <span className={styles.selectArrow}>
+                  <Icon n="down" s={14} />
+                </span>
+              </div>
             </Field>
           </div>
 
@@ -325,6 +322,8 @@ export function MachinesModal({
                 borderRadius: 10,
                 border: "1.5px solid var(--line)",
                 fontSize: 13,
+                background: "var(--sf)",
+                color: "var(--ink)",
                 boxSizing: "border-box",
                 resize: "none",
               }}
