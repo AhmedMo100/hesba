@@ -15,6 +15,8 @@ export interface StockProductOption {
   packQty: number;
   currentStockBase: number;
   buyCostPiasters?: number;
+  unit?: string;
+  category?: string;
 }
 
 export interface AddStockModalProps {
@@ -48,6 +50,8 @@ export function AddStockModal({
         packQty: primaryVar?.pack_qty || 12,
         currentStockBase: targetProduct.stock_quantity || 0,
         buyCostPiasters: targetProduct.buy_cost_piasters,
+        unit: targetProduct.unit,
+        category: targetProduct.category,
       };
     }
     return undefined;
@@ -69,10 +73,26 @@ export function AddStockModal({
       (options[0]?.variantId ?? ""),
   );
 
+  const selectedOption = useMemo(
+    () =>
+      activeOptions.find((o) => o.variantId === selectedVariantId) ||
+      initialOption,
+    [activeOptions, selectedVariantId, initialOption],
+  );
+
   const isInitialWeight =
     targetProduct?.unit === "weight" ||
     targetProduct?.unit === "kg" ||
-    targetProduct?.unit === "g";
+    targetProduct?.unit === "g" ||
+    selectedOption?.unitMode === "weight";
+
+  const isBag = targetProduct?.unit === "bag" || selectedOption?.unit === "bag";
+
+  const isCard =
+    targetProduct?.category === "كروت شحن" ||
+    targetProduct?.category === "كروت مرافق" ||
+    selectedOption?.category === "كروت شحن" ||
+    selectedOption?.category === "كروت مرافق";
 
   // المستخدم يختار بحرية بين بالقطعة/الكرتونة أو بالوزن
   const [entryMode, setEntryMode] = useState<"unit" | "weight">(
@@ -83,7 +103,9 @@ export function AddStockModal({
     targetProduct?.variants?.[0]?.pack_qty &&
     targetProduct.variants[0].pack_qty > 1
       ? targetProduct.variants[0].pack_qty
-      : 12;
+      : selectedOption?.packQty && selectedOption.packQty > 1
+        ? selectedOption.packQty
+        : 12;
 
   const [packN, setPackN] = useState<string>(defaultPackN.toString());
   const [cartons, setCartons] = useState(
@@ -97,16 +119,17 @@ export function AddStockModal({
   );
   const [weightInput, setWeightInput] = useState(isInitialWeight ? "1" : "");
   const [costEgp, setCostEgp] = useState("");
-  const [isCostManuallyEdited, setIsCostManuallyEdited] = useState(false);
   const [prodDate, setProdDate] = useState("");
   const [expiry, setExpiry] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
   const [batchCode, setBatchCode] = useState("");
+  const [supplierName, setSupplierName] = useState("");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const formatOptionStock = (opt: StockProductOption) => {
-    if (opt.currentStockBase <= 0) return "خلصان";
+  const formatOptionStock = (opt?: StockProductOption) => {
+    if (!opt) return "—";
+    if (opt.currentStockBase <= 0) return "خلصان (0)";
     if (opt.unitMode === "weight") {
       return `${(opt.currentStockBase / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
     }
@@ -114,15 +137,16 @@ export function AddStockModal({
     if (pack > 1) {
       const cartonsCount = Math.floor(opt.currentStockBase / pack);
       const piecesCount = opt.currentStockBase % pack;
+      const unitWord = opt.unit === "bag" ? "كيس" : "قطعة";
       if (cartonsCount > 0 && piecesCount > 0) {
-        return `${cartonsCount} كرتونة و ${piecesCount} قطعة`;
+        return `${cartonsCount} كرتونة و ${piecesCount} ${unitWord}`;
       }
       if (cartonsCount > 0 && piecesCount === 0) {
         return `${cartonsCount} كرتونة`;
       }
-      return `${piecesCount} قطعة`;
+      return `${piecesCount} ${unitWord}`;
     }
-    return `${opt.currentStockBase} قطعة`;
+    return `${opt.currentStockBase} ${opt.unit === "bag" ? "كيس" : isCard ? "كارت" : "قطعة"}`;
   };
 
   const filteredOptions = useMemo(() => {
@@ -134,13 +158,6 @@ export function AddStockModal({
         (opt.flavor && opt.flavor.toLowerCase().includes(q)),
     );
   }, [activeOptions, searchDropdown]);
-
-  const selectedOption = useMemo(
-    () =>
-      activeOptions.find((o) => o.variantId === selectedVariantId) ||
-      initialOption,
-    [activeOptions, selectedVariantId, initialOption],
-  );
 
   const packMultiplier = Math.max(1, parseInt(packN, 10) || 1);
 
@@ -156,49 +173,26 @@ export function AddStockModal({
     }
   }, [entryMode, weightUnit, weightInput, cartons, pieces, packMultiplier]);
 
+  // Registered piece/unit cost from Product
   const regPiecePiasters =
     targetProduct?.buy_cost_piasters ?? selectedOption?.buyCostPiasters ?? 0;
   const regPieceCost = regPiecePiasters > 0 ? regPiecePiasters / 100 : 0;
   const regCartonCost = regPieceCost * packMultiplier;
 
-  // Auto-calculated expected cost based on registered product pricing
+  // Expected purchase cost calculated from registered purchase price in Products
   const expectedCostEgp = useMemo(() => {
-    if (regPieceCost <= 0) return 0;
+    if (regPieceCost <= 0 || totalBaseQty <= 0) return 0;
     if (entryMode === "weight") {
-      const wNum = parseFloat(weightInput) || 0;
-      if (wNum <= 0) return 0;
-      if (weightUnit === "kg") {
-        return Math.round(wNum * regPieceCost * 100) / 100;
-      }
-      return Math.round((wNum / 1000) * regPieceCost * 100) / 100;
+      const kg = totalBaseQty / 1000;
+      return Math.round(kg * regPieceCost * 100) / 100;
     } else {
-      const cartonsNum = parseInt(cartons, 10) || 0;
-      const piecesNum = parseInt(pieces, 10) || 0;
-      if (cartonsNum <= 0 && piecesNum <= 0) return 0;
-      const totalExpected =
-        cartonsNum * regCartonCost + piecesNum * regPieceCost;
-      return Math.round(totalExpected * 100) / 100;
+      return Math.round(totalBaseQty * regPieceCost * 100) / 100;
     }
-  }, [
-    regPieceCost,
-    regCartonCost,
-    entryMode,
-    weightUnit,
-    weightInput,
-    cartons,
-    pieces,
-  ]);
-
-  // If not manually edited by user, use expectedCostEgp if available
-  const effectiveCostEgp = isCostManuallyEdited
-    ? costEgp
-    : expectedCostEgp > 0
-      ? expectedCostEgp.toString()
-      : costEgp;
+  }, [entryMode, totalBaseQty, regPieceCost]);
 
   // Compute effective unit cost entered
   const unitCostEgp = useMemo(() => {
-    const costNum = parseFloat(effectiveCostEgp) || 0;
+    const costNum = parseFloat(costEgp) || 0;
     if (costNum <= 0 || totalBaseQty <= 0) return 0;
     if (entryMode === "weight") {
       if (weightUnit === "kg") {
@@ -207,18 +201,17 @@ export function AddStockModal({
       return costNum / totalBaseQty;
     }
     return costNum / totalBaseQty;
-  }, [effectiveCostEgp, totalBaseQty, entryMode, weightUnit]);
+  }, [costEgp, totalBaseQty, entryMode, weightUnit]);
 
   // Price comparison feedback against the registered cost in Products
   const priceComparison = useMemo(() => {
-    const costNum = parseFloat(effectiveCostEgp) || 0;
+    const costNum = parseFloat(costEgp) || 0;
     if (costNum <= 0 || totalBaseQty <= 0) return null;
 
     const cartonsNum = parseInt(cartons, 10) || 0;
     const piecesNum = parseInt(pieces, 10) || 0;
 
     if (entryMode === "unit") {
-      // إذا أدخل كراتين فقط
       if (cartonsNum > 0 && piecesNum === 0) {
         const actualCartonCost = costNum / cartonsNum;
         if (regCartonCost > 0) {
@@ -226,45 +219,44 @@ export function AddStockModal({
           if (Math.abs(diff) < 0.05) {
             return {
               status: "match" as const,
-              msg: `سعر الشراء مطابق لسعر شراء الكرتونة المسجل في صفحة المنتجات (${formatMoney(Math.round(regCartonCost * 100))}).`,
+              msg: `سعر الشراء مطابق لسعر شراء الكرتونة المسجل بالمنتجات (${formatMoney(Math.round(regCartonCost * 100))}).`,
             };
           }
           if (diff > 0) {
             return {
               status: "higher" as const,
-              msg: `تنبيه: سعر شراء الكرتونة الفعلي (${formatMoney(Math.round(actualCartonCost * 100))}) أعلى من سعر الشراء المسجل في صفحة المنتجات (${formatMoney(Math.round(regCartonCost * 100))}). لازم تعدل سعر الشراء أو البيع في صفحة المنتجات عشان تحافظ على هامش ربحك.`,
+              msg: `تنبيه: سعر شراء الكرتونة الفعلي (${formatMoney(Math.round(actualCartonCost * 100))}) أعلى من المسجل (${formatMoney(Math.round(regCartonCost * 100))}). يمكنك مراجعة أسعار المنتج لتثبيت هامش ربحك.`,
             };
           }
           return {
             status: "lower" as const,
-            msg: `تنبيه: سعر شراء الكرتونة الفعلي (${formatMoney(Math.round(actualCartonCost * 100))}) أقل من سعر الشراء المسجل في صفحة المنتجات (${formatMoney(Math.round(regCartonCost * 100))}). تقدر تحدث سعر الشراء في صفحة المنتجات لحساب أرباحك بدقة.`,
+            msg: `تنبيه: سعر شراء الكرتونة الفعلي (${formatMoney(Math.round(actualCartonCost * 100))}) أقل من المسجل (${formatMoney(Math.round(regCartonCost * 100))}).`,
           };
         }
       } else {
-        // قطع أو كراتين + قطع
         const actualPieceCost = costNum / totalBaseQty;
         if (regPieceCost > 0) {
           const diff = actualPieceCost - regPieceCost;
+          const unitWord = isBag ? "الكيس" : isCard ? "الكارت" : "القطعة";
           if (Math.abs(diff) < 0.05) {
             return {
               status: "match" as const,
-              msg: `سعر الشراء مطابق لسعر شراء القطعة المسجل في صفحة المنتجات (${formatMoney(Math.round(regPieceCost * 100))}).`,
+              msg: `سعر الشراء مطابق لسعر شراء ${unitWord} المسجل (${formatMoney(Math.round(regPieceCost * 100))}).`,
             };
           }
           if (diff > 0) {
             return {
               status: "higher" as const,
-              msg: `تنبيه: سعر شراء القطعة الفعلي (${formatMoney(Math.round(actualPieceCost * 100))}) أعلى من سعر الشراء المسجل في صفحة المنتجات (${formatMoney(Math.round(regPieceCost * 100))}). لازم تعدل سعر الشراء أو البيع في صفحة المنتجات عشان تحافظ على ربحك.`,
+              msg: `تنبيه: سعر شراء ${unitWord} الفعلي (${formatMoney(Math.round(actualPieceCost * 100))}) أعلى من المسجل (${formatMoney(Math.round(regPieceCost * 100))}).`,
             };
           }
           return {
             status: "lower" as const,
-            msg: `تنبيه: سعر شراء القطعة الفعلي (${formatMoney(Math.round(actualPieceCost * 100))}) أقل من سعر الشراء المسجل في صفحة المنتجات (${formatMoney(Math.round(regPieceCost * 100))}). تقدر تحدث سعر الشراء في صفحة المنتجات.`,
+            msg: `تنبيه: سعر شراء ${unitWord} الفعلي (${formatMoney(Math.round(actualPieceCost * 100))}) أقل من المسجل (${formatMoney(Math.round(regPieceCost * 100))}).`,
           };
         }
       }
     } else {
-      // وزن
       const totalKg = totalBaseQty / 1000;
       if (totalKg > 0) {
         const actualKgCost = costNum / totalKg;
@@ -273,18 +265,18 @@ export function AddStockModal({
           if (Math.abs(diff) < 0.05) {
             return {
               status: "match" as const,
-              msg: `سعر الشراء مطابق لسعر شراء الكيلو المسجل في صفحة المنتجات (${formatMoney(Math.round(regPieceCost * 100))}).`,
+              msg: `سعر الشراء مطابق لسعر شراء الكيلو المسجل (${formatMoney(Math.round(regPieceCost * 100))}).`,
             };
           }
           if (diff > 0) {
             return {
               status: "higher" as const,
-              msg: `تنبيه: سعر شراء الكيلو الفعلي (${formatMoney(Math.round(actualKgCost * 100))}) أعلى من سعر الشراء المسجل في صفحة المنتجات (${formatMoney(Math.round(regPieceCost * 100))}). يرجى مراجعة وتحديث أسعار المنتج من صفحة المنتجات.`,
+              msg: `تنبيه: سعر شراء الكيلو الفعلي (${formatMoney(Math.round(actualKgCost * 100))}) أعلى من المسجل بالمنتجات (${formatMoney(Math.round(regPieceCost * 100))}).`,
             };
           }
           return {
             status: "lower" as const,
-            msg: `تنبيه: سعر شراء الكيلو الفعلي (${formatMoney(Math.round(actualKgCost * 100))}) أقل من سعر الشراء المسجل في صفحة المنتجات (${formatMoney(Math.round(regPieceCost * 100))}). تقدر تحدث سعر الشراء في صفحة المنتجات.`,
+            msg: `تنبيه: سعر شراء الكيلو الفعلي (${formatMoney(Math.round(actualKgCost * 100))}) أقل من المسجل بالمنتجات (${formatMoney(Math.round(regPieceCost * 100))}).`,
           };
         }
       }
@@ -292,13 +284,15 @@ export function AddStockModal({
 
     return null;
   }, [
-    effectiveCostEgp,
+    costEgp,
     totalBaseQty,
     cartons,
     pieces,
     entryMode,
     regCartonCost,
     regPieceCost,
+    isBag,
+    isCard,
   ]);
 
   const computeExpiryDate = (baseIso: string, months: number) => {
@@ -327,7 +321,7 @@ export function AddStockModal({
           : "اكتب الكمية التي دخلت";
     }
 
-    const costNum = parseFloat(effectiveCostEgp);
+    const costNum = parseFloat(costEgp);
     if (isNaN(costNum) || costNum < 0) {
       newErrors.cost = "اكتب إجمالي سعر الشراء";
     }
@@ -358,7 +352,6 @@ export function AddStockModal({
           ),
         );
 
-      // If adding a global catalog product that has no confirmed storeVariant row yet, upsert storeProduct first
       if (
         targetProduct &&
         (targetProduct.id.startsWith("gp_") ||
@@ -392,7 +385,10 @@ export function AddStockModal({
           body: JSON.stringify({
             nameAr: targetProduct.name_ar,
             category: targetProduct.category,
-            unit: entryMode === "weight" ? weightUnit : "piece",
+            unit:
+              entryMode === "weight"
+                ? weightUnit
+                : targetProduct.unit || "piece",
             sellPricePiasters:
               targetProduct.sell_price_piasters > 0
                 ? targetProduct.sell_price_piasters
@@ -536,7 +532,8 @@ export function AddStockModal({
                   {targetProduct.name_ar}
                 </b>
                 <small style={{ color: "var(--ink2)", fontSize: 12 }}>
-                  {targetProduct.category}
+                  {targetProduct.category} — الرصيد الحالي:{" "}
+                  <b>{formatOptionStock(initialOption)}</b>
                 </small>
               </div>
               <span
@@ -556,123 +553,87 @@ export function AddStockModal({
             <Field label="المنتج" err={errors.product}>
               <div style={{ position: "relative", width: "100%" }}>
                 <div
-                  role="combobox"
-                  aria-expanded={dropdownOpen}
-                  aria-controls="product-dropdown-list"
                   onClick={() => setDropdownOpen(!dropdownOpen)}
                   style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1.5px solid var(--line)",
+                    fontSize: 14,
+                    background: "var(--sf)",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    padding: "11px 14px",
-                    borderRadius: 12,
-                    border: dropdownOpen
-                      ? "1.5px solid var(--br, #5a7d5a)"
-                      : "1.5px solid var(--line)",
-                    background: "var(--sf)",
                     cursor: "pointer",
-                    userSelect: "none",
-                    boxShadow: dropdownOpen
-                      ? "0 0 0 2px color-mix(in srgb, var(--br, #5a7d5a) 20%, transparent)"
-                      : "none",
+                    boxSizing: "border-box",
                   }}
                 >
                   <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 10,
-                      minWidth: 0,
-                    }}
+                    style={{ display: "flex", alignItems: "center", gap: 8 }}
                   >
+                    <Icon n="search" s={16} />
                     <span
                       style={{
-                        display: "inline-flex",
-                        color: "var(--ink2)",
-                        transform: dropdownOpen ? "rotate(180deg)" : "none",
-                        transition: "transform 0.2s",
-                      }}
-                    >
-                      <Icon n="down" s={16} />
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 14,
-                        fontWeight: selectedOption ? 700 : 500,
                         color: selectedOption ? "var(--ink)" : "var(--ink2)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
+                        fontWeight: selectedOption ? 700 : 500,
                       }}
                     >
                       {selectedOption
-                        ? `${selectedOption.productName}${selectedOption.flavor ? ` (${selectedOption.flavor})` : ""}`
+                        ? `${selectedOption.productName} ${selectedOption.flavor ? `(${selectedOption.flavor})` : ""} — (المخزون: ${formatOptionStock(selectedOption)})`
                         : "دوّر على المنتج أو اختاره"}
                     </span>
                   </div>
-                  <span
-                    style={{
-                      display: "inline-flex",
-                      color: "var(--ink2)",
-                    }}
-                  >
-                    <Icon n="search" s={18} />
-                  </span>
+                  <Icon n="down" s={16} />
                 </div>
 
                 {dropdownOpen && (
                   <div
-                    id="product-dropdown-list"
                     style={{
                       position: "absolute",
                       top: "calc(100% + 4px)",
-                      right: 0,
                       left: 0,
+                      right: 0,
                       background: "var(--sf)",
-                      border: "1.5px solid var(--br, #5a7d5a)",
+                      border: "1.5px solid var(--line)",
                       borderRadius: 12,
-                      zIndex: 60,
-                      maxHeight: 250,
+                      boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
+                      zIndex: 100,
+                      maxHeight: 280,
                       overflowY: "auto",
-                      boxShadow: "0 10px 25px rgba(0,0,0,0.15)",
                       display: "flex",
                       flexDirection: "column",
                     }}
                   >
-                    {/* Quick search input inside dropdown */}
                     <div
                       style={{
                         padding: "8px 10px",
                         borderBottom: "1px solid var(--line)",
-                        background: "var(--sf2)",
                       }}
                     >
                       <input
                         type="text"
-                        autoFocus
                         value={searchDropdown}
                         onChange={(e) => setSearchDropdown(e.target.value)}
-                        placeholder="اكتب اسم المنتج..."
+                        placeholder="ابحث بالاسم أو النكهة..."
+                        autoFocus
                         style={{
                           width: "100%",
-                          padding: "7px 10px",
+                          padding: "8px 10px",
                           borderRadius: 8,
                           border: "1px solid var(--line)",
                           fontSize: 13,
-                          background: "var(--sf)",
+                          background: "var(--sf2)",
                           color: "var(--ink)",
                           boxSizing: "border-box",
                         }}
-                        onClick={(e) => e.stopPropagation()}
                       />
                     </div>
 
-                    {/* Dropdown Items matching Image 6 */}
-                    <div style={{ display: "flex", flexDirection: "column" }}>
+                    <div style={{ flex: 1, overflowY: "auto" }}>
                       {filteredOptions.length === 0 ? (
                         <div
                           style={{
-                            padding: "14px 12px",
+                            padding: "16px",
                             textAlign: "center",
                             fontSize: 13,
                             color: "var(--ink2)",
@@ -687,45 +648,39 @@ export function AddStockModal({
                             onClick={() => {
                               setSelectedVariantId(opt.variantId);
                               setDropdownOpen(false);
-                              setSearchDropdown("");
                               setErrors({});
-                              if (opt.unitMode === "weight") {
-                                setEntryMode("weight");
-                              } else {
-                                setEntryMode("unit");
-                                if (opt.packQty && opt.packQty > 1) {
-                                  setPackN(opt.packQty.toString());
-                                }
-                              }
                             }}
                             style={{
+                              padding: "10px 12px",
+                              borderBottom: "1px solid var(--line)",
                               display: "flex",
                               justifyContent: "space-between",
                               alignItems: "center",
-                              padding: "11px 14px",
-                              borderBottom: "1px solid var(--line)",
                               cursor: "pointer",
                               background:
-                                opt.variantId === selectedVariantId
+                                selectedVariantId === opt.variantId
                                   ? "var(--sf2)"
                                   : "transparent",
-                              fontSize: 13.5,
-                              fontWeight: 600,
-                              color: "var(--ink)",
                             }}
                           >
-                            <span>
+                            <span
+                              style={{
+                                fontSize: 13.5,
+                                fontWeight: 700,
+                                color: "var(--ink)",
+                              }}
+                            >
                               {opt.productName}{" "}
                               {opt.flavor ? `(${opt.flavor})` : ""}
                             </span>
                             <span
                               style={{
-                                fontSize: 12.5,
+                                fontSize: 12,
                                 color:
-                                  opt.currentStockBase <= 0
-                                    ? "var(--red, #cf3c3c)"
+                                  opt.currentStockBase > 0
+                                    ? "var(--ok, #108e5c)"
                                     : "var(--ink2)",
-                                direction: "ltr",
+                                fontWeight: 600,
                               }}
                             >
                               {formatOptionStock(opt)}
@@ -735,27 +690,27 @@ export function AddStockModal({
                       )}
                     </div>
 
-                    {/* "+ مش لاقيه؟ ضيف منتج جديد" matching Image 6 */}
                     <div
                       onClick={() => {
                         setDropdownOpen(false);
                         setShowNewProductModal(true);
                       }}
                       style={{
-                        padding: "12px 14px",
+                        padding: "12px",
+                        borderTop: "1.5px solid var(--line)",
+                        background:
+                          "color-mix(in srgb, var(--ok, #108e5c) 10%, var(--sf))",
+                        color: "var(--ok, #108e5c)",
+                        fontWeight: 700,
+                        fontSize: 13.5,
                         display: "flex",
                         alignItems: "center",
-                        justifyContent: "center",
                         gap: 6,
-                        color: "var(--br, #5a7d5a)",
-                        fontWeight: 800,
-                        fontSize: 14,
                         cursor: "pointer",
-                        borderTop: "1px solid var(--line)",
-                        background: "var(--sf2)",
                       }}
                     >
-                      + مش لاقيه؟ ضيف منتج جديد
+                      <Icon n="plus" s={16} />
+                      <span>مش لاقيه؟ ضيف منتج جديد للمحل</span>
                     </div>
                   </div>
                 )}
@@ -780,7 +735,15 @@ export function AddStockModal({
               value={entryMode}
               onChange={(val) => setEntryMode(val as "unit" | "weight")}
               options={[
-                ["unit", "بالقطعة / الكرتونة", "box"],
+                [
+                  "unit",
+                  isBag
+                    ? "بالكيس / الكرتونة"
+                    : isCard
+                      ? "بالكارت"
+                      : "بالقطعة / الكرتونة",
+                  "box",
+                ],
                 ["weight", "بالوزن", "scale"],
               ]}
             />
@@ -883,7 +846,6 @@ export function AddStockModal({
             </div>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              {/* إمكانية تعديل عدد القطع في الكرتونة */}
               <div
                 style={{
                   display: "grid",
@@ -907,13 +869,19 @@ export function AddStockModal({
                   />
                 </Field>
 
-                <Field label="قطع زيادة">
+                <Field
+                  label={
+                    isBag ? "أكياس زيادة" : isCard ? "كروت مفردة" : "قطع زيادة"
+                  }
+                >
                   <input
                     type="number"
                     min="0"
                     value={pieces}
                     onChange={(e) => setPieces(e.target.value)}
-                    placeholder="قطع مفرد"
+                    placeholder={
+                      isBag ? "أكياس مفرد" : isCard ? "كروت مفرد" : "قطع مفرد"
+                    }
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -923,7 +891,15 @@ export function AddStockModal({
                   />
                 </Field>
 
-                <Field label="قطع/كرتونة">
+                <Field
+                  label={
+                    isBag
+                      ? "أكياس/كرتونة"
+                      : isCard
+                        ? "كروت/كرتونة"
+                        : "قطع/كرتونة"
+                  }
+                >
                   <input
                     type="number"
                     min="1"
@@ -951,9 +927,14 @@ export function AddStockModal({
                     borderRadius: 8,
                   }}
                 >
-                  إجمالي الكمية: {totalBaseQty} قطعة
+                  إجمالي الكمية: {totalBaseQty}{" "}
+                  {isBag ? "كيس" : isCard ? "كارت" : "قطعة"}
                   {parseInt(cartons, 10) > 0 &&
-                    ` (${cartons} كرتونة${parseInt(pieces, 10) > 0 ? ` و ${pieces} قطعة` : ""})`}
+                    ` (${cartons} كرتونة${
+                      parseInt(pieces, 10) > 0
+                        ? ` و ${pieces} ${isBag ? "كيس" : isCard ? "كارت" : "قطعة"}`
+                        : ""
+                    })`}
                 </div>
               )}
               {errors.qty && (
@@ -970,32 +951,27 @@ export function AddStockModal({
             </div>
           )}
 
-          {/* إجمالي سعر الشراء مع التنبيه والمقارنة المباشرة */}
+          {/* إجمالي سعر الشراء */}
           <div>
             <Field
               label="إجمالي سعر الشراء للكمية دي (ج.م)"
               err={errors.cost}
               hint={
-                expectedCostEgp > 0 && !isCostManuallyEdited
-                  ? `✨ تكلفة تقديرية محسوبة: ${formatMoney(Math.round(expectedCostEgp * 100))} — تقدر تعدلها لو سعر المورد مختلف`
-                  : unitCostEgp > 0
-                    ? entryMode === "weight"
-                      ? weightUnit === "kg"
-                        ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                        : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
-                      : `القطعة بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
-                    : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
+                unitCostEgp > 0
+                  ? entryMode === "weight"
+                    ? weightUnit === "kg"
+                      ? `الكيلو بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
+                      : `الجرام بـ ${formatMoney(Math.round(unitCostEgp * 100))}`
+                    : `${isBag ? "الكيس" : isCard ? "الكارت" : "القطعة"} بـ ${formatMoney(Math.round(unitCostEgp * 100))}${packMultiplier > 1 ? ` (الكرتونة بـ ${formatMoney(Math.round(unitCostEgp * packMultiplier * 100))})` : ""}`
+                  : "السعر الإجمالي الكلي اللي دفعته لكل الكمية اللي دخلت"
               }
             >
               <input
                 type="number"
                 step="any"
                 min="0"
-                value={effectiveCostEgp}
-                onChange={(e) => {
-                  setCostEgp(e.target.value);
-                  setIsCostManuallyEdited(true);
-                }}
+                value={costEgp}
+                onChange={(e) => setCostEgp(e.target.value)}
                 placeholder="مثال: 1000"
                 style={{
                   width: "100%",
@@ -1008,33 +984,44 @@ export function AddStockModal({
               />
             </Field>
 
-            {expectedCostEgp > 0 &&
-              isCostManuallyEdited &&
-              parseFloat(effectiveCostEgp) !== expectedCostEgp && (
-                <div
-                  style={{ marginTop: 6, fontSize: 12.5, color: "var(--ink2)" }}
+            {expectedCostEgp > 0 && (
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  fontSize: 12,
+                  color: "var(--ink2)",
+                  marginTop: 4,
+                  marginBottom: 4,
+                  background: "var(--sf2)",
+                  padding: "6px 10px",
+                  borderRadius: 8,
+                  border: "1px solid var(--line)",
+                }}
+              >
+                <span>
+                  السعر المتوقع بناءً على سعر الشراء المسجل:{" "}
+                  <b>{expectedCostEgp.toFixed(2)} ج.م</b>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCostEgp(expectedCostEgp.toString())}
+                  style={{
+                    background: "var(--sf)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 6,
+                    padding: "3px 8px",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    color: "var(--ok, #108e5c)",
+                  }}
                 >
-                  سعر مخصص من المورد &bull;{" "}
-                  <button
-                    type="button"
-                    style={{
-                      background: "none",
-                      border: "none",
-                      color: "var(--br, #5a7d5a)",
-                      fontWeight: 700,
-                      textDecoration: "underline",
-                      cursor: "pointer",
-                      padding: 0,
-                    }}
-                    onClick={() => {
-                      setCostEgp("");
-                      setIsCostManuallyEdited(false);
-                    }}
-                  >
-                    استخدام السعر المسجل ({expectedCostEgp} ج.م)
-                  </button>
-                </div>
-              )}
+                  تطبيق السعر المتوقع
+                </button>
+              </div>
+            )}
 
             {/* تنبيه المقارنة مع سعر الشراء المسجل في صفحة المنتجات */}
             {priceComparison && (
@@ -1062,33 +1049,28 @@ export function AddStockModal({
                         ? "var(--line, #ddd4bc)"
                         : "var(--ok, #4f6b46)"
                   }`,
-                  color:
-                    priceComparison.status === "higher"
-                      ? "var(--yel, #b8841a)"
-                      : priceComparison.status === "lower"
-                        ? "var(--ink)"
-                        : "var(--ok, #4f6b46)",
                 }}
               >
-                <span style={{ fontSize: 15, flex: "none" }}>
+                <span>
                   {priceComparison.status === "higher"
                     ? "⚠️"
                     : priceComparison.status === "lower"
                       ? "ℹ️"
-                      : "✓"}
+                      : "✅"}
                 </span>
                 <span>{priceComparison.msg}</span>
               </div>
             )}
           </div>
 
-          {/* إدارة الصلاحية وتاريخ الإنتاج والانتهاء */}
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {/* الصلاحية والدفعات */}
+          <div>
             <div
               style={{
                 display: "flex",
                 alignItems: "center",
                 gap: 8,
+                marginBottom: 8,
                 cursor: "pointer",
               }}
               onClick={() => {
@@ -1121,7 +1103,7 @@ export function AddStockModal({
                   cursor: "pointer",
                 }}
               >
-                المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)
+                المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)
               </label>
             </div>
 
@@ -1165,7 +1147,6 @@ export function AddStockModal({
                   </Field>
                 </div>
 
-                {/* أزرار حساب مدة الصلاحية التلقائية */}
                 <div>
                   <span
                     style={{
@@ -1178,13 +1159,7 @@ export function AddStockModal({
                   >
                     حساب مدة الصلاحية سريعاً من الإنتاج:
                   </span>
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      flexWrap: "wrap",
-                    }}
-                  >
+                  <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                     {quickExpiryChips.map((chip) => (
                       <button
                         key={chip.label}
@@ -1210,69 +1185,84 @@ export function AddStockModal({
             )}
           </div>
 
-          <Field label="كود التشغيلة / الباتش (اختياري)">
-            <input
-              type="text"
-              value={batchCode}
-              onChange={(e) => setBatchCode(e.target.value)}
-              placeholder="مثال: B-2026-11"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1.5px solid var(--line)",
-              }}
-            />
-          </Field>
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 8,
+            }}
+          >
+            <Field label="كود التشغيلة / الباتش (اختياري)">
+              <input
+                type="text"
+                value={batchCode}
+                onChange={(e) => setBatchCode(e.target.value)}
+                placeholder="مثال: B-2026-11"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--line)",
+                }}
+              />
+            </Field>
+
+            <Field label="اسم المورد (اختياري)">
+              <input
+                type="text"
+                value={supplierName}
+                onChange={(e) => setSupplierName(e.target.value)}
+                placeholder="مثال: شركة الأمل للتوزيع"
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--line)",
+                }}
+              />
+            </Field>
+          </div>
         </form>
       </Modal>
+
+      {/* New Product Modal for adding product inline */}
       {showNewProductModal && (
         <ProductFormModal
           onClose={() => setShowNewProductModal(false)}
-          onSaved={(savedData: unknown) => {
+          onSaved={(newProduct: unknown) => {
             setShowNewProductModal(false);
-            if (savedData && typeof savedData === "object") {
-              const data = savedData as {
+            const p = newProduct as {
+              id?: string;
+              nameAr?: string;
+              name_ar?: string;
+              unit?: string;
+              variants?: Array<{
                 id?: string;
-                storeProductId?: string;
-                name_ar?: string;
-                nameAr?: string;
-                unit?: string;
-                variants?: Array<{
-                  id?: string;
-                  flavor?: string | null;
-                  pack_qty?: number;
-                  packQty?: number;
-                }>;
-              };
-              const prodId = data.id || data.storeProductId || "";
-              const primaryVar = data.variants?.[0];
-              const varId = primaryVar?.id || `temp_${prodId}`;
-              const isWeight =
-                data.unit === "kg" ||
-                data.unit === "g" ||
-                data.unit === "weight";
-              const newOpt: StockProductOption = {
-                variantId: varId,
-                productId: prodId,
-                productName: data.name_ar || data.nameAr || "منتج جديد",
-                flavor: primaryVar?.flavor,
-                unitMode: isWeight ? "weight" : "piece",
-                packQty: primaryVar?.packQty || primaryVar?.pack_qty || 12,
-                currentStockBase: 0,
-              };
-              setExtraOptions((prev) => [newOpt, ...prev]);
-              setSelectedVariantId(varId);
-              if (isWeight) {
-                setEntryMode("weight");
-              } else {
-                setEntryMode("unit");
-                setPackN((newOpt.packQty || 12).toString());
-              }
-            }
+                packQty?: number;
+                pack_qty?: number;
+                flavor?: string | null;
+              }>;
+            };
+            const pName = p.nameAr || p.name_ar || "منتج جديد";
+            const pVar = p.variants?.[0];
+            const vId = pVar?.id || p.id || `created_${Date.now()}`;
+            const newOpt: StockProductOption = {
+              variantId: vId,
+              productId: p.id || `prod_${Date.now()}`,
+              productName: pName,
+              flavor: pVar?.flavor ?? null,
+              unitMode: p.unit === "kg" || p.unit === "g" ? "weight" : "piece",
+              packQty: pVar?.packQty || pVar?.pack_qty || 1,
+              currentStockBase: 0,
+              unit: p.unit,
+            };
+            setExtraOptions((prev) => [newOpt, ...prev]);
+            setSelectedVariantId(vId);
           }}
         />
       )}
     </>
   );
 }
+
+export default AddStockModal;

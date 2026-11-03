@@ -20,7 +20,9 @@ export const upsertProductInputSchema = z.object({
   opId: z.string().uuid().optional(),
   nameAr: z.string().trim().min(2, "اسم المنتج مطلوب (حرفين على الأقل)"),
   category: z.string().trim().min(2, "التصنيف مطلوب"),
-  unit: z.enum(["piece", "kg", "g", "ml", "l"]).default("piece"),
+  unit: z
+    .enum(["piece", "kg", "g", "ml", "l", "bag", "carton", "service"])
+    .default("piece"),
   sellPricePiasters: z.number().int().min(0, "سعر البيع الأساسي مطلوب"),
   buyCostPiasters: z.number().int().min(0).nullable().optional(),
   initialQuantity: z.number().min(0).nullable().optional(),
