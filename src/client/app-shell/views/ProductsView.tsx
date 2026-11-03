@@ -551,31 +551,19 @@ export function ProductsView() {
                           <Icon n="edit" s={14} />
                           <span>تعديل الأسعار</span>
                         </button>
-                        {!isServiceProduct(p) &&
-                          ((p.stock_quantity ?? 0) > 0 ? (
-                            <button
-                              type="button"
-                              className={styles.menuItem}
-                              disabled
-                              title="المنتج موجود بالفعل في المخزون. يمكنك إضافة شحنة جديدة عندما ينفد الرصيد الحالي (0)."
-                              style={{ opacity: 0.55, cursor: "not-allowed" }}
-                            >
-                              <Icon n="check" s={14} />
-                              <span>موجود بالمخزون</span>
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className={styles.menuItem}
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                setStockModalProduct(p);
-                              }}
-                            >
-                              <Icon n="plus" s={14} />
-                              <span>إضافة إلى المخزون</span>
-                            </button>
-                          ))}
+                        {!isServiceProduct(p) && (
+                          <button
+                            type="button"
+                            className={styles.menuItem}
+                            onClick={() => {
+                              setMenuOpenId(null);
+                              setStockModalProduct(p);
+                            }}
+                          >
+                            <Icon n="plus" s={14} />
+                            <span>إضافة إلى المخزون</span>
+                          </button>
+                        )}
                         {p.is_hidden ? (
                           <button
                             type="button"

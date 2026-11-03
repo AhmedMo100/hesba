@@ -64,12 +64,19 @@ const clearStockSchema = z.object({
   opId: z.string().uuid().optional(),
 });
 
+const archiveStockSchema = z.object({
+  action: z.literal("archive"),
+  storeVariantId: z.string().uuid(),
+  opId: z.string().uuid().optional(),
+});
+
 const stockActionSchema = z.discriminatedUnion("action", [
   addStockSchema,
   wasteStockSchema,
   voidStockSchema,
   adjustStockSchema,
   clearStockSchema,
+  archiveStockSchema,
 ]);
 
 /**
@@ -177,7 +184,7 @@ export async function POST(req: Request) {
         },
       );
       return NextResponse.json({ success: true, data: result });
-    } else {
+    } else if (input.action === "clear") {
       const result = await inventoryService.clearVariantStock(
         context.store.id,
         context.user.id,
@@ -185,6 +192,16 @@ export async function POST(req: Request) {
           storeVariantId: input.storeVariantId,
           reason: input.reason,
           removeFromView: input.removeFromView,
+          opId: input.opId,
+        },
+      );
+      return NextResponse.json({ success: true, data: result });
+    } else {
+      const result = await inventoryService.archiveVariantFromView(
+        context.store.id,
+        context.user.id,
+        {
+          storeVariantId: input.storeVariantId,
           opId: input.opId,
         },
       );

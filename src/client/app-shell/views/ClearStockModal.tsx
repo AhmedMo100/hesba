@@ -18,8 +18,7 @@ export function ClearStockModal({
   const isWeight = item.unitMode === "weight";
   const packQty = item.packQty || 1;
 
-  const [removeFromView, setRemoveFromView] = useState(true);
-  const [reason, setReason] = useState("تصفير وإزالة الصنف من قائمة المخزون");
+  const [reason, setReason] = useState("عجز جرد وتصفير رصيد");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,14 +40,14 @@ export function ClearStockModal({
         body: JSON.stringify({
           action: "clear",
           storeVariantId: item.variantId,
-          removeFromView,
+          removeFromView: false,
           reason,
         }),
       });
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.error?.message || "فشل إزالة الصنف من المخزون");
+        throw new Error(data.error?.message || "فشل تصفير المخزون");
       }
 
       onCleared();
@@ -61,7 +60,7 @@ export function ClearStockModal({
 
   return (
     <Modal
-      title="إزالة وتصفير المخزون"
+      title="تصفير المخزون"
       onClose={onClose}
       footer={
         <div style={{ display: "flex", gap: 10, width: "100%" }}>
@@ -73,7 +72,7 @@ export function ClearStockModal({
             onClick={handleSubmit}
             style={{ flex: 1 }}
           >
-            {isSubmitting ? "جاري الإزالة..." : "تأكيد الإزالة والتصفير"}
+            {isSubmitting ? "جاري التصفير..." : "تأكيد تصفير المخزون"}
           </Button>
           <Button
             kind="soft"
@@ -117,7 +116,7 @@ export function ClearStockModal({
             <b>
               {item.productName} {item.flavor ? `(${item.flavor})` : ""}
             </b>{" "}
-            بالكامل (الرصيد الحالي: <b>{formattedStock}</b>).
+            بالكامل (الرصيد الحالي بالمخزن: <b>{formattedStock}</b>).
           </p>
         </div>
 
@@ -131,47 +130,20 @@ export function ClearStockModal({
           }}
         >
           <li>
-            سيتم تصفير جميع التشغيلات الحالية في المخزن وتسجيل حركة تسوية.
+            سيتم تصفير جميع التشغيلات الحالية في المخزن وتسجيل حركة تسوية
+            (adjustment).
           </li>
-          <li>لن يتم حذف أي فواتير بيع أو مشتريات تاريخية خاصة بالمنتج.</li>
           <li>
-            المنتج يظل مسجلًا في قاعدة البيانات ويمكن إعادة إضافته في أي وقت.
+            يظل المنتج موجوداً في قائمة المخزون بحالة <b>خلصان (0)</b>.
           </li>
+          <li>لن يتم حذف أي فواتير بيع أو مشتريات تاريخية خاصة بالصنف.</li>
         </ul>
 
-        {/* Checkbox: Remove from active view */}
-        <label
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 10,
-            cursor: "pointer",
-            fontSize: 14,
-            fontWeight: 700,
-            color: "var(--ink)",
-            padding: "8px 0",
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={removeFromView}
-            onChange={(e) => setRemoveFromView(e.target.checked)}
-            style={{
-              width: 18,
-              height: 18,
-              accentColor: "var(--red, #cf3c3c)",
-            }}
-          />
-          <span>إخفاء الصنف من شاشة المخزون الحالية</span>
-        </label>
-
         {/* Reason */}
-        <Field label="سبب الإزالة أو التصفير">
-          <input
-            type="text"
+        <Field label="سبب تصفير المخزون">
+          <select
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="مثال: توقف التعامل مع الصنف، تالف..."
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -179,8 +151,32 @@ export function ClearStockModal({
               border: "1.5px solid var(--line)",
               fontSize: 14,
               boxSizing: "border-box",
+              background: "var(--card-bg, #1e241e)",
+              color: "var(--ink)",
+              marginBottom: 8,
             }}
-          />
+          >
+            <option value="عجز جرد وتصفير رصيد">عجز جرد وتصفير رصيد</option>
+            <option value="تلف وهالك بالكامل">تلف وهالك بالكامل</option>
+            <option value="انتهاء صلاحية">انتهاء صلاحية</option>
+            <option value="تسوية مخزنية دورية">تسوية مخزنية دورية</option>
+            <option value="أخرى">سبب آخر (اكتبه بالأسفل)</option>
+          </select>
+          {reason === "أخرى" && (
+            <input
+              type="text"
+              placeholder="اكتب سبب التصفير..."
+              onChange={(e) => setReason(e.target.value)}
+              style={{
+                width: "100%",
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1.5px solid var(--line)",
+                fontSize: 14,
+                boxSizing: "border-box",
+              }}
+            />
+          )}
         </Field>
 
         {error && (
@@ -201,4 +197,5 @@ export function ClearStockModal({
     </Modal>
   );
 }
+
 export default ClearStockModal;

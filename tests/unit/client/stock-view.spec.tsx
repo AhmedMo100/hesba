@@ -6,8 +6,8 @@ import {
   type StockInventoryItem,
 } from "@/client/app-shell/views/StockView";
 import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
-import { AdjustStockModal } from "@/client/app-shell/views/AdjustStockModal";
 import { ClearStockModal } from "@/client/app-shell/views/ClearStockModal";
+import { ArchiveStockModal } from "@/client/app-shell/views/ArchiveStockModal";
 
 describe("StockView Component (Phase 2 Inventory UI)", () => {
   beforeEach(() => {
@@ -23,15 +23,19 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
     expect(html).toContain("إضافة");
   });
 
-  it("renders segmented control tabs with 'الكميات' and 'سجل الإضافات'", () => {
+  it("renders segmented control tabs with 'الكميات' and 'سجل الحركات'", () => {
     const html = renderToStaticMarkup(<StockView />);
     expect(html).toContain("الكميات");
-    expect(html).toContain("سجل الإضافات");
+    expect(html).toContain("سجل الحركات");
   });
 
-  it("renders search box and filter chips ('الكل', 'قرب يخلص', 'خلصان') on Tab 1", () => {
+  it("renders search box, stock type filters, and status filter chips on Tab 1", () => {
     const html = renderToStaticMarkup(<StockView />);
     expect(html).toContain("دوّر في المخزون");
+    expect(html).toContain("كافة الأنواع");
+    expect(html).toContain("منتجات مادية");
+    expect(html).toContain("كروت فيزيائية");
+    expect(html).toContain("وحدات رقمية");
     expect(html).toContain("الكل");
     expect(html).toContain("قرب يخلص (0)");
     expect(html).toContain("خلصان (0)");
@@ -99,7 +103,9 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
 
     expect(html).toContain("إضافة للمخزون: كوكاكولا 1 لتر");
     expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
-    expect(html).toContain("المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)");
+    expect(html).toContain(
+      "المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)",
+    );
     expect(html).toContain("بعد شهر");
     expect(html).toContain("بعد 3 شهور");
     expect(html).toContain("بعد 6 شهور");
@@ -132,12 +138,12 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
       />,
     );
 
-    expect(html).toContain("تكلفة تقديرية محسوبة");
+    expect(html).toContain("السعر المتوقع بناءً على سعر الشراء المسجل");
   });
 });
 
-describe("AdjustStockModal & ClearStockModal Components (Stock Mutations UI)", () => {
-  const mockItem: StockInventoryItem = {
+describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Archiving)", () => {
+  const mockItemWithStock: StockInventoryItem = {
     variantId: "var-100",
     productId: "prod-100",
     productName: "جبنة بيضاء دومتي",
@@ -152,38 +158,57 @@ describe("AdjustStockModal & ClearStockModal Components (Stock Mutations UI)", (
     batches: [],
   };
 
-  it("renders AdjustStockModal with current balance, mode tabs, and difference indicator", () => {
-    const html = renderToStaticMarkup(
-      <AdjustStockModal
-        item={mockItem}
-        onClose={() => {}}
-        onSaved={() => {}}
-      />,
-    );
+  const mockItemZeroStock: StockInventoryItem = {
+    ...mockItemWithStock,
+    currentStockBase: 0,
+    status: "out",
+  };
 
-    expect(html).toContain("تعديل الكمية (جرد وتسوية)");
-    expect(html).toContain("جبنة بيضاء دومتي (فيتا)");
-    expect(html).toContain("الرصيد الحالي");
-    expect(html).toContain("2 كرتونة و 4 قطعة");
-    expect(html).toContain("تعيين الرصيد الفعلي (جرد)");
-    expect(html).toContain("إضافة أو خصم كمية (+ / -)");
-    expect(html).toContain("سبب التعديل");
-    expect(html).toContain("فرق التسوية:");
-  });
-
-  it("renders ClearStockModal with warning, details and checkbox to hide from active view", () => {
+  it("renders ClearStockModal as pure zeroing dialog with warning and confirmation button", () => {
     const html = renderToStaticMarkup(
       <ClearStockModal
-        item={mockItem}
+        item={mockItemWithStock}
         onClose={() => {}}
         onCleared={() => {}}
       />,
     );
 
-    expect(html).toContain("إزالة وتصفير المخزون");
+    expect(html).toContain("تصفير المخزون");
     expect(html).toContain("تنبيه هام قبل تصفير المخزون");
     expect(html).toContain("جبنة بيضاء دومتي (فيتا)");
-    expect(html).toContain("إخفاء الصنف من شاشة المخزون الحالية");
-    expect(html).toContain("تأكيد الإزالة والتصفير");
+    expect(html).toContain("2 كرتونة و 4 قطعة");
+    expect(html).toContain("تأكيد تصفير المخزون");
+    expect(html).toContain("سبب تصفير المخزون");
+  });
+
+  it("renders ArchiveStockModal with blocker when current balance is positive (> 0)", () => {
+    const html = renderToStaticMarkup(
+      <ArchiveStockModal
+        item={mockItemWithStock}
+        onClose={() => {}}
+        onArchived={() => {}}
+        onOpenClearStock={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إزالة الصنف من قائمة المخزون");
+    expect(html).toContain("لا يمكن إزالة الصنف لأن رصيده موجب");
+    expect(html).toContain("تصفير المخزون أولاً");
+    expect(html).not.toContain("تأكيد الإزالة من المخزون");
+  });
+
+  it("renders ArchiveStockModal with confirm action when current balance is zero (=== 0)", () => {
+    const html = renderToStaticMarkup(
+      <ArchiveStockModal
+        item={mockItemZeroStock}
+        onClose={() => {}}
+        onArchived={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إزالة الصنف من قائمة المخزون");
+    expect(html).toContain("إخفاء من قائمة المخزون اليومية");
+    expect(html).toContain("تأكيد الإزالة من المخزون");
+    expect(html).not.toContain("لا يمكن إزالة الصنف لأن رصيده موجب");
   });
 });

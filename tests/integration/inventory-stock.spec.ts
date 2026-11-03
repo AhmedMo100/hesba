@@ -601,4 +601,82 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       }),
     ).rejects.toThrow("الصنف غير موجود في هذا المحل");
   });
+
+  it("archives variant from active inventory view only when stock is zero", async () => {
+    const catalog = new CatalogService(appPrisma);
+    const prod = await catalog.upsertStoreProduct(storeAId, userAId, {
+      nameAr: `شاي أخضر للتجربة ${runId}`,
+      category: "مشروبات",
+      unit: "piece",
+      sellPricePiasters: 3000,
+      isCustom: true,
+      variants: [{ flavor: "نعناع", packQty: 1, sellPricePiasters: 3000 }],
+    });
+    const archiveVarId = prod.variants[0]!.id;
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Add positive stock
+    await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: archiveVarId,
+      receivedQuantityBase: 5,
+      costPriceMinor: 2000,
+    });
+
+    // 2. Archiving with positive stock should be blocked
+    await expect(
+      inventory.archiveVariantFromView(storeAId, userAId, {
+        storeVariantId: archiveVarId,
+      }),
+    ).rejects.toThrow(
+      "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. يرجى تصفير المخزون أولاً.",
+    );
+
+    // 3. Clear stock to 0 first (pure zeroing, keep in view)
+    const clearRes = await inventory.clearVariantStock(storeAId, userAId, {
+      storeVariantId: archiveVarId,
+      removeFromView: false,
+      reason: "تصفير قبل الأرشفة",
+    });
+    expect(clearRes.clearedQuantity).toBe(5);
+
+    // Check variant is still active after pure zeroing
+    const variantStillActive = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeVariant.findUnique({
+          where: { id: archiveVarId },
+        }),
+      appPrisma,
+    );
+    expect(variantStillActive?.isActive).toBe(true);
+
+    // 4. Archiving when stock is 0 now succeeds
+    const archiveRes = await inventory.archiveVariantFromView(
+      storeAId,
+      userAId,
+      {
+        storeVariantId: archiveVarId,
+      },
+    );
+    expect(archiveRes.archived).toBe(true);
+
+    const variantArchived = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeVariant.findUnique({
+          where: { id: archiveVarId },
+        }),
+      appPrisma,
+    );
+    expect(variantArchived?.isActive).toBe(false);
+
+    // 5. Tenant isolation check
+    await expect(
+      inventory.archiveVariantFromView(storeBId, userBId, {
+        storeVariantId: archiveVarId,
+      }),
+    ).rejects.toThrow("الصنف غير موجود في هذا المحل");
+  });
 });

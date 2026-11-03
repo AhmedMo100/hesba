@@ -571,6 +571,8 @@ export class InventoryService {
             variantId: v.id,
             productId: v.storeProductId,
             productName: v.storeProduct?.nameAr ?? "",
+            category: v.storeProduct?.category ?? "",
+            isCustom: v.storeProduct?.isCustom ?? false,
             flavor: v.flavor,
             unitMode: v.storeProduct?.unit === "kg" ? "weight" : "piece",
             packQty: v.packQty,
@@ -1023,6 +1025,69 @@ export class InventoryService {
           clearedQuantity: Number(currentQty),
           removedFromView: Boolean(input.removeFromView),
           duplicate: false,
+        };
+      },
+      this.prisma,
+    );
+  }
+
+  /**
+   * Archives a variant from the active inventory view (sets isActive = false).
+   * Strict safety check: ONLY permitted if the current stock level is 0.
+   * If current stock > 0, throws AppError.badRequest to prevent hidden inventory.
+   */
+  async archiveVariantFromView(
+    storeId: string,
+    userId: string | null,
+    input: {
+      storeVariantId: string;
+      opId?: string | null;
+    },
+  ) {
+    const now = new Date();
+
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        // 1. Verify variant
+        const variant = await tx.storeVariant.findFirst({
+          where: { id: input.storeVariantId, storeId },
+          include: { storeProduct: true },
+        });
+        if (!variant) {
+          throw AppError.notFound("الصنف غير موجود في هذا المحل");
+        }
+
+        // 2. Check current stock level
+        const currentLevel = await tx.stockLevel.findUnique({
+          where: {
+            storeId_storeVariantId: {
+              storeId,
+              storeVariantId: variant.id,
+            },
+          },
+        });
+        const currentQty = currentLevel?.quantityBase ?? ZERO;
+
+        if (currentQty > ZERO) {
+          throw AppError.badRequest(
+            "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. يرجى تصفير المخزون أولاً.",
+          );
+        }
+
+        // 3. Mark variant as inactive
+        await tx.storeVariant.update({
+          where: { id: variant.id },
+          data: {
+            isActive: false,
+            updatedAt: now,
+          },
+        });
+
+        return {
+          variantId: variant.id,
+          archived: true,
         };
       },
       this.prisma,

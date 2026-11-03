@@ -287,12 +287,14 @@ describe("AddStockModal Component", () => {
     expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
     expect(html).toContain("تاريخ الإنتاج / البداية (اختياري)");
     expect(html).toContain("تاريخ الانتهاء");
-    expect(html).toContain("المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)");
+    expect(html).toContain(
+      "المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)",
+    );
     expect(html).toContain("بعد 3 شهور");
     expect(html).toContain("بعد سنة");
   });
 
-  it("shows active stock warning and blocks re-addition when product already has stock > 0", () => {
+  it("allows re-supplying stock at any time even when product already has stock > 0", () => {
     const stockedProduct = {
       id: "prod-stocked",
       name_ar: "شيبسي عائلي بالجبنة",
@@ -321,10 +323,9 @@ describe("AddStockModal Component", () => {
       />,
     );
 
-    expect(html).toContain("موجود بالفعل في المخزون");
-    expect(html).toContain("الرصيد الحالي: 48 قطعة");
-    expect(html).toContain("لا يمكن تسجيل كمية جديدة حتى تنفد الكمية الحالية");
-    expect(html).toContain("موجود بالمخزون");
+    expect(html).toContain("إضافة للمخزون: شيبسي عائلي بالجبنة");
+    expect(html).toContain("الرصيد الحالي: <b>4 كرتونة</b>");
+    expect(html).toContain("تأكيد الإضافة للمخزون ✓");
   });
 
   it("renders bag-specific labels when adding stock for a product sold in bags", () => {

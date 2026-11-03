@@ -5,8 +5,8 @@ import { Empty, SearchBox, Modal } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
-import { AdjustStockModal } from "./AdjustStockModal";
 import { ClearStockModal } from "./ClearStockModal";
+import { ArchiveStockModal } from "./ArchiveStockModal";
 import type { StoreProductItem } from "./ProductsView";
 import styles from "./StockView.module.css";
 
@@ -14,6 +14,9 @@ export interface StockInventoryItem {
   variantId: string;
   productId: string;
   productName: string;
+  category?: string;
+  brandName?: string;
+  isCustom?: boolean;
   flavor?: string | null;
   unitMode: "piece" | "weight";
   packQty: number;
@@ -138,9 +141,40 @@ function formatMovementQty(m: StockMovementItem): string {
   return `${m.quantityBase > 0 ? "+" : ""}${m.quantityBase} قطعة`;
 }
 
+function getMovementTypeBadge(type: string): {
+  label: string;
+  className: string;
+} {
+  switch (type) {
+    case "purchase":
+      return { label: "إضافة/شراء", className: styles.movTypePurchase || "" };
+    case "sale":
+      return { label: "بيع", className: styles.movTypeSale || "" };
+    case "adjustment":
+      return {
+        label: "تسوية/تصفير",
+        className: styles.movTypeAdjustment || "",
+      };
+    case "waste":
+      return { label: "هالك وتالف", className: styles.movTypeWaste || "" };
+    case "purchase_void":
+      return { label: "تراجع عن إضافة", className: styles.movTypeVoid || "" };
+    default:
+      return { label: type, className: styles.movTypeVoid || "" };
+  }
+}
+
 export function StockView() {
   const [tab, setTab] = useState<"qty" | "log">("qty");
-  const [filter, setFilter] = useState<"all" | "low" | "out">("all");
+  const [filter, setFilter] = useState<"all" | "low" | "out" | "nearExpiry">(
+    "all",
+  );
+  const [stockType, setStockType] = useState<
+    "all" | "physical" | "cards" | "digital"
+  >("all");
+  const [movementType, setMovementType] = useState<
+    "all" | "purchase" | "sale" | "adjustment" | "waste" | "void"
+  >("all");
   const [period, setPeriod] = useState<
     "day" | "week" | "month" | "year" | "custom"
   >("week");
@@ -148,10 +182,10 @@ export function StockView() {
   const [customTo, setCustomTo] = useState("");
   const [activeItemAction, setActiveItemAction] =
     useState<StockInventoryItem | null>(null);
-  const [adjustingItem, setAdjustingItem] = useState<StockInventoryItem | null>(
+  const [clearingItem, setClearingItem] = useState<StockInventoryItem | null>(
     null,
   );
-  const [clearingItem, setClearingItem] = useState<StockInventoryItem | null>(
+  const [archivingItem, setArchivingItem] = useState<StockInventoryItem | null>(
     null,
   );
   const [query, setQuery] = useState("");
@@ -209,33 +243,87 @@ export function StockView() {
     };
   }, []);
 
-  // Counts for filter chips matching Image 4
+  // Total valuation of current stocked items
+  const totalValuationPiasters = useMemo(() => {
+    return inventory.reduce((sum, item) => {
+      if (item.currentStockBase <= 0) return sum;
+      const unitCost =
+        item.buyPricePiasters && item.buyPricePiasters > 0
+          ? item.buyPricePiasters
+          : item.batches?.[0]?.costPricePiasters || 0;
+      if (item.unitMode === "weight") {
+        return sum + Math.round((item.currentStockBase / 1000) * unitCost);
+      }
+      return sum + item.currentStockBase * unitCost;
+    }, 0);
+  }, [inventory]);
+
+  // Counts for filter chips
   const counts = useMemo(() => {
     const out = inventory.filter((i) => i.currentStockBase <= 0).length;
     const low = inventory.filter(
       (i) => i.status === "low" && i.currentStockBase > 0,
     ).length;
-    return { out, low, total: inventory.length };
+    const nearExpiry = inventory.filter(
+      (i) => i.hasNearExpiry && i.currentStockBase > 0,
+    ).length;
+    return { out, low, nearExpiry, total: inventory.length };
   }, [inventory]);
 
   // Filtered inventory for Tab 1
   const filteredInventory = useMemo(() => {
     const normQ = normalizeArabic(query.trim());
     return inventory.filter((item) => {
+      // Search filter
       if (normQ) {
         const normName = normalizeArabic(item.productName || "");
         const normFlavor = normalizeArabic(item.flavor || "");
-        if (!normName.includes(normQ) && !normFlavor.includes(normQ)) {
+        const normCat = normalizeArabic(item.category || "");
+        if (
+          !normName.includes(normQ) &&
+          !normFlavor.includes(normQ) &&
+          !normCat.includes(normQ)
+        ) {
           return false;
         }
       }
 
+      // Stock Type filter
+      if (stockType === "cards") {
+        const isCard =
+          item.category === "كروت شحن" ||
+          item.category === "كروت مرافق" ||
+          item.productName.includes("كارت") ||
+          item.productName.includes("كروت");
+        if (!isCard) return false;
+      } else if (stockType === "digital") {
+        const isDigital =
+          item.category === "وحدات رقمية" ||
+          item.category === "رصيد رقمي" ||
+          item.productName.includes("وحدة رقمية");
+        if (!isDigital) return false;
+      } else if (stockType === "physical") {
+        const isCard =
+          item.category === "كروت شحن" ||
+          item.category === "كروت مرافق" ||
+          item.productName.includes("كارت") ||
+          item.productName.includes("كروت");
+        const isDigital =
+          item.category === "وحدات رقمية" ||
+          item.category === "رصيد رقمي" ||
+          item.productName.includes("وحدة رقمية");
+        if (isCard || isDigital) return false;
+      }
+
+      // Status filter
       if (filter === "out") return item.currentStockBase <= 0;
       if (filter === "low")
         return item.status === "low" && item.currentStockBase > 0;
+      if (filter === "nearExpiry")
+        return item.hasNearExpiry && item.currentStockBase > 0;
       return true;
     });
-  }, [inventory, query, filter]);
+  }, [inventory, query, filter, stockType]);
 
   // Options for AddStockModal dropdown
   const productOptions: StockProductOption[] = useMemo(() => {
@@ -251,11 +339,15 @@ export function StockView() {
     }));
   }, [inventory]);
 
-  // Tab 2 movements filtered by selected period
+  // Tab 2 movements filtered by selected period and movement type
   const filteredMovements = useMemo(() => {
     return movements.filter((m) => {
-      // Only purchase movements (goods additions) appear in "سجل الإضافات"
-      if (m.type !== "purchase") return false;
+      // Movement type filter
+      if (movementType !== "all") {
+        if (movementType === "void" && m.type !== "purchase_void") return false;
+        if (movementType !== "void" && m.type !== movementType) return false;
+      }
+
       const mTime = new Date(m.createdAt).getTime();
 
       if (period === "day") {
@@ -302,7 +394,7 @@ export function StockView() {
       }
       return true;
     });
-  }, [movements, period, nowTimestamp, customFrom, customTo]);
+  }, [movements, period, nowTimestamp, customFrom, customTo, movementType]);
 
   // Tab 2 summary total cost and additions count
   const movementSummary = useMemo(() => {
@@ -357,11 +449,18 @@ export function StockView() {
 
   return (
     <div className={styles.view} data-testid="page-stock">
-      {/* Header matching Image 4 */}
+      {/* Header */}
       <div className={styles.phead}>
         <div className={styles.pheadTitle}>
           <h1>المخزون</h1>
           <p>الكميات الحالية وسجل اللي دخل</p>
+          {totalValuationPiasters > 0 && (
+            <div className={styles.stockValuationRow}>
+              <span className={styles.stockValueBadge}>
+                قيمة المخزون: {formatMoney(totalValuationPiasters)}
+              </span>
+            </div>
+          )}
         </div>
         <button
           type="button"
@@ -377,7 +476,7 @@ export function StockView() {
         </button>
       </div>
 
-      {/* Tabs Segmented Control matching Image 4 & 7 */}
+      {/* Tabs Segmented Control */}
       <div className={styles.tabsBar}>
         <button
           type="button"
@@ -391,7 +490,7 @@ export function StockView() {
           className={`${styles.tabBtn} ${tab === "log" ? styles.active : ""}`}
           onClick={() => setTab("log")}
         >
-          سجل الإضافات
+          سجل الحركات
         </button>
       </div>
 
@@ -408,23 +507,55 @@ export function StockView() {
       )}
 
       {tab === "qty" ? (
-        /* Tab 1: Current Quantities matching Image 4 */
+        /* Tab 1: Current Quantities */
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {/* Search box with mic icon */}
           <SearchBox
             value={query}
             onChange={setQuery}
-            placeholder="دوّر في المخزون"
+            placeholder="دوّر في المخزون بالاسم أو الصنف..."
           />
 
-          {/* Filter Chips matching Image 4 */}
+          {/* Stock Type Filter */}
+          <div className={styles.typeFilterRow}>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${stockType === "all" ? styles.active : ""}`}
+              onClick={() => setStockType("all")}
+            >
+              كافة الأنواع
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${stockType === "physical" ? styles.active : ""}`}
+              onClick={() => setStockType("physical")}
+            >
+              منتجات مادية
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${stockType === "cards" ? styles.active : ""}`}
+              onClick={() => setStockType("cards")}
+            >
+              كروت فيزيائية
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${stockType === "digital" ? styles.active : ""}`}
+              onClick={() => setStockType("digital")}
+            >
+              وحدات رقمية
+            </button>
+          </div>
+
+          {/* Status Filter Chips */}
           <div className={styles.chips}>
             <button
               type="button"
               className={`${styles.chip} ${filter === "all" ? styles.active : ""}`}
               onClick={() => setFilter("all")}
             >
-              الكل
+              الكل ({inventory.length})
             </button>
             <button
               type="button"
@@ -440,6 +571,15 @@ export function StockView() {
             >
               خلصان ({counts.out})
             </button>
+            {counts.nearExpiry > 0 && (
+              <button
+                type="button"
+                className={`${styles.chip} ${filter === "nearExpiry" ? styles.active : ""}`}
+                onClick={() => setFilter("nearExpiry")}
+              >
+                صلاحية قريبة ({counts.nearExpiry})
+              </button>
+            )}
           </div>
 
           {loading ? (
@@ -491,6 +631,9 @@ export function StockView() {
                   </div>
 
                   <div className={styles.stockItemLeft}>
+                    {item.hasNearExpiry && item.currentStockBase > 0 && (
+                      <span className={styles.warnBadge}>صلاحية قريبة</span>
+                    )}
                     {item.currentStockBase <= 0 ? (
                       <span className={styles.outBadge}>خلصان</span>
                     ) : (
@@ -505,9 +648,55 @@ export function StockView() {
           )}
         </div>
       ) : (
-        /* Tab 2: Additions Log matching Image 7 */
+        /* Tab 2: Movements Log */
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Period Filter Chips matching Requirements */}
+          {/* Movement Type Filter */}
+          <div className={styles.typeFilterRow}>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${movementType === "all" ? styles.active : ""}`}
+              onClick={() => setMovementType("all")}
+            >
+              كافة الحركات
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${movementType === "purchase" ? styles.active : ""}`}
+              onClick={() => setMovementType("purchase")}
+            >
+              إضافات/شراء
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${movementType === "sale" ? styles.active : ""}`}
+              onClick={() => setMovementType("sale")}
+            >
+              مبيعات
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${movementType === "adjustment" ? styles.active : ""}`}
+              onClick={() => setMovementType("adjustment")}
+            >
+              تسويات وتصفير
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${movementType === "waste" ? styles.active : ""}`}
+              onClick={() => setMovementType("waste")}
+            >
+              هالك وتالف
+            </button>
+            <button
+              type="button"
+              className={`${styles.typeBtn} ${movementType === "void" ? styles.active : ""}`}
+              onClick={() => setMovementType("void")}
+            >
+              تراجع وحذف
+            </button>
+          </div>
+
+          {/* Period Filter Chips */}
           <div className={styles.chips}>
             <button
               type="button"
@@ -570,14 +759,16 @@ export function StockView() {
             </div>
           )}
 
-          {/* Summary Row matching Image 7 */}
+          {/* Summary Row */}
           <div className={styles.summaryRow}>
             <span>
               {movementSummary.count === 1
-                ? "1 إضافة"
-                : `${movementSummary.count} إضافات`}
+                ? "حركة واحدة"
+                : `${movementSummary.count} حركات`}
             </span>
-            <span>{formatMoney(movementSummary.totalPiasters)}</span>
+            {movementSummary.totalPiasters > 0 && (
+              <span>{formatMoney(movementSummary.totalPiasters)}</span>
+            )}
           </div>
 
           {loading ? (
@@ -588,61 +779,71 @@ export function StockView() {
                 color: "var(--ink2)",
               }}
             >
-              جارٍ تحميل سجل الإضافات...
+              جارٍ تحميل سجل الحركات...
             </div>
           ) : groupedMovements.length === 0 ? (
             <div style={{ padding: "30px 10px" }}>
               <Empty
                 icon="truck"
-                title="مفيش إضافات في الفترة دي"
-                sub="اضغط على زرار الإضافة لتسجيل بضاعة جديدة في المخزون"
+                title="مفيش حركات في الفترة دي"
+                sub="ستظهر جميع حركات الإضافة والتصفير والمبيعات هنا تلقائياً"
               />
             </div>
           ) : (
             groupedMovements.map((group) => (
               <div key={group.label}>
                 <div className={styles.dateGroupHeader}>{group.label}</div>
-                {group.items.map((m) => (
-                  <div className={styles.batchCard} key={m.id}>
-                    <div className={styles.batchCardRight}>
-                      <b>
-                        {m.productName} {m.flavor ? `(${m.flavor})` : ""}
-                      </b>
-                      <div className={styles.batchMeta}>
-                        <span>{formatArabicTime(m.createdAt)}</span>
-                        {(m.costTotalMinor || m.costPricePiasters) && (
-                          <span>
-                            {formatMoney(
-                              m.costTotalMinor || m.costPricePiasters || 0,
-                            )}
+                {group.items.map((m) => {
+                  const badge = getMovementTypeBadge(m.type);
+                  return (
+                    <div className={styles.batchCard} key={m.id}>
+                      <div className={styles.batchCardRight}>
+                        <b>
+                          {m.productName} {m.flavor ? `(${m.flavor})` : ""}
+                        </b>
+                        <div className={styles.batchMeta}>
+                          <span
+                            className={`${styles.movTypeBadge} ${badge.className}`}
+                          >
+                            {badge.label}
                           </span>
+                          <span>{formatArabicTime(m.createdAt)}</span>
+                          {(m.costTotalMinor || m.costPricePiasters) && (
+                            <span>
+                              {formatMoney(
+                                m.costTotalMinor || m.costPricePiasters || 0,
+                              )}
+                            </span>
+                          )}
+                          {m.supplierName && <span>{m.supplierName}</span>}
+                        </div>
+                        {m.expiryDate && (
+                          <div className={styles.batchExpiry}>
+                            {formatArabicExpiry(m.expiryDate)}
+                          </div>
                         )}
-                        {m.supplierName && <span>{m.supplierName}</span>}
                       </div>
-                      <div className={styles.batchExpiry}>
-                        {formatArabicExpiry(m.expiryDate)}
-                      </div>
-                    </div>
 
-                    <div className={styles.batchCardLeft}>
-                      <span
-                        className={`${styles.batchQty} ${m.quantityBase < 0 ? styles.negative : ""}`}
-                      >
-                        {formatMovementQty(m)}
-                      </span>
-                      {m.batchId && (
-                        <button
-                          type="button"
-                          className={styles.batchDeleteBtn}
-                          disabled={voidingBatchId === m.batchId}
-                          onClick={() => handleVoidBatch(m.batchId)}
+                      <div className={styles.batchCardLeft}>
+                        <span
+                          className={`${styles.batchQty} ${m.quantityBase < 0 ? styles.negative : ""}`}
                         >
-                          {voidingBatchId === m.batchId ? "جاري..." : "حذف"}
-                        </button>
-                      )}
+                          {formatMovementQty(m)}
+                        </span>
+                        {m.type === "purchase" && m.batchId && (
+                          <button
+                            type="button"
+                            className={styles.batchDeleteBtn}
+                            disabled={voidingBatchId === m.batchId}
+                            onClick={() => handleVoidBatch(m.batchId)}
+                          >
+                            {voidingBatchId === m.batchId ? "جاري..." : "حذف"}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ))
           )}
@@ -669,6 +870,7 @@ export function StockView() {
               </b>
             </div>
 
+            {/* 1. Add Stock */}
             <button
               type="button"
               className={styles.actionItemBtn}
@@ -678,11 +880,11 @@ export function StockView() {
                 setSelectedStockProduct({
                   id: itm.productId,
                   name_ar: itm.productName,
-                  category: "المخزون",
+                  category: itm.category || "المخزون",
                   unit: itm.unitMode === "weight" ? "kg" : "piece",
                   sell_price_piasters: itm.sellPricePiasters,
                   buy_cost_piasters: itm.buyPricePiasters,
-                  is_custom: false,
+                  is_custom: itm.isCustom ?? false,
                   variants: [
                     {
                       id: itm.variantId,
@@ -702,30 +904,32 @@ export function StockView() {
               <span>إضافة بضاعة جديدة للمخزون</span>
             </button>
 
+            {/* 2. Clear Stock */}
             <button
               type="button"
               className={styles.actionItemBtn}
               onClick={() => {
                 const itm = activeItemAction;
                 setActiveItemAction(null);
-                setAdjustingItem(itm);
+                setClearingItem(itm);
               }}
             >
-              <span style={{ fontSize: 16 }}>✏️</span>
-              <span>تعديل الكمية (جرد وتسوية)</span>
+              <span style={{ fontSize: 16 }}>0️⃣</span>
+              <span>تصفير المخزون (تحويل الرصيد لـ 0)</span>
             </button>
 
+            {/* 3. Archive from active inventory */}
             <button
               type="button"
               className={`${styles.actionItemBtn} ${styles.danger}`}
               onClick={() => {
                 const itm = activeItemAction;
                 setActiveItemAction(null);
-                setClearingItem(itm);
+                setArchivingItem(itm);
               }}
             >
-              <span style={{ fontSize: 16 }}>🗑️</span>
-              <span>تصفير وإزالة من المخزون</span>
+              <span style={{ fontSize: 16 }}>📦</span>
+              <span>إزالة من قائمة المخزون النشطة</span>
             </button>
 
             <button
@@ -745,18 +949,6 @@ export function StockView() {
         </Modal>
       )}
 
-      {/* Adjust Stock Modal */}
-      {adjustingItem && (
-        <AdjustStockModal
-          item={adjustingItem}
-          onClose={() => setAdjustingItem(null)}
-          onSaved={() => {
-            setAdjustingItem(null);
-            void loadData();
-          }}
-        />
-      )}
-
       {/* Clear Stock Modal */}
       {clearingItem && (
         <ClearStockModal
@@ -765,6 +957,23 @@ export function StockView() {
           onCleared={() => {
             setClearingItem(null);
             void loadData();
+          }}
+        />
+      )}
+
+      {/* Archive Stock Modal */}
+      {archivingItem && (
+        <ArchiveStockModal
+          item={archivingItem}
+          onClose={() => setArchivingItem(null)}
+          onArchived={() => {
+            setArchivingItem(null);
+            void loadData();
+          }}
+          onOpenClearStock={() => {
+            const itm = archivingItem;
+            setArchivingItem(null);
+            setClearingItem(itm);
           }}
         />
       )}
