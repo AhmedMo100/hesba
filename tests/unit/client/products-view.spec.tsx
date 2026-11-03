@@ -451,4 +451,22 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
     expect(html).toContain("إلزامي للإضافة");
     expect(html).toContain("سعر بيع الكارت (ج.م)");
   });
+
+  it("renders 'أخرى (إنشاء تصنيف جديد...)' option and input in ProductFormModal", () => {
+    const htmlNormal = renderToStaticMarkup(
+      <ProductFormModal onClose={() => {}} onSaved={() => {}} />,
+    );
+    expect(htmlNormal).toContain("أخرى (إنشاء تصنيف جديد...)");
+
+    // When custom category is preset, custom input field is rendered
+    const htmlCustom = renderToStaticMarkup(
+      <ProductFormModal
+        defaultCategory="أدوات مكتبية"
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(htmlCustom).toContain("اكتب اسم التصنيف الجديد هنا...");
+    expect(htmlCustom).toContain("أدوات مكتبية");
+  });
 });

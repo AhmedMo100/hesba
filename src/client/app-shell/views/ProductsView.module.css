@@ -321,18 +321,25 @@
 }
 
 /* Card action popover dropdown */
+.activeMenuCard {
+  z-index: 60 !important;
+  position: relative !important;
+}
+
 .menuDropdown {
   position: absolute;
-  top: 36px;
-  left: 10px;
+  top: 38px;
+  left: 0;
   background: var(--sf);
-  border: 1px solid var(--line);
+  border: 1.5px solid var(--line);
   border-radius: 12px;
-  box-shadow: var(--sh2);
+  box-shadow:
+    0 10px 25px -5px rgba(0, 0, 0, 0.25),
+    0 8px 10px -6px rgba(0, 0, 0, 0.15);
   display: flex;
   flex-direction: column;
-  z-index: 10;
-  min-width: 140px;
+  z-index: 100;
+  min-width: 170px;
   overflow: hidden;
   animation: dropIn 0.15s ease;
 }

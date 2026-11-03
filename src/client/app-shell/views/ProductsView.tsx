@@ -356,6 +356,28 @@ export function ProductsView() {
     }
   };
 
+  const handleAddToSale = (product: StoreProductItem) => {
+    if (typeof window !== "undefined") {
+      try {
+        const stagedItem = {
+          id: product.id,
+          name: product.name_ar,
+          sellPricePiasters: product.sell_price_piasters,
+          category: product.category,
+          unit: product.unit,
+        };
+        sessionStorage.setItem(
+          "hesba_staged_sale_item",
+          JSON.stringify(stagedItem),
+        );
+      } catch {
+        // Ignore storage error
+      }
+      window.history.pushState(null, "", "/app/sales");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }
+  };
+
   // Split into Physical Products vs Digital Services / Cards
   const physicalProducts = useMemo(() => {
     return products.filter((p) => !isServiceProduct(p));
@@ -797,7 +819,7 @@ export function ProductsView() {
 
                 return (
                   <div
-                    className={`${styles.pcard} ${p.is_hidden ? styles.cardHidden : ""}`}
+                    className={`${styles.pcard} ${p.is_hidden ? styles.cardHidden : ""} ${isMenuOpen ? styles.activeMenuCard : ""}`}
                     key={p.id}
                     data-testid={`product-card-${p.id}`}
                     onClick={() => setEditingProduct(p)}
@@ -1221,7 +1243,7 @@ export function ProductsView() {
 
                 return (
                   <div
-                    className={`${styles.serviceCard} ${p.is_hidden ? styles.cardHidden : ""}`}
+                    className={`${styles.serviceCard} ${p.is_hidden ? styles.cardHidden : ""} ${isMenuOpen ? styles.activeMenuCard : ""}`}
                     key={p.id}
                     onClick={() => setEditingProduct(p)}
                   >
@@ -1276,22 +1298,8 @@ export function ProductsView() {
                               }}
                             >
                               <Icon n="edit" s={14} />
-                              <span>تعديل العمولة والإعدادات</span>
+                              <span>تعديل العمولة</span>
                             </button>
-
-                            {nature.isStock && (
-                              <button
-                                type="button"
-                                className={styles.menuItem}
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  setStockModalProduct(p);
-                                }}
-                              >
-                                <Icon n="plus" s={14} />
-                                <span>إضافة إلى المخزون</span>
-                              </button>
-                            )}
 
                             <button
                               type="button"
@@ -1302,7 +1310,19 @@ export function ProductsView() {
                               }}
                             >
                               <Icon n="store" s={14} />
-                              <span>ربط بماكينة دفع</span>
+                              <span>ربط بماكينة</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              className={styles.menuItem}
+                              onClick={() => {
+                                setMenuOpenId(null);
+                                handleAddToSale(p);
+                              }}
+                            >
+                              <Icon n="cart" s={14} />
+                              <span>إضافة إلى البيع</span>
                             </button>
 
                             <button

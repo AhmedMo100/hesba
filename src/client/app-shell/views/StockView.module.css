@@ -36,7 +36,9 @@
     width: 100%;
     margin-bottom: 2px;
   }
-  .addBtn {
+  .addBtn,
+  .addBtnFull,
+  .pact {
     width: 100%;
     justify-content: center;
   }

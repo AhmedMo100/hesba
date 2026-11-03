@@ -11,6 +11,12 @@
   margin-bottom: 12px;
 }
 
+@media (max-width: 640px) {
+  .head {
+    display: none;
+  }
+}
+
 .title {
   font-size: 22px;
   font-weight: 800;

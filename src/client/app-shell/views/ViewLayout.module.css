@@ -35,6 +35,12 @@
   font-size: 14px;
 }
 
+@media (max-width: 640px) {
+  .phead {
+    display: none;
+  }
+}
+
 .pact {
   display: flex;
   gap: 8px;

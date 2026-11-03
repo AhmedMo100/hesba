@@ -162,27 +162,35 @@ export function ProductFormModal({
       : "",
   );
 
-  const [category, setCategory] = useState(
-    product
-      ? product.category
-      : defaultCategory
-        ? defaultCategory
-        : initialCatalogProduct
-          ? initialCatalogProduct.product.category
-          : "السلع الاستهلاكية",
-  );
+  const initialCatValue = product
+    ? product.category
+    : defaultCategory
+      ? defaultCategory
+      : initialCatalogProduct
+        ? initialCatalogProduct.product.category
+        : "السلع الاستهلاكية";
+
+  const [category, setCategory] = useState(initialCatValue);
+  const [isCustomCategory, setIsCustomCategory] = useState<boolean>(() => {
+    return (
+      initialCatValue === "أخرى" ||
+      !PRODUCT_CATEGORIES.includes(
+        initialCatValue as (typeof PRODUCT_CATEGORIES)[number],
+      )
+    );
+  });
+  const [customCategoryName, setCustomCategoryName] = useState<string>(() => {
+    return !PRODUCT_CATEGORIES.includes(
+      initialCatValue as (typeof PRODUCT_CATEGORIES)[number],
+    )
+      ? initialCatValue
+      : "";
+  });
 
   const availableCategories = useMemo(() => {
-    if (
-      category &&
-      !PRODUCT_CATEGORIES.includes(
-        category as (typeof PRODUCT_CATEGORIES)[number],
-      )
-    ) {
-      return [category, ...PRODUCT_CATEGORIES];
-    }
-    return [...PRODUCT_CATEGORIES];
-  }, [category]);
+    const standardWithoutOther = PRODUCT_CATEGORIES.filter((c) => c !== "أخرى");
+    return [...standardWithoutOther, "أخرى"];
+  }, []);
 
   const [barcode, setBarcode] = useState(
     product?.barcode || firstVariant?.barcode || "",
@@ -400,6 +408,15 @@ export function ProductFormModal({
       }
     }
 
+    const finalCategory =
+      isCustomCategory || category === "أخرى"
+        ? customCategoryName.trim()
+        : category.trim();
+
+    if (!finalCategory) {
+      newErrors.category = "يرجى كتابة اسم التصنيف الجديد";
+    }
+
     if (Object.keys(newErrors).length > 0) {
       setErrors(newErrors);
       return;
@@ -449,7 +466,7 @@ export function ProductFormModal({
       const payload = {
         id: product?.id,
         nameAr: name.trim(),
-        category,
+        category: finalCategory,
         unit: targetUnit,
         sellPricePiasters,
         buyCostPiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
@@ -697,13 +714,28 @@ export function ProductFormModal({
               </div>
               <div className={styles.selectWrapper}>
                 <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
+                  value={isCustomCategory ? "أخرى" : category}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === "أخرى") {
+                      setIsCustomCategory(true);
+                      setCategory("أخرى");
+                    } else {
+                      setIsCustomCategory(false);
+                      setCategory(val);
+                      setCustomCategoryName("");
+                      setErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.category;
+                        return next;
+                      });
+                    }
+                  }}
                   className={styles.styledSelect}
                 >
                   {availableCategories.map((cat) => (
                     <option key={cat} value={cat}>
-                      {cat}
+                      {cat === "أخرى" ? "أخرى (إنشاء تصنيف جديد...)" : cat}
                     </option>
                   ))}
                 </select>
@@ -711,6 +743,51 @@ export function ProductFormModal({
                   <Icon n="down" s={14} />
                 </span>
               </div>
+              {isCustomCategory && (
+                <div style={{ marginTop: 8 }}>
+                  <input
+                    type="text"
+                    value={customCategoryName}
+                    onChange={(e) => {
+                      setCustomCategoryName(e.target.value);
+                      if (errors.category) {
+                        setErrors((prev) => {
+                          const next = { ...prev };
+                          delete next.category;
+                          return next;
+                        });
+                      }
+                    }}
+                    placeholder="اكتب اسم التصنيف الجديد هنا..."
+                    style={{
+                      width: "100%",
+                      padding: "10px 12px",
+                      borderRadius: 10,
+                      border: errors.category
+                        ? "1.5px solid var(--red, #cf3c3c)"
+                        : "1.5px solid var(--br, #5a7d5a)",
+                      background: "var(--sf)",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--ink)",
+                      boxSizing: "border-box",
+                    }}
+                    autoFocus
+                  />
+                  {errors.category && (
+                    <div
+                      style={{
+                        color: "var(--red, #cf3c3c)",
+                        fontSize: 11.5,
+                        fontWeight: 700,
+                        marginTop: 4,
+                      }}
+                    >
+                      {errors.category}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             <Field label="البراند / الماركة (اختياري)">
