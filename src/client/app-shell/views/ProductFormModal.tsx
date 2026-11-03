@@ -1038,18 +1038,48 @@ export function ProductFormModal({
                 />
               </Field>
 
-              {/* بيتباع إزاي؟ */}
-              <Field label="بيتباع إزاي؟">
-                <Seg
-                  value={kind}
-                  onChange={(val) => setKind(val as "unit" | "weight" | "bag")}
-                  options={[
-                    ["unit", "بالقطعة / الكرتونة", "box"],
-                    ["bag", "بالكيس", "layers"],
-                    ["weight", "بالوزن (كيلو)", "scale"],
-                  ]}
-                />
-              </Field>
+              {/* طريقة البيع - بيتباع إزاي؟ */}
+              <div style={{ marginBottom: 6 }}>
+                <span
+                  style={{
+                    display: "block",
+                    fontSize: 12.5,
+                    fontWeight: 700,
+                    marginBottom: 6,
+                    color: "var(--ink2)",
+                  }}
+                >
+                  بيتباع إزاي؟
+                </span>
+                <div className={styles.unitModeGrid}>
+                  <button
+                    type="button"
+                    className={`${styles.unitModeCard} ${kind === "unit" ? styles.active : ""}`}
+                    onClick={() => setKind("unit")}
+                  >
+                    <Icon n="box" s={18} />
+                    <span className={styles.unitModeTitle}>
+                      بالقطعة / الكرتونة
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.unitModeCard} ${kind === "weight" ? styles.active : ""}`}
+                    onClick={() => setKind("weight")}
+                  >
+                    <Icon n="scale" s={18} />
+                    <span className={styles.unitModeTitle}>بالوزن</span>
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.unitModeCard} ${kind === "bag" ? styles.active : ""}`}
+                    onClick={() => setKind("bag")}
+                  >
+                    <Icon n="layers" s={18} />
+                    <span className={styles.unitModeTitle}>بالكيس</span>
+                  </button>
+                </div>
+              </div>
 
               {kind === "weight" ? (
                 <div className={styles.priceCardGroup}>

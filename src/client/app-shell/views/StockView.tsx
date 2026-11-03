@@ -1,12 +1,14 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox, Modal } from "../../shared/ui";
+import { Empty, SearchBox, Modal, Icon } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
 import { ClearStockModal } from "./ClearStockModal";
 import { ArchiveStockModal } from "./ArchiveStockModal";
+import { type PosMachine, getStoredMachines } from "../../shared/machines";
+import { MachineTopupModal } from "./MachineTopupModal";
 import type { StoreProductItem } from "./ProductsView";
 import styles from "./StockView.module.css";
 
@@ -172,6 +174,26 @@ export function StockView() {
 
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [movements, setMovements] = useState<StockMovementItem[]>([]);
+  const [machines, setMachines] = useState<PosMachine[]>(() => {
+    return getStoredMachines();
+  });
+  const [topupMachine, setTopupMachine] = useState<PosMachine | null>(null);
+
+  // Listen for pos machine updates across tabs and views
+  useEffect(() => {
+    const handleMachinesUpdate = () => {
+      setMachines(getStoredMachines());
+    };
+    if (typeof window !== "undefined") {
+      window.addEventListener("hesba_machines_updated", handleMachinesUpdate);
+      return () => {
+        window.removeEventListener(
+          "hesba_machines_updated",
+          handleMachinesUpdate,
+        );
+      };
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
@@ -216,10 +238,17 @@ export function StockView() {
     };
   }, []);
 
-  // Total valuation of current stocked items
-  const totalValuationPiasters = useMemo(() => {
+  // Physical inventory valuation at cost
+  const physicalValuationPiasters = useMemo(() => {
     return inventory.reduce((sum, item) => {
       if (item.currentStockBase <= 0) return sum;
+      if (
+        item.category === "كروت شحن" ||
+        item.category === "خدمات مرافق" ||
+        item.productName.includes("كارت شحن")
+      ) {
+        return sum;
+      }
       const unitCost =
         item.buyPricePiasters && item.buyPricePiasters > 0
           ? item.buyPricePiasters
@@ -230,6 +259,38 @@ export function StockView() {
       return sum + item.currentStockBase * unitCost;
     }, 0);
   }, [inventory]);
+
+  // Scratch cards & digital units valuation at cost
+  const cardsValuationPiasters = useMemo(() => {
+    return inventory.reduce((sum, item) => {
+      if (item.currentStockBase <= 0) return sum;
+      if (
+        item.category === "كروت شحن" ||
+        item.productName.includes("كارت شحن")
+      ) {
+        const unitCost =
+          item.buyPricePiasters && item.buyPricePiasters > 0
+            ? item.buyPricePiasters
+            : item.batches?.[0]?.costPricePiasters || 0;
+        return sum + item.currentStockBase * unitCost;
+      }
+      return sum;
+    }, 0);
+  }, [inventory]);
+
+  // Provider balances across all POS machines
+  const totalProviderBalancesPiasters = useMemo(() => {
+    return machines.reduce(
+      (sum, m) => sum + (m.currentBalancePiasters || 0),
+      0,
+    );
+  }, [machines]);
+
+  // Total working capital (physical goods + scratch cards + provider balances)
+  const totalWorkingCapitalPiasters =
+    physicalValuationPiasters +
+    cardsValuationPiasters +
+    totalProviderBalancesPiasters;
 
   // Counts for filter chips
   const counts = useMemo(() => {
@@ -397,13 +458,6 @@ export function StockView() {
         <div className={styles.pheadTitle}>
           <h1>المخزون</h1>
           <p>الكميات الحالية وسجل اللي دخل</p>
-          {totalValuationPiasters > 0 && (
-            <div className={styles.stockValuationRow}>
-              <span className={styles.stockValueBadge}>
-                قيمة المخزون: {formatMoney(totalValuationPiasters)}
-              </span>
-            </div>
-          )}
         </div>
         <button
           type="button"
@@ -557,6 +611,61 @@ export function StockView() {
               ))}
             </div>
           )}
+
+          {/* POS Machines & Providers Section */}
+          <div
+            className={styles.machinesSection}
+            data-testid="stock-pos-machines-section"
+          >
+            <div className={styles.machinesSectionHeader}>
+              <div className={styles.machinesSectionTitle}>
+                <Icon n="store" s={18} />
+                <span>أرصدة ماكينات الدفع ومقدمي الخدمة</span>
+              </div>
+              <span className={styles.machinesBadge}>
+                {machines.length} ماكينات
+              </span>
+            </div>
+
+            <div className={styles.machinesList}>
+              {machines.map((m) => (
+                <div key={m.id} className={styles.machineCard}>
+                  <div className={styles.machineCardInfo}>
+                    <div className={styles.machineCardTitleRow}>
+                      <span className={styles.machineName}>{m.name}</span>
+                      <span className={styles.machineProviderBadge}>
+                        {m.provider}
+                      </span>
+                    </div>
+                    {m.terminalId && (
+                      <span className={styles.machineMeta}>
+                        معرف: {m.terminalId}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={styles.machineCardActions}>
+                    <div className={styles.machineBalanceCol}>
+                      <span className={styles.machineBalanceLabel}>
+                        الرصيد المتاح
+                      </span>
+                      <b className={styles.machineBalanceValue}>
+                        {formatMoney(m.currentBalancePiasters || 0)}
+                      </b>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.machineTopupBtn}
+                      onClick={() => setTopupMachine(m)}
+                    >
+                      <Icon n="plus" s={14} />
+                      <span>شحن رصيد</span>
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       ) : (
         /* Tab 2: Additions Log matching Image 5 */
@@ -711,6 +820,80 @@ export function StockView() {
             ))
           )}
         </div>
+      )}
+
+      {/* Stock Valuation Summary Card at the very bottom of the page */}
+      <div
+        className={styles.valuationSummaryCard}
+        data-testid="stock-valuation-card"
+      >
+        <div className={styles.valCardHeader}>
+          <div className={styles.valCardTitle}>
+            <Icon n="wallet" s={18} />
+            <span>تقييم إجمالي البضاعة ورؤوس الأموال</span>
+          </div>
+          <span className={styles.valTimestamp}>
+            حُسبت في:{" "}
+            {new Date(nowTimestamp).toLocaleTimeString("ar-EG", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
+
+        <div className={styles.valBreakdownGrid}>
+          <div className={styles.valRow}>
+            <span className={styles.valRowLabel}>
+              قيمة بضاعة المخزون المادي (بسعر الشراء):
+            </span>
+            <b className={styles.valRowValue}>
+              {formatMoney(physicalValuationPiasters)}
+            </b>
+          </div>
+
+          <div className={styles.valRow}>
+            <span className={styles.valRowLabel}>
+              قيمة كروت الشحن والوحدات الرقمية:
+            </span>
+            <b className={styles.valRowValue}>
+              {formatMoney(cardsValuationPiasters)}
+            </b>
+          </div>
+
+          <div className={styles.valRow}>
+            <span className={styles.valRowLabel}>
+              أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):
+            </span>
+            <b className={styles.valRowValue}>
+              {formatMoney(totalProviderBalancesPiasters)}
+            </b>
+          </div>
+
+          <div className={`${styles.valRow} ${styles.valTotalRow}`}>
+            <span className={styles.valTotalLabel}>
+              إجمالي رأس المال والأرصدة:
+            </span>
+            <b className={styles.valTotalValue}>
+              {formatMoney(totalWorkingCapitalPiasters)}
+            </b>
+          </div>
+        </div>
+
+        <p className={styles.valDisclaimer}>
+          * الحساب تقديري بناءً على أسعار الشراء المسجلة بالدفعات وأرصدة
+          الماكينات المحدثة، ومفصول تماماً بين البضاعة المادية وأرصدة الخدمات.
+        </p>
+      </div>
+
+      {/* Machine Topup Modal */}
+      {topupMachine && (
+        <MachineTopupModal
+          machine={topupMachine}
+          onClose={() => setTopupMachine(null)}
+          onSuccess={() => {
+            setMachines(getStoredMachines());
+          }}
+        />
       )}
 
       {/* Item Action Sheet Modal */}

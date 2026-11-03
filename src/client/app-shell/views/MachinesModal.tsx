@@ -2,16 +2,13 @@
 
 import React, { useState } from "react";
 import { Modal, Button, Field, Icon } from "../../shared/ui";
+import {
+  type PosMachine,
+  getStoredMachines,
+  saveStoredMachines,
+} from "../../shared/machines";
 
-export interface PosMachine {
-  id: string;
-  name: string; // e.g. "ماكينة فوري كاشير 1"
-  provider: string; // e.g. "فوري", "أمان", "مصاري", "بي", "ممكن"
-  terminalId?: string; // e.g. "POS-1049"
-  status: "active" | "inactive" | "maintenance";
-  notes?: string;
-  createdAt: string;
-}
+export type { PosMachine };
 
 export const KNOWN_PROVIDERS = [
   "فوري (Fawry)",
@@ -36,36 +33,9 @@ export function MachinesModal({
   onClose,
   onMachinesUpdated,
 }: MachinesModalProps) {
-  const storageKey = `hesba_pos_machines_${storeId}`;
-
-  const [machines, setMachines] = useState<PosMachine[]>(() => {
-    if (typeof window === "undefined") return [];
-    try {
-      const saved = localStorage.getItem(storageKey);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed;
-        }
-      }
-      const defaultMachines: PosMachine[] = [
-        {
-          id: "mach-1",
-          name: "ماكينة فوري الرئيسية",
-          provider: "فوري (Fawry)",
-          terminalId: "FAWRY-POS-01",
-          status: "active",
-          notes:
-            "ماكينة الكاشير الأساسية لخدمات الدفع وفواتير الكهرباء والإنترنت",
-          createdAt: new Date().toISOString(),
-        },
-      ];
-      localStorage.setItem(storageKey, JSON.stringify(defaultMachines));
-      return defaultMachines;
-    } catch {
-      return [];
-    }
-  });
+  const [machines, setMachines] = useState<PosMachine[]>(() =>
+    getStoredMachines(storeId),
+  );
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingMachine, setEditingMachine] = useState<PosMachine | null>(null);
@@ -83,11 +53,7 @@ export function MachinesModal({
 
   const saveMachinesList = (updated: PosMachine[]) => {
     setMachines(updated);
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-    } catch {
-      // Storage unavailable
-    }
+    saveStoredMachines(updated, storeId);
     if (onMachinesUpdated) {
       onMachinesUpdated(updated);
     }
@@ -162,6 +128,8 @@ export function MachinesModal({
         terminalId: terminalId.trim() || undefined,
         status,
         notes: notes.trim() || undefined,
+        currentBalancePiasters: 0,
+        balanceTransactions: [],
         createdAt: new Date().toISOString(),
       };
       saveMachinesList([...machines, newMachine]);

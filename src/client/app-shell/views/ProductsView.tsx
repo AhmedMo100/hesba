@@ -163,7 +163,7 @@ export function ProductsView() {
   const [tab, setTab] = useState<"products" | "services">("products");
   const [products, setProducts] = useState<StoreProductItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [serviceCategory, setServiceCategory] = useState<string>("all");
+  const [serviceCategory, setServiceCategory] = useState<string>("utilities");
   const [companyFilter, setCompanyFilter] = useState<string>("all");
   const [filterMode, setFilterMode] = useState<"all" | "custom" | "hidden">(
     "all",
@@ -412,31 +412,40 @@ export function ProductsView() {
     }
 
     // Category filter
-    if (serviceCategory !== "all") {
-      if (serviceCategory === "utilities") {
+    if (serviceCategory === "utilities") {
+      list = list.filter(
+        (p) =>
+          p.category === "خدمات مرافق" ||
+          p.category === "كروت مرافق" ||
+          p.name_ar.includes("كهرباء") ||
+          p.name_ar.includes("مياه") ||
+          p.name_ar.includes("غاز"),
+      );
+      if (companyFilter === "electricity") {
         list = list.filter(
-          (p) =>
-            p.category === "خدمات مرافق" ||
-            p.category === "كروت مرافق" ||
-            p.name_ar.includes("كهرباء") ||
-            p.name_ar.includes("مياه") ||
-            p.name_ar.includes("غاز"),
+          (p) => p.name_ar.includes("كهرباء") || p.name_ar.includes("كهربا"),
         );
-      } else if (serviceCategory === "internet") {
-        list = list.filter((p) => p.category === "فواتير إنترنت");
-      } else if (serviceCategory === "cards") {
+      } else if (companyFilter === "water") {
         list = list.filter(
-          (p) => p.category === "كروت شحن" || p.name_ar.includes("كارت شحن"),
+          (p) => p.name_ar.includes("مياه") || p.name_ar.includes("ميه"),
         );
-      } else if (serviceCategory === "transfer") {
-        list = list.filter((p) => p.category === "تحويل أموال");
-      } else if (serviceCategory === "airtime") {
-        list = list.filter((p) => p.category === "شحن رصيد");
+      } else if (companyFilter === "gas") {
+        list = list.filter((p) => p.name_ar.includes("غاز"));
       }
+    } else if (serviceCategory === "internet") {
+      list = list.filter((p) => p.category === "فواتير إنترنت");
+    } else if (serviceCategory === "cards") {
+      list = list.filter(
+        (p) => p.category === "كروت شحن" || p.name_ar.includes("كارت شحن"),
+      );
+    } else if (serviceCategory === "transfer") {
+      list = list.filter((p) => p.category === "تحويل أموال");
+    } else if (serviceCategory === "airtime") {
+      list = list.filter((p) => p.category === "شحن رصيد");
     }
 
-    // Company filter
-    if (companyFilter !== "all") {
+    // Company filter (when not utilities, since utilities has its own electricity/water/gas filters above)
+    if (companyFilter !== "all" && serviceCategory !== "utilities") {
       const target = companyFilter.toLowerCase();
       list = list.filter((p) => {
         const text = `${p.brand_name || ""} ${p.name_ar}`.toLowerCase();
@@ -459,12 +468,6 @@ export function ProductsView() {
             text.includes("اتصالات") ||
             text.includes("etisalat") ||
             text.includes("e&")
-          );
-        if (target === "utilities")
-          return (
-            text.includes("كهرباء") ||
-            text.includes("مياه") ||
-            text.includes("غاز")
           );
         if (target === "fawry")
           return text.includes("فوري") || text.includes("fawry");
@@ -511,7 +514,7 @@ export function ProductsView() {
     <div className={styles.view} data-testid="page-products">
       {/* Header */}
       <div className={styles.phead}>
-        <div>
+        <div className={styles.pheadTitle}>
           <h1>{t("pages.products.title") || "المنتجات"}</h1>
           <p>
             {tab === "products"
@@ -903,53 +906,61 @@ export function ProductsView() {
       ) : (
         /* ================= TAB 2: الفواتير والشحن والخدمات ================= */
         <>
-          {/* Service Category Pills */}
+          {/* Exactly 5 Main Service Category Chips in a single scrollable row */}
           <div className={styles.chips}>
             <button
               type="button"
-              className={`${styles.chip} ${serviceCategory === "all" ? styles.active : ""}`}
-              onClick={() => setServiceCategory("all")}
-            >
-              كافة الخدمات ({serviceProducts.length})
-            </button>
-            <button
-              type="button"
               className={`${styles.chip} ${serviceCategory === "utilities" ? styles.active : ""}`}
-              onClick={() => setServiceCategory("utilities")}
+              onClick={() => {
+                setServiceCategory("utilities");
+                setCompanyFilter("all");
+              }}
             >
-              شحن المرافق (كهرباء/مياه/غاز)
+              شحن المرافق
             </button>
             <button
               type="button"
               className={`${styles.chip} ${serviceCategory === "internet" ? styles.active : ""}`}
-              onClick={() => setServiceCategory("internet")}
+              onClick={() => {
+                setServiceCategory("internet");
+                setCompanyFilter("all");
+              }}
             >
-              فواتير الإنترنت والتليفون
+              فواتير الإنترنت
             </button>
             <button
               type="button"
               className={`${styles.chip} ${serviceCategory === "cards" ? styles.active : ""}`}
-              onClick={() => setServiceCategory("cards")}
+              onClick={() => {
+                setServiceCategory("cards");
+                setCompanyFilter("all");
+              }}
             >
               كروت الشحن
             </button>
             <button
               type="button"
               className={`${styles.chip} ${serviceCategory === "transfer" ? styles.active : ""}`}
-              onClick={() => setServiceCategory("transfer")}
+              onClick={() => {
+                setServiceCategory("transfer");
+                setCompanyFilter("all");
+              }}
             >
-              تحويل الأموال والمحافظ
+              تحويل الأموال
             </button>
             <button
               type="button"
               className={`${styles.chip} ${serviceCategory === "airtime" ? styles.active : ""}`}
-              onClick={() => setServiceCategory("airtime")}
+              onClick={() => {
+                setServiceCategory("airtime");
+                setCompanyFilter("all");
+              }}
             >
-              شحن الرصيد على الهواء
+              شحن الرصيد
             </button>
           </div>
 
-          {/* Company Filter Chips */}
+          {/* Contextual Subcategory / Company Chips based on active service category */}
           <div className={styles.chips} style={{ marginTop: -4 }}>
             <button
               type="button"
@@ -957,64 +968,177 @@ export function ProductsView() {
               style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
               onClick={() => setCompanyFilter("all")}
             >
-              كافة الشركات
+              الكل
             </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("vodafone")}
-            >
-              فودافون
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("we")}
-            >
-              وي (WE)
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("orange")}
-            >
-              أورانج
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("etisalat")}
-            >
-              اتصالات (e&)
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "utilities" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("utilities")}
-            >
-              المرافق العامة
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "fawry" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("fawry")}
-            >
-              فوري
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "instapay" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
-              onClick={() => setCompanyFilter("instapay")}
-            >
-              إنستاباي
-            </button>
+
+            {serviceCategory === "utilities" && (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "electricity" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("electricity")}
+                >
+                  الكهرباء
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "water" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("water")}
+                >
+                  المياه
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "gas" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("gas")}
+                >
+                  الغاز الطبيعي
+                </button>
+              </>
+            )}
+
+            {serviceCategory === "internet" && (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("we")}
+                >
+                  وي (WE)
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("vodafone")}
+                >
+                  فودافون
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("orange")}
+                >
+                  أورانج
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("etisalat")}
+                >
+                  اتصالات (e&)
+                </button>
+              </>
+            )}
+
+            {serviceCategory === "cards" && (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("vodafone")}
+                >
+                  فودافون
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("orange")}
+                >
+                  أورانج
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("etisalat")}
+                >
+                  اتصالات (e&)
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("we")}
+                >
+                  وي (WE)
+                </button>
+              </>
+            )}
+
+            {serviceCategory === "transfer" && (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "instapay" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("instapay")}
+                >
+                  إنستاباي (InstaPay)
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("vodafone")}
+                >
+                  فودافون كاش
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "fawry" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("fawry")}
+                >
+                  فوري (Fawry)
+                </button>
+              </>
+            )}
+
+            {serviceCategory === "airtime" && (
+              <>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("vodafone")}
+                >
+                  فودافون
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("orange")}
+                >
+                  أورانج
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("etisalat")}
+                >
+                  اتصالات (e&)
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
+                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                  onClick={() => setCompanyFilter("we")}
+                >
+                  وي (WE)
+                </button>
+              </>
+            )}
           </div>
 
           {/* Services Grid */}

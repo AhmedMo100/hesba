@@ -8,6 +8,7 @@ import {
 import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
 import { ClearStockModal } from "@/client/app-shell/views/ClearStockModal";
 import { ArchiveStockModal } from "@/client/app-shell/views/ArchiveStockModal";
+import { MachineTopupModal } from "@/client/app-shell/views/MachineTopupModal";
 
 describe("StockView Component (Phase 2 Inventory UI)", () => {
   beforeEach(() => {
@@ -35,6 +36,26 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
     expect(html).toContain("الكل");
     expect(html).toContain("قرب يخلص (0)");
     expect(html).toContain("خلصان (0)");
+  });
+
+  it("renders POS payment machines section in Inventory with provider balances", () => {
+    const html = renderToStaticMarkup(<StockView />);
+    expect(html).toContain('data-testid="stock-pos-machines-section"');
+    expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة");
+    expect(html).toContain("ماكينة فوري الرئيسية");
+    expect(html).toContain("ماكينة أمان");
+    expect(html).toContain("الرصيد المتاح");
+    expect(html).toContain("شحن رصيد");
+  });
+
+  it("renders separated stock valuation card at the bottom of the page", () => {
+    const html = renderToStaticMarkup(<StockView />);
+    expect(html).toContain('data-testid="stock-valuation-card"');
+    expect(html).toContain("تقييم إجمالي البضاعة ورؤوس الأموال");
+    expect(html).toContain("قيمة بضاعة المخزون المادي (بسعر الشراء):");
+    expect(html).toContain("قيمة كروت الشحن والوحدات الرقمية:");
+    expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):");
+    expect(html).toContain("إجمالي رأس المال والأرصدة:");
   });
 });
 
@@ -206,5 +227,36 @@ describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Ar
     expect(html).toContain("إخفاء من قائمة المخزون اليومية");
     expect(html).toContain("تأكيد الإزالة من المخزون");
     expect(html).not.toContain("لا يمكن إزالة الصنف لأن رصيده موجب");
+  });
+});
+
+describe("MachineTopupModal Component (POS Machine Top-up Dialog)", () => {
+  it("renders machine balance top-up sheet with current balance and source of funds", () => {
+    const mockMachine = {
+      id: "mach-test",
+      name: "ماكينة فوري الكاشير",
+      provider: "فوري (Fawry)",
+      terminalId: "POS-9988",
+      status: "active" as const,
+      currentBalancePiasters: 150000,
+      balanceTransactions: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    const html = renderToStaticMarkup(
+      <MachineTopupModal
+        machine={mockMachine}
+        onClose={() => {}}
+        onSuccess={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إضافة رصيد: ماكينة فوري الكاشير");
+    expect(html).toContain("الرصيد المتاح الحالي");
+    expect(html).toContain("1,500 ج.م");
+    expect(html).toContain("مبلغ الشحن / الإيداع المطلوب إضافته");
+    expect(html).toContain("مصدر الرصيد (من أين تم دفع المبلغ)");
+    expect(html).toContain("خزينة المحل (كاش نقدي)");
+    expect(html).toContain("تأكيد إضافة الرصيد ✓");
   });
 });

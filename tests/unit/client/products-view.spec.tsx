@@ -56,6 +56,7 @@ describe("ProductFormModal Component", () => {
     expect(html).toContain("بيتباع إزاي؟");
     expect(html).toContain("بالقطعة / الكرتونة");
     expect(html).toContain("بالوزن");
+    expect(html).toContain("بالكيس");
     expect(html).toContain("بيتباع كرتونة كمان");
     expect(html).toContain("سعر القطعة");
     expect(html).toContain("إضافة");
