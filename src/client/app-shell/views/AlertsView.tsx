@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, Icon, useToast } from "../../shared/ui";
+import { Empty, Icon, Seg, useToast } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import type { StoreProductItem } from "./ProductsView";
 import { AddStockModal } from "./AddStockModal";
+import { EditPromoModal } from "./EditPromoModal";
 import type {
   StockAlertItem,
   ExpiryAlertItem,
@@ -23,16 +24,19 @@ export function AlertsView() {
   const [suggestedPromos, setSuggestedPromos] = useState<SuggestedPromotion[]>(
     [],
   );
+  const [allProducts, setAllProducts] = useState<StoreProductItem[]>([]);
 
   const toast = useToast();
   const [wasteTarget, setWasteTarget] = useState<ExpiryAlertItem | null>(null);
-  const [restockVariantId, setRestockVariantId] = useState<string | null>(null);
   const [restockProductObj, setRestockProductObj] =
     useState<StoreProductItem | null>(null);
   const [isSubmittingWaste, setIsSubmittingWaste] = useState(false);
-  const [dismissedPromoIds, setDismissedPromoIds] = useState<Set<string>>(
-    new Set(),
+
+  // Edit / Custom Promo state
+  const [editingPromo, setEditingPromo] = useState<SuggestedPromotion | null>(
+    null,
   );
+
   const [publishedPromoIds, setPublishedPromoIds] = useState<Set<string>>(
     new Set(),
   );
@@ -62,9 +66,13 @@ export function AlertsView() {
     let ignore = false;
     const fetchAlerts = async () => {
       try {
-        const res = await fetch("/api/alerts");
-        if (res.ok && !ignore) {
-          const data = await res.json();
+        const [alertsRes, productsRes] = await Promise.all([
+          fetch("/api/alerts"),
+          fetch("/api/products?filter=all"),
+        ]);
+
+        if (alertsRes.ok && !ignore) {
+          const data = await alertsRes.json();
           setOutOfStock(data.outOfStock || []);
           setLowStock(data.lowStock || []);
           setExpired(data.expired || []);
@@ -72,6 +80,13 @@ export function AlertsView() {
           setSuggestedPromos(data.suggestedPromotions || []);
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("hesba_alerts_updated"));
+          }
+        }
+
+        if (productsRes.ok && !ignore) {
+          const pData = await productsRes.json();
+          if (pData?.products && Array.isArray(pData.products)) {
+            setAllProducts(pData.products);
           }
         }
       } catch {
@@ -111,6 +126,22 @@ export function AlertsView() {
   const showStock = tab !== "exp";
   const showExp = tab !== "stock";
 
+  // Stock Depletion List: contains both completely out AND low stock
+  const stockAlertsList = useMemo(() => {
+    return [
+      ...outOfStock.map((x) => ({ ...x, lv: "out" as const })),
+      ...lowStock.map((x) => ({ ...x, lv: "low" as const })),
+    ];
+  }, [outOfStock, lowStock]);
+
+  // Expiry List
+  const expiryAlertsList = useMemo(() => {
+    return [
+      ...expired.map((x) => ({ ...x, isExpired: true })),
+      ...nearExpiry.map((x) => ({ ...x, isExpired: false })),
+    ];
+  }, [expired, nearExpiry]);
+
   const formatQtyText = (
     unitMode: "piece" | "weight",
     qtyBase: number,
@@ -149,6 +180,24 @@ export function AlertsView() {
     }
 
     return `${qtyBase} ${unitWord}`;
+  };
+
+  const formatExpirySubtitle = (item: ExpiryAlertItem) => {
+    const qtyStr = formatQtyText(
+      item.unitMode,
+      item.remainingQtyBase,
+      item.packQty,
+      item.unit,
+    );
+
+    if (item.isExpired) {
+      const days = Math.abs(item.daysUntilExpiry);
+      return `انتهت من ${days} يوم · ${qtyStr}`;
+    }
+    if (item.daysUntilExpiry === 0) {
+      return `بتنتهي النهارده · ${qtyStr}`;
+    }
+    return `بتنتهي بعد ${item.daysUntilExpiry} يوم · ${qtyStr}`;
   };
 
   // Submit waste to /api/stock
@@ -212,406 +261,378 @@ export function AlertsView() {
     }
   };
 
-  const handleDismissPromotion = (id: string) => {
-    setDismissedPromoIds((prev) => new Set([...prev, id]));
+  // Save edited or custom promotion
+  const handleSaveEditedPromo = async (promo: SuggestedPromotion) => {
+    await handleApprovePromotion(promo);
+  };
+
+  const handleStartCreateCustomPromo = () => {
+    const firstExp = nearExpiry[0] || expired[0];
+    const initialItem = firstExp
+      ? {
+          productId: firstExp.productId,
+          variantId: firstExp.variantId,
+          productName: firstExp.name,
+          quantityBase: firstExp.unitMode === "weight" ? 1000 : 1,
+          unit: firstExp.unit,
+          regularPricePiasters: firstExp.sellPricePiasters,
+        }
+      : {
+          productId: allProducts[0]?.id || "p1",
+          variantId: allProducts[0]?.variants?.[0]?.id || "v1",
+          productName: allProducts[0]?.name_ar || "منتج",
+          quantityBase: 1,
+          unit: "قطعة",
+          regularPricePiasters: allProducts[0]?.sell_price_piasters || 1000,
+        };
+
+    const origPrice = initialItem.regularPricePiasters;
+    const promoPrice = Math.max(100, Math.round(origPrice * 0.8));
+
+    setEditingPromo({
+      id: `custom_promo_${Date.now()}`,
+      title: `عرض توفير: ${initialItem.productName}`,
+      description: "عرض مخصص لتنشيط وتصفية حركة البيع",
+      type: "single_discount",
+      items: [initialItem],
+      originalPricePiasters: origPrice,
+      promoPricePiasters: promoPrice,
+      savingsPiasters: origPrice - promoPrice,
+      expiryDaysMin: 7,
+    });
   };
 
   const visiblePromos = useMemo(() => {
-    return suggestedPromos.filter(
-      (p) => !dismissedPromoIds.has(p.id) && !publishedPromoIds.has(p.id),
-    );
-  }, [suggestedPromos, dismissedPromoIds, publishedPromoIds]);
+    return suggestedPromos.filter((p) => !publishedPromoIds.has(p.id));
+  }, [suggestedPromos, publishedPromoIds]);
 
   return (
-    <div className={styles.page} data-testid="page-alerts">
-      {/* Top Header matching Image 1 */}
-      <div className={styles.header}>
-        <h1>التنبيهات</h1>
-        <p>
-          {loading
-            ? "جاري فحص التنبيهات..."
-            : totalAlerts > 0
-              ? `${totalAlerts} حاجة محتاجة انتباهك`
-              : "كله تمام، مفيش تنبيهات"}
-        </p>
-      </div>
-
-      {/* Segmented control tabs matching Image 1 */}
-      <div className={styles.tabsBar}>
-        <button
-          type="button"
-          className={`${styles.tabBtn} ${tab === "all" ? styles.active : ""}`}
-          onClick={() => setTab("all")}
-        >
-          الكل ({totalAlerts})
-        </button>
-        <button
-          type="button"
-          className={`${styles.tabBtn} ${tab === "stock" ? styles.active : ""}`}
-          onClick={() => setTab("stock")}
-        >
-          نفاد ({totalStockAlerts})
-        </button>
-        <button
-          type="button"
-          className={`${styles.tabBtn} ${tab === "exp" ? styles.active : ""}`}
-          onClick={() => setTab("exp")}
-        >
-          صلاحية ({totalExpiryAlerts})
-        </button>
-      </div>
+    <div className={styles.page} data-testid="page-alerts" dir="rtl">
+      {/* Seg tabs control matching demo */}
+      <Seg
+        value={tab}
+        onChange={setTab}
+        options={[
+          ["all", `الكل (${totalAlerts})`],
+          ["stock", `نفاد (${totalStockAlerts})`],
+          ["exp", `صلاحية (${totalExpiryAlerts})`],
+        ]}
+      />
 
       {/* Empty State */}
       {!loading && totalAlerts === 0 && (
-        <div style={{ marginTop: 24 }}>
-          <Empty
-            icon="check"
-            title="مفيش تنبيهات"
-            sub="المخزون والصلاحيات تمام ومفيش أي نواقص"
-          />
-        </div>
+        <Empty
+          icon="check"
+          title="مفيش تنبيهات"
+          sub="المخزون والصلاحيات تمام وكل حاجة مظبوطة"
+        />
       )}
 
-      {/* Smart Promotional Offers Card (User's New Feature) */}
-      {showExp && visiblePromos.length > 0 && (
-        <section className={styles.promoSection}>
-          <div className={styles.promoHeader}>
-            <span className={styles.sectionTitle} style={{ margin: 0 }}>
-              عروض ذكية مقترحة لتصريف الصلاحية ⚡
-            </span>
-            <span className={styles.promoBadge}>
-              {visiblePromos.length} عروض مقترحة
-            </span>
-          </div>
-
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {visiblePromos.map((promo) => (
-              <div key={promo.id} className={styles.promoCard}>
-                <div className={styles.promoTitleRow}>
-                  <div>
-                    <h4 className={styles.promoTitle}>{promo.title}</h4>
-                    <p className={styles.promoDesc}>{promo.description}</p>
+      {/* Stock Depletion Section (نفاد المخزون — خلصان خالص + قرب يخلص) */}
+      {showStock && stockAlertsList.length > 0 && (
+        <section>
+          <h2 className={styles.secTitle}>نفاد المخزون</h2>
+          <div className={styles.listCard}>
+            {stockAlertsList.map((item) => (
+              <div key={item.id} className={styles.lrow}>
+                <div className={styles.rowInfo}>
+                  <div className={styles.rowTitleGroup}>
+                    <span
+                      className={`${styles.dot} ${
+                        item.lv === "out" ? styles.dotRed : styles.dotYellow
+                      }`}
+                    />
+                    <span className={styles.itemName}>{item.name}</span>
                   </div>
-                  <span className={styles.savingsTag}>
-                    وفر {formatMoney(promo.savingsPiasters)}
+                  <span className={styles.itemSub}>
+                    {item.lv === "out"
+                      ? "خلصان خالص"
+                      : `فاضل ${formatQtyText(
+                          item.unitMode,
+                          item.currentStockBase,
+                          item.packQty,
+                          item.unit,
+                        )} بس`}
                   </span>
                 </div>
-
-                <div className={styles.promoItemsList}>
-                  {promo.items.map((it, idx) => (
-                    <div
-                      key={idx}
-                      style={{
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                      }}
-                    >
-                      <span style={{ fontWeight: 600, color: "var(--ink)" }}>
-                        • {it.productName} ({it.quantityBase}{" "}
-                        {it.unit === "kg" || it.unit === "weight"
-                          ? "جم"
-                          : "قطعة"}
-                        )
-                      </span>
-                      <span style={{ color: "var(--ink2)" }}>
-                        سعرها الأصلي: {formatMoney(it.regularPricePiasters)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className={styles.promoPriceBar}>
-                  <div>
-                    <span>السعر في العرض: </span>
-                    <span className={styles.promoOldPrice}>
-                      {formatMoney(promo.originalPricePiasters)}
-                    </span>
-                    <span className={styles.promoNewPrice}>
-                      {" "}
-                      {formatMoney(promo.promoPricePiasters)}
-                    </span>
-                  </div>
-                  <span style={{ fontSize: 11.5, color: "var(--ink2)" }}>
-                    ⏰ ينتهي أقرب صنف بعد{" "}
-                    {promo.expiryDaysMin === 0
-                      ? "ساعات"
-                      : `${promo.expiryDaysMin} يوم`}
-                  </span>
-                </div>
-
-                <div className={styles.promoActionsRow}>
-                  <button
-                    type="button"
-                    className={styles.approvePromoBtn}
-                    onClick={() => handleApprovePromotion(promo)}
-                    title="نشر هذا العرض في واجهة البيع ليتمكن الكاشير من بيعه"
-                  >
-                    <Icon n="check" s={16} />
-                    <span>موافقة ونشر في واجهة البيع ✓</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={styles.wastePromoBtn}
-                    onClick={() => {
-                      const firstIt = promo.items[0];
-                      const matchedExp = nearExpiry.find(
-                        (e) => e.variantId === firstIt?.variantId,
-                      );
-                      if (matchedExp) {
-                        setWasteTarget(matchedExp);
-                      }
-                    }}
-                    title="تسجيل كمية هذا الصنف كفاقد / تالف في المخزون"
-                  >
-                    <Icon n="trash" s={14} />
-                    <span>تسجيل كتالف 🗑️</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className={styles.dismissPromoBtn}
-                    onClick={() => handleDismissPromotion(promo.id)}
-                    title="تجاهل الاقتراح"
-                  >
-                    تجاهل
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  className={styles.doneBtn}
+                  onClick={() => {
+                    setRestockProductObj({
+                      id: item.productId,
+                      name_ar: item.name,
+                      category: item.category,
+                      unit: item.unit,
+                      sell_price_piasters: item.sellPricePiasters,
+                      buy_cost_piasters: item.buyPricePiasters,
+                      stock_quantity: item.currentStockBase,
+                      is_custom: false,
+                      variants: [
+                        {
+                          id: item.variantId,
+                          pack_qty: item.packQty,
+                          size_unit: item.packName,
+                          sell_price_piasters: item.sellPricePiasters,
+                          buy_cost_piasters: item.buyPricePiasters,
+                          stock_quantity: item.currentStockBase,
+                        },
+                      ],
+                    });
+                  }}
+                  title="إضافة بضاعة للمخزون"
+                >
+                  <Icon n="check" s={14} />
+                  <span>تم</span>
+                </button>
               </div>
             ))}
           </div>
         </section>
       )}
 
-      {/* Section 1: Expiry Alerts matching Image 1 */}
-      {showExp && totalExpiryAlerts > 0 && (
+      {/* Expiry Section (الصلاحية) */}
+      {showExp && expiryAlertsList.length > 0 && (
         <section>
-          <div className={styles.sectionTitle}>الصلاحية</div>
+          <h2 className={styles.secTitle}>الصلاحية</h2>
           <div className={styles.listCard}>
-            {/* Expired Items */}
-            {expired.map((item) => (
-              <div key={item.id} className={styles.alertRow}>
+            {expiryAlertsList.map((item) => (
+              <div key={item.id} className={styles.lrow}>
                 <div className={styles.rowInfo}>
                   <div className={styles.rowTitleGroup}>
-                    <span className={`${styles.dot} ${styles.dotRed}`} />
+                    <span
+                      className={`${styles.dot} ${
+                        item.isExpired ? styles.dotRed : styles.dotYellow
+                      }`}
+                    />
                     <span className={styles.itemName}>{item.name}</span>
                   </div>
                   <span className={styles.itemSub}>
-                    انتهت من {Math.abs(item.daysUntilExpiry)} يوم ·{" "}
-                    {formatQtyText(
-                      item.unitMode,
-                      item.remainingQtyBase,
-                      item.packQty,
-                      item.unit,
-                    )}
+                    {formatExpirySubtitle(item)}
                   </span>
                 </div>
                 <button
                   type="button"
                   className={styles.doneBtn}
                   onClick={() => setWasteTarget(item)}
-                  title="تسجيل كفاقد وشيله من المخزون"
+                  title="التعامل مع الصلاحية"
                 >
                   <Icon n="check" s={14} />
                   <span>تم</span>
                 </button>
               </div>
             ))}
+          </div>
+        </section>
+      )}
 
-            {/* Near Expiry Items */}
-            {nearExpiry.map((item) => {
-              const daysText =
-                item.daysUntilExpiry === 0
-                  ? "بتنتهي النهارده"
-                  : `بتنتهي بعد ${item.daysUntilExpiry} يوم`;
+      {/* Promotional Clearance Offers: ONLY visible in the Expiry Tab! */}
+      {tab === "exp" && (
+        <section className={styles.promoSection}>
+          <div className={styles.promoSectionTop}>
+            <h3 className={styles.promoSectionTitle}>
+              <Icon n="sparkle" s={16} />
+              <span>عروض وتخفيضات تصفية الصلاحية ({visiblePromos.length})</span>
+            </h3>
+            <button
+              type="button"
+              className={styles.createCustomPromoBtn}
+              onClick={handleStartCreateCustomPromo}
+            >
+              <Icon n="plus" s={14} />
+              <span>إنشاء عرض مخصص</span>
+            </button>
+          </div>
 
-              return (
-                <div key={item.id} className={styles.alertRow}>
-                  <div className={styles.rowInfo}>
-                    <div className={styles.rowTitleGroup}>
-                      <span className={`${styles.dot} ${styles.dotYellow}`} />
-                      <span className={styles.itemName}>{item.name}</span>
-                    </div>
-                    <span className={styles.itemSub}>
-                      {daysText} ·{" "}
-                      {formatQtyText(
-                        item.unitMode,
-                        item.remainingQtyBase,
-                        item.packQty,
-                        item.unit,
+          {visiblePromos.length === 0 ? (
+            <div
+              style={{
+                textAlign: "center",
+                padding: "12px",
+                color: "var(--ink2)",
+              }}
+            >
+              لا توجد عروض مقترحة حالياً، يمكنك إنشاء عرض مخصص بالضغط على الزر
+              أعلاه.
+            </div>
+          ) : (
+            <div className={styles.promoCardsList}>
+              {visiblePromos.map((promo) => (
+                <div key={promo.id} className={styles.promoCard}>
+                  <div className={styles.promoTitleRow}>
+                    <div>
+                      <h4 className={styles.promoTitle}>{promo.title}</h4>
+                      {promo.description && (
+                        <p className={styles.promoDesc}>{promo.description}</p>
                       )}
+                    </div>
+                    <span className={styles.savingsTag}>
+                      وفّر {formatMoney(promo.savingsPiasters)}
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className={styles.doneBtn}
-                    onClick={() => setWasteTarget(item)}
-                    title="تسجيل كفاقد وشيله من المخزون"
-                  >
-                    <Icon n="check" s={14} />
-                    <span>تم</span>
-                  </button>
+
+                  {/* Bundled Items pills */}
+                  <div className={styles.promoItemsList}>
+                    {promo.items.map((it) => (
+                      <span
+                        key={`${it.productId}_${it.variantId}`}
+                        className={styles.promoItemChip}
+                      >
+                        <Icon n="box" s={12} />
+                        <span>
+                          {it.productName} (
+                          {it.unit === "weight"
+                            ? `${it.quantityBase >= 1000 ? it.quantityBase / 1000 : it.quantityBase} كجم`
+                            : `${it.quantityBase} ${it.unit}`}
+                          )
+                        </span>
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Pricing line */}
+                  <div className={styles.promoPriceBar}>
+                    <div>
+                      <span>السعر الأصلي: </span>
+                      <span className={styles.promoOldPrice}>
+                        {formatMoney(promo.originalPricePiasters)}
+                      </span>
+                    </div>
+                    <div>
+                      <span>سعر العرض: </span>
+                      <b className={styles.promoNewPrice}>
+                        {formatMoney(promo.promoPricePiasters)}
+                      </b>
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className={styles.promoActionsRow}>
+                    <button
+                      type="button"
+                      className={styles.approvePromoBtn}
+                      onClick={() => void handleApprovePromotion(promo)}
+                    >
+                      <Icon n="check" s={15} />
+                      <span>موافقة ونشر في البيع</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      className={styles.editPromoBtn}
+                      onClick={() => setEditingPromo(promo)}
+                      title="تعديل تفاصيل العرض"
+                    >
+                      <Icon n="edit" s={14} />
+                      <span>تعديل العرض</span>
+                    </button>
+
+                    {promo.items.length > 0 && (
+                      <button
+                        type="button"
+                        className={styles.wastePromoBtn}
+                        onClick={() => {
+                          const firstItem = promo.items[0];
+                          if (!firstItem) return;
+                          const targetExp =
+                            expired.find(
+                              (e) => e.productId === firstItem.productId,
+                            ) ||
+                            nearExpiry.find(
+                              (e) => e.productId === firstItem.productId,
+                            );
+                          if (targetExp) {
+                            setWasteTarget(targetExp);
+                          } else {
+                            toast.show({
+                              msg: "الصنف ليس لديه باتش منتهي للتسجيل",
+                              kind: "err",
+                            });
+                          }
+                        }}
+                      >
+                        <Icon n="trash" s={14} />
+                        <span>تسجيل كتالف</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
+              ))}
+            </div>
+          )}
         </section>
       )}
 
-      {/* Section 2: Stock Depletion Alerts matching Image 3 */}
-      {showStock && totalStockAlerts > 0 && (
-        <section>
-          <div className={styles.sectionTitle}>نفاد المخزون</div>
-          <div className={styles.listCard}>
-            {/* Out of stock items */}
-            {outOfStock.map((item) => (
-              <div key={item.id} className={styles.alertRow}>
-                <div className={styles.rowInfo}>
-                  <div className={styles.rowTitleGroup}>
-                    <span className={`${styles.dot} ${styles.dotRed}`} />
-                    <span className={styles.itemName}>{item.name}</span>
-                  </div>
-                  <span className={styles.itemSub}>خلصان خالص</span>
-                </div>
-                <button
-                  type="button"
-                  className={styles.doneBtn}
-                  onClick={() => {
-                    setRestockVariantId(item.variantId);
-                    setRestockProductObj({
-                      id: item.productId,
-                      name_ar: item.name,
-                      category: item.category,
-                      unit: item.unit,
-                      sell_price_piasters: item.sellPricePiasters,
-                      buy_cost_piasters: item.buyPricePiasters,
-                      stock_quantity: item.currentStockBase,
-                      is_custom: false,
-                      variants: [
-                        {
-                          id: item.variantId,
-                          pack_qty: item.packQty,
-                          size_unit: item.packName,
-                          sell_price_piasters: item.sellPricePiasters,
-                          buy_cost_piasters: item.buyPricePiasters,
-                          stock_quantity: item.currentStockBase,
-                        },
-                      ],
-                    });
-                  }}
-                  title="إضافة بضاعة للمخزون"
-                >
-                  <Icon n="check" s={14} />
-                  <span>تم</span>
-                </button>
-              </div>
-            ))}
-
-            {/* Low stock items */}
-            {lowStock.map((item) => (
-              <div key={item.id} className={styles.alertRow}>
-                <div className={styles.rowInfo}>
-                  <div className={styles.rowTitleGroup}>
-                    <span className={`${styles.dot} ${styles.dotYellow}`} />
-                    <span className={styles.itemName}>{item.name}</span>
-                  </div>
-                  <span className={styles.itemSub}>
-                    فاضل{" "}
-                    {formatQtyText(
-                      item.unitMode,
-                      item.currentStockBase,
-                      item.packQty,
-                      item.unit,
-                    )}{" "}
-                    بس
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className={styles.doneBtn}
-                  onClick={() => {
-                    setRestockVariantId(item.variantId);
-                    setRestockProductObj({
-                      id: item.productId,
-                      name_ar: item.name,
-                      category: item.category,
-                      unit: item.unit,
-                      sell_price_piasters: item.sellPricePiasters,
-                      buy_cost_piasters: item.buyPricePiasters,
-                      stock_quantity: item.currentStockBase,
-                      is_custom: false,
-                      variants: [
-                        {
-                          id: item.variantId,
-                          pack_qty: item.packQty,
-                          size_unit: item.packName,
-                          sell_price_piasters: item.sellPricePiasters,
-                          buy_cost_piasters: item.buyPricePiasters,
-                          stock_quantity: item.currentStockBase,
-                        },
-                      ],
-                    });
-                  }}
-                  title="إضافة بضاعة للمخزون"
-                >
-                  <Icon n="check" s={14} />
-                  <span>تم</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+      {/* Edit or Custom Promo Modal */}
+      {editingPromo && (
+        <EditPromoModal
+          initialPromo={editingPromo}
+          allProducts={allProducts}
+          onClose={() => setEditingPromo(null)}
+          onSaveAndPublish={handleSaveEditedPromo}
+        />
       )}
 
-      {/* Confirm Waste Modal Sheet matching Image 2 */}
+      {/* Restock Modal */}
+      {restockProductObj && (
+        <AddStockModal
+          targetProduct={restockProductObj}
+          onClose={() => {
+            setRestockProductObj(null);
+          }}
+          onAdded={() => {
+            setRestockProductObj(null);
+            toast.show({
+              msg: "تمت إضافة البضاعة للمخزون بنجاح ✓",
+              kind: "ok",
+            });
+            void loadAlerts();
+          }}
+        />
+      )}
+
+      {/* Waste Confirmation Modal matching Screenshot 2 */}
       {wasteTarget && (
         <div
           className={styles.wasteModalOverlay}
-          onClick={() => setWasteTarget(null)}
+          onClick={() => !isSubmittingWaste && setWasteTarget(null)}
+          role="dialog"
+          aria-modal="true"
         >
           <div
             className={styles.wasteSheet}
             onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
           >
             <div className={styles.grabHandle} />
             <div className={styles.sheetHeader}>
-              <h3 className={styles.sheetTitle}>تم التعامل مع الصلاحية</h3>
               <button
                 type="button"
                 className={styles.closeBtn}
                 onClick={() => setWasteTarget(null)}
                 aria-label="إغلاق"
+                disabled={isSubmittingWaste}
               >
-                <Icon n="x" s={20} />
+                <Icon n="x" s={18} />
               </button>
+              <h3 className={styles.sheetTitle}>تم التعامل مع الصلاحية</h3>
             </div>
 
             <div className={styles.sheetBody}>
               هنشيل{" "}
-              <b>
-                {formatQtyText(
-                  wasteTarget.unitMode,
-                  wasteTarget.remainingQtyBase,
-                  wasteTarget.packQty,
-                  wasteTarget.unit,
-                )}
-              </b>{" "}
-              من &ldquo;{wasteTarget.name}&rdquo; من المخزون ونسجلها كفاقد (
-              <b>
-                {formatMoney(
-                  wasteTarget.unitMode === "weight"
-                    ? Math.round(
-                        (wasteTarget.costPricePiasters *
-                          wasteTarget.remainingQtyBase) /
-                          1000,
-                      )
-                    : wasteTarget.costPricePiasters *
-                        wasteTarget.remainingQtyBase,
-                )}
-              </b>
+              {formatQtyText(
+                wasteTarget.unitMode,
+                wasteTarget.remainingQtyBase,
+                wasteTarget.packQty,
+                wasteTarget.unit,
+              )}{" "}
+              من &quot;{wasteTarget.name}&quot; من المخزون ونسجلها كفاقد (
+              {formatMoney(
+                Math.round(
+                  (wasteTarget.remainingQtyBase /
+                    (wasteTarget.unitMode === "weight" ? 1000 : 1)) *
+                    wasteTarget.costPricePiasters,
+                ),
+              )}
               ). لو لسه هتبيعها سيب التنبيه.
             </div>
 
@@ -620,6 +641,7 @@ export function AlertsView() {
                 type="button"
                 className={styles.cancelBtn}
                 onClick={() => setWasteTarget(null)}
+                disabled={isSubmittingWaste}
               >
                 إلغاء
               </button>
@@ -629,32 +651,11 @@ export function AlertsView() {
                 onClick={handleConfirmWaste}
                 disabled={isSubmittingWaste}
               >
-                {isSubmittingWaste ? "جاري الحفظ..." : "شيله من المخزون"}
+                {isSubmittingWaste ? "جاري التسجيل..." : "شيله من المخزون"}
               </button>
             </div>
           </div>
         </div>
-      )}
-
-      {/* Add Stock Modal when clicking 'تم' on out of stock / low stock item */}
-      {restockProductObj && (
-        <AddStockModal
-          presetVariantId={restockVariantId}
-          targetProduct={restockProductObj}
-          onClose={() => {
-            setRestockVariantId(null);
-            setRestockProductObj(null);
-          }}
-          onAdded={() => {
-            setRestockVariantId(null);
-            setRestockProductObj(null);
-            toast.show({
-              msg: "تمت إضافة البضاعة للمخزون بنجاح ✓",
-              kind: "ok",
-            });
-            void loadAlerts();
-          }}
-        />
       )}
     </div>
   );
