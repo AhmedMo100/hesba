@@ -90,6 +90,31 @@
   transform: scale(0.92);
 }
 
+.bellWrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.bellBadge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #e27d60;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid var(--bg, #1a1917);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
 @media (max-width: 899px) {
   .storeBtn {
     max-width: calc(100vw - 120px);

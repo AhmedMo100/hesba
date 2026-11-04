@@ -72,6 +72,30 @@ function AppShellInner() {
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
 
+  const [alertCount, setAlertCount] = useState<number>(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAlertsCount = () => {
+      fetch("/api/alerts")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!isMounted) return;
+          if (typeof data?.totalAlerts === "number") {
+            setAlertCount(data.totalAlerts);
+          }
+        })
+        .catch(() => {});
+    };
+
+    void fetchAlertsCount();
+    window.addEventListener("hesba_alerts_updated", fetchAlertsCount);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("hesba_alerts_updated", fetchAlertsCount);
+    };
+  }, []);
+
   const [route, setRoute] = useState<NavRoute>(() => {
     if (typeof window !== "undefined") {
       return getRouteFromPathname(window.location.pathname);
@@ -195,6 +219,8 @@ function AppShellInner() {
         <Header
           storeName={session?.store?.name}
           onStoreClick={() => setShowProfile(true)}
+          alertCount={alertCount}
+          onNavigate={navigate}
         />
         <SyncBar
           state={effectiveSyncState}
@@ -207,7 +233,11 @@ function AppShellInner() {
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
-        <BottomNav activeRoute={route} onNavigate={navigate} />
+        <BottomNav
+          activeRoute={route}
+          onNavigate={navigate}
+          alertCount={alertCount}
+        />
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

@@ -17,6 +17,7 @@ import { db } from "../../shared/db";
 import type { StockInventoryItem } from "./StockView";
 import type { StoreProductItem } from "./ProductsView";
 import { isServiceProduct } from "./ProductsView";
+import type { PublishedPromotion } from "@/app/api/promotions/route";
 import {
   getStoredMachines,
   fetchStoreMachines,
@@ -337,6 +338,11 @@ export function SalesView() {
     undoIds: string[];
     type?: "success" | "error";
     restoreQty?: { productId: string; variantId?: string; qtyBase: number };
+    restoreBundleItems?: Array<{
+      variantId?: string;
+      productId: string;
+      qtyBase: number;
+    }>;
     restoreMachine?: {
       machineId: string;
       amountPiasters: number;
@@ -344,6 +350,11 @@ export function SalesView() {
     };
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Active Promotional clearance offers
+  const [activePromotions, setActivePromotions] = useState<
+    PublishedPromotion[]
+  >([]);
 
   // Load Inventory, Products, and Sales from server asynchronously
   useEffect(() => {
@@ -405,11 +416,25 @@ export function SalesView() {
         .catch(() => {});
     };
 
+    const loadPromotions = () => {
+      fetch("/api/promotions")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!isMounted) return;
+          if (data?.promotions && Array.isArray(data.promotions)) {
+            setActivePromotions(data.promotions);
+          }
+        })
+        .catch(() => {});
+    };
+
     void syncRemoteSalesConfig();
+    void loadPromotions();
     window.addEventListener(
       "hesba_sales_config_updated",
       syncRemoteSalesConfig,
     );
+    window.addEventListener("hesba_promotions_updated", loadPromotions);
 
     return () => {
       isMounted = false;
@@ -417,6 +442,7 @@ export function SalesView() {
         "hesba_sales_config_updated",
         syncRemoteSalesConfig,
       );
+      window.removeEventListener("hesba_promotions_updated", loadPromotions);
     };
   }, [storeId]);
 
@@ -692,6 +718,11 @@ export function SalesView() {
       amountPiasters: number;
       machineName: string;
     },
+    restoreBundleItems?: Array<{
+      variantId?: string;
+      productId: string;
+      qtyBase: number;
+    }>,
   ) => {
     // 1. Remove sale from state & localStorage
     setSales((prev) => {
@@ -777,7 +808,42 @@ export function SalesView() {
       }
     }
 
-    // 5. Delete sale from server Postgres DB
+    // 5. If bundle promotion, restore all items in bundle to inventory immediately
+    if (restoreBundleItems && restoreBundleItems.length > 0) {
+      for (const item of restoreBundleItems) {
+        setInventory((prev) =>
+          prev.map((inv) =>
+            inv.productId === item.productId
+              ? {
+                  ...inv,
+                  currentStockBase: inv.currentStockBase + item.qtyBase,
+                  status:
+                    inv.currentStockBase + item.qtyBase > 0 ? "ok" : inv.status,
+                }
+              : inv,
+          ),
+        );
+
+        const restoreTargetId = item.variantId || item.productId;
+        try {
+          await fetch("/api/stock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "adjust",
+              storeVariantId: restoreTargetId,
+              mode: "delta",
+              deltaQuantityBase: item.qtyBase,
+              reason: "تراجع عن بيع عرض ترويجي",
+            }),
+          });
+        } catch {
+          // Ignore offline
+        }
+      }
+    }
+
+    // 6. Delete sale from server Postgres DB
     try {
       for (const sid of saleIds) {
         void fetch(`/api/sales?id=${sid}`, { method: "DELETE" }).catch(
@@ -790,6 +856,134 @@ export function SalesView() {
 
     setActiveToast(null);
   };
+
+  // Sell promotional bundle or single clearance offer
+  const handleSellPromotion = useCallback(
+    async (promo: PublishedPromotion) => {
+      // Check stock for all bundled items
+      for (const bItem of promo.items) {
+        const inv = inventory.find((i) => i.productId === bItem.productId);
+        const available = inv ? inv.currentStockBase : 999999;
+        if (available < bItem.quantityBase) {
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          setActiveToast({
+            msg: `الكمية غير كافية بالمخزون لإتمام العرض: «${bItem.productName}»`,
+            undoIds: [],
+            type: "error",
+          });
+          toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+          return;
+        }
+      }
+
+      // Deduct stock for all items
+      const restoreItems: Array<{
+        variantId?: string;
+        productId: string;
+        qtyBase: number;
+      }> = [];
+
+      for (const bItem of promo.items) {
+        setInventory((prev) =>
+          prev.map((inv) =>
+            inv.productId === bItem.productId
+              ? {
+                  ...inv,
+                  currentStockBase: Math.max(
+                    0,
+                    inv.currentStockBase - bItem.quantityBase,
+                  ),
+                  status:
+                    inv.currentStockBase - bItem.quantityBase <= 0
+                      ? "out"
+                      : inv.status,
+                }
+              : inv,
+          ),
+        );
+
+        restoreItems.push({
+          variantId: bItem.variantId,
+          productId: bItem.productId,
+          qtyBase: bItem.quantityBase,
+        });
+
+        const deductTargetId = bItem.variantId || bItem.productId;
+        try {
+          void fetch("/api/stock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "adjust",
+              storeVariantId: deductTargetId,
+              mode: "delta",
+              deltaQuantityBase: -bItem.quantityBase,
+              reason: `بيع عرض ترويجي: ${promo.title}`,
+            }),
+          }).catch(() => {});
+        } catch {
+          // Ignore offline
+        }
+      }
+
+      // Register sale record
+      const saleId = generateUuid();
+      const now = Date.now();
+      const newRecord: SaleRecord = {
+        id: saleId,
+        productId: promo.items[0]?.productId || "promo",
+        name: promo.title,
+        amountPiasters: promo.promoPricePiasters,
+        quantity: 1,
+        category: "عروض ترويجية",
+        unit: "عرض",
+        timestamp: now,
+      };
+
+      setSales((prev) => {
+        const updated = [newRecord, ...prev];
+        try {
+          localStorage.setItem(
+            getSalesStorageKey(storeId),
+            JSON.stringify(updated),
+          );
+        } catch {}
+        return updated;
+      });
+
+      try {
+        void fetch("/api/sales", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: saleId,
+            totalPiasters: promo.promoPricePiasters,
+            paymentMethod: "cash",
+            items: [
+              {
+                productName: promo.title,
+                categoryName: "عروض ترويجية",
+                quantityBase: 1,
+                unitMode: "piece",
+                unitPriceMinor: promo.promoPricePiasters,
+                totalMinor: promo.promoPricePiasters,
+              },
+            ],
+          }),
+        }).catch(() => {});
+      } catch {}
+
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({
+        msg: `تم بيع ${promo.title} بمبلغ ${formatMoney(promo.promoPricePiasters)}`,
+        undoIds: [saleId],
+        restoreBundleItems: restoreItems,
+        type: "success",
+      });
+      toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+    },
+    [inventory, storeId],
+  );
 
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
@@ -1115,6 +1309,53 @@ export function SalesView() {
             </span>
           </div>
         </div>
+
+        {/* Promotional Offers from Expiry Alerts */}
+        {activePromotions.length > 0 && (
+          <div className={styles.promoSection}>
+            <div className={styles.promoHeader}>
+              <div className={styles.promoTitle}>
+                <Icon n="sparkle" s={16} />
+                <span>
+                  عروض التوفير وتصفية الصلاحية ({activePromotions.length})
+                </span>
+              </div>
+              <span className={styles.promoBadgeNotice}>اضغط لبيع العرض</span>
+            </div>
+            <div className={styles.promoGrid}>
+              {activePromotions.map((promo) => (
+                <div
+                  key={promo.id}
+                  className={styles.promoCard}
+                  onClick={() => void handleSellPromotion(promo)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      void handleSellPromotion(promo);
+                    }
+                  }}
+                >
+                  <div className={styles.promoTag}>
+                    {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
+                  </div>
+                  <span className={styles.promoCardTitle}>{promo.title}</span>
+                  <span className={styles.promoCardDesc}>
+                    {promo.description}
+                  </span>
+                  <div className={styles.promoCardPricing}>
+                    <span className={styles.promoPrice}>
+                      {formatMoney(promo.promoPricePiasters)}
+                    </span>
+                    <span className={styles.promoOriginalPrice}>
+                      {formatMoney(promo.originalPricePiasters)}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Product & Services Tiles Grid matching Image 1 */}
         {filteredItems.length === 0 ? (
@@ -1636,6 +1877,7 @@ export function SalesView() {
                   activeToast.undoIds,
                   activeToast.restoreQty,
                   activeToast.restoreMachine,
+                  activeToast.restoreBundleItems,
                 )
               }
             >

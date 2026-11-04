@@ -18,9 +18,14 @@ export type NavRoute =
 export interface BottomNavProps {
   activeRoute: NavRoute;
   onNavigate: (route: NavRoute) => void;
+  alertCount?: number;
 }
 
-export function BottomNav({ activeRoute, onNavigate }: BottomNavProps) {
+export function BottomNav({
+  activeRoute,
+  onNavigate,
+  alertCount = 0,
+}: BottomNavProps) {
   const [moreOpen, setMoreOpen] = useState(false);
 
   const isMoreActive = ["expenses", "people", "alerts", "ai"].includes(
@@ -91,6 +96,11 @@ export function BottomNav({ activeRoute, onNavigate }: BottomNavProps) {
         >
           <span className={styles.iconWrapper}>
             <Icon n="more" s={22} />
+            {alertCount > 0 && (
+              <span className={styles.badge}>
+                {alertCount > 99 ? "99+" : alertCount}
+              </span>
+            )}
           </span>
           <span>{t("nav.more")}</span>
         </button>
@@ -130,6 +140,11 @@ export function BottomNav({ activeRoute, onNavigate }: BottomNavProps) {
                 <Icon n="bell" s={26} />
               </div>
               <span>{t("nav.alerts")}</span>
+              {alertCount > 0 && (
+                <span className={styles.moreBadgePill}>
+                  {alertCount > 99 ? "99+" : alertCount}
+                </span>
+              )}
             </button>
 
             <button

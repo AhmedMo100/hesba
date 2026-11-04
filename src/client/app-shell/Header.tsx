@@ -9,9 +9,16 @@ import { useTheme } from "../shared/theme";
 export interface HeaderProps {
   storeName?: string;
   onStoreClick?: () => void;
+  alertCount?: number;
+  onNavigate?: (route: "alerts" | "ai") => void;
 }
 
-export function Header({ storeName, onStoreClick }: HeaderProps) {
+export function Header({
+  storeName,
+  onStoreClick,
+  alertCount = 0,
+  onNavigate,
+}: HeaderProps) {
   const { theme, cycleTheme } = useTheme();
 
   const themeIcon =
@@ -38,10 +45,42 @@ export function Header({ storeName, onStoreClick }: HeaderProps) {
             <Icon n="store" s={20} />
           </div>
           <span className={styles.storeName}>{displayName}</span>
+          <Icon n="down" s={14} />
         </button>
       </div>
 
       <div className={styles.rightGroup}>
+        {onNavigate && (
+          <div className={styles.bellWrapper}>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              onClick={() => onNavigate("alerts")}
+              aria-label="التنبيهات"
+              title="التنبيهات"
+            >
+              <Icon n="bell" s={20} />
+            </button>
+            {alertCount > 0 && (
+              <span className={styles.bellBadge}>
+                {alertCount > 99 ? "99+" : alertCount}
+              </span>
+            )}
+          </div>
+        )}
+
+        {onNavigate && (
+          <button
+            type="button"
+            className={styles.iconBtn}
+            onClick={() => onNavigate("ai")}
+            aria-label="المساعد الذكي"
+            title="المساعد الذكي"
+          >
+            <Icon n="sparkle" s={20} />
+          </button>
+        )}
+
         <button
           type="button"
           className={styles.iconBtn}

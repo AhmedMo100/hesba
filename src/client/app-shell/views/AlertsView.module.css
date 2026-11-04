@@ -1,0 +1,458 @@
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: pageIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  padding: 12px 14px 90px;
+  max-width: 680px;
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+
+@keyframes pageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.header h1 {
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: -0.3px;
+}
+
+.header p {
+  font-size: 13.5px;
+  color: var(--ink2);
+  margin: 0;
+}
+
+/* Tabs Bar */
+.tabsBar {
+  display: flex;
+  gap: 6px;
+  background: var(--sf2);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+}
+
+.tabBtn {
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+  cursor: pointer;
+  transition: all 0.16s ease;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.tabBtn.active {
+  background: var(--sf);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+/* Section Header */
+.sectionTitle {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 6px 4px 2px;
+}
+
+/* List card container */
+.listCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--sh, 0 1px 3px rgba(0, 0, 0, 0.04));
+  display: flex;
+  flex-direction: column;
+}
+
+.alertRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+  gap: 12px;
+  transition: background 0.12s ease;
+}
+
+.alertRow:last-child {
+  border-bottom: none;
+}
+
+.alertRow:hover {
+  background: color-mix(in srgb, var(--sf2) 40%, transparent);
+}
+
+.rowInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+
+.rowTitleGroup {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotRed {
+  background: var(--red, #cf3c3c);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--red, #cf3c3c) 20%, transparent);
+}
+
+.dotYellow {
+  background: var(--warn, #eab308);
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--warn, #eab308) 20%, transparent);
+}
+
+.itemName {
+  font-size: 14.5px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemSub {
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+
+.doneBtn {
+  border: none;
+  background: color-mix(in srgb, var(--ok, #108e5c) 16%, var(--sf));
+  color: var(--ok, #108e5c);
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.doneBtn:hover {
+  background: color-mix(in srgb, var(--ok, #108e5c) 26%, var(--sf));
+  transform: scale(1.02);
+}
+
+.doneBtn:active {
+  transform: scale(0.97);
+}
+
+/* Smart Promotional Offers Section */
+.promoSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.promoHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.promoBadge {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, #f59e0b 16%, var(--sf));
+  color: #d97706;
+}
+
+.promoCard {
+  background: var(--sf);
+  border: 1.5px solid color-mix(in srgb, var(--ok, #108e5c) 30%, var(--line));
+  border-radius: 14px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.05);
+}
+
+.promoTitleRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.promoTitle {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0;
+}
+
+.promoDesc {
+  font-size: 12px;
+  color: var(--ink2);
+  margin-top: 2px;
+}
+
+.savingsTag {
+  background: color-mix(in srgb, var(--ok, #108e5c) 15%, transparent);
+  color: var(--ok, #108e5c);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 3px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.promoItemsList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--sf2);
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.promoPriceBar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.promoOldPrice {
+  text-decoration: line-through;
+  color: var(--ink2);
+  font-size: 12px;
+  margin-left: 6px;
+}
+
+.promoNewPrice {
+  color: var(--ok, #108e5c);
+  font-size: 16px;
+  font-weight: 800;
+}
+
+.promoActionsRow {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.approvePromoBtn {
+  flex: 2;
+  border: none;
+  background: var(--ok, #108e5c);
+  color: #fff;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.approvePromoBtn:hover {
+  filter: brightness(1.08);
+}
+
+.wastePromoBtn {
+  flex: 1.2;
+  border: 1px solid color-mix(in srgb, var(--red, #cf3c3c) 40%, var(--line));
+  background: color-mix(in srgb, var(--red, #cf3c3c) 10%, var(--sf));
+  color: var(--red, #cf3c3c);
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.15s ease;
+}
+
+.wastePromoBtn:hover {
+  background: color-mix(in srgb, var(--red, #cf3c3c) 18%, var(--sf));
+}
+
+.dismissPromoBtn {
+  border: 1px solid var(--line);
+  background: var(--sf);
+  color: var(--ink2);
+  padding: 8px 10px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Confirm Waste Modal Sheet (Image 2) */
+.wasteModalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.wasteSheet {
+  background: var(--sf, #171816);
+  border: 1px solid var(--line, #282a26);
+  border-top-left-radius: 20px;
+  border-top-right-radius: 20px;
+  width: 100%;
+  max-width: 520px;
+  padding: 16px 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.4);
+  animation: slideUp 0.24s cubic-bezier(0.16, 1, 0.3, 1);
+  box-sizing: border-box;
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+.grabHandle {
+  width: 44px;
+  height: 4.5px;
+  border-radius: 999px;
+  background: var(--line, #383b34);
+  align-self: center;
+  margin-bottom: 2px;
+}
+
+.sheetHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.sheetTitle {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 0;
+}
+
+.closeBtn {
+  background: transparent;
+  border: none;
+  color: var(--ink2);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sheetBody {
+  font-size: 14.5px;
+  color: var(--ink);
+  line-height: 1.6;
+}
+
+.sheetFooter {
+  display: flex;
+  gap: 12px;
+  margin-top: 6px;
+}
+
+.cancelBtn {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.cancelBtn:hover {
+  background: var(--sf2);
+}
+
+.confirmWasteBtn {
+  flex: 1.6;
+  background: #ea580c;
+  background: linear-gradient(135deg, #f87171, #ef4444);
+  border: none;
+  color: #fff;
+  padding: 12px;
+  border-radius: 10px;
+  font-size: 14.5px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 3px 12px rgba(239, 68, 68, 0.28);
+  transition: opacity 0.15s ease;
+}
+
+.confirmWasteBtn:hover {
+  opacity: 0.92;
+}
+
+.confirmWasteBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
