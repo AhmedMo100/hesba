@@ -323,7 +323,7 @@ export function SalesView() {
       }
     });
 
-    const loadConfig = () => {
+    const syncRemoteSalesConfig = () => {
       fetch("/api/sales/config")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
@@ -348,12 +348,18 @@ export function SalesView() {
         .catch(() => {});
     };
 
-    void loadConfig();
-    window.addEventListener("hesba_sales_config_updated", loadConfig);
+    void syncRemoteSalesConfig();
+    window.addEventListener(
+      "hesba_sales_config_updated",
+      syncRemoteSalesConfig,
+    );
 
     return () => {
       isMounted = false;
-      window.removeEventListener("hesba_sales_config_updated", loadConfig);
+      window.removeEventListener(
+        "hesba_sales_config_updated",
+        syncRemoteSalesConfig,
+      );
     };
   }, [storeId]);
 
