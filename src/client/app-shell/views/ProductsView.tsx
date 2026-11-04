@@ -383,6 +383,14 @@ export function ProductsView() {
   const handleAddToSale = (product: StoreProductItem) => {
     if (typeof window !== "undefined") {
       try {
+        const storageKey = `hesba_sales_enabled_services_${storeId || "default"}`;
+        const raw = localStorage.getItem(storageKey);
+        const currentList: string[] = raw ? JSON.parse(raw) : [];
+        if (!currentList.includes(product.id)) {
+          currentList.push(product.id);
+          localStorage.setItem(storageKey, JSON.stringify(currentList));
+        }
+
         const stagedItem = {
           id: product.id,
           name: product.name_ar,

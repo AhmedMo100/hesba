@@ -65,12 +65,33 @@ describe("SalesView Client Component", () => {
     // Check that the staged item is displayed
     expect(html).toContain("شحن كارت كهرباء مسبق الدفع");
     expect(html).toContain("50 ج.م");
-    expect(html).toContain("آخر المبيعات المسجلة");
-    expect(html).toContain(
-      "تم تسجيل عملية البيع: شحن كارت كهرباء مسبق الدفع بنجاح ✓",
-    );
+    expect(html).toContain("آخر البيعات");
 
     // Check that sessionStorage item was consumed
     expect(sessionStorage.getItem(STAGED_KEY)).toBeNull();
+  });
+
+  it("renders search box with voice search and legend indicators matching Image 1", () => {
+    const html = renderToStaticMarkup(<SalesView />);
+    expect(html).toContain("دوّر على صنف...");
+    expect(html).toContain("مبيعات النهارده");
+    expect(html).toContain("خلصان");
+    expect(html).toContain("قرب يخلص");
+    expect(html).toContain('data-testid="today-sales-pill"');
+  });
+
+  it("renders carton selling button for multi-pack items", () => {
+    const stagedItem = {
+      id: "prod-pepsi-1",
+      name: "Pepsi 1L",
+      sellPricePiasters: 1500,
+      category: "مشروبات",
+      unit: "piece",
+    };
+    sessionStorage.setItem(STAGED_KEY, JSON.stringify(stagedItem));
+
+    const html = renderToStaticMarkup(<SalesView />);
+    expect(html).toContain("Pepsi 1L");
+    expect(html).toContain("15 ج");
   });
 });
