@@ -721,7 +721,7 @@ export class CatalogService {
       opId?: string;
       nameAr: string;
       category: string;
-      unit: "piece" | "kg" | "g" | "ml" | "l" | "bag" | "carton" | "service";
+      unit: string;
       sellPricePiasters: number;
       buyCostPiasters?: number | null;
       initialQuantity?: number | null;

@@ -8,7 +8,11 @@ import { ProductFormModal } from "./ProductFormModal";
 import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "./AddStockModal";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
-import { getStoredMachines, fetchStoreMachines } from "../../shared/machines";
+import {
+  getStoredMachines,
+  fetchStoreMachines,
+  setServiceLinkedMachineIds,
+} from "../../shared/machines";
 import { useAuth } from "../../shared/auth";
 import styles from "./ProductsView.module.css";
 
@@ -199,13 +203,20 @@ export function ProductsView() {
     return getStoredMachines(storeId);
   });
   const [assignedMachines, setAssignedMachines] = useState<
-    Record<string, string>
+    Record<string, string[]>
   >(() => {
     if (typeof window === "undefined") return {};
     try {
       const storageKey = `hesba_service_machines_${storeId || "default"}`;
       const savedAssigned = localStorage.getItem(storageKey);
-      return savedAssigned ? JSON.parse(savedAssigned) : {};
+      if (!savedAssigned) return {};
+      const parsed = JSON.parse(savedAssigned);
+      const normalized: Record<string, string[]> = {};
+      Object.keys(parsed).forEach((k) => {
+        const v = parsed[k];
+        normalized[k] = Array.isArray(v) ? v : v ? [v] : [];
+      });
+      return normalized;
     } catch {
       return {};
     }
@@ -219,15 +230,29 @@ export function ProductsView() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const storageKey = `hesba_service_machines_${storeId || "default"}`;
-    const timer = setTimeout(() => {
+    const reload = () => {
       try {
         const savedAssigned = localStorage.getItem(storageKey);
-        setAssignedMachines(savedAssigned ? JSON.parse(savedAssigned) : {});
+        if (!savedAssigned) {
+          setAssignedMachines({});
+          return;
+        }
+        const parsed = JSON.parse(savedAssigned);
+        const normalized: Record<string, string[]> = {};
+        Object.keys(parsed).forEach((k) => {
+          const v = parsed[k];
+          normalized[k] = Array.isArray(v) ? v : v ? [v] : [];
+        });
+        setAssignedMachines(normalized);
       } catch {
         setAssignedMachines({});
       }
-    }, 0);
-    return () => clearTimeout(timer);
+    };
+    reload();
+    window.addEventListener("hesba_service_machines_updated", reload);
+    return () => {
+      window.removeEventListener("hesba_service_machines_updated", reload);
+    };
   }, [storeId]);
 
   // Check online status listeners & fetch POS machines from DB
@@ -270,24 +295,18 @@ export function ProductsView() {
     return () => window.removeEventListener("click", handleClick);
   }, [menuOpenId]);
 
-  const handleSaveMachineAssignment = (
+  const handleToggleMachineAssignment = (
     productId: string,
     machineId: string,
   ) => {
-    const updated = { ...assignedMachines };
-    if (!machineId) {
-      delete updated[productId];
-    } else {
-      updated[productId] = machineId;
-    }
+    const current = assignedMachines[productId] || [];
+    const next = current.includes(machineId)
+      ? current.filter((id) => id !== machineId)
+      : [...current, machineId];
+
+    const updated = { ...assignedMachines, [productId]: next };
     setAssignedMachines(updated);
-    try {
-      const storageKey = `hesba_service_machines_${storeId || "default"}`;
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-    } catch {
-      // Ignore
-    }
-    setMachineAssignProduct(null);
+    setServiceLinkedMachineIds(productId, next, storeId);
   };
 
   const loadProducts = useCallback(async () => {
@@ -381,6 +400,16 @@ export function ProductsView() {
   };
 
   const handleAddToSale = (product: StoreProductItem) => {
+    // Must be linked to at least one payment machine first
+    const linkedIds = assignedMachines[product.id] || [];
+    if (linkedIds.length === 0) {
+      alert(
+        "⚠️ لا يمكن إضافة هذه الخدمة إلى شاشة البيع قبل ربطها بماكينة دفع واحدة على الأقل.\nيرجى تحديد ماكينة الدفع المسؤولة عنها أولاً.",
+      );
+      setMachineAssignProduct(product);
+      return;
+    }
+
     if (typeof window !== "undefined") {
       try {
         const storageKey = `hesba_sales_enabled_services_${storeId || "default"}`;
@@ -1263,9 +1292,9 @@ export function ProductsView() {
               {filteredServiceProducts.map((p) => {
                 const brand = getBrandBadge(p);
                 const nature = getServiceNature(p);
-                const assignedMachineId = assignedMachines[p.id];
-                const linkedMachine = posMachines.find(
-                  (m) => m.id === assignedMachineId,
+                const linkedMachineIds = assignedMachines[p.id] || [];
+                const linkedMachines = posMachines.filter((m) =>
+                  linkedMachineIds.includes(m.id),
                 );
                 const isMenuOpen = menuOpenId === p.id;
 
@@ -1407,12 +1436,26 @@ export function ProductsView() {
                         </div>
                       )}
 
-                      {linkedMachine && (
+                      {linkedMachines.length > 0 ? (
                         <div className={styles.serviceMachineTag}>
-                          <span>📱 الماكينة المعينة:</span>
-                          <b>
-                            {linkedMachine.name} ({linkedMachine.provider})
-                          </b>
+                          <span>
+                            📱 ماكينات الدفع ({linkedMachines.length}):
+                          </span>
+                          <b>{linkedMachines.map((m) => m.name).join("، ")}</b>
+                        </div>
+                      ) : (
+                        <div
+                          style={{
+                            fontSize: 11.5,
+                            color: "var(--red, #cf3c3c)",
+                            fontWeight: 700,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <span>⚠️</span>
+                          <span>غير مربوط بماكينة (مطلوب للبيع)</span>
                         </div>
                       )}
                     </div>
@@ -1507,18 +1550,18 @@ export function ProductsView() {
       {/* Machine Assignment Modal */}
       {machineAssignProduct && (
         <Modal
-          title={`تعيين ماكينة دفع: ${machineAssignProduct.name_ar}`}
+          title={`ربط بماكينات الدفع: ${machineAssignProduct.name_ar}`}
           onClose={() => setMachineAssignProduct(null)}
           footer={
             <div style={{ display: "flex", gap: 10, width: "100%" }}>
               <Button
-                kind="soft"
+                kind="primary"
                 size="lg"
                 type="button"
                 onClick={() => setMachineAssignProduct(null)}
                 style={{ flex: 1 }}
               >
-                إغلاق
+                تأكيد وحفظ الماكينات
               </Button>
             </div>
           }
@@ -1532,57 +1575,130 @@ export function ProductsView() {
                 lineHeight: 1.5,
               }}
             >
-              اختر ماكينة الدفع المسؤولة عن تنفيذ خدمة{" "}
-              <b>{machineAssignProduct.name_ar}</b> داخل المحل:
+              حدد ماكينات الدفع المسؤولة عن تقديم خدمة{" "}
+              <b>{machineAssignProduct.name_ar}</b> داخل المحل (يمكنك اختيار
+              أكثر من ماكينة):
             </p>
 
-            <button
-              type="button"
-              className={styles.actionItemBtn}
-              onClick={() =>
-                handleSaveMachineAssignment(machineAssignProduct.id, "")
-              }
-              style={{
-                background: !assignedMachines[machineAssignProduct.id]
-                  ? "var(--sf2)"
-                  : "transparent",
-                fontWeight: !assignedMachines[machineAssignProduct.id]
-                  ? 800
-                  : 600,
-              }}
-            >
-              <span>بدون ربط بماكينة معينة (تنفيذ عام)</span>
-              {!assignedMachines[machineAssignProduct.id] && <span>✓</span>}
-            </button>
-
-            {posMachines.map((m) => {
-              const isSelected =
-                assignedMachines[machineAssignProduct.id] === m.id;
-              return (
-                <button
+            {posMachines.length === 0 ? (
+              <div
+                style={{
+                  padding: "20px 14px",
+                  textAlign: "center",
+                  background: "var(--sf2)",
+                  borderRadius: 12,
+                  fontSize: 13,
+                  color: "var(--ink2)",
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "center",
+                  gap: 10,
+                }}
+              >
+                <span>لا توجد ماكينات دفع مسجلة لهذا المتجر بعد</span>
+                <Button
+                  kind="primary"
+                  size="sm"
                   type="button"
-                  key={m.id}
-                  className={styles.actionItemBtn}
-                  onClick={() =>
-                    handleSaveMachineAssignment(machineAssignProduct.id, m.id)
-                  }
-                  style={{
-                    background: isSelected ? "var(--sf2)" : "transparent",
-                    fontWeight: isSelected ? 800 : 600,
+                  onClick={() => {
+                    setMachineAssignProduct(null);
+                    setIsMachinesModalOpen(true);
                   }}
                 >
-                  <div
-                    style={{ display: "flex", flexDirection: "column", gap: 2 }}
-                  >
-                    <span>{m.name}</span>
-                    <small style={{ color: "var(--ink2)" }}>
-                      مزود: {m.provider}
-                    </small>
-                  </div>
-                  {isSelected && <span>✓</span>}
-                </button>
-              );
-            })}
+                  + إضافة ماكينة دفع الآن
+                </Button>
+              </div>
+            ) : (
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {posMachines.map((m) => {
+                  const currentLinked =
+                    assignedMachines[machineAssignProduct.id] || [];
+                  const isChecked = currentLinked.includes(m.id);
+
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() =>
+                        handleToggleMachineAssignment(
+                          machineAssignProduct.id,
+                          m.id,
+                        )
+                      }
+                      style={{
+                        padding: "12px 14px",
+                        borderRadius: 10,
+                        border: isChecked
+                          ? "1.5px solid var(--br, #5a7d5a)"
+                          : "1px solid var(--line)",
+                        background: isChecked ? "var(--sf2)" : "var(--sf)",
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        cursor: "pointer",
+                        transition: "all 0.15s ease",
+                      }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                        }}
+                      >
+                        <div
+                          style={{
+                            width: 22,
+                            height: 22,
+                            borderRadius: 6,
+                            border: `2px solid ${isChecked ? "var(--br, #5a7d5a)" : "var(--line)"}`,
+                            background: isChecked
+                              ? "var(--br, #5a7d5a)"
+                              : "transparent",
+                            color: "#fff",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 13,
+                            fontWeight: 800,
+                          }}
+                        >
+                          {isChecked && "✓"}
+                        </div>
+                        <div>
+                          <b
+                            style={{
+                              fontSize: 14,
+                              color: "var(--ink)",
+                              display: "block",
+                            }}
+                          >
+                            {m.name} ({m.provider})
+                          </b>
+                          <small style={{ color: "var(--ink2)", fontSize: 12 }}>
+                            الرصيد المتاح:{" "}
+                            {(m.currentBalancePiasters / 100).toLocaleString(
+                              "ar-EG",
+                            )}{" "}
+                            ج.م
+                          </small>
+                        </div>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 700,
+                          color: isChecked
+                            ? "var(--br, #5a7d5a)"
+                            : "var(--ink2)",
+                        }}
+                      >
+                        {isChecked ? "مربوطة بالخدمة" : "اضغط للربط"}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </Modal>
       )}

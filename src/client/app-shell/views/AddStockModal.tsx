@@ -128,6 +128,32 @@ export function AddStockModal({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const activeUnit = targetProduct?.unit || selectedOption?.unit;
+
+  const getProductUnitWord = (u?: string) => {
+    const val = (u || "").toLowerCase();
+    if (val === "can" || val === "علبة") return "علبة";
+    if (val === "jar" || val === "برطمان") return "برطمان";
+    if (val === "bag" || val === "كيس") return "كيس";
+    if (val === "carton" || val === "كرتونة") return "كرتونة";
+    if (val === "weight" || val === "kg" || val === "g") return "كجم";
+    if (isCard) return "كارت";
+    if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
+    return "قطعة";
+  };
+
+  const getProductPluralUnitWord = (u?: string) => {
+    const val = (u || "").toLowerCase();
+    if (val === "can" || val === "علبة") return "علب";
+    if (val === "jar" || val === "برطمان") return "برطمانات";
+    if (val === "bag" || val === "كيس") return "أكياس";
+    if (val === "carton" || val === "كرتونة") return "كراتين";
+    if (val === "weight" || val === "kg" || val === "g") return "كجم";
+    if (isCard) return "كروت";
+    if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
+    return "قطع";
+  };
+
   const formatOptionStock = (opt?: StockProductOption) => {
     if (!opt) return "—";
     if (opt.currentStockBase <= 0) return "خلصان (0)";
@@ -135,10 +161,10 @@ export function AddStockModal({
       return `${(opt.currentStockBase / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
     }
     const pack = opt.packQty || 1;
+    const unitWord = getProductUnitWord(opt.unit);
     if (pack > 1) {
       const cartonsCount = Math.floor(opt.currentStockBase / pack);
       const piecesCount = opt.currentStockBase % pack;
-      const unitWord = opt.unit === "bag" ? "كيس" : "قطعة";
       if (cartonsCount > 0 && piecesCount > 0) {
         return `${cartonsCount} كرتونة و ${piecesCount} ${unitWord}`;
       }
@@ -147,7 +173,7 @@ export function AddStockModal({
       }
       return `${piecesCount} ${unitWord}`;
     }
-    return `${opt.currentStockBase} ${opt.unit === "bag" ? "كيس" : isCard ? "كارت" : "قطعة"}`;
+    return `${opt.currentStockBase} ${unitWord}`;
   };
 
   const filteredOptions = useMemo(() => {
@@ -853,26 +879,14 @@ export function AddStockModal({
                     </Field>
 
                     <Field
-                      label={
-                        entryMode === "bag" || isBag
-                          ? "أكياس زيادة"
-                          : isCard
-                            ? "كروت مفردة"
-                            : "قطع زيادة"
-                      }
+                      label={`${getProductPluralUnitWord(activeUnit)} زيادة`}
                     >
                       <input
                         type="number"
                         min="0"
                         value={pieces}
                         onChange={(e) => setPieces(e.target.value)}
-                        placeholder={
-                          entryMode === "bag" || isBag
-                            ? "أكياس مفرد"
-                            : isCard
-                              ? "كروت مفرد"
-                              : "قطع مفرد"
-                        }
+                        placeholder={`${getProductPluralUnitWord(activeUnit)} مفرد`}
                         style={{
                           width: "100%",
                           padding: "10px 12px",
@@ -883,13 +897,7 @@ export function AddStockModal({
                     </Field>
 
                     <Field
-                      label={
-                        entryMode === "bag" || isBag
-                          ? "أكياس/كرتونة"
-                          : isCard
-                            ? "كروت/كرتونة"
-                            : "قطع/كرتونة"
-                      }
+                      label={`${getProductPluralUnitWord(activeUnit)}/كرتونة`}
                     >
                       <input
                         type="number"
@@ -919,15 +927,11 @@ export function AddStockModal({
                       }}
                     >
                       إجمالي الكمية: {totalBaseQty}{" "}
-                      {entryMode === "bag" || isBag
-                        ? "كيس"
-                        : isCard
-                          ? "كارت"
-                          : "قطعة"}
+                      {getProductUnitWord(activeUnit)}
                       {parseInt(cartons, 10) > 0 &&
                         ` (${cartons} كرتونة${
                           parseInt(pieces, 10) > 0
-                            ? ` و ${pieces} ${entryMode === "bag" || isBag ? "كيس" : isCard ? "كارت" : "قطعة"}`
+                            ? ` و ${pieces} ${getProductUnitWord(activeUnit)}`
                             : ""
                         })`}
                     </div>

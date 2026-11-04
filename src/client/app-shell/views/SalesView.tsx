@@ -17,6 +17,13 @@ import { db } from "../../shared/db";
 import type { StockInventoryItem } from "./StockView";
 import type { StoreProductItem } from "./ProductsView";
 import { isServiceProduct } from "./ProductsView";
+import {
+  getStoredMachines,
+  fetchStoreMachines,
+  getServiceLinkedMachineIds,
+  deductRemoteMachineBalance,
+  type PosMachine,
+} from "../../shared/machines";
 
 export interface SaleRecord {
   id: string;
@@ -212,6 +219,43 @@ export function SalesView() {
   const [query, setQuery] = useState("");
   const [flashId, setFlashId] = useState<string | null>(null);
 
+  // POS Machines & Selection state
+  const [machines, setMachines] = useState<PosMachine[]>(() =>
+    getStoredMachines(storeId),
+  );
+  const [userSelectedMachineId, setUserSelectedMachineId] =
+    useState<string>("");
+
+  const reloadMachines = useCallback(async () => {
+    const remote = await fetchStoreMachines(storeId);
+    setMachines(remote);
+  }, [storeId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchStoreMachines(storeId).then((remote) => {
+      if (isMounted) setMachines(remote);
+    });
+    const onMachinesUpdated = () => {
+      fetchStoreMachines(storeId).then((remote) => {
+        if (isMounted) setMachines(remote);
+      });
+    };
+    window.addEventListener("hesba_machines_updated", onMachinesUpdated);
+    window.addEventListener(
+      "hesba_service_machines_updated",
+      onMachinesUpdated,
+    );
+    return () => {
+      isMounted = false;
+      window.removeEventListener("hesba_machines_updated", onMachinesUpdated);
+      window.removeEventListener(
+        "hesba_service_machines_updated",
+        onMachinesUpdated,
+      );
+    };
+  }, [storeId]);
+
   // Modals state
   const [weightModalItem, setWeightModalItem] =
     useState<DisplaySaleItem | null>(null);
@@ -224,6 +268,22 @@ export function SalesView() {
 
   // Service Modal inputs
   const [serviceAmountEgp, setServiceAmountEgp] = useState("");
+
+  // Linked machines for active service modal
+  const linkedServiceMachineIds = useMemo(() => {
+    if (!serviceModalItem) return [];
+    return getServiceLinkedMachineIds(serviceModalItem.productId, storeId);
+  }, [serviceModalItem, storeId]);
+
+  const linkedServiceMachines = useMemo(() => {
+    return machines.filter((m) => linkedServiceMachineIds.includes(m.id));
+  }, [machines, linkedServiceMachineIds]);
+
+  const selectedMachineId =
+    userSelectedMachineId &&
+    linkedServiceMachines.some((m) => m.id === userSelectedMachineId)
+      ? userSelectedMachineId
+      : linkedServiceMachines[0]?.id || "";
 
   // Toast with Undo state
   const [activeToast, setActiveToast] = useState<{
@@ -485,9 +545,22 @@ export function SalesView() {
   };
 
   // Tap handler for a Card
-  const handleCardClick = (item: DisplaySaleItem) => {
+  const handleCardClick = async (item: DisplaySaleItem) => {
     // 1. Service product
     if (item.isService) {
+      const linkedIds = getServiceLinkedMachineIds(item.productId, storeId);
+      const linkedMachs = machines.filter((m) => linkedIds.includes(m.id));
+
+      if (linkedMachs.length === 0) {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setActiveToast({
+          msg: `⚠️ الخدمة «${item.name}» غير مربوطة بأي ماكينة دفع — اربطها من قسم المنتجات أولاً`,
+          undoIds: [],
+        });
+        toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+        return;
+      }
+
       // If service is variable (utility charging, topup, transfer)
       const name = item.name.toLowerCase();
       const cat = (item.category || "").toLowerCase();
@@ -503,15 +576,60 @@ export function SalesView() {
       if (isVariable) {
         setServiceModalItem(item);
         setServiceAmountEgp("");
+        setUserSelectedMachineId(linkedMachs[0]?.id || "");
         return;
       }
 
       // Fixed card (e.g. كارت 10 ج)
+      const cardAmountPiasters = item.sellPricePiasters || 1000;
+      const targetMachine =
+        linkedMachs.find(
+          (m) => (m.currentBalancePiasters || 0) >= cardAmountPiasters,
+        ) || linkedMachs[0];
+
+      if (!targetMachine) {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setActiveToast({
+          msg: `⚠️ لا توجد ماكينة دفع صالحة لهذه الخدمة`,
+          undoIds: [],
+        });
+        toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+        return;
+      }
+
+      if ((targetMachine.currentBalancePiasters || 0) < cardAmountPiasters) {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setActiveToast({
+          msg: `⚠️ رصيد ماكينة «${targetMachine.name}» (${((targetMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لبيع كارت بقيمة ${(cardAmountPiasters / 100).toFixed(2)} ج.م`,
+          undoIds: [],
+        });
+        toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+        return;
+      }
+
+      try {
+        await deductRemoteMachineBalance(
+          targetMachine.id,
+          cardAmountPiasters,
+          {
+            source: `بيع كارت شحن: ${item.name}`,
+            reference: item.productId,
+          },
+          storeId,
+        );
+        await reloadMachines();
+      } catch (err: unknown) {
+        const errorMsg =
+          err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
+        setActiveToast({ msg: `⚠️ ${errorMsg}`, undoIds: [] });
+        return;
+      }
+
       recordSale({
         item,
         quantityBase: 1,
-        amountPiasters: item.sellPricePiasters || 1000,
-        label: "1 كارت",
+        amountPiasters: cardAmountPiasters,
+        label: `1 كارت (${targetMachine.name})`,
       });
       return;
     }
@@ -595,25 +713,64 @@ export function SalesView() {
   };
 
   // Submit Service Sale
-  const handleServiceSubmit = () => {
+  const handleServiceSubmit = async () => {
     if (!serviceModalItem) return;
     const amountEgp = parseFloat(serviceAmountEgp) || 0;
     if (amountEgp <= 0) return;
 
-    const amountPiasters = Math.round(amountEgp * 100);
-    // Commission: either from product config or standard Egyptian retail fee (e.g. 5 EGP)
+    const principalPiasters = Math.round(amountEgp * 100);
+    const chosenMachine =
+      linkedServiceMachines.find((m) => m.id === selectedMachineId) ||
+      linkedServiceMachines[0];
+
+    if (!chosenMachine) {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({
+        msg: "⚠️ لا توجد ماكينة دفع مربوطة صالحة",
+        undoIds: [],
+      });
+      return;
+    }
+
+    if ((chosenMachine.currentBalancePiasters || 0) < principalPiasters) {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({
+        msg: `⚠️ رصيد ماكينة «${chosenMachine.name}» (${((chosenMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لشحن ${amountEgp} ج.م`,
+        undoIds: [],
+      });
+      return;
+    }
+
     const commissionPiasters =
       serviceModalItem.sellPricePiasters > 0
         ? serviceModalItem.sellPricePiasters
         : 500; // 5 EGP default
 
-    const totalCustomerPiasters = amountPiasters + commissionPiasters;
+    const totalCustomerPiasters = principalPiasters + commissionPiasters;
+
+    try {
+      await deductRemoteMachineBalance(
+        chosenMachine.id,
+        principalPiasters,
+        {
+          source: `تنفيذ معاملة: ${serviceModalItem.name}`,
+          reference: serviceModalItem.productId,
+        },
+        storeId,
+      );
+      await reloadMachines();
+    } catch (err: unknown) {
+      const errorMsg =
+        err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
+      setActiveToast({ msg: `⚠️ ${errorMsg}`, undoIds: [] });
+      return;
+    }
 
     recordSale({
       item: serviceModalItem,
       quantityBase: 1,
       amountPiasters: totalCustomerPiasters,
-      label: `شحن ${amountEgp} ج.م`,
+      label: `شحن ${amountEgp} ج.م (${chosenMachine.name})`,
       commissionPiasters,
     });
 
@@ -635,6 +792,17 @@ export function SalesView() {
 
   // Service modal calculations
   const serviceAmountNum = parseFloat(serviceAmountEgp) || 0;
+  const chosenServiceMachine =
+    linkedServiceMachines.find((m) => m.id === selectedMachineId) ||
+    linkedServiceMachines[0];
+
+  const principalRequiredPiasters = Math.round(serviceAmountNum * 100);
+  const isBalanceInsufficient =
+    Boolean(chosenServiceMachine) &&
+    serviceAmountNum > 0 &&
+    (chosenServiceMachine?.currentBalancePiasters || 0) <
+      principalRequiredPiasters;
+
   const serviceCommissionEgp =
     serviceModalItem && serviceModalItem.sellPricePiasters > 0
       ? serviceModalItem.sellPricePiasters / 100
@@ -964,6 +1132,68 @@ export function SalesView() {
               </span>
             </div>
 
+            {/* Machine selection or indicator */}
+            {linkedServiceMachines.length > 1 ? (
+              <div className={styles.machineSelector}>
+                <span className={styles.machineSelectorLabel}>
+                  اختر ماكينة الخصم:
+                </span>
+                <div className={styles.machinePills}>
+                  {linkedServiceMachines.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      className={`${styles.machinePill} ${
+                        (chosenServiceMachine?.id || "") === m.id
+                          ? styles.active
+                          : ""
+                      }`}
+                      onClick={() => setUserSelectedMachineId(m.id)}
+                    >
+                      <span>{m.name}</span>
+                      <span className={styles.machinePillBal}>
+                        {((m.currentBalancePiasters || 0) / 100).toFixed(0)} ج
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ) : linkedServiceMachines.length === 1 &&
+              linkedServiceMachines[0] ? (
+              <div className={styles.singleMachineBadge}>
+                <Icon n="check" s={14} />
+                <span>
+                  ماكينة: <b>{linkedServiceMachines[0].name}</b>
+                </span>
+                <span className={styles.machineBalanceTag}>
+                  (الرصيد المتاح:{" "}
+                  {(
+                    (linkedServiceMachines[0].currentBalancePiasters || 0) / 100
+                  ).toFixed(2)}{" "}
+                  ج.م)
+                </span>
+              </div>
+            ) : (
+              <div className={styles.balanceAlert}>
+                <Icon n="alert" s={16} />
+                <span>تحذير: لا توجد ماكينة دفع مربوطة بهذه الخدمة!</span>
+              </div>
+            )}
+
+            {/* Insufficient balance alert */}
+            {isBalanceInsufficient && chosenServiceMachine && (
+              <div className={styles.balanceAlert}>
+                <Icon n="alert" s={16} />
+                <span>
+                  رصيد ماكينة {chosenServiceMachine.name} غير كافٍ! المتاح{" "}
+                  {(
+                    (chosenServiceMachine.currentBalancePiasters || 0) / 100
+                  ).toFixed(2)}{" "}
+                  ج.م فقط
+                </span>
+              </div>
+            )}
+
             <div className={styles.wpRow}>
               <input
                 type="text"
@@ -1041,12 +1271,18 @@ export function SalesView() {
             <button
               type="button"
               className={styles.wpActionBtn}
-              disabled={!(serviceAmountNum > 0)}
+              disabled={
+                !(serviceAmountNum > 0) ||
+                Boolean(isBalanceInsufficient) ||
+                !chosenServiceMachine
+              }
               onClick={handleServiceSubmit}
             >
-              {serviceAmountNum > 0
-                ? `تأكيد وتسجيل العملية — ${serviceTotalEgp} ج.م`
-                : "اكتب المبلغ المطلوب"}
+              {isBalanceInsufficient && chosenServiceMachine
+                ? `رصيد غير كافٍ (المتاح ${((chosenServiceMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م)`
+                : serviceAmountNum > 0
+                  ? `تأكيد وتسجيل العملية — ${serviceTotalEgp} ج.م`
+                  : "اكتب المبلغ المطلوب"}
             </button>
           </div>
         </>

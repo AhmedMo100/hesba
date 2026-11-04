@@ -5,6 +5,7 @@ import { Empty, SearchBox, Modal, Icon } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
+import { EditStockModal } from "./EditStockModal";
 import { ClearStockModal } from "./ClearStockModal";
 import { ArchiveStockModal } from "./ArchiveStockModal";
 import {
@@ -159,6 +160,8 @@ export function StockView() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [activeItemAction, setActiveItemAction] =
+    useState<StockInventoryItem | null>(null);
+  const [editingStockItem, setEditingStockItem] =
     useState<StockInventoryItem | null>(null);
   const [clearingItem, setClearingItem] = useState<StockInventoryItem | null>(
     null,
@@ -622,6 +625,17 @@ export function StockView() {
                         {formatInventoryStock(item)}
                       </span>
                     )}
+                    <button
+                      type="button"
+                      className={styles.rowEditBtn}
+                      title="تعديل المخزون والجرد"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEditingStockItem(item);
+                      }}
+                    >
+                      <Icon n="edit" s={14} />
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1004,7 +1018,23 @@ export function StockView() {
               </b>
             </div>
 
-            {/* 1. Add Stock */}
+            {/* 1. Edit Stock / Inventory Adjustment */}
+            <button
+              type="button"
+              className={styles.actionItemBtn}
+              onClick={() => {
+                const itm = activeItemAction;
+                setActiveItemAction(null);
+                setEditingStockItem(itm);
+              }}
+            >
+              <span style={{ fontSize: 16 }}>✏️</span>
+              <span style={{ fontWeight: 700 }}>
+                تعديل كمية المخزون (جرد / تصحيح الرصيد)
+              </span>
+            </button>
+
+            {/* 2. Add Stock */}
             <button
               type="button"
               className={styles.actionItemBtn}
@@ -1138,6 +1168,18 @@ export function StockView() {
             </div>
           </div>
         </Modal>
+      )}
+
+      {/* Edit Stock Modal */}
+      {editingStockItem && (
+        <EditStockModal
+          item={editingStockItem}
+          onClose={() => setEditingStockItem(null)}
+          onSaved={() => {
+            setEditingStockItem(null);
+            void loadData();
+          }}
+        />
       )}
 
       {/* Clear Stock Modal */}

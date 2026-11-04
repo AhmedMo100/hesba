@@ -320,3 +320,147 @@ export function addMachineTopup(
   saveStoredMachines(updated, storeId);
   return updated;
 }
+
+/**
+ * Deducts balance from a POS machine upon executing a bill or service sale.
+ */
+export async function deductRemoteMachineBalance(
+  machineId: string,
+  amountPiasters: number,
+  params?: {
+    source?: string;
+    reference?: string;
+    notes?: string;
+  },
+  storeId?: string,
+): Promise<PosMachine[]> {
+  try {
+    const res = await fetch("/api/machines/deduct", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        machineId,
+        amountPiasters,
+        source: params?.source,
+        reference: params?.reference,
+        notes: params?.notes,
+      }),
+    });
+
+    if (res.ok) {
+      return await fetchStoreMachines(storeId);
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error?.message || "فشل خصم رصيد الماكينة");
+    }
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.includes("غير كافٍ")) {
+      throw err;
+    }
+    console.error("Remote deduct failed, falling back to local:", err);
+  }
+
+  return deductMachineBalance(machineId, amountPiasters, params, storeId);
+}
+
+/**
+ * Synchronous local deduction fallback
+ */
+export function deductMachineBalance(
+  machineId: string,
+  amountPiasters: number,
+  params?: {
+    source?: string;
+    reference?: string;
+    notes?: string;
+  },
+  storeId?: string,
+): PosMachine[] {
+  const current = getStoredMachines(storeId);
+  const target = current.find((m) => m.id === machineId);
+  if (!target) {
+    throw new Error("ماكينة الدفع غير موجودة");
+  }
+
+  if ((target.currentBalancePiasters || 0) < amountPiasters) {
+    throw new Error(
+      `رصيد ماكينة ${target.name} غير كافٍ. المتاح: ${((target.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م والمطلوب: ${(amountPiasters / 100).toFixed(2)} ج.م`,
+    );
+  }
+
+  const updated = current.map((m) => {
+    if (m.id !== machineId) return m;
+    const newBalance = (m.currentBalancePiasters || 0) - amountPiasters;
+    const tx: BalanceTransaction = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: "withdrawal",
+      amountPiasters: -amountPiasters,
+      balanceAfterPiasters: newBalance,
+      source: params?.source?.trim() || "تنفيذ عملية بيع خدمة / شحن",
+      reference: params?.reference?.trim() || undefined,
+      notes: params?.notes?.trim() || undefined,
+      createdAt: new Date().toISOString(),
+    };
+    return {
+      ...m,
+      currentBalancePiasters: newBalance,
+      balanceTransactions: [tx, ...(m.balanceTransactions || [])],
+    };
+  });
+  saveStoredMachines(updated, storeId);
+  return updated;
+}
+
+/**
+ * Key for storing service-to-machine links (supports multiple machines per service).
+ */
+export function getServiceMachinesKey(storeId?: string): string {
+  const effectiveStoreId =
+    storeId && storeId !== "default" ? storeId : getActiveStoreId();
+  if (!effectiveStoreId) {
+    return "hesba_service_machines_unscoped";
+  }
+  return `hesba_service_machines_${effectiveStoreId}`;
+}
+
+/**
+ * Retrieves machine IDs linked to a given service/card product.
+ */
+export function getServiceLinkedMachineIds(
+  productId: string,
+  storeId?: string,
+): string[] {
+  if (typeof window === "undefined" || !window.localStorage) return [];
+  try {
+    const raw = window.localStorage.getItem(getServiceMachinesKey(storeId));
+    if (!raw) return [];
+    const mapping = JSON.parse(raw);
+    const entry = mapping[productId];
+    if (Array.isArray(entry)) return entry.filter(Boolean);
+    if (typeof entry === "string" && entry) return [entry];
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Sets machine IDs linked to a given service/card product.
+ */
+export function setServiceLinkedMachineIds(
+  productId: string,
+  machineIds: string[],
+  storeId?: string,
+): void {
+  if (typeof window === "undefined" || !window.localStorage) return;
+  try {
+    const key = getServiceMachinesKey(storeId);
+    const raw = window.localStorage.getItem(key);
+    const mapping: Record<string, string[]> = raw ? JSON.parse(raw) : {};
+    mapping[productId] = machineIds.filter(Boolean);
+    window.localStorage.setItem(key, JSON.stringify(mapping));
+    window.dispatchEvent(new Event("hesba_service_machines_updated"));
+  } catch (err) {
+    console.error("Failed to persist service machines link:", err);
+  }
+}

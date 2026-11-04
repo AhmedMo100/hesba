@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { Modal, Field, Seg, Icon } from "../../shared/ui";
 import { HesbaDatabase } from "../../shared/db";
 import {
@@ -77,14 +77,26 @@ export function ProductFormModal({
       : presetName ||
           (initialCatalogProduct ? initialCatalogProduct.product.nameAr : ""),
   );
-  const [kind, setKind] = useState<"unit" | "weight" | "bag">(
-    product?.unit === "bag"
-      ? "bag"
-      : product?.unit === "weight" ||
-          product?.unit === "kg" ||
-          product?.unit === "g"
-        ? "weight"
-        : "unit",
+  const initialSellingMethod = useMemo<
+    "piece" | "can" | "jar" | "bag" | "carton" | "weight" | "custom"
+  >(() => {
+    if (!product) return "piece";
+    const u = product.unit?.toLowerCase() || "";
+    if (u === "weight" || u === "kg" || u === "g") return "weight";
+    if (u === "carton" || u === "كرتونة") return "carton";
+    if (u === "bag" || u === "كيس") return "bag";
+    if (u === "can" || u === "علبة") return "can";
+    if (u === "jar" || u === "برطمان") return "jar";
+    if (u === "piece" || u === "unit" || u === "قطعة") return "piece";
+    if (u) return "custom";
+    return "piece";
+  }, [product]);
+
+  const [sellingMethod, setSellingMethod] = useState<
+    "piece" | "can" | "jar" | "bag" | "carton" | "weight" | "custom"
+  >(initialSellingMethod);
+  const [customSellingMethod, setCustomSellingMethod] = useState<string>(
+    initialSellingMethod === "custom" ? product?.unit || "" : "",
   );
   const [weightUnit, setWeightUnit] = useState<"kg" | "g">(
     product?.unit === "g" ? "g" : "kg",
@@ -336,9 +348,75 @@ export function ProductFormModal({
     setSelectedVariantId(null);
   };
 
+  const getUnitSingularLabel = useCallback(
+    (m: typeof sellingMethod) => {
+      switch (m) {
+        case "piece":
+          return "القطعة";
+        case "can":
+          return "العلبة";
+        case "jar":
+          return "البرطمان";
+        case "bag":
+          return "الكيس";
+        case "carton":
+          return "الكرتونة";
+        case "weight":
+          return weightUnit === "kg" ? "الكيلو" : "الجرام";
+        case "custom":
+          return customSellingMethod.trim() || "الوحدة";
+      }
+    },
+    [weightUnit, customSellingMethod],
+  );
+
+  const getUnitNameLabel = useCallback(
+    (m: typeof sellingMethod) => {
+      switch (m) {
+        case "piece":
+          return "قطعة";
+        case "can":
+          return "علبة";
+        case "jar":
+          return "برطمان";
+        case "bag":
+          return "كيس";
+        case "carton":
+          return "كرتونة";
+        case "weight":
+          return weightUnit === "kg" ? "كجم" : "جرام";
+        case "custom":
+          return customSellingMethod.trim() || "وحدة";
+      }
+    },
+    [weightUnit, customSellingMethod],
+  );
+
+  const getUnitPluralLabel = useCallback(
+    (m: typeof sellingMethod) => {
+      switch (m) {
+        case "piece":
+          return "قطع";
+        case "can":
+          return "علب";
+        case "jar":
+          return "برطمانات";
+        case "bag":
+          return "أكياس";
+        case "carton":
+          return "كراتين";
+        case "weight":
+          return "كجم";
+        case "custom":
+          return customSellingMethod.trim() || "وحدات";
+      }
+    },
+    [customSellingMethod],
+  );
+
   // Expected gross profit calculation
   const profitHint = useMemo(() => {
-    if (kind === "weight") {
+    if (sellingMethod === "weight") {
       const sell = parseFloat(wSell);
       const buy = parseFloat(wBuy);
       if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
@@ -346,23 +424,34 @@ export function ProductFormModal({
         const unitLabel = weightUnit === "g" ? "الجرام" : "الكيلو";
         return `مجمل الربح المتوقع في ${unitLabel}: ${formatMoney(diffPiasters)}`;
       }
-    } else if (kind === "bag") {
-      const sell = parseFloat(pcSell);
-      const buy = parseFloat(pcBuy);
+    } else if (sellingMethod === "carton") {
+      const sell = parseFloat(pkSell);
+      const buy = parseFloat(pkBuy);
       if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
         const diffPiasters = Math.round((sell - buy) * 100);
-        return `مجمل الربح المتوقع في الكيس: ${formatMoney(diffPiasters)}`;
+        return `مجمل الربح المتوقع في الكرتونة: ${formatMoney(diffPiasters)}`;
       }
     } else {
       const sell = parseFloat(pcSell);
       const buy = parseFloat(pcBuy);
       if (!isNaN(sell) && sell > 0 && !isNaN(buy) && buy > 0) {
         const diffPiasters = Math.round((sell - buy) * 100);
-        return `مجمل الربح المتوقع في القطعة: ${formatMoney(diffPiasters)}`;
+        const uLabel = getUnitSingularLabel(sellingMethod);
+        return `مجمل الربح المتوقع في ${uLabel}: ${formatMoney(diffPiasters)}`;
       }
     }
     return "";
-  }, [kind, weightUnit, wSell, wBuy, pcSell, pcBuy]);
+  }, [
+    sellingMethod,
+    getUnitSingularLabel,
+    weightUnit,
+    wSell,
+    wBuy,
+    pcSell,
+    pcBuy,
+    pkSell,
+    pkBuy,
+  ]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -375,35 +464,34 @@ export function ProductFormModal({
     let sellPriceNum = 0;
     let buyCostNum = 0;
 
-    if (kind === "weight") {
+    if (sellingMethod === "weight") {
       sellPriceNum = parseFloat(wSell);
       buyCostNum = parseFloat(wBuy) || 0;
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
         newErrors.price =
           weightUnit === "g" ? "اكتب سعر بيع الجرام" : "اكتب سعر بيع الكيلو";
       }
-    } else if (kind === "bag") {
-      sellPriceNum = parseFloat(pcSell);
-      buyCostNum = parseFloat(pcBuy) || 0;
+    } else if (sellingMethod === "carton") {
+      sellPriceNum = parseFloat(pkSell);
+      buyCostNum = parseFloat(pkBuy) || 0;
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
-        newErrors.price = "اكتب سعر بيع الكيس";
-      }
-      if (hasPack) {
-        const n = parseInt(packN, 10);
-        if (isNaN(n) || n < 2) {
-          newErrors.packN = "عدد الأكياس في الكرتونة (2 أو أكثر)";
-        }
+        newErrors.price = "اكتب سعر بيع الكرتونة";
       }
     } else {
       sellPriceNum = parseFloat(pcSell);
       buyCostNum = parseFloat(pcBuy) || 0;
+      const uLabel = getUnitSingularLabel(sellingMethod);
       if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
-        newErrors.price = "اكتب سعر بيع القطعة";
+        newErrors.price = `اكتب سعر بيع ${uLabel}`;
+      }
+      if (sellingMethod === "custom" && !customSellingMethod.trim()) {
+        newErrors.sellingMethod = "اكتب طريقة البيع المخصصة";
       }
       if (hasPack) {
         const n = parseInt(packN, 10);
+        const pLabel = getUnitPluralLabel(sellingMethod);
         if (isNaN(n) || n < 2) {
-          newErrors.packN = "عدد القطع في الكرتونة (2 أو أكثر)";
+          newErrors.packN = `عدد الـ ${pLabel} في الكرتونة (2 أو أكثر)`;
         }
       }
     }
@@ -430,21 +518,27 @@ export function ProductFormModal({
       const buyCostPiasters = buyCostNum > 0 ? Math.round(buyCostNum * 100) : 0;
       const isCustom = product ? product.is_custom : !selectedGlobalProduct;
       const packQtyNum =
-        hasPack && (kind === "unit" || kind === "bag")
-          ? parseInt(packN, 10) || 1
-          : 1;
+        sellingMethod === "carton" ? 1 : hasPack ? parseInt(packN, 10) || 1 : 1;
 
       const targetUnit =
-        kind === "weight"
+        sellingMethod === "weight"
           ? weightUnit
-          : kind === "bag"
+          : sellingMethod === "bag"
             ? ("bag" as const)
-            : ("piece" as const);
+            : sellingMethod === "can"
+              ? "علبة"
+              : sellingMethod === "jar"
+                ? "برطمان"
+                : sellingMethod === "carton"
+                  ? "كرتونة"
+                  : sellingMethod === "custom"
+                    ? customSellingMethod.trim() || "piece"
+                    : ("piece" as const);
 
       const targetSizeValue =
-        kind === "weight"
+        sellingMethod === "weight"
           ? 1
-          : kind === "bag"
+          : sellingMethod === "bag"
             ? bagContentType === "weight"
               ? parseFloat(bagWeightVal) || 500
               : parseInt(bagCountVal, 10) || 10
@@ -453,9 +547,9 @@ export function ProductFormModal({
               : null;
 
       const targetSizeUnit =
-        kind === "weight"
+        sellingMethod === "weight"
           ? weightUnit
-          : kind === "bag"
+          : sellingMethod === "bag"
             ? bagContentType === "weight"
               ? bagWeightUnit
               : "piece"
@@ -744,7 +838,21 @@ export function ProductFormModal({
                 </span>
               </div>
               {isCustomCategory && (
-                <div style={{ marginTop: 8 }}>
+                <div className={styles.categoryCustomBox}>
+                  <div
+                    style={{ display: "flex", alignItems: "center", gap: 6 }}
+                  >
+                    <span style={{ fontSize: 13 }}>🏷️</span>
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "var(--br, #5a7d5a)",
+                      }}
+                    >
+                      إنشاء تصنيف جديد للمحل:
+                    </span>
+                  </div>
                   <input
                     type="text"
                     value={customCategoryName}
@@ -780,7 +888,7 @@ export function ProductFormModal({
                         color: "var(--red, #cf3c3c)",
                         fontSize: 11.5,
                         fontWeight: 700,
-                        marginTop: 4,
+                        marginTop: 2,
                       }}
                     >
                       {errors.category}
@@ -839,37 +947,138 @@ export function ProductFormModal({
                 color: "var(--ink2)",
               }}
             >
-              بيتباع إزاي؟
+              طريقة البيع (بيتباع إزاي؟):
             </span>
-            <div className={styles.unitModeGrid}>
+            <div className={styles.sellingMethodsGrid}>
               <button
                 type="button"
-                className={`${styles.unitModeCard} ${kind === "unit" ? styles.active : ""}`}
-                onClick={() => setKind("unit")}
+                className={`${styles.methodCard} ${sellingMethod === "piece" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("piece")}
+                aria-label="بالقطعة / الكرتونة"
+                title="بالقطعة / الكرتونة"
               >
                 <Icon n="box" s={18} />
-                <span className={styles.unitModeTitle}>بالقطعة / الكرتونة</span>
+                <span className={styles.methodTitle}>قطعة</span>
               </button>
               <button
                 type="button"
-                className={`${styles.unitModeCard} ${kind === "weight" ? styles.active : ""}`}
-                onClick={() => setKind("weight")}
+                className={`${styles.methodCard} ${sellingMethod === "can" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("can")}
+                aria-label="بالعلبة"
+                title="بالعلبة"
               >
-                <Icon n="scale" s={18} />
-                <span className={styles.unitModeTitle}>بالوزن</span>
+                <Icon n="box" s={18} />
+                <span className={styles.methodTitle}>علبة</span>
               </button>
               <button
                 type="button"
-                className={`${styles.unitModeCard} ${kind === "bag" ? styles.active : ""}`}
-                onClick={() => setKind("bag")}
+                className={`${styles.methodCard} ${sellingMethod === "jar" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("jar")}
+                aria-label="بالبرطمان"
+                title="بالبرطمان"
+              >
+                <Icon n="box" s={18} />
+                <span className={styles.methodTitle}>برطمان</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.methodCard} ${sellingMethod === "bag" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("bag")}
+                aria-label="بالكيس"
+                title="بالكيس"
               >
                 <Icon n="layers" s={18} />
-                <span className={styles.unitModeTitle}>بالكيس</span>
+                <span className={styles.methodTitle}>كيس</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.methodCard} ${sellingMethod === "carton" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("carton")}
+                aria-label="بالكرتونة"
+                title="بالكرتونة"
+              >
+                <Icon n="store" s={18} />
+                <span className={styles.methodTitle}>كرتونة</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.methodCard} ${sellingMethod === "weight" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("weight")}
+                aria-label="بالوزن"
+                title="بالوزن"
+              >
+                <Icon n="scale" s={18} />
+                <span className={styles.methodTitle}>وزن</span>
+              </button>
+              <button
+                type="button"
+                className={`${styles.methodCard} ${sellingMethod === "custom" ? styles.active : ""}`}
+                onClick={() => setSellingMethod("custom")}
+                aria-label="أخرى"
+                title="طريقة بيع مخصصة"
+              >
+                <Icon n="plus" s={18} />
+                <span className={styles.methodTitle}>أخرى</span>
               </button>
             </div>
+
+            {sellingMethod === "custom" && (
+              <div className={styles.categoryCustomBox}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    color: "var(--br, #5a7d5a)",
+                  }}
+                >
+                  طريقة البيع المخصصة:
+                </span>
+                <input
+                  type="text"
+                  value={customSellingMethod}
+                  onChange={(e) => {
+                    setCustomSellingMethod(e.target.value);
+                    if (errors.sellingMethod) {
+                      setErrors((prev) => {
+                        const next = { ...prev };
+                        delete next.sellingMethod;
+                        return next;
+                      });
+                    }
+                  }}
+                  placeholder="مثال: شيكارة، لتر، دستة، طرد..."
+                  style={{
+                    width: "100%",
+                    padding: "9px 12px",
+                    borderRadius: 9,
+                    border: errors.sellingMethod
+                      ? "1.5px solid var(--red, #cf3c3c)"
+                      : "1.5px solid var(--br, #5a7d5a)",
+                    background: "var(--sf)",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "var(--ink)",
+                    boxSizing: "border-box",
+                  }}
+                  autoFocus
+                />
+                {errors.sellingMethod && (
+                  <div
+                    style={{
+                      color: "var(--red, #cf3c3c)",
+                      fontSize: 11.5,
+                      fontWeight: 700,
+                      marginTop: 2,
+                    }}
+                  >
+                    {errors.sellingMethod}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
-          {kind === "weight" ? (
+          {sellingMethod === "weight" ? (
             <div className={styles.priceCardGroup}>
               {/* خيارات وحدة تسعير الوزن */}
               <div style={{ marginBottom: 12 }}>
@@ -954,7 +1163,54 @@ export function ProductFormModal({
                 </div>
               )}
             </div>
-          ) : kind === "bag" ? (
+          ) : sellingMethod === "carton" ? (
+            /* بيع مباشر بالكرتونة */
+            <div className={styles.priceCardGroup}>
+              <div className={styles.priceCardTitle}>سعر الكرتونة</div>
+              <div className={styles.priceInputsGrid}>
+                <div className={styles.priceInputCol}>
+                  <span className={styles.priceInputLabel}>شراء</span>
+                  <div className={styles.inputWithBadge}>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={pkBuy}
+                      onChange={(e) => setPkBuy(e.target.value)}
+                      placeholder="0"
+                    />
+                    <span className={styles.inputBadge}>ج.م</span>
+                  </div>
+                </div>
+                <div className={styles.priceInputCol}>
+                  <span className={styles.priceInputLabel}>بيع</span>
+                  <div className={styles.inputWithBadge}>
+                    <input
+                      type="number"
+                      step="any"
+                      min="0"
+                      value={pkSell}
+                      onChange={(e) => setPkSell(e.target.value)}
+                      placeholder="0"
+                    />
+                    <span className={styles.inputBadge}>ج.م</span>
+                  </div>
+                </div>
+              </div>
+              {errors.price && (
+                <div
+                  style={{
+                    color: "var(--red, #cf3c3c)",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    marginTop: 6,
+                  }}
+                >
+                  {errors.price}
+                </div>
+              )}
+            </div>
+          ) : sellingMethod === "bag" ? (
             <>
               {/* إعدادات محتوى الكيس */}
               <div className={styles.priceCardGroup}>
@@ -1160,6 +1416,7 @@ export function ProductFormModal({
               </div>
             </>
           ) : (
+            /* للقطع والعلب والبرطمانات والطرق المخصصة */
             <>
               {/* بيتباع كرتونة كمان toggle card */}
               <div
@@ -1170,7 +1427,8 @@ export function ProductFormModal({
                 tabIndex={0}
               >
                 <span className={styles.cartonToggleLabel}>
-                  بيتباع كرتونة كمان
+                  بيتباع كرتونة كمان (تحتوي على{" "}
+                  {getUnitPluralLabel(sellingMethod)})
                 </span>
                 <div
                   className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
@@ -1181,8 +1439,15 @@ export function ProductFormModal({
 
               {hasPack && (
                 <>
-                  {/* عدد القطع في الكرتونة */}
-                  <Field label="عدد القطع في الكرتونة" err={errors.packN}>
+                  {/* عدد الوحدات في الكرتونة */}
+                  <Field
+                    label={
+                      sellingMethod === "piece"
+                        ? "عدد القطع في الكرتونة"
+                        : `عدد الـ ${getUnitPluralLabel(sellingMethod)} في الكرتونة`
+                    }
+                    err={errors.packN}
+                  >
                     <div className={styles.inputWithBadge}>
                       <input
                         type="number"
@@ -1191,7 +1456,9 @@ export function ProductFormModal({
                         onChange={(e) => handlePackNChange(e.target.value)}
                         placeholder="12"
                       />
-                      <span className={styles.inputBadge}>قطعة</span>
+                      <span className={styles.inputBadge}>
+                        {getUnitNameLabel(sellingMethod)}
+                      </span>
                     </div>
                   </Field>
 
@@ -1236,10 +1503,14 @@ export function ProductFormModal({
                 </>
               )}
 
-              {/* سعر القطعة / الكارت */}
+              {/* سعر الوحدة المنفردة */}
               <div className={styles.priceCardGroup}>
                 <div className={styles.priceCardTitle}>
-                  {category === "كروت شحن" ? "سعر الكارت" : "سعر القطعة"}
+                  {category === "كروت شحن"
+                    ? "سعر الكارت"
+                    : sellingMethod === "piece"
+                      ? "سعر القطعة"
+                      : `سعر ${getUnitSingularLabel(sellingMethod)} الواحد`}
                 </div>
                 <div className={styles.priceInputsGrid}>
                   <div className={styles.priceInputCol}>

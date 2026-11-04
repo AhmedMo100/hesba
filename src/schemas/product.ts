@@ -4,7 +4,7 @@ export const productVariantInputSchema = z.object({
   id: z.string().trim().optional(),
   flavor: z.string().trim().nullable().optional(),
   sizeValue: z.number().positive().nullable().optional(),
-  sizeUnit: z.enum(["g", "kg", "ml", "l", "piece"]).nullable().optional(),
+  sizeUnit: z.string().trim().nullable().optional(),
   packQty: z.number().int().positive().default(1),
   sellPricePiasters: z.number().int().min(0, "سعر البيع يجب ألا يقل عن صفر"),
   costPricePiasters: z.number().int().min(0).nullable().optional(),
@@ -20,9 +20,7 @@ export const upsertProductInputSchema = z.object({
   opId: z.string().uuid().optional(),
   nameAr: z.string().trim().min(2, "اسم المنتج مطلوب (حرفين على الأقل)"),
   category: z.string().trim().min(2, "التصنيف مطلوب"),
-  unit: z
-    .enum(["piece", "kg", "g", "ml", "l", "bag", "carton", "service"])
-    .default("piece"),
+  unit: z.string().trim().min(1).default("piece"),
   sellPricePiasters: z.number().int().min(0, "سعر البيع الأساسي مطلوب"),
   buyCostPiasters: z.number().int().min(0).nullable().optional(),
   initialQuantity: z.number().min(0).nullable().optional(),

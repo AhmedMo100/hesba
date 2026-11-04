@@ -272,4 +272,97 @@ export class MachinesService {
       this.db,
     );
   }
+
+  /**
+   * Deducts balance from a POS machine upon executing a bill or service sale.
+   * Atomically checks balance and updates history.
+   */
+  async deductMachineBalance(
+    storeId: string,
+    userId: string | null,
+    machineId: string,
+    amountPiasters: number,
+    params?: {
+      source?: string | null;
+      reference?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<PosMachineDto> {
+    if (amountPiasters <= 0) {
+      throw AppError.badRequest("قيمة الخصم يجب أن تكون أكبر من صفر");
+    }
+
+    return await withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const machine = await tx.posMachine.findFirst({
+          where: { id: machineId, storeId, deletedAt: null },
+        });
+
+        if (!machine) {
+          throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
+        }
+
+        const currentBalance = Number(machine.currentBalancePiasters);
+        if (currentBalance < amountPiasters) {
+          throw AppError.badRequest(
+            `رصيد ماكينة ${machine.name} غير كافٍ. المتاح: ${(currentBalance / 100).toFixed(2)} ج.م والمطلوب: ${(amountPiasters / 100).toFixed(2)} ج.م`,
+          );
+        }
+
+        const newBalance = currentBalance - amountPiasters;
+
+        await tx.posMachineTopup.create({
+          data: {
+            storeId,
+            machineId,
+            amountPiasters: BigInt(-amountPiasters),
+            balanceAfterPiasters: BigInt(newBalance),
+            source: params?.source?.trim() || "تنفيذ عملية بيع خدمة / شحن",
+            reference: params?.reference?.trim() || null,
+            notes: params?.notes?.trim() || null,
+          },
+        });
+
+        const updated = await tx.posMachine.update({
+          where: { id: machineId },
+          data: {
+            currentBalancePiasters: BigInt(newBalance),
+          },
+          include: {
+            topups: {
+              orderBy: { createdAt: "desc" },
+              take: 20,
+            },
+          },
+        });
+
+        return {
+          id: updated.id,
+          name: updated.name,
+          provider: updated.provider,
+          terminalId: updated.terminalId,
+          status: updated.status as "active" | "inactive" | "maintenance",
+          notes: updated.notes,
+          currentBalancePiasters: Number(updated.currentBalancePiasters),
+          balanceTransactions: updated.topups.map((t) => ({
+            id: t.id,
+            type:
+              Number(t.amountPiasters) >= 0
+                ? ("deposit" as const)
+                : ("withdrawal" as const),
+            amountPiasters: Number(t.amountPiasters),
+            balanceAfterPiasters: Number(t.balanceAfterPiasters),
+            source: t.source,
+            reference: t.reference,
+            notes: t.notes,
+            createdAt: t.createdAt.toISOString(),
+          })),
+          createdAt: updated.createdAt.toISOString(),
+        };
+      },
+      this.db,
+    );
+  }
 }
