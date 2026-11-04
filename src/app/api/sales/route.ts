@@ -5,20 +5,22 @@ import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import { toCairoDateString } from "@/domain/time";
+import { normalizeArabic } from "@/domain/normalize";
 
 export const dynamic = "force-dynamic";
 
 const createSaleSchema = z.object({
-  id: z.string().uuid().optional(),
-  productId: z.string().uuid().optional(),
-  variantId: z.string().uuid().optional(),
+  id: z.string().optional(),
+  productId: z.string().optional(),
+  variantId: z.string().optional(),
   name: z.string().trim().optional(),
   quantityBase: z.number().int().positive().default(1),
   amountPiasters: z.number().int().min(0),
   label: z.string().optional(),
   isCarton: z.boolean().optional(),
   commissionPiasters: z.number().int().optional(),
-  machineId: z.string().uuid().optional().nullable(),
+  machineId: z.string().optional().nullable(),
   machineDeductPiasters: z.number().int().optional().nullable(),
   machineName: z.string().optional().nullable(),
   timestamp: z.number().optional(),
@@ -31,6 +33,8 @@ const createSaleSchema = z.object({
 export async function GET(req: Request) {
   try {
     const context = await requireSession(req);
+    const now = new Date();
+    const todayCairo = toCairoDateString(now);
 
     const sales = await withTenant(
       context.store.id,
@@ -39,7 +43,7 @@ export async function GET(req: Request) {
         return tx.sale.findMany({
           where: { storeId: context.store.id },
           orderBy: { createdAt: "desc" },
-          take: 60,
+          take: 200,
           include: {
             saleLines: {
               include: {
@@ -64,7 +68,7 @@ export async function GET(req: Request) {
         id: s.id,
         productId:
           prod?.id || line?.storeProductId || line?.storeVariantId || s.id,
-        name: prod?.nameAr || "بيعة",
+        name: prod?.nameAr || "بيعة نقدية",
         amountPiasters: Number(s.totalPiasters),
         quantity: line?.quantityBaseUnits || 1,
         category: prod?.category || "عام",
@@ -73,7 +77,20 @@ export async function GET(req: Request) {
       };
     });
 
-    return NextResponse.json({ sales: formatted });
+    const todaySales = formatted.filter(
+      (s) => toCairoDateString(s.timestamp) === todayCairo,
+    );
+    const todayTotalPiasters = todaySales.reduce(
+      (sum, s) => sum + s.amountPiasters,
+      0,
+    );
+
+    return NextResponse.json({
+      sales: formatted,
+      todaySales,
+      todayTotalPiasters,
+      todayCount: todaySales.length,
+    });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }
@@ -89,7 +106,15 @@ export async function POST(req: Request) {
     const body = await req.json();
     const input = createSaleSchema.parse(body);
 
-    const saleId = input.id || crypto.randomUUID();
+    const isValidUuid = (val?: string | null): val is string =>
+      Boolean(
+        val &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          val,
+        ),
+      );
+
+    const saleId = isValidUuid(input.id) ? input.id : crypto.randomUUID();
     const opId = crypto.randomUUID();
 
     const created = await withTenant(
@@ -100,44 +125,83 @@ export async function POST(req: Request) {
         let targetVariantId: string | null = null;
         let targetProductId: string | null = null;
 
-        if (input.variantId) {
+        if (input.variantId && isValidUuid(input.variantId)) {
           const varExists = await tx.storeVariant.findFirst({
             where: { id: input.variantId, storeId: context.store.id },
-            select: { id: true },
+            select: { id: true, storeProductId: true },
           });
           if (varExists) {
             targetVariantId = varExists.id;
+            targetProductId = varExists.storeProductId;
           }
         }
 
-        if (!targetVariantId && input.productId) {
-          // Check if productId is a storeVariant
+        if (
+          !targetVariantId &&
+          input.productId &&
+          isValidUuid(input.productId)
+        ) {
           const varExists = await tx.storeVariant.findFirst({
             where: { id: input.productId, storeId: context.store.id },
-            select: { id: true },
+            select: { id: true, storeProductId: true },
           });
           if (varExists) {
             targetVariantId = varExists.id;
+            targetProductId = varExists.storeProductId;
           } else {
             const prodExists = await tx.storeProduct.findFirst({
               where: { id: input.productId, storeId: context.store.id },
-              select: { id: true },
+              include: { storeVariants: { take: 1 } },
             });
             if (prodExists) {
               targetProductId = prodExists.id;
+              targetVariantId = prodExists.storeVariants[0]?.id || null;
             }
           }
         }
 
-        // If neither exists, fallback to any default product or find first variant
-        if (!targetVariantId && !targetProductId) {
-          const anyVar = await tx.storeVariant.findFirst({
-            where: { storeId: context.store.id },
-            select: { id: true },
+        // If not found by ID, look up by Arabic name
+        if (!targetVariantId && !targetProductId && input.name) {
+          const prodByName = await tx.storeProduct.findFirst({
+            where: {
+              storeId: context.store.id,
+              nameAr: input.name,
+            },
+            include: { storeVariants: { take: 1 } },
           });
-          if (anyVar) {
-            targetVariantId = anyVar.id;
+          if (prodByName) {
+            targetProductId = prodByName.id;
+            targetVariantId = prodByName.storeVariants[0]?.id || null;
           }
+        }
+
+        // If still not found, create a store product record so the sale has full history & name!
+        if (!targetVariantId && !targetProductId) {
+          const prodName = input.name || "بيعة نقدية";
+          const isService = Boolean(
+            input.machineId || input.label?.includes("كارت"),
+          );
+          const createdProd = await tx.storeProduct.create({
+            data: {
+              storeId: context.store.id,
+              nameAr: prodName,
+              nameNorm: normalizeArabic(prodName),
+              category: isService ? "خدمات وفواتير" : "السلع الاستهلاكية",
+              unit: input.isCarton ? "carton" : "piece",
+              sellPricePiasters: BigInt(input.amountPiasters),
+              isCustom: true,
+              storeVariants: {
+                create: {
+                  storeId: context.store.id,
+                  sellPricePiasters: BigInt(input.amountPiasters),
+                  packQty: 1,
+                },
+              },
+            },
+            include: { storeVariants: true },
+          });
+          targetProductId = createdProd.id;
+          targetVariantId = createdProd.storeVariants[0]?.id || null;
         }
 
         const newSale = await tx.sale.create({
@@ -152,7 +216,7 @@ export async function POST(req: Request) {
               create: {
                 storeId: context.store.id,
                 storeVariantId: targetVariantId,
-                storeProductId: targetVariantId ? null : targetProductId,
+                storeProductId: targetProductId,
                 quantityBaseUnits: input.quantityBase,
                 unitPricePiasters: BigInt(input.amountPiasters),
                 totalPiasters: BigInt(input.amountPiasters),

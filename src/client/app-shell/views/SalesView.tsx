@@ -70,6 +70,20 @@ function getServicesStorageKey(storeId?: string): string {
   return `hesba_sales_enabled_services_${storeId || "default"}`;
 }
 
+function generateUuid(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function formatCairoTime(ts: number): string {
   try {
     const d = new Date(ts);
@@ -179,7 +193,7 @@ function loadInitialData(storeId?: string): {
         const staged = JSON.parse(rawStaged);
         if (staged && staged.name) {
           const newSale: SaleRecord = {
-            id: `sale-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+            id: generateUuid(),
             productId: staged.id || "manual",
             name: staged.name,
             amountPiasters: Number(staged.sellPricePiasters) || 0,
@@ -354,7 +368,15 @@ export function SalesView() {
         setServices(allProds.filter((p) => isServiceProduct(p)));
       }
       if (salesData?.sales && Array.isArray(salesData.sales)) {
-        setSales(salesData.sales);
+        if (salesData.sales.length > 0) {
+          setSales(salesData.sales);
+          try {
+            localStorage.setItem(
+              getSalesStorageKey(storeId),
+              JSON.stringify(salesData.sales),
+            );
+          } catch {}
+        }
       }
     });
 
@@ -500,8 +522,7 @@ export function SalesView() {
       } = params;
 
       const now = Date.now();
-      const rand = Math.random().toString(36).slice(2, 7);
-      const newSaleId = `sale-${now}-${rand}`;
+      const newSaleId = generateUuid();
       const newRecord: SaleRecord = {
         id: newSaleId,
         productId: item.productId,
@@ -610,7 +631,13 @@ export function SalesView() {
             machineName: params.machineName,
             timestamp: now,
           }),
-        }).catch(() => {});
+        })
+          .then((r) => {
+            if (!r.ok) {
+              console.warn("Sale persist notice: server status", r.status);
+            }
+          })
+          .catch(() => {});
       } catch {
         // Offline fallback
       }
@@ -748,17 +775,6 @@ export function SalesView() {
       } catch {
         // Ignore offline or test failures
       }
-    }
-
-    // 5. Delete sale from server Postgres DB
-    try {
-      for (const sid of saleIds) {
-        void fetch(`/api/sales?id=${sid}`, { method: "DELETE" }).catch(
-          () => {},
-        );
-      }
-    } catch {
-      // Ignore offline
     }
 
     // 5. Delete sale from server Postgres DB
@@ -1183,7 +1199,50 @@ export function SalesView() {
 
         {/* Recent Sales List matching Image 3 */}
         <div className={styles.recentSection}>
-          <h3 className={styles.recentTitle}>آخر البيعات</h3>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 10,
+              paddingBottom: 8,
+              borderBottom: "1.5px solid var(--line)",
+            }}
+          >
+            <div>
+              <h3 className={styles.recentTitle} style={{ margin: 0 }}>
+                آخر البيعات
+              </h3>
+              <span style={{ fontSize: 12, color: "var(--ink2)" }}>
+                {todaySales.length === 0
+                  ? "مفيش بيعات اتسجلت لسه"
+                  : `${todaySales.length} ${todaySales.length === 1 ? "عملية بيع اليوم" : "عمليات بيع اليوم"}`}
+              </span>
+            </div>
+            {todaySales.length > 0 && (
+              <div style={{ textAlign: "left" }}>
+                <span
+                  style={{
+                    fontSize: 11.5,
+                    color: "var(--ink2)",
+                    display: "block",
+                  }}
+                >
+                  إجمالي مبيعات اليوم
+                </span>
+                <b
+                  style={{
+                    fontSize: 16,
+                    color: "var(--ok, #108e5c)",
+                    fontWeight: 800,
+                  }}
+                >
+                  {formatMoney(todayTotalPiasters)}
+                </b>
+              </div>
+            )}
+          </div>
+
           {todaySales.length === 0 ? (
             <div
               style={{
@@ -1195,8 +1254,11 @@ export function SalesView() {
               لسه مفيش مبيعات اتسجلت النهارده
             </div>
           ) : (
-            <div className={styles.recentList}>
-              {todaySales.slice(0, 8).map((sale) => (
+            <div
+              className={styles.recentList}
+              style={{ maxHeight: 380, overflowY: "auto" }}
+            >
+              {todaySales.map((sale) => (
                 <div key={sale.id} className={styles.rcRow}>
                   <span className={styles.rcName}>{sale.name}</span>
                   <div className={styles.rcMeta}>
