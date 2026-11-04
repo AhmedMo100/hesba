@@ -191,13 +191,53 @@
 }
 
 .promoTag {
-  align-self: flex-start;
   font-size: 10.5px;
   font-weight: 700;
   padding: 2px 6px;
   border-radius: 4px;
   background: rgba(245, 158, 11, 0.15);
   color: #f59e0b;
+}
+
+.promoCardTopRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+}
+
+.promoCardActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.promoActionBtn {
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--line, #383b34);
+  color: var(--ink2, #a0a8a0);
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  padding: 0;
+}
+
+.promoActionBtn:hover {
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--ink, #fff);
+  transform: scale(1.08);
+}
+
+.promoActionDeleteBtn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.4);
+  color: #ef4444;
 }
 
 @media (min-width: 900px) {

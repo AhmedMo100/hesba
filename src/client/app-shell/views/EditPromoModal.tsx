@@ -12,6 +12,7 @@ export interface EditPromoModalProps {
   allProducts: StoreProductItem[];
   onClose: () => void;
   onSaveAndPublish: (promo: SuggestedPromotion) => Promise<void>;
+  onDelete?: (promoId: string) => Promise<void>;
 }
 
 export function EditPromoModal({
@@ -19,6 +20,7 @@ export function EditPromoModal({
   allProducts,
   onClose,
   onSaveAndPublish,
+  onDelete,
 }: EditPromoModalProps) {
   const [title, setTitle] = useState(initialPromo.title);
   const [promoPriceEgp, setPromoPriceEgp] = useState(
@@ -148,12 +150,38 @@ export function EditPromoModal({
     }
   };
 
+  const handleDelete = async () => {
+    if (!onDelete) return;
+    if (!confirm("هل أنت متأكد من حذف هذا العرض بالكامل؟")) return;
+    setIsSubmitting(true);
+    try {
+      await onDelete(initialPromo.id);
+      onClose();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "تعذر حذف العرض";
+      alert(msg);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   return (
     <Modal
-      title="تعديل تفاصيل العرض الترويجي"
+      title="تعديل العرض الترويجي"
       onClose={onClose}
       footer={
         <>
+          {onDelete && (
+            <Button
+              kind="dangerghost"
+              icon="trash"
+              onClick={handleDelete}
+              disabled={isSubmitting}
+            >
+              حذف
+            </Button>
+          )}
+          <span className={styles.sp} />
           <Button kind="ghost" onClick={onClose} disabled={isSubmitting}>
             إلغاء
           </Button>
@@ -164,25 +192,26 @@ export function EditPromoModal({
             loading={isSubmitting}
             disabled={items.length === 0 || promoPricePiasters <= 0}
           >
-            حفظ ونشر في البيع ✓
+            حفظ ونشر في البيع
           </Button>
         </>
       }
     >
-      <div className={styles.container}>
-        {/* Form Inputs Grid */}
-        <div className={styles.formGrid}>
-          <Field label="عنوان العرض">
+      <div className={styles.form}>
+        {/* Section 1: Main Details */}
+        <div className={styles.row2}>
+          <Field label="اسم أو عنوان العرض">
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="مثال: كومبو عصير وبسكويت"
+              autoFocus
             />
           </Field>
 
-          <Field label="سعر بيع العرض للزبون">
-            <div className={styles.priceInputWrapper}>
+          <Field label="سعر البيع بعد الخصم">
+            <div className={styles.priceWrapper}>
               <input
                 type="number"
                 inputMode="decimal"
@@ -196,137 +225,131 @@ export function EditPromoModal({
           </Field>
         </div>
 
-        {/* Included Items Section */}
-        <div className={styles.itemsSection}>
-          <div className={styles.itemsHeader}>
-            <h4 className={styles.itemsTitle}>
-              <Icon n="box" s={16} />
-              <span>الأصناف المشمولة بالعرض ({items.length})</span>
-            </h4>
-            <button
-              type="button"
-              className={styles.addBtn}
-              onClick={() => setShowPicker(!showPicker)}
-            >
-              <Icon n={showPicker ? "x" : "plus"} s={14} />
-              <span>{showPicker ? "إغلاق البحث" : "إضافة صنف آخر"}</span>
-            </button>
-          </div>
-
-          {/* Product Picker Dropdown */}
-          {showPicker && (
-            <div className={styles.pickerCard}>
-              <SearchBox
-                value={pickerQuery}
-                onChange={setPickerQuery}
-                placeholder="ابحث بالاسم أو التصنيف لإضافة منتج..."
-              />
-              <div className={styles.pickerList}>
-                {filteredProducts.length === 0 ? (
-                  <span
-                    style={{
-                      fontSize: 12.5,
-                      color: "var(--ink2)",
-                      padding: "8px 12px",
-                      textAlign: "center",
-                    }}
-                  >
-                    لا توجد منتجات مطابقة للبحث
-                  </span>
-                ) : (
-                  filteredProducts.map((prod) => (
-                    <button
-                      key={prod.id}
-                      type="button"
-                      className={styles.pickerOption}
-                      onClick={() => handleAddItem(prod)}
-                    >
-                      <span>{prod.name_ar}</span>
-                      <span className={styles.pickerOptionPrice}>
-                        {formatMoney(prod.sell_price_piasters || 0)}
-                      </span>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Items List */}
-          <div className={styles.itemsList}>
-            {items.map((item, idx) => (
-              <div key={`${item.productId}_${idx}`} className={styles.itemCard}>
-                <div className={styles.itemMeta}>
-                  <span className={styles.itemTitle}>{item.productName}</span>
-                  <span className={styles.itemSubtitle}>
-                    سعر القطعة: {formatMoney(item.regularPricePiasters)}
-                  </span>
-                </div>
-
-                <div className={styles.itemActions}>
-                  <div className={styles.stepper}>
-                    <button
-                      type="button"
-                      className={styles.stepperBtn}
-                      onClick={() => handleUpdateQty(idx, -1)}
-                      title="تقليل الكمية"
-                    >
-                      -
-                    </button>
-                    <span className={styles.stepperVal}>
-                      {item.unit === "weight"
-                        ? `${item.quantityBase >= 1000 ? item.quantityBase / 1000 : item.quantityBase} كجم`
-                        : item.quantityBase}
-                    </span>
-                    <button
-                      type="button"
-                      className={styles.stepperBtn}
-                      onClick={() => handleUpdateQty(idx, 1)}
-                      title="زيادة الكمية"
-                    >
-                      +
-                    </button>
-                  </div>
-
-                  <button
-                    type="button"
-                    className={styles.removeBtn}
-                    onClick={() => handleRemoveItem(idx)}
-                    title="حذف من العرض"
-                  >
-                    <Icon n="trash" s={15} />
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* Section 2: Items in the bundle */}
+        <div className={styles.secMini}>
+          <Icon n="box" s={16} />
+          <span>الأصناف المشمولة بالعرض ({items.length})</span>
         </div>
 
-        {/* KPI Strip Summary */}
-        <div className={styles.kpiStrip}>
-          <div className={styles.kpiCard}>
-            <span className={styles.kpiLabel}>السعر الأصلي</span>
-            <span className={styles.kpiVal}>
-              {formatMoney(originalPricePiasters)}
-            </span>
-          </div>
+        <div className={styles.itemsHeader}>
+          <button
+            type="button"
+            className={styles.addBtn}
+            onClick={() => setShowPicker(!showPicker)}
+          >
+            <Icon n={showPicker ? "x" : "plus"} s={14} />
+            <span>{showPicker ? "إلغاء البحث" : "إضافة صنف آخر"}</span>
+          </button>
+        </div>
 
-          <div className={`${styles.kpiCard} ${styles.kpiHighlight}`}>
-            <span className={styles.kpiLabel}>سعر العرض</span>
-            <span className={styles.kpiVal}>
-              {formatMoney(promoPricePiasters)}
-            </span>
+        {/* Dropdown Product Search Picker */}
+        {showPicker && (
+          <div className={styles.pickerBox}>
+            <SearchBox
+              value={pickerQuery}
+              onChange={setPickerQuery}
+              placeholder="ابحث بالاسم لاختيار صنف..."
+            />
+            <div className={styles.pickerList}>
+              {filteredProducts.length === 0 ? (
+                <span
+                  style={{
+                    fontSize: 12.5,
+                    color: "var(--ink2)",
+                    padding: "10px",
+                    textAlign: "center",
+                  }}
+                >
+                  لا توجد منتجات مطابقة للبحث
+                </span>
+              ) : (
+                filteredProducts.map((prod) => (
+                  <button
+                    key={prod.id}
+                    type="button"
+                    className={styles.pickerOption}
+                    onClick={() => handleAddItem(prod)}
+                  >
+                    <span>{prod.name_ar}</span>
+                    <span className={styles.pickerOptionPrice}>
+                      {formatMoney(prod.sell_price_piasters || 0)}
+                    </span>
+                  </button>
+                ))
+              )}
+            </div>
           </div>
+        )}
 
-          <div className={`${styles.kpiCard} ${styles.kpiHighlight}`}>
-            <span className={styles.kpiLabel}>التوفير للزبون</span>
-            <span className={styles.kpiVal}>
-              {formatMoney(savingsPiasters)}
+        {/* Items List */}
+        <div className={styles.itemsList}>
+          {items.map((item, idx) => (
+            <div key={`${item.productId}_${idx}`} className={styles.itemRow}>
+              <div className={styles.itemInfo}>
+                <span className={styles.itemName}>{item.productName}</span>
+                <span className={styles.itemSub}>
+                  السعر الأصلي: {formatMoney(item.regularPricePiasters)}
+                </span>
+              </div>
+
+              <div className={styles.itemControls}>
+                <div className={styles.stepper}>
+                  <button
+                    type="button"
+                    className={styles.stepperBtn}
+                    onClick={() => handleUpdateQty(idx, -1)}
+                    title="تقليل الكمية"
+                  >
+                    -
+                  </button>
+                  <span className={styles.stepperVal}>
+                    {item.unit === "weight"
+                      ? `${item.quantityBase >= 1000 ? item.quantityBase / 1000 : item.quantityBase} كجم`
+                      : item.quantityBase}
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.stepperBtn}
+                    onClick={() => handleUpdateQty(idx, 1)}
+                    title="زيادة الكمية"
+                  >
+                    +
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  className={styles.delBtn}
+                  onClick={() => handleRemoveItem(idx)}
+                  title="حذف من العرض"
+                >
+                  <Icon n="trash" s={15} />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Section 3: Summary / Calculations Pill */}
+        <div className={styles.hintPill}>
+          <div className={styles.hintNumbers}>
+            <span>
+              الأصلي:{" "}
+              <span className={styles.hintOriginal}>
+                {formatMoney(originalPricePiasters)}
+              </span>
             </span>
-            {savingsPercent > 0 && (
-              <span className={styles.savingsPercent}>({savingsPercent}%)</span>
-            )}
+            <span>
+              بالعرض:{" "}
+              <b className={styles.hintPromo}>
+                {formatMoney(promoPricePiasters)}
+              </b>
+            </span>
           </div>
+          <span className={styles.hintSavings}>
+            وفرت {formatMoney(savingsPiasters)}{" "}
+            {savingsPercent > 0 ? `(${savingsPercent}%)` : ""}
+          </span>
         </div>
       </div>
     </Modal>

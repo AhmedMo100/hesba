@@ -132,54 +132,101 @@
   transform: scale(0.97);
 }
 
-/* Smart Promotional Offers Section — Only in Expiry Tab */
+/* Promotional Offers Section in Expiry Tab */
 .promoSection {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 18px;
+  gap: 10px;
+  margin-top: 6px;
 }
 
-.promoSectionTop {
+.promoHeaderCard {
+  background: var(--sf, #23221f);
+  border: 1px solid var(--line, #33322d);
+  border-radius: 14px;
+  padding: 12px 16px;
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 0 4px;
+  justify-content: space-between;
+  gap: 12px;
+  box-shadow: var(--sh, 0 2px 6px rgba(0, 0, 0, 0.08));
 }
 
-.promoSectionTitle {
+.promoHeaderInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.promoHeaderTitle {
   font-size: 15px;
   font-weight: 800;
   color: var(--ink, #fff);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin: 0;
 }
 
-.promoSectionTitle i {
+.promoHeaderTitle i {
   color: #f59e0b;
 }
 
+.promoHeaderSub {
+  font-size: 12px;
+  color: var(--ink2, #a0a8a0);
+}
+
 .createCustomPromoBtn {
-  border: 1px solid var(--line, #383b34);
-  background: var(--sf, #23221f);
-  color: var(--br, #7fa37c);
-  font-size: 12.5px;
+  border: 1px solid rgba(127, 163, 124, 0.4);
+  background: rgba(127, 163, 124, 0.16);
+  color: #7fa37c;
+  font-size: 13px;
   font-weight: 700;
-  padding: 6px 12px;
+  padding: 7px 14px;
   border-radius: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
   gap: 5px;
+  white-space: nowrap;
   transition: all 0.15s ease;
+  flex-shrink: 0;
 }
 
 .createCustomPromoBtn:hover {
-  background: rgba(127, 163, 124, 0.12);
-  border-color: var(--br, #7fa37c);
+  background: rgba(127, 163, 124, 0.26);
+  transform: scale(1.02);
+}
+
+.emptyPromoCard {
+  background: var(--sf, #23221f);
+  border: 1px dashed var(--line, #383b34);
+  border-radius: 14px;
+  padding: 24px 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 8px;
+  color: var(--ink2, #a0a8a0);
+  margin-top: 4px;
+}
+
+.emptyPromoTitle {
+  font-size: 14.5px;
+  font-weight: 800;
+  color: var(--ink, #fff);
+}
+
+.emptyPromoSub {
+  font-size: 12.5px;
+  color: var(--ink2, #a0a8a0);
+  max-width: 320px;
+  line-height: 1.4;
+  margin: 0 0 6px;
 }
 
 .promoCardsList {

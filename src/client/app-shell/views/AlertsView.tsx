@@ -429,11 +429,16 @@ export function AlertsView() {
       {/* Promotional Clearance Offers: ONLY visible in the Expiry Tab! */}
       {tab === "exp" && (
         <section className={styles.promoSection}>
-          <div className={styles.promoSectionTop}>
-            <h3 className={styles.promoSectionTitle}>
-              <Icon n="sparkle" s={16} />
-              <span>عروض وتخفيضات تصفية الصلاحية ({visiblePromos.length})</span>
-            </h3>
+          <div className={styles.promoHeaderCard}>
+            <div className={styles.promoHeaderInfo}>
+              <h3 className={styles.promoHeaderTitle}>
+                <Icon n="sparkle" s={16} />
+                <span>عروض وتخفيضات الصلاحية</span>
+              </h3>
+              <span className={styles.promoHeaderSub}>
+                عروض ذكية لتصريف البضاعة قرب الانتهاء وتنشيط المبيعات
+              </span>
+            </div>
             <button
               type="button"
               className={styles.createCustomPromoBtn}
@@ -445,15 +450,22 @@ export function AlertsView() {
           </div>
 
           {visiblePromos.length === 0 ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "12px",
-                color: "var(--ink2)",
-              }}
-            >
-              لا توجد عروض مقترحة حالياً، يمكنك إنشاء عرض مخصص بالضغط على الزر
-              أعلاه.
+            <div className={styles.emptyPromoCard}>
+              <div className={styles.emptyPromoTitle}>
+                لا توجد عروض مقترحة حالياً
+              </div>
+              <p className={styles.emptyPromoSub}>
+                يمكنك تجهيز عرض تخفيض أو بكج لأي منتج واختيار نسبة الخصم بنفسك
+                ونشره فوراً في شاشة البيع.
+              </p>
+              <button
+                type="button"
+                className={styles.createCustomPromoBtn}
+                onClick={handleStartCreateCustomPromo}
+              >
+                <Icon n="plus" s={14} />
+                <span>إنشاء أول عرض الآن</span>
+              </button>
             </div>
           ) : (
             <div className={styles.promoCardsList}>
@@ -557,6 +569,15 @@ export function AlertsView() {
           allProducts={allProducts}
           onClose={() => setEditingPromo(null)}
           onSaveAndPublish={handleSaveEditedPromo}
+          onDelete={async (promoId) => {
+            setSuggestedPromos((prev) => prev.filter((p) => p.id !== promoId));
+            await fetch(`/api/promotions?id=${encodeURIComponent(promoId)}`, {
+              method: "DELETE",
+            }).catch(() => {});
+            setEditingPromo(null);
+            window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
+            toast.show({ msg: "تم حذف العرض بنجاح", kind: "ok" });
+          }}
         />
       )}
 

@@ -18,6 +18,8 @@ import type { StockInventoryItem } from "./StockView";
 import type { StoreProductItem } from "./ProductsView";
 import { isServiceProduct } from "./ProductsView";
 import type { PublishedPromotion } from "@/app/api/promotions/route";
+import type { SuggestedPromotion } from "@/app/api/alerts/route";
+import { EditPromoModal } from "./EditPromoModal";
 import {
   getStoredMachines,
   fetchStoreMachines,
@@ -355,6 +357,10 @@ export function SalesView() {
   const [activePromotions, setActivePromotions] = useState<
     PublishedPromotion[]
   >([]);
+  const [editingPromo, setEditingPromo] = useState<PublishedPromotion | null>(
+    null,
+  );
+  const [allProducts, setAllProducts] = useState<StoreProductItem[]>([]);
 
   // Load Inventory, Products, and Sales from server asynchronously
   useEffect(() => {
@@ -376,6 +382,7 @@ export function SalesView() {
       }
       if (prodData?.products) {
         const allProds: StoreProductItem[] = prodData.products;
+        setAllProducts(allProds);
         setServices(allProds.filter((p) => isServiceProduct(p)));
       }
       if (salesData?.sales && Array.isArray(salesData.sales)) {
@@ -985,6 +992,95 @@ export function SalesView() {
     [inventory, storeId],
   );
 
+  // Delete promotional offer from sales page
+  const handleDeletePromotion = useCallback(async (promoId: string) => {
+    try {
+      const res = await fetch(
+        `/api/promotions?id=${encodeURIComponent(promoId)}`,
+        {
+          method: "DELETE",
+        },
+      );
+      if (res.ok) {
+        setActivePromotions((prev) => prev.filter((p) => p.id !== promoId));
+        window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setActiveToast({
+          msg: "تم حذف العرض من شاشة البيع بنجاح ✓",
+          undoIds: [],
+          type: "success",
+        });
+        toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+      } else {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setActiveToast({
+          msg: "تعذر حذف العرض، حاول مرة أخرى",
+          undoIds: [],
+          type: "error",
+        });
+        toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+      }
+    } catch {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({
+        msg: "حدث خطأ أثناء حذف العرض",
+        undoIds: [],
+        type: "error",
+      });
+      toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+    }
+  }, []);
+
+  // Save edited promotional offer
+  const handleSaveEditedPromotion = useCallback(
+    async (promo: SuggestedPromotion) => {
+      try {
+        const res = await fetch("/api/promotions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(promo),
+        });
+        if (res.ok) {
+          setEditingPromo(null);
+          setActivePromotions((prev) => {
+            const idx = prev.findIndex((p) => p.id === promo.id);
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = promo as PublishedPromotion;
+              return updated;
+            }
+            return [...prev, promo as PublishedPromotion];
+          });
+          window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          setActiveToast({
+            msg: `تم حفظ وتحديث العرض "${promo.title}" بنجاح ✓`,
+            undoIds: [],
+            type: "success",
+          });
+          toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+        } else {
+          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+          setActiveToast({
+            msg: "تعذر حفظ التعديلات، حاول مرة أخرى",
+            undoIds: [],
+            type: "error",
+          });
+          toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+        }
+      } catch {
+        if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+        setActiveToast({
+          msg: "حدث خطأ أثناء حفظ العرض",
+          undoIds: [],
+          type: "error",
+        });
+        toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+      }
+    },
+    [],
+  );
+
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
     // 1. Service product
@@ -1336,8 +1432,34 @@ export function SalesView() {
                     }
                   }}
                 >
-                  <div className={styles.promoTag}>
-                    {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
+                  <div className={styles.promoCardTopRow}>
+                    <div className={styles.promoTag}>
+                      {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
+                    </div>
+                    <div className={styles.promoCardActions}>
+                      <button
+                        type="button"
+                        className={styles.promoActionBtn}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingPromo(promo);
+                        }}
+                        title="تعديل تفاصيل العرض"
+                      >
+                        <Icon n="edit" s={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.promoActionBtn} ${styles.promoActionDeleteBtn}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void handleDeletePromotion(promo.id);
+                        }}
+                        title="حذف العرض من البيع"
+                      >
+                        <Icon n="trash" s={13} />
+                      </button>
+                    </div>
                   </div>
                   <span className={styles.promoCardTitle}>{promo.title}</span>
                   <span className={styles.promoCardDesc}>
@@ -1857,6 +1979,17 @@ export function SalesView() {
             </button>
           </div>
         </>
+      )}
+
+      {/* Edit Promotion Modal in SalesView */}
+      {editingPromo && (
+        <EditPromoModal
+          initialPromo={editingPromo as SuggestedPromotion}
+          allProducts={allProducts}
+          onClose={() => setEditingPromo(null)}
+          onSaveAndPublish={handleSaveEditedPromotion}
+          onDelete={handleDeletePromotion}
+        />
       )}
 
       {/* Floating Bottom Toast with Undo matching Image 1 */}

@@ -1,36 +1,44 @@
-/* EditPromoModal.module.css — حسبة (Hesba) Edit Promo Modal */
+/* EditPromoModal.module.css — Hesba Native Form Styling */
 
-.container {
+.form {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding-bottom: 8px;
+  gap: 16px;
 }
 
-/* 2-column or stacked form fields */
-.formGrid {
+.secMini {
+  font-weight: 800;
+  color: var(--br, #7fa37c);
+  font-size: 13.5px;
+  margin: 6px 2px 2px;
+  letter-spacing: 0.2px;
   display: flex;
-  flex-direction: column;
-  gap: 14px;
+  align-items: center;
+  gap: 6px;
 }
 
-@media (min-width: 500px) {
-  .formGrid {
-    display: grid;
-    grid-template-columns: 1.4fr 1fr;
-    gap: 12px;
-    align-items: flex-start;
+.row2 {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 12px;
+}
+
+@media (max-width: 440px) {
+  .row2 {
+    grid-template-columns: 1fr;
+    gap: 8px;
   }
 }
 
-.priceInputWrapper {
+.priceWrapper {
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
 }
 
-.priceInputWrapper input {
-  padding-inline-end: 42px;
+.priceWrapper input {
+  padding-inline-end: 42px !important;
   width: 100%;
 }
 
@@ -44,31 +52,15 @@
 }
 
 /* Items Section */
-.itemsSection {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
 .itemsHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-}
-
-.itemsTitle {
-  font-size: 14px;
-  font-weight: 800;
-  color: var(--ink, #fff);
-  margin: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  margin-top: 4px;
 }
 
 .addBtn {
-  background: var(--sf2, #2b2a26);
+  background: var(--sf2, #24231f);
   border: 1px solid var(--line, #383b34);
   color: var(--br, #7fa37c);
   font-size: 12.5px;
@@ -78,7 +70,7 @@
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   transition: all 0.15s ease;
 }
 
@@ -88,27 +80,15 @@
 }
 
 /* Product Search / Picker */
-.pickerCard {
-  background: var(--sf2, #1f1e1a);
-  border: 1.5px solid var(--br, #7fa37c);
+.pickerBox {
+  background: var(--sf2, #1d1c18);
+  border: 1px solid var(--br, #7fa37c);
   border-radius: 14px;
   padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  animation: fadeIn 0.18s ease;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  gap: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
 }
 
 .pickerList {
@@ -156,23 +136,23 @@
   gap: 8px;
 }
 
-.itemCard {
+.itemRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
   background: var(--sf, #23221f);
   border: 1px solid var(--line, #383b34);
-  border-radius: 12px;
+  border-radius: 14px;
   padding: 10px 14px;
   transition: border-color 0.15s ease;
 }
 
-.itemCard:hover {
-  border-color: rgba(127, 163, 124, 0.35);
+.itemRow:hover {
+  border-color: color-mix(in srgb, var(--br, #7fa37c) 35%, var(--line));
 }
 
-.itemMeta {
+.itemInfo {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -180,7 +160,7 @@
   flex: 1;
 }
 
-.itemTitle {
+.itemName {
   font-size: 14px;
   font-weight: 700;
   color: var(--ink, #fff);
@@ -189,19 +169,18 @@
   text-overflow: ellipsis;
 }
 
-.itemSubtitle {
+.itemSub {
   font-size: 12px;
   color: var(--ink2, #a0a8a0);
 }
 
-.itemActions {
+.itemControls {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
 }
 
-/* Quantity Stepper */
 .stepper {
   display: flex;
   align-items: center;
@@ -239,17 +218,17 @@
 .stepperVal {
   font-size: 13.5px;
   font-weight: 800;
-  min-width: 34px;
+  min-width: 32px;
   text-align: center;
   color: var(--ink, #fff);
 }
 
-.removeBtn {
+.delBtn {
   background: transparent;
   border: none;
   color: var(--ink2, #a0a8a0);
-  width: 32px;
-  height: 32px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
   cursor: pointer;
   display: flex;
@@ -258,54 +237,50 @@
   transition: all 0.15s ease;
 }
 
-.removeBtn:hover {
+.delBtn:hover {
   background: rgba(248, 113, 113, 0.15);
   color: #f87171;
 }
 
-/* KPI Summary Cards Strip */
-.kpiStrip {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 8px;
-  margin-top: 4px;
-}
-
-.kpiCard {
-  background: var(--sf2, #24231f);
-  border: 1px solid var(--line, #383b34);
-  border-radius: 12px;
-  padding: 10px 8px;
+/* Profit / Savings Pill matching Hesba hint-pill */
+.hintPill {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  text-align: center;
-  gap: 4px;
-}
-
-.kpiCard.kpiHighlight {
+  justify-content: space-between;
+  gap: 8px;
   background: rgba(127, 163, 124, 0.12);
-  border-color: rgba(127, 163, 124, 0.35);
+  border: 1px solid rgba(127, 163, 124, 0.3);
+  padding: 10px 14px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #7fa37c;
 }
 
-.kpiLabel {
-  font-size: 11.5px;
+.hintNumbers {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hintOriginal {
+  font-size: 12.5px;
   color: var(--ink2, #a0a8a0);
-  font-weight: 600;
+  text-decoration: line-through;
 }
 
-.kpiVal {
-  font-size: 14.5px;
+.hintPromo {
+  font-size: 15px;
   font-weight: 800;
   color: var(--ink, #fff);
 }
 
-.kpiHighlight .kpiVal {
+.hintSavings {
+  font-size: 13.5px;
+  font-weight: 800;
   color: #7fa37c;
 }
 
-.savingsPercent {
-  font-size: 11px;
-  font-weight: 700;
-  color: #7fa37c;
+.sp {
+  flex: 1;
 }
