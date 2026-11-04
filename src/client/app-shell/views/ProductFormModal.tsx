@@ -9,6 +9,12 @@ import {
 } from "../../shared/catalog";
 import { formatMoney } from "../../shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
+import {
+  getCachedCustomTaxonomy,
+  fetchCustomTaxonomy,
+  saveCustomTaxonomy,
+  SECONDARY_PACKAGING_PRESETS,
+} from "./customTaxonomy";
 import styles from "./ProductsView.module.css";
 
 export interface ProductFormModalProps {
@@ -101,7 +107,7 @@ export function ProductFormModal({
   }, [product]);
 
   const [sellingMethod, setSellingMethod] = useState<
-    "piece" | "can" | "jar" | "bag" | "carton" | "weight" | "custom"
+    "piece" | "can" | "jar" | "bag" | "carton" | "weight" | "custom" | string
   >(initialSellingMethod);
   const [customSellingMethod, setCustomSellingMethod] = useState<string>(
     initialSellingMethod === "custom" ? product?.unit || "" : "",
@@ -207,10 +213,92 @@ export function ProductFormModal({
       : "";
   });
 
+  const [customTaxonomy, setCustomTaxonomy] = useState(() =>
+    getCachedCustomTaxonomy(),
+  );
+
+  useEffect(() => {
+    void fetchCustomTaxonomy().then(setCustomTaxonomy);
+    const handleTaxonomyUpdate = () => {
+      setCustomTaxonomy(getCachedCustomTaxonomy());
+    };
+    window.addEventListener(
+      "hesba_custom_taxonomy_updated",
+      handleTaxonomyUpdate,
+    );
+    return () => {
+      window.removeEventListener(
+        "hesba_custom_taxonomy_updated",
+        handleTaxonomyUpdate,
+      );
+    };
+  }, []);
+
   const availableCategories = useMemo(() => {
     const standardWithoutOther = PRODUCT_CATEGORIES.filter((c) => c !== "أخرى");
-    return [...standardWithoutOther, "أخرى"];
-  }, []);
+    const merged = Array.from(
+      new Set([...standardWithoutOther, ...customTaxonomy.customCategories]),
+    );
+    return [...merged, "أخرى"];
+  }, [customTaxonomy.customCategories]);
+
+  const availableSellingMethods = useMemo(() => {
+    const base = [
+      { key: "piece", label: "قطعة", icon: "box" },
+      { key: "can", label: "علبة", icon: "box" },
+      { key: "jar", label: "برطمان", icon: "box" },
+      { key: "bag", label: "كيس", icon: "layers" },
+      { key: "carton", label: "كرتونة", icon: "store" },
+      { key: "weight", label: "وزن", icon: "scale" },
+    ];
+    const customs = customTaxonomy.customSellingMethods
+      .filter((m) => !base.some((b) => b.key === m || b.label === m))
+      .map((m) => ({ key: m, label: m, icon: "box" }));
+    return [
+      ...base,
+      ...customs,
+      { key: "custom", label: "أخرى", icon: "plus" },
+    ];
+  }, [customTaxonomy.customSellingMethods]);
+
+  // Secondary packaging / Multiple selling method state
+  const [packMethod, setPackMethod] = useState<string>(() => {
+    if (
+      firstVariant?.size_unit &&
+      ["carton", "dozen", "bag", "box"].includes(firstVariant.size_unit)
+    ) {
+      return firstVariant.size_unit;
+    }
+    return "carton";
+  });
+  const [customPackMethod, setCustomPackMethod] = useState<string>(() => {
+    if (
+      firstVariant?.size_unit &&
+      ![
+        "carton",
+        "dozen",
+        "bag",
+        "box",
+        "piece",
+        "g",
+        "kg",
+        "unit",
+        "ml",
+        "l",
+      ].includes(firstVariant.size_unit)
+    ) {
+      return firstVariant.size_unit;
+    }
+    return "";
+  });
+
+  const secondaryPackTitle = useMemo(() => {
+    if (packMethod === "custom") {
+      return customPackMethod.trim() || "عبوة";
+    }
+    const found = SECONDARY_PACKAGING_PRESETS.find((p) => p.key === packMethod);
+    return found ? found.label.split(" ")[0] : "عبوة";
+  }, [packMethod, customPackMethod]);
 
   const [barcode, setBarcode] = useState(
     product?.barcode || firstVariant?.barcode || "",
@@ -604,6 +692,12 @@ export function ProductFormModal({
               ? sizeUnit
               : null;
 
+      const secondaryUnitName = hasPack
+        ? packMethod === "custom"
+          ? customPackMethod.trim() || "pack"
+          : packMethod
+        : targetSizeUnit;
+
       const payload = {
         id: product?.id,
         nameAr: name.trim(),
@@ -622,7 +716,7 @@ export function ProductFormModal({
             id: firstVariant?.id,
             flavor: flavor.trim() || null,
             sizeValue: targetSizeValue,
-            sizeUnit: targetSizeUnit,
+            sizeUnit: secondaryUnitName,
             packQty: packQtyNum,
             sellPricePiasters,
             costPricePiasters: buyCostPiasters > 0 ? buyCostPiasters : null,
@@ -631,6 +725,19 @@ export function ProductFormModal({
           },
         ],
       };
+
+      // Persist custom category or custom selling methods in store's DB
+      if (isCustomCategory && customCategoryName.trim()) {
+        void saveCustomTaxonomy({ newCategory: customCategoryName.trim() });
+      }
+      if (sellingMethod === "custom" && customSellingMethod.trim()) {
+        void saveCustomTaxonomy({
+          newSellingMethod: customSellingMethod.trim(),
+        });
+      }
+      if (hasPack && packMethod === "custom" && customPackMethod.trim()) {
+        void saveCustomTaxonomy({ newSellingMethod: customPackMethod.trim() });
+      }
 
       const res = await fetch("/api/products", {
         method: "POST",
@@ -997,76 +1104,53 @@ export function ProductFormModal({
               طريقة البيع (بيتباع إزاي؟):
             </span>
             <div className={styles.sellingMethodsGrid}>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "piece" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("piece")}
-                aria-label="بالقطعة / الكرتونة"
-                title="بالقطعة / الكرتونة"
-              >
-                <Icon n="box" s={18} />
-                <span className={styles.methodTitle}>قطعة</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "can" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("can")}
-                aria-label="بالعلبة"
-                title="بالعلبة"
-              >
-                <Icon n="box" s={18} />
-                <span className={styles.methodTitle}>علبة</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "jar" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("jar")}
-                aria-label="بالبرطمان"
-                title="بالبرطمان"
-              >
-                <Icon n="box" s={18} />
-                <span className={styles.methodTitle}>برطمان</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "bag" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("bag")}
-                aria-label="بالكيس"
-                title="بالكيس"
-              >
-                <Icon n="layers" s={18} />
-                <span className={styles.methodTitle}>كيس</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "carton" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("carton")}
-                aria-label="بالكرتونة"
-                title="بالكرتونة"
-              >
-                <Icon n="store" s={18} />
-                <span className={styles.methodTitle}>كرتونة</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "weight" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("weight")}
-                aria-label="بالوزن"
-                title="بالوزن"
-              >
-                <Icon n="scale" s={18} />
-                <span className={styles.methodTitle}>وزن</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.methodCard} ${sellingMethod === "custom" ? styles.active : ""}`}
-                onClick={() => setSellingMethod("custom")}
-                aria-label="أخرى"
-                title="طريقة بيع مخصصة"
-              >
-                <Icon n="plus" s={18} />
-                <span className={styles.methodTitle}>أخرى</span>
-              </button>
+              {availableSellingMethods.map((m) => {
+                const titleText =
+                  m.key === "piece"
+                    ? "بالقطعة / الكرتونة"
+                    : m.key === "weight"
+                      ? "بالوزن"
+                      : m.key === "bag"
+                        ? "بالكيس"
+                        : m.key === "can"
+                          ? "بالعلبة"
+                          : m.key === "jar"
+                            ? "بالبرطمان"
+                            : m.key === "carton"
+                              ? "بالكرتونة"
+                              : m.label;
+                return (
+                  <button
+                    key={m.key}
+                    type="button"
+                    className={`${styles.methodCard} ${sellingMethod === m.key ? styles.active : ""}`}
+                    onClick={() => {
+                      setSellingMethod(m.key);
+                      if (
+                        m.key !== "custom" &&
+                        ![
+                          "piece",
+                          "can",
+                          "jar",
+                          "bag",
+                          "carton",
+                          "weight",
+                        ].includes(m.key)
+                      ) {
+                        setCustomSellingMethod(m.label);
+                      }
+                    }}
+                    aria-label={m.label}
+                    title={titleText}
+                  >
+                    <Icon
+                      n={m.icon as Parameters<typeof Icon>[0]["n"]}
+                      s={18}
+                    />
+                    <span className={styles.methodTitle}>{m.label}</span>
+                  </button>
+                );
+              })}
             </div>
 
             {sellingMethod === "custom" && (
@@ -1465,7 +1549,7 @@ export function ProductFormModal({
           ) : (
             /* للقطع والعلب والبرطمانات والطرق المخصصة */
             <>
-              {/* بيتباع كرتونة كمان toggle card */}
+              {/* بيتباع بطريقة بيع تانية كمان (مثل كرتونة، كيس، دستة) */}
               <div
                 className={styles.cartonToggleCard}
                 onClick={() => setHasPack(!hasPack)}
@@ -1473,10 +1557,16 @@ export function ProductFormModal({
                 aria-checked={hasPack}
                 tabIndex={0}
               >
-                <span className={styles.cartonToggleLabel}>
-                  بيتباع كرتونة كمان (تحتوي على{" "}
-                  {getUnitPluralLabel(sellingMethod)})
-                </span>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 2 }}
+                >
+                  <span className={styles.cartonToggleLabel}>
+                    بيتباع كرتونة كمان أو طريقة بيع تانية؟ (دستة، كيس، علبة...)
+                  </span>
+                  <span style={{ fontSize: 11.5, color: "var(--ink2)" }}>
+                    تتيح للمحل بيع الصنف بأكثر من طريقة (مفرد + جملة أو عبوة)
+                  </span>
+                </div>
                 <div
                   className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
                 >
@@ -1485,13 +1575,79 @@ export function ProductFormModal({
               </div>
 
               {hasPack && (
-                <>
-                  {/* عدد الوحدات في الكرتونة */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 12,
+                    background: "var(--sf2)",
+                    padding: 12,
+                    borderRadius: 12,
+                    border: "1px solid var(--line)",
+                    marginBottom: 12,
+                  }}
+                >
+                  <div>
+                    <span
+                      style={{
+                        display: "block",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        marginBottom: 6,
+                        color: "var(--ink2)",
+                      }}
+                    >
+                      نوع طريقة البيع الإضافية (العبوة):
+                    </span>
+                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {SECONDARY_PACKAGING_PRESETS.map((p) => (
+                        <button
+                          key={p.key}
+                          type="button"
+                          className={`${styles.methodCard} ${packMethod === p.key ? styles.active : ""}`}
+                          onClick={() => {
+                            setPackMethod(p.key);
+                            if (p.defaultPack && p.key !== "custom") {
+                              handlePackNChange(p.defaultPack.toString());
+                            }
+                          }}
+                          style={{
+                            padding: "6px 12px",
+                            minWidth: 70,
+                            height: 38,
+                            flexDirection: "row",
+                            gap: 4,
+                          }}
+                        >
+                          <span className={styles.methodTitle}>{p.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {packMethod === "custom" && (
+                    <Field label="اسم طريقة البيع المخصصة (مثال: شيكارة، باكت، دستة)">
+                      <input
+                        type="text"
+                        value={customPackMethod}
+                        onChange={(e) => setCustomPackMethod(e.target.value)}
+                        placeholder="اكتب اسم العبوة (مثال: شيكارة، دستة، طرد)..."
+                        style={{
+                          width: "100%",
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: "1.5px solid var(--line)",
+                        }}
+                      />
+                    </Field>
+                  )}
+
+                  {/* عدد الوحدات في هذه العبوة */}
                   <Field
                     label={
-                      sellingMethod === "piece"
+                      packMethod === "carton" || secondaryPackTitle === "كرتونة"
                         ? "عدد القطع في الكرتونة"
-                        : `عدد الـ ${getUnitPluralLabel(sellingMethod)} في الكرتونة`
+                        : `عدد الـ ${getUnitPluralLabel(sellingMethod)} في ${secondaryPackTitle}`
                     }
                     err={errors.packN}
                   >
@@ -1509,9 +1665,17 @@ export function ProductFormModal({
                     </div>
                   </Field>
 
-                  {/* سعر الكرتونة */}
-                  <div className={styles.priceCardGroup}>
-                    <div className={styles.priceCardTitle}>سعر الكرتونة</div>
+                  {/* سعر العبوة */}
+                  <div
+                    className={styles.priceCardGroup}
+                    style={{ background: "var(--sf)" }}
+                  >
+                    <div className={styles.priceCardTitle}>
+                      {packMethod === "carton" ||
+                      secondaryPackTitle === "كرتونة"
+                        ? "سعر الكرتونة"
+                        : `سعر ${secondaryPackTitle}`}
+                    </div>
                     <div className={styles.priceInputsGrid}>
                       <div className={styles.priceInputCol}>
                         <span className={styles.priceInputLabel}>شراء</span>
@@ -1547,7 +1711,7 @@ export function ProductFormModal({
                       </div>
                     </div>
                   </div>
-                </>
+                </div>
               )}
 
               {/* سعر الوحدة المنفردة */}

@@ -575,7 +575,9 @@ export class InventoryService {
             isCustom: v.storeProduct?.isCustom ?? false,
             flavor: v.flavor,
             unitMode: v.storeProduct?.unit === "kg" ? "weight" : "piece",
+            unit: v.storeProduct?.unit ?? "piece",
             packQty: v.packQty,
+            packName: v.sizeUnit ?? null,
             sellPricePiasters: Number(v.sellPricePiasters),
             buyPricePiasters: v.buyPricePiasters
               ? Number(v.buyPricePiasters)

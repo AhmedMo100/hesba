@@ -55,6 +55,8 @@ interface DisplaySaleItem {
   isService?: boolean;
   category?: string;
   brandName?: string | null;
+  unit?: string;
+  packName?: string | null;
 }
 
 const STORAGE_KEY_PREFIX = "hesba_sales_records";
@@ -85,6 +87,29 @@ function formatCairoTime(ts: number): string {
   }
 }
 
+function getPackLabel(packName?: string | null, packQty?: number): string {
+  if (packName) {
+    const p = packName.toLowerCase();
+    if (p === "dozen" || p === "دستة" || packQty === 12) return "دستة";
+    if (p === "carton" || p === "كرتونة") return "كرتونة";
+    if (p === "bag" || p === "كيس") return "كيس";
+    if (p === "box" || p === "علبة") return "علبة";
+    return packName;
+  }
+  if (packQty === 12) return "دستة";
+  return "كرتونة";
+}
+
+function getUnitWord(u?: string): string {
+  const val = (u || "").toLowerCase();
+  if (val === "can" || val === "علبة") return "علبة";
+  if (val === "jar" || val === "برطمان") return "برطمان";
+  if (val === "bag" || val === "كيس") return "كيس";
+  if (val === "carton" || val === "كرتونة") return "كرتونة";
+  if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
+  return "قطعة";
+}
+
 function formatStockText(item: DisplaySaleItem): string {
   if (item.isService) {
     return item.brandName ? `ماكينة ${item.brandName}` : "خدمة دفع فورية";
@@ -102,20 +127,22 @@ function formatStockText(item: DisplaySaleItem): string {
     return `${item.currentStockBase} جرام`;
   }
 
+  const unitWord = getUnitWord(item.unit);
   const packQty = item.packQty || 1;
+  const packLabel = getPackLabel(item.packName, item.packQty);
   if (packQty > 1) {
     const cartons = Math.floor(item.currentStockBase / packQty);
     const pieces = item.currentStockBase % packQty;
     if (cartons > 0 && pieces > 0) {
-      return `${cartons} كرتونة و ${pieces} قطعة`;
+      return `${cartons} ${packLabel} و ${pieces} ${unitWord}`;
     }
     if (cartons > 0) {
-      return `${cartons} كرتونة`;
+      return `${cartons} ${packLabel}`;
     }
-    return `${pieces} قطعة`;
+    return `${pieces} ${unitWord}`;
   }
 
-  return `${item.currentStockBase} قطعة`;
+  return `${item.currentStockBase} ${unitWord}`;
 }
 
 function loadInitialData(storeId?: string): {
@@ -394,7 +421,9 @@ export function SalesView() {
         name: inv.productName,
         sellPricePiasters: inv.sellPricePiasters,
         unitMode: inv.unitMode,
+        unit: inv.unit,
         packQty: inv.packQty || 1,
+        packName: inv.packName,
         currentStockBase: inv.currentStockBase,
         status: inv.currentStockBase <= 0 ? "out" : inv.status || "ok",
         isService: false,
@@ -732,6 +761,17 @@ export function SalesView() {
       // Ignore offline
     }
 
+    // 5. Delete sale from server Postgres DB
+    try {
+      for (const sid of saleIds) {
+        void fetch(`/api/sales?id=${sid}`, { method: "DELETE" }).catch(
+          () => {},
+        );
+      }
+    } catch {
+      // Ignore offline
+    }
+
     setActiveToast(null);
   };
 
@@ -865,15 +905,16 @@ export function SalesView() {
     });
   };
 
-  // Sell full carton
+  // Sell full carton / pack
   const handleSellCarton = (e: React.MouseEvent, item: DisplaySaleItem) => {
     e.stopPropagation();
     const packQty = item.packQty || 1;
+    const packLabel = getPackLabel(item.packName, item.packQty);
 
     if (item.currentStockBase < packQty) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
-        msg: `مفيش كرتونة كاملة من «${item.name}» — المتاح ${item.currentStockBase} قطعة فقط`,
+        msg: `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
         undoIds: [],
         type: "error",
       });
@@ -886,7 +927,7 @@ export function SalesView() {
       item,
       quantityBase: packQty,
       amountPiasters: cartonPricePiasters,
-      label: "1 كرتونة",
+      label: `1 ${packLabel}`,
       isCarton: true,
     });
   };
@@ -1121,17 +1162,17 @@ export function SalesView() {
                     <span className={styles.tS}>{formatStockText(item)}</span>
                   </button>
 
-                  {/* Carton Button matching Image 1 */}
+                  {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
                   {hasCartonBtn && (
                     <button
                       type="button"
                       className={styles.tPack}
                       onClick={(e) => handleSellCarton(e, item)}
-                      title={`بيع كرتونة ${item.packQty} قطعة`}
-                      aria-label={`بيع كرتونة ${item.name}`}
+                      title={`بيع ${getPackLabel(item.packName, item.packQty)} (${item.packQty} قطعة)`}
+                      aria-label={`بيع ${getPackLabel(item.packName, item.packQty)} ${item.name}`}
                     >
                       <Icon n="box" s={16} />
-                      <span>كرتونة</span>
+                      <span>{getPackLabel(item.packName, item.packQty)}</span>
                     </button>
                   )}
                 </div>

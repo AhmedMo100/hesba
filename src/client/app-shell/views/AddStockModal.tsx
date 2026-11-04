@@ -6,18 +6,25 @@ import { formatMoney } from "../../shared/i18n";
 import { ProductFormModal } from "./ProductFormModal";
 import type { StoreProductItem } from "./ProductsView";
 import { isServiceProduct } from "./ProductsView";
+import {
+  getCachedCustomTaxonomy,
+  fetchCustomTaxonomy,
+  saveCustomTaxonomy,
+} from "./customTaxonomy";
 import styles from "./ProductsView.module.css";
 
 export type StockSellingMethod =
-  "piece" | "can" | "jar" | "bag" | "carton" | "weight";
+  "piece" | "can" | "jar" | "bag" | "carton" | "weight" | "custom" | string;
 
-export function resolveSellingMethod(u?: string): StockSellingMethod {
+export function resolveSellingMethod(u?: string): string {
   const val = (u || "").toLowerCase();
   if (val === "weight" || val === "kg" || val === "g") return "weight";
   if (val === "can" || val === "علبة") return "can";
   if (val === "jar" || val === "برطمان") return "jar";
   if (val === "bag" || val === "كيس") return "bag";
   if (val === "carton" || val === "كرتونة") return "carton";
+  if (val === "piece" || val === "قطعة" || val === "unit") return "piece";
+  if (val) return val;
   return "piece";
 }
 
@@ -153,10 +160,51 @@ export function AddStockModal({
     selectedOption?.category === "كروت شحن" ||
     selectedOption?.category === "كروت مرافق";
 
-  // طريقة البيع: قطعة، علبة، برطمان، كيس، كرتونة، وزن
+  // طريقة البيع: قطعة، علبة، برطمان، كيس، كرتونة، وزن، أو أي طريقة مخصصة
   const [sellingMethod, setSellingMethod] = useState<StockSellingMethod>(() => {
     return resolveSellingMethod(targetProduct?.unit || initialOption?.unit);
   });
+  const [customSellingMethod, setCustomSellingMethod] = useState("");
+
+  const [customTaxonomy, setCustomTaxonomy] = useState(() =>
+    getCachedCustomTaxonomy(),
+  );
+
+  useEffect(() => {
+    void fetchCustomTaxonomy().then(setCustomTaxonomy);
+    const handleTaxonomyUpdate = () => {
+      setCustomTaxonomy(getCachedCustomTaxonomy());
+    };
+    window.addEventListener(
+      "hesba_custom_taxonomy_updated",
+      handleTaxonomyUpdate,
+    );
+    return () => {
+      window.removeEventListener(
+        "hesba_custom_taxonomy_updated",
+        handleTaxonomyUpdate,
+      );
+    };
+  }, []);
+
+  const availableSellingMethods = useMemo(() => {
+    const base = [
+      { key: "piece", label: "قطعة", icon: "box" },
+      { key: "can", label: "علبة", icon: "box" },
+      { key: "jar", label: "برطمان", icon: "box" },
+      { key: "bag", label: "كيس", icon: "layers" },
+      { key: "carton", label: "كرتونة", icon: "store" },
+      { key: "weight", label: "وزن", icon: "scale" },
+    ];
+    const customs = customTaxonomy.customSellingMethods
+      .filter((m) => !base.some((b) => b.key === m || b.label === m))
+      .map((m) => ({ key: m, label: m, icon: "box" }));
+    return [
+      ...base,
+      ...customs,
+      { key: "custom", label: "أخرى", icon: "plus" },
+    ];
+  }, [customTaxonomy.customSellingMethods]);
 
   const isInitialWeight = sellingMethod === "weight";
 
@@ -197,23 +245,28 @@ export function AddStockModal({
       if (val === "carton" || val === "كرتونة") return "كرتونة";
       if (val === "weight" || val === "kg" || val === "g") return "كجم";
       if (isCard) return "كارت";
+      if (val === "custom") return customSellingMethod.trim() || "وحدة";
       if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
       return "قطعة";
     },
-    [isCard],
+    [isCard, customSellingMethod],
   );
 
-  const getProductPluralUnitWord = (u?: string) => {
-    const val = (u || "").toLowerCase();
-    if (val === "can" || val === "علبة") return "علب";
-    if (val === "jar" || val === "برطمان") return "برطمانات";
-    if (val === "bag" || val === "كيس") return "أكياس";
-    if (val === "carton" || val === "كرتونة") return "كراتين";
-    if (val === "weight" || val === "kg" || val === "g") return "كجم";
-    if (isCard) return "كروت";
-    if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
-    return "قطع";
-  };
+  const getProductPluralUnitWord = useCallback(
+    (u?: string) => {
+      const val = (u || "").toLowerCase();
+      if (val === "can" || val === "علبة") return "علب";
+      if (val === "jar" || val === "برطمان") return "برطمانات";
+      if (val === "bag" || val === "كيس") return "أكياس";
+      if (val === "carton" || val === "كرتونة") return "كراتين";
+      if (val === "weight" || val === "kg" || val === "g") return "كجم";
+      if (isCard) return "كروت";
+      if (val === "custom") return customSellingMethod.trim() || "وحدات";
+      if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
+      return "قطع";
+    },
+    [isCard, customSellingMethod],
+  );
 
   const formatOptionStock = (opt?: StockProductOption) => {
     if (!opt) return "—";
@@ -403,6 +456,10 @@ export function AddStockModal({
       newErrors.product = "اختر المنتج أولاً";
     }
 
+    if (sellingMethod === "custom" && !customSellingMethod.trim()) {
+      newErrors.customSellingMethod = "اكتب اسم طريقة البيع أولاً";
+    }
+
     if (totalBaseQty <= 0) {
       newErrors.qty =
         sellingMethod === "weight"
@@ -479,7 +536,9 @@ export function AddStockModal({
             unit:
               sellingMethod === "weight"
                 ? weightUnit
-                : targetProduct.unit || sellingMethod || "piece",
+                : sellingMethod === "custom"
+                  ? customSellingMethod.trim()
+                  : targetProduct.unit || sellingMethod || "piece",
             sellPricePiasters:
               targetProduct.sell_price_piasters > 0
                 ? targetProduct.sell_price_piasters
@@ -518,6 +577,12 @@ export function AddStockModal({
         if (!targetVariantId) {
           throw new Error("تعذر تحديد معرّف الصنف في المخزون");
         }
+      }
+
+      if (sellingMethod === "custom" && customSellingMethod.trim()) {
+        void saveCustomTaxonomy({
+          newSellingMethod: customSellingMethod.trim(),
+        });
       }
 
       const payload = {
@@ -846,67 +911,96 @@ export function AddStockModal({
                   طريقة البيع والكمية المدخلة:
                 </span>
                 <div className={styles.sellingMethodsGrid}>
-                  <button
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === "piece" ? styles.active : ""}`}
-                    onClick={() => setSellingMethod("piece")}
-                    aria-label="قطعة"
-                    title="بالقطعة"
-                  >
-                    <Icon n="box" s={18} />
-                    <span className={styles.methodTitle}>قطعة</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === "can" ? styles.active : ""}`}
-                    onClick={() => setSellingMethod("can")}
-                    aria-label="علبة"
-                    title="بالعلبة"
-                  >
-                    <Icon n="box" s={18} />
-                    <span className={styles.methodTitle}>علبة</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === "jar" ? styles.active : ""}`}
-                    onClick={() => setSellingMethod("jar")}
-                    aria-label="برطمان"
-                    title="بالبرطمان"
-                  >
-                    <Icon n="box" s={18} />
-                    <span className={styles.methodTitle}>برطمان</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === "bag" ? styles.active : ""}`}
-                    onClick={() => setSellingMethod("bag")}
-                    aria-label="كيس"
-                    title="بالكيس"
-                  >
-                    <Icon n="layers" s={18} />
-                    <span className={styles.methodTitle}>كيس</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === "carton" ? styles.active : ""}`}
-                    onClick={() => setSellingMethod("carton")}
-                    aria-label="كرتونة"
-                    title="بالكرتونة"
-                  >
-                    <Icon n="store" s={18} />
-                    <span className={styles.methodTitle}>كرتونة</span>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === "weight" ? styles.active : ""}`}
-                    onClick={() => setSellingMethod("weight")}
-                    aria-label="وزن"
-                    title="بالوزن"
-                  >
-                    <Icon n="scale" s={18} />
-                    <span className={styles.methodTitle}>وزن</span>
-                  </button>
+                  {availableSellingMethods.map((m) => {
+                    const isSelected =
+                      sellingMethod === m.key ||
+                      (m.key === "custom" &&
+                        sellingMethod !== "piece" &&
+                        sellingMethod !== "can" &&
+                        sellingMethod !== "jar" &&
+                        sellingMethod !== "bag" &&
+                        sellingMethod !== "carton" &&
+                        sellingMethod !== "weight" &&
+                        !customTaxonomy.customSellingMethods.includes(
+                          sellingMethod,
+                        ));
+                    const titleText =
+                      m.key === "piece"
+                        ? "بالقطعة"
+                        : m.key === "weight"
+                          ? "بالوزن"
+                          : m.key === "bag"
+                            ? "بالكيس"
+                            : m.key === "can"
+                              ? "بالعلبة"
+                              : m.key === "jar"
+                                ? "بالبرطمان"
+                                : m.key === "carton"
+                                  ? "بالكرتونة"
+                                  : m.label;
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        className={`${styles.methodCard} ${isSelected ? styles.active : ""}`}
+                        onClick={() => {
+                          setSellingMethod(m.key);
+                          if (m.key !== "custom") {
+                            setCustomSellingMethod("");
+                          }
+                        }}
+                        aria-label={m.label}
+                        title={titleText}
+                      >
+                        <Icon
+                          n={m.icon as Parameters<typeof Icon>[0]["n"]}
+                          s={18}
+                        />
+                        <span className={styles.methodTitle}>{m.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+
+                {(sellingMethod === "custom" ||
+                  (!["piece", "can", "jar", "bag", "carton", "weight"].includes(
+                    sellingMethod,
+                  ) &&
+                    !customTaxonomy.customSellingMethods.includes(
+                      sellingMethod,
+                    ))) && (
+                  <div style={{ marginTop: 8 }}>
+                    <Field
+                      label="اكتب طريقة البيع الجديدة"
+                      err={errors.customSellingMethod}
+                    >
+                      <input
+                        type="text"
+                        placeholder="مثلاً: لتر، متر، دستة، برميل، شنطة..."
+                        value={customSellingMethod}
+                        onChange={(e) => {
+                          setCustomSellingMethod(e.target.value);
+                          if (errors.customSellingMethod) {
+                            setErrors((prev) => ({
+                              ...prev,
+                              customSellingMethod: "",
+                            }));
+                          }
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          borderRadius: 10,
+                          border: "1.5px solid var(--line)",
+                          fontSize: 14,
+                          background: "var(--sf)",
+                          color: "var(--ink)",
+                          boxSizing: "border-box",
+                        }}
+                      />
+                    </Field>
+                  </div>
+                )}
               </div>
 
               {sellingMethod === "weight" ? (

@@ -34,6 +34,8 @@ export interface StockInventoryItem {
   currentStockBase: number;
   status: "ok" | "low" | "out";
   hasNearExpiry: boolean;
+  unit?: string;
+  packName?: string | null;
   batches: Array<{
     id: string;
     batchCode?: string | null;
