@@ -118,7 +118,7 @@ describe("POS Machines & Topups API Integration", () => {
     }
   });
 
-  it("GET /api/machines auto-initializes standard default machines for a new store", async () => {
+  it("GET /api/machines returns empty list for a new store with no machines yet", async () => {
     const sessionA = await createSession(userAId, storeAId);
 
     const req = new Request("http://localhost:3000/api/machines", {
@@ -130,31 +130,18 @@ describe("POS Machines & Topups API Integration", () => {
 
     const data = await res.json();
     expect(Array.isArray(data.machines)).toBe(true);
-    expect(data.machines.length).toBeGreaterThanOrEqual(2);
-
-    const fawry = data.machines.find(
-      (m: { provider: string }) => m.provider === "فوري (Fawry)",
-    );
-    expect(fawry).toBeDefined();
-    expect(fawry.currentBalancePiasters).toBe(250000);
-    expect(fawry.balanceTransactions.length).toBeGreaterThanOrEqual(1);
-
-    const aman = data.machines.find(
-      (m: { provider: string }) => m.provider === "أمان (Aman)",
-    );
-    expect(aman).toBeDefined();
-    expect(aman.currentBalancePiasters).toBe(120000);
+    expect(data.machines.length).toBe(0);
   });
 
-  it("POST /api/machines creates a new custom POS machine", async () => {
+  it("POST /api/machines creates a new custom POS machine for the store", async () => {
     const sessionA = await createSession(userAId, storeAId);
 
     const payload = {
-      name: "ماكينة بي إضافية",
-      provider: "بي (Bee)",
-      terminalId: "BEE-POS-99",
+      name: "ماكينة فوري خاصة بالمتجر",
+      provider: "فوري (Fawry)",
+      terminalId: "FAWRY-POS-99",
       status: "active",
-      notes: "ماكينة إضافية لكروت الشحن",
+      notes: "ماكينة الكاشير الأساسية لخدمات الدفع والشحن",
     };
 
     const req = new Request("http://localhost:3000/api/machines", {
@@ -170,7 +157,7 @@ describe("POS Machines & Topups API Integration", () => {
     expect(res.status).toBe(201);
 
     const data = await res.json();
-    expect(data.machine.name).toBe("ماكينة بي إضافية");
+    expect(data.machine.name).toBe("ماكينة فوري خاصة بالمتجر");
     expect(data.machine.currentBalancePiasters).toBe(0);
     expect(data.machine.id).toBeDefined();
   });
@@ -178,17 +165,18 @@ describe("POS Machines & Topups API Integration", () => {
   it("POST /api/machines/topup deposits balance and updates running balance atomically", async () => {
     const sessionA = await createSession(userAId, storeAId);
 
-    // Get current Fawry machine
+    // Get current machine created by Store A
     const listReq = new Request("http://localhost:3000/api/machines", {
       headers: { cookie: `hesba_session=${sessionA.rawToken}` },
     });
     const listRes = await getMachinesRoute(listReq);
     const listData = await listRes.json();
-    const fawry = listData.machines.find(
+    const targetMachine = listData.machines.find(
       (m: { provider: string }) => m.provider === "فوري (Fawry)",
     );
+    expect(targetMachine).toBeDefined();
 
-    const initialBalance = fawry.currentBalancePiasters;
+    const initialBalance = targetMachine.currentBalancePiasters;
     const topupAmount = 50000; // 500 EGP
 
     const topupReq = new Request("http://localhost:3000/api/machines/topup", {
@@ -198,7 +186,7 @@ describe("POS Machines & Topups API Integration", () => {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        machineId: fawry.id,
+        machineId: targetMachine.id,
         amountPiasters: topupAmount,
         source: "فودافون كاش",
         reference: "VOD-TOPUP-123",

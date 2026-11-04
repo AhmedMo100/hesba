@@ -19,7 +19,7 @@ export interface MachineTopupModalProps {
 
 export function MachineTopupModal({
   machine,
-  storeId = "default",
+  storeId,
   onClose,
   onSuccess,
 }: MachineTopupModalProps) {

@@ -9,6 +9,7 @@ import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "./AddStockModal";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
 import { getStoredMachines, fetchStoreMachines } from "../../shared/machines";
+import { useAuth } from "../../shared/auth";
 import styles from "./ProductsView.module.css";
 
 export interface StoreProductItem {
@@ -186,22 +187,24 @@ export function ProductsView() {
   const [editingProduct, setEditingProduct] = useState<StoreProductItem | null>(
     null,
   );
+  const { session } = useAuth();
+  const storeId = session?.store?.id;
+
   const [stockModalProduct, setStockModalProduct] =
     useState<StoreProductItem | null>(null);
   const [isMachinesModalOpen, setIsMachinesModalOpen] = useState(false);
   const [machineAssignProduct, setMachineAssignProduct] =
     useState<StoreProductItem | null>(null);
   const [posMachines, setPosMachines] = useState<PosMachine[]>(() => {
-    return getStoredMachines();
+    return getStoredMachines(storeId);
   });
   const [assignedMachines, setAssignedMachines] = useState<
     Record<string, string>
   >(() => {
     if (typeof window === "undefined") return {};
     try {
-      const savedAssigned = localStorage.getItem(
-        "hesba_service_machines_default",
-      );
+      const storageKey = `hesba_service_machines_${storeId || "default"}`;
+      const savedAssigned = localStorage.getItem(storageKey);
       return savedAssigned ? JSON.parse(savedAssigned) : {};
     } catch {
       return {};
@@ -212,11 +215,26 @@ export function ProductsView() {
     return typeof navigator !== "undefined" ? navigator.onLine : true;
   });
 
+  // Re-sync assigned machines when active store changes
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storageKey = `hesba_service_machines_${storeId || "default"}`;
+    const timer = setTimeout(() => {
+      try {
+        const savedAssigned = localStorage.getItem(storageKey);
+        setAssignedMachines(savedAssigned ? JSON.parse(savedAssigned) : {});
+      } catch {
+        setAssignedMachines({});
+      }
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [storeId]);
+
   // Check online status listeners & fetch POS machines from DB
   useEffect(() => {
     let isMounted = true;
-    void fetchStoreMachines().then((remote) => {
-      if (isMounted && remote && remote.length > 0) {
+    void fetchStoreMachines(storeId).then((remote) => {
+      if (isMounted && remote) {
         setPosMachines(remote);
       }
     });
@@ -228,7 +246,7 @@ export function ProductsView() {
       window.addEventListener("offline", onOff);
 
       const handleMachinesUpdated = () => {
-        setPosMachines(getStoredMachines());
+        setPosMachines(getStoredMachines(storeId));
       };
       window.addEventListener("hesba_machines_updated", handleMachinesUpdated);
 
@@ -242,7 +260,7 @@ export function ProductsView() {
         );
       };
     }
-  }, []);
+  }, [storeId]);
 
   // Close card menu on outside click
   useEffect(() => {
@@ -264,10 +282,8 @@ export function ProductsView() {
     }
     setAssignedMachines(updated);
     try {
-      localStorage.setItem(
-        "hesba_service_machines_default",
-        JSON.stringify(updated),
-      );
+      const storageKey = `hesba_service_machines_${storeId || "default"}`;
+      localStorage.setItem(storageKey, JSON.stringify(updated));
     } catch {
       // Ignore
     }
@@ -1474,6 +1490,7 @@ export function ProductsView() {
       {/* POS Machines & Providers Management Modal */}
       {isMachinesModalOpen && (
         <MachinesModal
+          storeId={storeId}
           onClose={() => setIsMachinesModalOpen(false)}
           onMachinesUpdated={(updated) => setPosMachines(updated)}
         />

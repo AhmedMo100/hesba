@@ -29,7 +29,7 @@ export class MachinesService {
 
   /**
    * Returns all active POS machines for the tenant store.
-   * Auto-initializes standard default machines if none exist yet.
+   * If the store hasn't added any machines yet, returns an empty list.
    */
   async getStoreMachines(
     storeId: string,
@@ -39,7 +39,7 @@ export class MachinesService {
       storeId,
       userId,
       async (tx) => {
-        let machines = await tx.posMachine.findMany({
+        const machines = await tx.posMachine.findMany({
           where: { storeId, deletedAt: null },
           include: {
             topups: {
@@ -49,68 +49,6 @@ export class MachinesService {
           },
           orderBy: { createdAt: "asc" },
         });
-
-        // Auto-seed default machines for new stores
-        if (machines.length === 0) {
-          const fawry = await tx.posMachine.create({
-            data: {
-              storeId,
-              name: "ماكينة فوري الرئيسية",
-              provider: "فوري (Fawry)",
-              terminalId: "FAWRY-POS-01",
-              status: "active",
-              notes: "ماكينة الكاشير الأساسية لخدمات الدفع والشحن",
-              currentBalancePiasters: BigInt(250000),
-            },
-          });
-
-          await tx.posMachineTopup.create({
-            data: {
-              storeId,
-              machineId: fawry.id,
-              amountPiasters: BigInt(250000),
-              balanceAfterPiasters: BigInt(250000),
-              source: "إيداع رصيد البداية - خزينة المحل",
-              reference: "DEP-INIT-001",
-              notes: "رصيد افتتاح الماكينة",
-            },
-          });
-
-          const aman = await tx.posMachine.create({
-            data: {
-              storeId,
-              name: "ماكينة أمان",
-              provider: "أمان (Aman)",
-              terminalId: "AMAN-POS-02",
-              status: "active",
-              notes: "ماكينة ثانوية لفواتير الكهرباء والمرافق",
-              currentBalancePiasters: BigInt(120000),
-            },
-          });
-
-          await tx.posMachineTopup.create({
-            data: {
-              storeId,
-              machineId: aman.id,
-              amountPiasters: BigInt(120000),
-              balanceAfterPiasters: BigInt(120000),
-              source: "شحن رصيد - فودافون كاش",
-              reference: "AMAN-DEP-992",
-              notes: "شحن رصيد عمل فواتير",
-            },
-          });
-
-          machines = await tx.posMachine.findMany({
-            where: { storeId, deletedAt: null },
-            include: {
-              topups: {
-                orderBy: { createdAt: "desc" },
-                take: 20,
-              },
-            },
-            orderBy: { createdAt: "asc" },
-          });
-        }
 
         return machines.map((m) => ({
           id: m.id,

@@ -12,6 +12,7 @@ import {
   getStoredMachines,
   fetchStoreMachines,
 } from "../../shared/machines";
+import { useAuth } from "../../shared/auth";
 import { MachineTopupModal } from "./MachineTopupModal";
 import type { StoreProductItem } from "./ProductsView";
 import styles from "./StockView.module.css";
@@ -176,24 +177,27 @@ export function StockView() {
 
   const [delBatch, setDelBatch] = useState<StockMovementItem | null>(null);
 
+  const { session } = useAuth();
+  const storeId = session?.store?.id;
+
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [movements, setMovements] = useState<StockMovementItem[]>([]);
   const [machines, setMachines] = useState<PosMachine[]>(() => {
-    return getStoredMachines();
+    return getStoredMachines(storeId);
   });
   const [topupMachine, setTopupMachine] = useState<PosMachine | null>(null);
 
   // Listen for pos machine updates across tabs and views & fetch from DB
   useEffect(() => {
     let isMounted = true;
-    void fetchStoreMachines().then((remote) => {
-      if (isMounted && remote && remote.length > 0) {
+    void fetchStoreMachines(storeId).then((remote) => {
+      if (isMounted && remote) {
         setMachines(remote);
       }
     });
 
     const handleMachinesUpdate = () => {
-      setMachines(getStoredMachines());
+      setMachines(getStoredMachines(storeId));
     };
     if (typeof window !== "undefined") {
       window.addEventListener("hesba_machines_updated", handleMachinesUpdate);
@@ -205,7 +209,7 @@ export function StockView() {
         );
       };
     }
-  }, []);
+  }, [storeId]);
 
   const loadData = useCallback(async () => {
     try {
@@ -640,42 +644,72 @@ export function StockView() {
             </div>
 
             <div className={styles.machinesList}>
-              {machines.map((m) => (
-                <div key={m.id} className={styles.machineCard}>
-                  <div className={styles.machineCardInfo}>
-                    <div className={styles.machineCardTitleRow}>
-                      <span className={styles.machineName}>{m.name}</span>
-                      <span className={styles.machineProviderBadge}>
-                        {m.provider}
-                      </span>
-                    </div>
-                    {m.terminalId && (
-                      <span className={styles.machineMeta}>
-                        معرف: {m.terminalId}
-                      </span>
-                    )}
-                  </div>
-
-                  <div className={styles.machineCardActions}>
-                    <div className={styles.machineBalanceCol}>
-                      <span className={styles.machineBalanceLabel}>
-                        الرصيد المتاح
-                      </span>
-                      <b className={styles.machineBalanceValue}>
-                        {formatMoney(m.currentBalancePiasters || 0)}
-                      </b>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.machineTopupBtn}
-                      onClick={() => setTopupMachine(m)}
-                    >
-                      <Icon n="plus" s={14} />
-                      <span>شحن رصيد</span>
-                    </button>
-                  </div>
+              {machines.length === 0 ? (
+                <div
+                  style={{
+                    padding: "20px 16px",
+                    textAlign: "center",
+                    color: "var(--color-text-secondary, #666)",
+                    fontSize: "0.88rem",
+                    backgroundColor: "var(--color-bg-subtle, #f9fafb)",
+                    borderRadius: "10px",
+                    border: "1px dashed var(--color-border, #e5e7eb)",
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "6px",
+                  }}
+                >
+                  <Icon n="store" s={24} />
+                  <span>لا توجد ماكينات دفع مسجلة لهذا المتجر</span>
+                  <span
+                    style={{
+                      fontSize: "0.78rem",
+                      color: "var(--color-text-tertiary, #999)",
+                    }}
+                  >
+                    يمكنك إضافة ماكينات الدفع المخصصة لمتجرك من قسم الفواتير
+                    والشحن في صفحة المنتجات
+                  </span>
                 </div>
-              ))}
+              ) : (
+                machines.map((m) => (
+                  <div key={m.id} className={styles.machineCard}>
+                    <div className={styles.machineCardInfo}>
+                      <div className={styles.machineCardTitleRow}>
+                        <span className={styles.machineName}>{m.name}</span>
+                        <span className={styles.machineProviderBadge}>
+                          {m.provider}
+                        </span>
+                      </div>
+                      {m.terminalId && (
+                        <span className={styles.machineMeta}>
+                          معرف: {m.terminalId}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className={styles.machineCardActions}>
+                      <div className={styles.machineBalanceCol}>
+                        <span className={styles.machineBalanceLabel}>
+                          الرصيد المتاح
+                        </span>
+                        <b className={styles.machineBalanceValue}>
+                          {formatMoney(m.currentBalancePiasters || 0)}
+                        </b>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles.machineTopupBtn}
+                        onClick={() => setTopupMachine(m)}
+                      >
+                        <Icon n="plus" s={14} />
+                        <span>شحن رصيد</span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
         </div>
@@ -942,9 +976,10 @@ export function StockView() {
       {topupMachine && (
         <MachineTopupModal
           machine={topupMachine}
+          storeId={storeId}
           onClose={() => setTopupMachine(null)}
           onSuccess={() => {
-            setMachines(getStoredMachines());
+            setMachines(getStoredMachines(storeId));
           }}
         />
       )}

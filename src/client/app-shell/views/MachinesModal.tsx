@@ -33,7 +33,7 @@ export interface MachinesModalProps {
 }
 
 export function MachinesModal({
-  storeId = "default",
+  storeId,
   onClose,
   onMachinesUpdated,
 }: MachinesModalProps) {
@@ -44,7 +44,7 @@ export function MachinesModal({
   useEffect(() => {
     let isMounted = true;
     void fetchStoreMachines(storeId).then((remote) => {
-      if (isMounted && remote && remote.length > 0) {
+      if (isMounted && remote) {
         setMachines(remote);
         if (onMachinesUpdated) {
           onMachinesUpdated(remote);

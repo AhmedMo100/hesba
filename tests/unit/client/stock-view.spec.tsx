@@ -38,14 +38,11 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
     expect(html).toContain("خلصان (0)");
   });
 
-  it("renders POS payment machines section in Inventory with provider balances", () => {
+  it("renders POS payment machines section in Inventory with empty state or provider balances", () => {
     const html = renderToStaticMarkup(<StockView />);
     expect(html).toContain('data-testid="stock-pos-machines-section"');
     expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة");
-    expect(html).toContain("ماكينة فوري الرئيسية");
-    expect(html).toContain("ماكينة أمان");
-    expect(html).toContain("الرصيد المتاح");
-    expect(html).toContain("شحن رصيد");
+    expect(html).toContain("لا توجد ماكينات دفع مسجلة لهذا المتجر");
   });
 
   it("renders separated stock valuation card at the bottom of the page", () => {

@@ -65,3 +65,4 @@ CREATE POLICY "pos_machine_topups_migrator_all" ON "pos_machine_topups"
     AS PERMISSIVE FOR ALL TO hesba_migrator USING (true) WITH CHECK (true);
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON "pos_machine_topups" TO hesba_app;
+

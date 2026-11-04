@@ -25,95 +25,62 @@ export interface PosMachine {
 
 const STORAGE_KEY_PREFIX = "hesba_pos_machines_v2";
 
-export function getMachineStorageKey(storeId?: string): string {
-  if (!storeId || storeId === "default") {
-    return STORAGE_KEY_PREFIX;
-  }
-  return `${STORAGE_KEY_PREFIX}_${storeId}`;
+/**
+ * Resolves current active store ID from session storage or auth cache.
+ */
+export function getActiveStoreId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const fromSession = window.sessionStorage?.getItem(
+      "hesba_current_store_id",
+    );
+    if (fromSession) return fromSession;
+
+    const testSession = window.localStorage?.getItem("hesba_test_session");
+    if (testSession) {
+      const parsed = JSON.parse(testSession);
+      if (parsed?.store?.id) return parsed.store.id;
+    }
+  } catch {}
+  return undefined;
 }
 
-export const DEFAULT_MACHINES: PosMachine[] = [
-  {
-    id: "mach-1",
-    name: "ماكينة فوري الرئيسية",
-    provider: "فوري (Fawry)",
-    terminalId: "FAWRY-POS-01",
-    status: "active",
-    notes: "ماكينة الكاشير الأساسية لخدمات الدفع والشحن",
-    currentBalancePiasters: 250000, // 2,500.00 EGP
-    balanceTransactions: [
-      {
-        id: "tx-init-1",
-        type: "deposit",
-        amountPiasters: 250000,
-        balanceAfterPiasters: 250000,
-        source: "إيداع رصيد البداية - خزينة المحل",
-        reference: "DEP-INIT-001",
-        notes: "رصيد افتتاح الماكينة",
-        createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-      },
-    ],
-    createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-  },
-  {
-    id: "mach-2",
-    name: "ماكينة أمان",
-    provider: "أمان (Aman)",
-    terminalId: "AMAN-POS-02",
-    status: "active",
-    notes: "ماكينة ثانوية لفواتير الكهرباء والمرافق",
-    currentBalancePiasters: 120000, // 1,200.00 EGP
-    balanceTransactions: [
-      {
-        id: "tx-init-2",
-        type: "deposit",
-        amountPiasters: 120000,
-        balanceAfterPiasters: 120000,
-        source: "شحن رصيد - فودافون كاش",
-        reference: "AMAN-DEP-992",
-        notes: "شحن رصيد عمل فواتير",
-        createdAt: new Date(Date.now() - 86400000).toISOString(),
-      },
-    ],
-    createdAt: new Date(Date.now() - 86400000).toISOString(),
-  },
-];
+export function getMachineStorageKey(storeId?: string): string {
+  const effectiveStoreId =
+    storeId && storeId !== "default" ? storeId : getActiveStoreId();
+  if (!effectiveStoreId) {
+    return `${STORAGE_KEY_PREFIX}_unscoped`;
+  }
+  return `${STORAGE_KEY_PREFIX}_${effectiveStoreId}`;
+}
+
+export const DEFAULT_MACHINES: PosMachine[] = [];
 
 /**
  * Returns cached POS machines synchronously from localStorage.
+ * If no machines were created for this store yet, returns an empty array [].
  */
 export function getStoredMachines(storeId?: string): PosMachine[] {
   if (typeof window === "undefined" || !window.localStorage) {
-    return DEFAULT_MACHINES;
+    return [];
   }
   try {
     const key = getMachineStorageKey(storeId);
-    let raw = window.localStorage.getItem(key);
-
-    // Auto-migrate legacy storage keys if present
-    if (!raw && (!storeId || storeId === "default")) {
-      const v2Default = window.localStorage.getItem(
-        "hesba_pos_machines_v2_default",
-      );
-      const v1Default = window.localStorage.getItem(
-        "hesba_pos_machines_default",
-      );
-      if (v2Default) {
-        raw = v2Default;
-        window.localStorage.setItem(key, v2Default);
-      } else if (v1Default) {
-        raw = v1Default;
-        window.localStorage.setItem(key, v1Default);
-      }
-    }
+    const raw = window.localStorage.getItem(key);
 
     if (!raw) {
-      window.localStorage.setItem(key, JSON.stringify(DEFAULT_MACHINES));
-      return DEFAULT_MACHINES;
+      return [];
     }
     const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      return parsed.map((m: Partial<PosMachine>) => ({
+    if (Array.isArray(parsed)) {
+      // Purge legacy demo mock machines (mach-1, mach-2) if they were artificially seeded in previous sessions
+      const sanitized = parsed.filter(
+        (m: Partial<PosMachine>) =>
+          !(m.id === "mach-1" && m.terminalId === "FAWRY-POS-01") &&
+          !(m.id === "mach-2" && m.terminalId === "AMAN-POS-02"),
+      );
+
+      return sanitized.map((m: Partial<PosMachine>) => ({
         id: m.id || `mach-${Date.now()}`,
         name: m.name || "ماكينة دفع",
         provider: m.provider || "فوري (Fawry)",
@@ -127,9 +94,9 @@ export function getStoredMachines(storeId?: string): PosMachine[] {
         createdAt: m.createdAt || new Date().toISOString(),
       }));
     }
-    return DEFAULT_MACHINES;
+    return [];
   } catch {
-    return DEFAULT_MACHINES;
+    return [];
   }
 }
 
@@ -164,7 +131,7 @@ export async function fetchStoreMachines(
   storeId?: string,
 ): Promise<PosMachine[]> {
   if (typeof window === "undefined") {
-    return DEFAULT_MACHINES;
+    return [];
   }
 
   try {
@@ -173,7 +140,7 @@ export async function fetchStoreMachines(
       return getStoredMachines(storeId);
     }
     const data = await res.json();
-    if (Array.isArray(data.machines) && data.machines.length > 0) {
+    if (Array.isArray(data.machines)) {
       saveStoredMachines(data.machines, storeId);
       return data.machines;
     }

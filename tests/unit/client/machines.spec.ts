@@ -37,29 +37,30 @@ describe("POS Machines Storage and Topup", () => {
   });
 
   it("normalizes storage key for default and undefined storeId", () => {
-    expect(getMachineStorageKey()).toBe("hesba_pos_machines_v2");
-    expect(getMachineStorageKey(undefined)).toBe("hesba_pos_machines_v2");
-    expect(getMachineStorageKey("default")).toBe("hesba_pos_machines_v2");
+    expect(getMachineStorageKey()).toBe("hesba_pos_machines_v2_unscoped");
+    expect(getMachineStorageKey(undefined)).toBe(
+      "hesba_pos_machines_v2_unscoped",
+    );
+    expect(getMachineStorageKey("default")).toBe(
+      "hesba_pos_machines_v2_unscoped",
+    );
     expect(getMachineStorageKey("store-123")).toBe(
       "hesba_pos_machines_v2_store-123",
     );
   });
 
-  it("initializes with default machines if nothing in storage", () => {
-    const machines = getStoredMachines();
-    expect(machines.length).toBeGreaterThan(0);
-    const first = machines[0];
-    expect(first).toBeDefined();
-    expect(first!.currentBalancePiasters).toBeGreaterThan(0);
+  it("returns empty array for a store with no machines yet", () => {
+    const machines = getStoredMachines("store-empty");
+    expect(machines).toEqual([]);
   });
 
-  it("migrates legacy v2_default and v1_default keys smoothly", () => {
+  it("returns stored machines for a store with saved machines", () => {
     mockStorage.set(
-      "hesba_pos_machines_v2_default",
+      "hesba_pos_machines_v2_store-custom",
       JSON.stringify([
         {
-          id: "mach-legacy",
-          name: "ماكينة قديمة",
+          id: "mach-custom",
+          name: "ماكينة فوري خاصة",
           provider: "فوري",
           currentBalancePiasters: 99000,
           balanceTransactions: [],
@@ -67,16 +68,29 @@ describe("POS Machines Storage and Topup", () => {
       ]),
     );
 
-    const machines = getStoredMachines();
+    const machines = getStoredMachines("store-custom");
     expect(machines).toHaveLength(1);
     const first = machines[0];
     expect(first).toBeDefined();
-    expect(first!.id).toBe("mach-legacy");
+    expect(first!.id).toBe("mach-custom");
     expect(first!.currentBalancePiasters).toBe(99000);
   });
 
   it("adds topup amount correctly in piasters and appends transaction record", () => {
-    const initial = getStoredMachines();
+    mockStorage.set(
+      "hesba_pos_machines_v2_store-topup",
+      JSON.stringify([
+        {
+          id: "mach-100",
+          name: "ماكينة المتجر",
+          provider: "أمان",
+          currentBalancePiasters: 10000,
+          balanceTransactions: [],
+        },
+      ]),
+    );
+
+    const initial = getStoredMachines("store-topup");
     const target = initial[0];
     expect(target).toBeDefined();
     if (!target) return;
@@ -91,7 +105,7 @@ describe("POS Machines Storage and Topup", () => {
         source: "خزينة المحل",
         notes: "شحن رصيد تجريبي",
       },
-      "default",
+      "store-topup",
     );
 
     const updatedTarget = updatedList.find((m) => m.id === target.id);
@@ -105,8 +119,8 @@ describe("POS Machines Storage and Topup", () => {
     expect(tx!.balanceAfterPiasters).toBe(initialBalance + topupAmount);
     expect(tx!.source).toBe("خزينة المحل");
 
-    // Reading with getStoredMachines() with undefined storeId also sees the new balance
-    const refreshed = getStoredMachines();
+    // Reading with getStoredMachines("store-topup") sees updated balance
+    const refreshed = getStoredMachines("store-topup");
     const refreshedTarget = refreshed.find((m) => m.id === target.id);
     expect(refreshedTarget).toBeDefined();
     expect(refreshedTarget!.currentBalancePiasters).toBe(

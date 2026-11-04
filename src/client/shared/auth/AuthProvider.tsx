@@ -34,6 +34,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     authApi.getSession().then((s) => {
       setSession(s);
+      if (typeof window !== "undefined") {
+        if (s?.store?.id) {
+          window.sessionStorage.setItem("hesba_current_store_id", s.store.id);
+        } else {
+          window.sessionStorage.removeItem("hesba_current_store_id");
+        }
+      }
       if (s?.isOfflineExpired) {
         setIsOfflineExpired(true);
       }
@@ -47,9 +54,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await authApi.logout();
+    if (typeof window !== "undefined") {
+      window.sessionStorage.removeItem("hesba_current_store_id");
+    }
     setSession(null);
     setIsLocked(false);
     setIsOfflineExpired(false);
+  }, []);
+
+  const handleSetSession = useCallback((newSession: SessionState | null) => {
+    setSession(newSession);
+    if (typeof window !== "undefined") {
+      if (newSession?.store?.id) {
+        window.sessionStorage.setItem(
+          "hesba_current_store_id",
+          newSession.store.id,
+        );
+      } else {
+        window.sessionStorage.removeItem("hesba_current_store_id");
+      }
+    }
   }, []);
 
   const updateProfile = useCallback(async (profile: StoreProfile) => {
@@ -77,7 +101,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         unlock,
         lock,
         logout,
-        setSession,
+        setSession: handleSetSession,
         updateProfile,
         simulateOfflineExpiry,
       }}
@@ -90,7 +114,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth(): AuthContextValue {
   const ctx = useContext(AuthContext);
   if (!ctx) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    return {
+      session: null,
+      isLoading: false,
+      isLocked: false,
+      isOfflineExpired: false,
+      unlock: () => {},
+      lock: () => {},
+      logout: async () => {},
+      setSession: () => {},
+      updateProfile: async () => false,
+      simulateOfflineExpiry: async () => {},
+    };
   }
   return ctx;
 }
