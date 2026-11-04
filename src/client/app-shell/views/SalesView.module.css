@@ -627,6 +627,15 @@
   animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.toastError {
+  background: #2a1616 !important;
+  border-color: #ef4444 !important;
+}
+
+.toastError .toastMsg {
+  color: #fca5a5 !important;
+}
+
 @keyframes slideUp {
   from {
     opacity: 0;

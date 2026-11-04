@@ -294,6 +294,7 @@ export function SalesView() {
   const [activeToast, setActiveToast] = useState<{
     msg: string;
     undoIds: string[];
+    type?: "success" | "error";
     restoreQty?: { productId: string; variantId?: string; qtyBase: number };
     restoreMachine?: {
       machineId: string;
@@ -303,7 +304,7 @@ export function SalesView() {
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Load Inventory & Products from server / local DB asynchronously
+  // Load Inventory, Products, and Sales from server asynchronously
   useEffect(() => {
     let isMounted = true;
     void Promise.all([
@@ -313,7 +314,10 @@ export function SalesView() {
       fetch("/api/products?filter=all")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-    ]).then(([stockData, prodData]) => {
+      fetch("/api/sales")
+        .then((r) => (r.ok ? r.json() : null))
+        .catch(() => null),
+    ]).then(([stockData, prodData, salesData]) => {
       if (!isMounted) return;
       if (stockData?.inventory) {
         setInventory(stockData.inventory);
@@ -321,6 +325,9 @@ export function SalesView() {
       if (prodData?.products) {
         const allProds: StoreProductItem[] = prodData.products;
         setServices(allProds.filter((p) => isServiceProduct(p)));
+      }
+      if (salesData?.sales && Array.isArray(salesData.sales)) {
+        setSales(salesData.sales);
       }
     });
 
@@ -538,8 +545,9 @@ export function SalesView() {
       // Show toast with Undo
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
-        msg: `${item.name} — ${label} — ${formatMoney(amountPiasters)}`,
+        msg: `تم تسجيل بيع: ${item.name} (${label}) بـ ${formatMoney(amountPiasters)}`,
         undoIds: [newSaleId],
+        type: "success",
         restoreQty: !item.isService
           ? {
               productId: item.productId,
@@ -552,6 +560,31 @@ export function SalesView() {
       toastTimerRef.current = setTimeout(() => {
         setActiveToast(null);
       }, 4800);
+
+      // Persist sale in server Postgres DB under tenant isolation
+      try {
+        void fetch("/api/sales", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: newSaleId,
+            productId: item.productId,
+            variantId: item.variantId,
+            name: item.name,
+            quantityBase,
+            amountPiasters,
+            label,
+            isCarton: params.isCarton,
+            commissionPiasters: params.commissionPiasters,
+            machineId: params.machineId,
+            machineDeductPiasters: params.machineDeductPiasters,
+            machineName: params.machineName,
+            timestamp: now,
+          }),
+        }).catch(() => {});
+      } catch {
+        // Offline fallback
+      }
 
       // Background write to Dexie for offline-first PWA resilience
       try {
@@ -688,6 +721,17 @@ export function SalesView() {
       }
     }
 
+    // 5. Delete sale from server Postgres DB
+    try {
+      for (const sid of saleIds) {
+        void fetch(`/api/sales?id=${sid}`, { method: "DELETE" }).catch(
+          () => {},
+        );
+      }
+    } catch {
+      // Ignore offline
+    }
+
     setActiveToast(null);
   };
 
@@ -701,8 +745,9 @@ export function SalesView() {
       if (linkedMachs.length === 0) {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
-          msg: `⚠️ الخدمة «${item.name}» غير مربوطة بأي ماكينة دفع — اربطها من قسم المنتجات أولاً`,
+          msg: `الخدمة «${item.name}» مش مربوطة بأي ماكينة دفع — اربطها من قسم المنتجات أولاً`,
           undoIds: [],
+          type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
         return;
@@ -737,8 +782,9 @@ export function SalesView() {
       if (!targetMachine) {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
-          msg: `⚠️ لا توجد ماكينة دفع صالحة لهذه الخدمة`,
+          msg: `لا توجد ماكينة دفع صالحة لهذه الخدمة`,
           undoIds: [],
+          type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
         return;
@@ -747,8 +793,9 @@ export function SalesView() {
       if ((targetMachine.currentBalancePiasters || 0) < cardAmountPiasters) {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
-          msg: `⚠️ رصيد ماكينة «${targetMachine.name}» (${((targetMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لبيع كارت بقيمة ${(cardAmountPiasters / 100).toFixed(2)} ج.م`,
+          msg: `رصيد ماكينة «${targetMachine.name}» (${((targetMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لبيع كارت بقيمة ${(cardAmountPiasters / 100).toFixed(2)} ج.م`,
           undoIds: [],
+          type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
         return;
@@ -768,7 +815,7 @@ export function SalesView() {
       } catch (err: unknown) {
         const errorMsg =
           err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
-        setActiveToast({ msg: `⚠️ ${errorMsg}`, undoIds: [] });
+        setActiveToast({ msg: errorMsg, undoIds: [], type: "error" });
         return;
       }
 
@@ -793,10 +840,11 @@ export function SalesView() {
     if (item.currentStockBase <= 0) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
-        msg: `${item.name} خلصان — ضيفه من المخزون`,
+        msg: `المنتج «${item.name}» خلصان من المخزون! ضيفه من صفحة المخزون الأول`,
         undoIds: [],
+        type: "error",
       });
-      toastTimerRef.current = setTimeout(() => setActiveToast(null), 3000);
+      toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
       return;
     }
 
@@ -825,8 +873,9 @@ export function SalesView() {
     if (item.currentStockBase < packQty) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
-        msg: `مفيش كرتونة كاملة من ${item.name} — المتاح ${item.currentStockBase} قطعة`,
+        msg: `مفيش كرتونة كاملة من «${item.name}» — المتاح ${item.currentStockBase} قطعة فقط`,
         undoIds: [],
+        type: "error",
       });
       toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
       return;
@@ -881,8 +930,9 @@ export function SalesView() {
     if (!chosenMachine) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
-        msg: "⚠️ لا توجد ماكينة دفع مربوطة صالحة",
+        msg: "لا توجد ماكينة دفع صالحة مربوطة بهذه الخدمة",
         undoIds: [],
+        type: "error",
       });
       return;
     }
@@ -890,8 +940,9 @@ export function SalesView() {
     if ((chosenMachine.currentBalancePiasters || 0) < principalPiasters) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
-        msg: `⚠️ رصيد ماكينة «${chosenMachine.name}» (${((chosenMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لشحن ${amountEgp} ج.م`,
+        msg: `رصيد ماكينة «${chosenMachine.name}» (${((chosenMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لشحن ${amountEgp} ج.م`,
         undoIds: [],
+        type: "error",
       });
       return;
     }
@@ -917,7 +968,7 @@ export function SalesView() {
     } catch (err: unknown) {
       const errorMsg =
         err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
-      setActiveToast({ msg: `⚠️ ${errorMsg}`, undoIds: [] });
+      setActiveToast({ msg: errorMsg, undoIds: [], type: "error" });
       return;
     }
 
@@ -938,6 +989,7 @@ export function SalesView() {
     });
 
     setServiceModalItem(null);
+    setServiceAmountEgp("");
   };
 
   // Weight modal calculations
@@ -1465,9 +1517,11 @@ export function SalesView() {
 
       {/* Floating Bottom Toast with Undo matching Image 1 */}
       {activeToast && (
-        <div className={styles.toastBar}>
+        <div
+          className={`${styles.toastBar} ${activeToast.type === "error" ? styles.toastError : ""}`}
+        >
           <div className={styles.toastMsg}>
-            <Icon n="check" s={18} />
+            <Icon n={activeToast.type === "error" ? "alert" : "check"} s={18} />
             <span>{activeToast.msg}</span>
           </div>
           {activeToast.undoIds.length > 0 && (
