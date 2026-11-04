@@ -1088,12 +1088,23 @@
   white-space: nowrap;
 }
 
-@media (max-width: 360px) {
+@media (max-width: 400px) {
+  .unitModeGrid {
+    gap: 6px;
+  }
+  .unitModeCard {
+    padding: 8px 3px;
+    min-height: 50px;
+    gap: 4px;
+  }
   .unitModeTitle {
     font-size: 11px;
   }
-  .unitModeCard {
-    padding: 8px 2px;
+}
+
+@media (max-width: 340px) {
+  .unitModeTitle {
+    font-size: 10px;
   }
 }
 
@@ -1265,12 +1276,30 @@
   white-space: nowrap;
 }
 
-@media (max-width: 360px) {
-  .commissionTitle {
-    font-size: 11px;
+@media (max-width: 480px) {
+  .commissionGrid {
+    grid-template-columns: 1fr;
+    gap: 6px;
   }
   .commissionCard {
-    padding: 8px 2px;
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 10px 14px;
+    min-height: 44px;
+    gap: 10px;
+    text-align: right;
+  }
+  .commissionTitle {
+    font-size: 13px;
+  }
+}
+
+@media (max-width: 360px) {
+  .commissionTitle {
+    font-size: 12px;
+  }
+  .commissionCard {
+    padding: 8px 10px;
   }
 }
 

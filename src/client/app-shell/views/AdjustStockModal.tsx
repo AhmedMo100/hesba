@@ -273,8 +273,8 @@ export function AdjustStockModal({
           </label>
           <Seg
             options={[
-              ["set", "تعيين الرصيد الفعلي (جرد)"],
-              ["delta", "إضافة أو خصم كمية (+ / -)"],
+              ["set", "رصيد فعلي (جرد)"],
+              ["delta", "إضافة / خصم (+ / -)"],
             ]}
             value={mode}
             onChange={(val) => setMode(val as "set" | "delta")}

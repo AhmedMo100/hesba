@@ -779,56 +779,15 @@ export function AddStockModal({
                     >
                       وحدة الوزن المدخلة:
                     </span>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateColumns: "1fr 1fr",
-                        gap: 8,
-                      }}
-                    >
-                      <button
-                        type="button"
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          border:
-                            weightUnit === "kg"
-                              ? "1.5px solid var(--ink)"
-                              : "1px solid var(--line)",
-                          background:
-                            weightUnit === "kg" ? "var(--ink)" : "var(--sf)",
-                          color:
-                            weightUnit === "kg" ? "var(--bg)" : "var(--ink)",
-                          fontWeight: 700,
-                          fontSize: 13,
-                          cursor: "pointer",
-                        }}
-                        onClick={() => setWeightUnit("kg")}
-                      >
-                        بالكيلو (كجم)
-                      </button>
-                      <button
-                        type="button"
-                        style={{
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          border:
-                            weightUnit === "g"
-                              ? "1.5px solid var(--ink)"
-                              : "1px solid var(--line)",
-                          background:
-                            weightUnit === "g" ? "var(--ink)" : "var(--sf)",
-                          color:
-                            weightUnit === "g" ? "var(--bg)" : "var(--ink)",
-                          fontWeight: 700,
-                          fontSize: 13,
-                          cursor: "pointer",
-                        }}
-                        onClick={() => setWeightUnit("g")}
-                      >
-                        بالجرام (جم)
-                      </button>
-                    </div>
+                    <Seg
+                      value={weightUnit}
+                      onChange={(val) => setWeightUnit(val as "kg" | "g")}
+                      size="sm"
+                      options={[
+                        ["kg", "بالكيلو (كجم)"],
+                        ["g", "بالجرام (جم)"],
+                      ]}
+                    />
                   </div>
 
                   <Field
