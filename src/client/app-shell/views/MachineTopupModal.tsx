@@ -3,7 +3,11 @@
 import React, { useState } from "react";
 import { Modal, Button, Field } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
-import { type PosMachine, addMachineTopup } from "../../shared/machines";
+import {
+  type PosMachine,
+  addMachineTopup,
+  addRemoteMachineTopup,
+} from "../../shared/machines";
 import { normalizeNumberString, parseEgpToPiasters } from "@/domain/money";
 
 export interface MachineTopupModalProps {
@@ -48,7 +52,21 @@ export function MachineTopupModal({
     const resolvedSource =
       source === "أخرى" ? customSource.trim() || "مصدر مخصص" : source;
 
-    const updatedList = addMachineTopup(
+    void addRemoteMachineTopup(
+      machine.id,
+      amountPiasters,
+      {
+        source: resolvedSource,
+        reference: reference.trim() || undefined,
+        notes: notes.trim() || undefined,
+      },
+      storeId,
+    ).then((updatedList) => {
+      const target = updatedList.find((m) => m.id === machine.id) || machine;
+      onSuccess(target);
+    });
+
+    const localList = addMachineTopup(
       machine.id,
       amountPiasters,
       {
@@ -59,9 +77,9 @@ export function MachineTopupModal({
       storeId,
     );
 
-    const target = updatedList.find((m) => m.id === machine.id) || machine;
+    const localTarget = localList.find((m) => m.id === machine.id) || machine;
     setIsSubmitting(false);
-    onSuccess(target);
+    onSuccess(localTarget);
     onClose();
   };
 

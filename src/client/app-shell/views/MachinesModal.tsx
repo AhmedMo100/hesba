@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Modal, Button, Field, Icon } from "../../shared/ui";
 import {
   type PosMachine,
   getStoredMachines,
   saveStoredMachines,
+  fetchStoreMachines,
+  createOrUpdateRemoteMachine,
+  deleteRemoteMachine,
 } from "../../shared/machines";
 import styles from "./ProductsView.module.css";
 
@@ -37,6 +40,21 @@ export function MachinesModal({
   const [machines, setMachines] = useState<PosMachine[]>(() =>
     getStoredMachines(storeId),
   );
+
+  useEffect(() => {
+    let isMounted = true;
+    void fetchStoreMachines(storeId).then((remote) => {
+      if (isMounted && remote && remote.length > 0) {
+        setMachines(remote);
+        if (onMachinesUpdated) {
+          onMachinesUpdated(remote);
+        }
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [storeId, onMachinesUpdated]);
 
   const [isAdding, setIsAdding] = useState(false);
   const [editingMachine, setEditingMachine] = useState<PosMachine | null>(null);
@@ -89,14 +107,15 @@ export function MachinesModal({
     setIsAdding(true);
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     if (window.confirm("هل أنت متأكد من حذف هذه الماكينة؟")) {
       const updated = machines.filter((m) => m.id !== id);
       saveMachinesList(updated);
+      await deleteRemoteMachine(id, storeId);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
       setError("اسم الماكينة مطلوب");
@@ -121,6 +140,17 @@ export function MachinesModal({
           : m,
       );
       saveMachinesList(updated);
+      void createOrUpdateRemoteMachine(
+        {
+          id: editingMachine.id,
+          name: name.trim(),
+          provider: resolvedProvider,
+          terminalId: terminalId.trim() || undefined,
+          status,
+          notes: notes.trim() || undefined,
+        },
+        storeId,
+      );
     } else {
       const newMachine: PosMachine = {
         id: `mach-${Date.now()}`,
@@ -134,6 +164,16 @@ export function MachinesModal({
         createdAt: new Date().toISOString(),
       };
       saveMachinesList([...machines, newMachine]);
+      void createOrUpdateRemoteMachine(
+        {
+          name: name.trim(),
+          provider: resolvedProvider,
+          terminalId: terminalId.trim() || undefined,
+          status,
+          notes: notes.trim() || undefined,
+        },
+        storeId,
+      );
     }
 
     setIsAdding(false);

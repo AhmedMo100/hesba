@@ -161,6 +161,8 @@ model Store {
   wasteRecords         WasteRecord[]
   expenses             Expense[]
   supplierProducts     SupplierProduct[]
+  posMachines          PosMachine[]
+  posMachineTopups     PosMachineTopup[]
 
   @@map("stores")
 }
@@ -1034,3 +1036,42 @@ model Expense {
   @@index([storeId, spentAt(sort: Desc)], map: "idx_expenses_store_spent_at")
   @@map("expenses")
 }
+
+model PosMachine {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId                String    @map("store_id") @db.Uuid
+  name                   String    @db.Text
+  provider               String    @db.Text
+  terminalId             String?   @map("terminal_id") @db.Text
+  status                 String    @default("active") @db.Text
+  notes                  String?   @db.Text
+  currentBalancePiasters BigInt    @default(0) @map("current_balance_piasters")
+  deletedAt              DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store  Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  topups PosMachineTopup[]
+
+  @@index([storeId, deletedAt], map: "idx_pos_machines_store_deleted")
+  @@map("pos_machines")
+}
+
+model PosMachineTopup {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId              String   @map("store_id") @db.Uuid
+  machineId            String   @map("machine_id") @db.Uuid
+  amountPiasters       BigInt   @map("amount_piasters")
+  balanceAfterPiasters BigInt   @map("balance_after_piasters")
+  source               String?  @db.Text
+  reference            String?  @db.Text
+  notes                String?  @db.Text
+  createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store   Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  machine PosMachine @relation(fields: [machineId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, machineId, createdAt(sort: Desc)], map: "idx_pos_machine_topups_store_machine")
+  @@map("pos_machine_topups")
+}
+

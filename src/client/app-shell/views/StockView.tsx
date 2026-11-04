@@ -7,7 +7,11 @@ import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
 import { ClearStockModal } from "./ClearStockModal";
 import { ArchiveStockModal } from "./ArchiveStockModal";
-import { type PosMachine, getStoredMachines } from "../../shared/machines";
+import {
+  type PosMachine,
+  getStoredMachines,
+  fetchStoreMachines,
+} from "../../shared/machines";
 import { MachineTopupModal } from "./MachineTopupModal";
 import type { StoreProductItem } from "./ProductsView";
 import styles from "./StockView.module.css";
@@ -179,14 +183,22 @@ export function StockView() {
   });
   const [topupMachine, setTopupMachine] = useState<PosMachine | null>(null);
 
-  // Listen for pos machine updates across tabs and views
+  // Listen for pos machine updates across tabs and views & fetch from DB
   useEffect(() => {
+    let isMounted = true;
+    void fetchStoreMachines().then((remote) => {
+      if (isMounted && remote && remote.length > 0) {
+        setMachines(remote);
+      }
+    });
+
     const handleMachinesUpdate = () => {
       setMachines(getStoredMachines());
     };
     if (typeof window !== "undefined") {
       window.addEventListener("hesba_machines_updated", handleMachinesUpdate);
       return () => {
+        isMounted = false;
         window.removeEventListener(
           "hesba_machines_updated",
           handleMachinesUpdate,

@@ -8,7 +8,7 @@ import { ProductFormModal } from "./ProductFormModal";
 import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "./AddStockModal";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
-import { getStoredMachines } from "../../shared/machines";
+import { getStoredMachines, fetchStoreMachines } from "../../shared/machines";
 import styles from "./ProductsView.module.css";
 
 export interface StoreProductItem {
@@ -212,8 +212,15 @@ export function ProductsView() {
     return typeof navigator !== "undefined" ? navigator.onLine : true;
   });
 
-  // Check online status listeners
+  // Check online status listeners & fetch POS machines from DB
   useEffect(() => {
+    let isMounted = true;
+    void fetchStoreMachines().then((remote) => {
+      if (isMounted && remote && remote.length > 0) {
+        setPosMachines(remote);
+      }
+    });
+
     if (typeof window !== "undefined") {
       const onOn = () => setIsOnline(true);
       const onOff = () => setIsOnline(false);
@@ -226,6 +233,7 @@ export function ProductsView() {
       window.addEventListener("hesba_machines_updated", handleMachinesUpdated);
 
       return () => {
+        isMounted = false;
         window.removeEventListener("online", onOn);
         window.removeEventListener("offline", onOff);
         window.removeEventListener(

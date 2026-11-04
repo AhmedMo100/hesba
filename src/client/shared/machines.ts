@@ -32,7 +32,7 @@ export function getMachineStorageKey(storeId?: string): string {
   return `${STORAGE_KEY_PREFIX}_${storeId}`;
 }
 
-const DEFAULT_MACHINES: PosMachine[] = [
+export const DEFAULT_MACHINES: PosMachine[] = [
   {
     id: "mach-1",
     name: "ماكينة فوري الرئيسية",
@@ -79,6 +79,9 @@ const DEFAULT_MACHINES: PosMachine[] = [
   },
 ];
 
+/**
+ * Returns cached POS machines synchronously from localStorage.
+ */
 export function getStoredMachines(storeId?: string): PosMachine[] {
   if (typeof window === "undefined" || !window.localStorage) {
     return DEFAULT_MACHINES;
@@ -130,6 +133,9 @@ export function getStoredMachines(storeId?: string): PosMachine[] {
   }
 }
 
+/**
+ * Saves POS machines into local cache and dispatches update event.
+ */
 export function saveStoredMachines(
   machines: PosMachine[],
   storeId?: string,
@@ -138,7 +144,6 @@ export function saveStoredMachines(
   try {
     const key = getMachineStorageKey(storeId);
     window.localStorage.setItem(key, JSON.stringify(machines));
-    // Keep legacy fallback keys updated for any external consumers
     if (!storeId || storeId === "default") {
       window.localStorage.setItem(
         "hesba_pos_machines_v2_default",
@@ -151,6 +156,170 @@ export function saveStoredMachines(
   }
 }
 
+/**
+ * Fetches POS machines from PostgreSQL database via API.
+ * Updates local cache automatically for offline resilience.
+ */
+export async function fetchStoreMachines(
+  storeId?: string,
+): Promise<PosMachine[]> {
+  if (typeof window === "undefined") {
+    return DEFAULT_MACHINES;
+  }
+
+  try {
+    const res = await fetch("/api/machines");
+    if (!res.ok) {
+      return getStoredMachines(storeId);
+    }
+    const data = await res.json();
+    if (Array.isArray(data.machines) && data.machines.length > 0) {
+      saveStoredMachines(data.machines, storeId);
+      return data.machines;
+    }
+    return getStoredMachines(storeId);
+  } catch {
+    return getStoredMachines(storeId);
+  }
+}
+
+/**
+ * Upserts a POS machine in the database and updates cache.
+ */
+export async function createOrUpdateRemoteMachine(
+  machine: {
+    id?: string;
+    name: string;
+    provider: string;
+    terminalId?: string;
+    status?: "active" | "inactive" | "maintenance";
+    notes?: string;
+  },
+  storeId?: string,
+): Promise<PosMachine | null> {
+  try {
+    const res = await fetch("/api/machines", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(machine),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.machine) {
+        // Refresh full list from DB
+        void fetchStoreMachines(storeId);
+        return data.machine;
+      }
+    }
+  } catch (err) {
+    console.error("Remote machine upsert failed, falling back to local:", err);
+  }
+
+  // Fallback to local persistence
+  const current = getStoredMachines(storeId);
+  let updated: PosMachine[];
+  if (machine.id) {
+    updated = current.map((m) =>
+      m.id === machine.id
+        ? {
+            ...m,
+            name: machine.name,
+            provider: machine.provider,
+            terminalId: machine.terminalId,
+            status: machine.status || m.status,
+            notes: machine.notes,
+          }
+        : m,
+    );
+  } else {
+    const newMach: PosMachine = {
+      id: `mach-${Date.now()}`,
+      name: machine.name,
+      provider: machine.provider,
+      terminalId: machine.terminalId,
+      status: machine.status || "active",
+      notes: machine.notes,
+      currentBalancePiasters: 0,
+      balanceTransactions: [],
+      createdAt: new Date().toISOString(),
+    };
+    updated = [...current, newMach];
+  }
+  saveStoredMachines(updated, storeId);
+  return updated.find((m) => m.name === machine.name) || null;
+}
+
+/**
+ * Deletes a POS machine from database and local cache.
+ */
+export async function deleteRemoteMachine(
+  machineId: string,
+  storeId?: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(
+      `/api/machines?id=${encodeURIComponent(machineId)}`,
+      {
+        method: "DELETE",
+      },
+    );
+    if (res.ok) {
+      void fetchStoreMachines(storeId);
+      return true;
+    }
+  } catch (err) {
+    console.error("Remote machine deletion failed, fallback to local:", err);
+  }
+
+  const current = getStoredMachines(storeId);
+  const updated = current.filter((m) => m.id !== machineId);
+  saveStoredMachines(updated, storeId);
+  return true;
+}
+
+/**
+ * Adds a topup / balance deposit to a POS machine in the database.
+ */
+export async function addRemoteMachineTopup(
+  machineId: string,
+  amountPiasters: number,
+  params?: {
+    source?: string;
+    reference?: string;
+    notes?: string;
+  },
+  storeId?: string,
+): Promise<PosMachine[]> {
+  try {
+    const res = await fetch("/api/machines/topup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        machineId,
+        amountPiasters,
+        source: params?.source,
+        reference: params?.reference,
+        notes: params?.notes,
+      }),
+    });
+
+    if (res.ok) {
+      const data = await res.json();
+      if (data.machine) {
+        return await fetchStoreMachines(storeId);
+      }
+    }
+  } catch (err) {
+    console.error("Remote topup failed, falling back to local:", err);
+  }
+
+  return addMachineTopup(machineId, amountPiasters, params, storeId);
+}
+
+/**
+ * Synchronous local topup fallback
+ */
 export function addMachineTopup(
   machineId: string,
   amountPiasters: number,
