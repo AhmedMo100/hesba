@@ -44,6 +44,7 @@ export interface SaleRecord {
 
 interface DisplaySaleItem {
   id: string;
+  variantId?: string;
   productId: string;
   name: string;
   sellPricePiasters: number;
@@ -293,7 +294,7 @@ export function SalesView() {
   const [activeToast, setActiveToast] = useState<{
     msg: string;
     undoIds: string[];
-    restoreQty?: { productId: string; qtyBase: number };
+    restoreQty?: { productId: string; variantId?: string; qtyBase: number };
     restoreMachine?: {
       machineId: string;
       amountPiasters: number;
@@ -381,6 +382,7 @@ export function SalesView() {
     inventory.forEach((inv) => {
       list.push({
         id: inv.productId,
+        variantId: inv.variantId,
         productId: inv.productId,
         name: inv.productName,
         sellPricePiasters: inv.sellPricePiasters,
@@ -510,6 +512,7 @@ export function SalesView() {
           ),
         );
 
+        const variantTargetId = item.variantId || item.productId;
         // Deduct stock in DB via /api/stock delta
         try {
           void fetch("/api/stock", {
@@ -517,7 +520,7 @@ export function SalesView() {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               action: "adjust",
-              storeVariantId: item.productId,
+              storeVariantId: variantTargetId,
               mode: "delta",
               deltaQuantityBase: -quantityBase,
               reason: `بيع: ${item.name}`,
@@ -538,7 +541,11 @@ export function SalesView() {
         msg: `${item.name} — ${label} — ${formatMoney(amountPiasters)}`,
         undoIds: [newSaleId],
         restoreQty: !item.isService
-          ? { productId: item.productId, qtyBase: quantityBase }
+          ? {
+              productId: item.productId,
+              variantId: item.variantId,
+              qtyBase: quantityBase,
+            }
           : undefined,
         restoreMachine,
       });
@@ -590,7 +597,7 @@ export function SalesView() {
   // Undo / Revert a sale: refunds machine balance or restores physical stock
   const handleUndo = async (
     saleIds: string[],
-    restore?: { productId: string; qtyBase: number },
+    restore?: { productId: string; variantId?: string; qtyBase: number },
     restoreMachine?: {
       machineId: string;
       amountPiasters: number;
@@ -663,13 +670,14 @@ export function SalesView() {
         ),
       );
 
+      const restoreTargetId = restore.variantId || restore.productId;
       try {
         await fetch("/api/stock", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             action: "adjust",
-            storeVariantId: restore.productId,
+            storeVariantId: restoreTargetId,
             mode: "delta",
             deltaQuantityBase: restore.qtyBase,
             reason: "تراجع عن بيع",

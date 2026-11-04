@@ -731,7 +731,13 @@ export class InventoryService {
       async (tx) => {
         // 1. Verify variant
         const variant = await tx.storeVariant.findFirst({
-          where: { id: input.storeVariantId, storeId },
+          where: {
+            storeId,
+            OR: [
+              { id: input.storeVariantId },
+              { storeProductId: input.storeVariantId },
+            ],
+          },
           include: { storeProduct: true },
         });
         if (!variant) {
@@ -778,9 +784,9 @@ export class InventoryService {
           delta = BigInt(input.deltaQuantityBase ?? 0);
           newBalance = currentQty + delta;
           if (newBalance < ZERO) {
-            throw AppError.badRequest(
-              "الكمية الناتجة بعد الخصم لا يمكن أن تكون سالبة",
-            );
+            // Floor balance to ZERO so cashiers can still sell even if stock intake wasn't recorded yet
+            newBalance = ZERO;
+            delta = -currentQty;
           }
         }
 
@@ -919,7 +925,13 @@ export class InventoryService {
       async (tx) => {
         // 1. Verify variant
         const variant = await tx.storeVariant.findFirst({
-          where: { id: input.storeVariantId, storeId },
+          where: {
+            storeId,
+            OR: [
+              { id: input.storeVariantId },
+              { storeProductId: input.storeVariantId },
+            ],
+          },
           include: { storeProduct: true },
         });
         if (!variant) {
@@ -1052,7 +1064,13 @@ export class InventoryService {
       async (tx) => {
         // 1. Verify variant
         const variant = await tx.storeVariant.findFirst({
-          where: { id: input.storeVariantId, storeId },
+          where: {
+            storeId,
+            OR: [
+              { id: input.storeVariantId },
+              { storeProductId: input.storeVariantId },
+            ],
+          },
           include: { storeProduct: true },
         });
         if (!variant) {
