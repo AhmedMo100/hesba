@@ -21,9 +21,6 @@ export function EditPromoModal({
   onSaveAndPublish,
 }: EditPromoModalProps) {
   const [title, setTitle] = useState(initialPromo.title);
-  const [description, setDescription] = useState(
-    initialPromo.description || "",
-  );
   const [promoPriceEgp, setPromoPriceEgp] = useState(
     (initialPromo.promoPricePiasters / 100).toString(),
   );
@@ -71,7 +68,7 @@ export function EditPromoModal({
           p.category.toLowerCase().includes(q)
         );
       })
-      .slice(0, 10);
+      .slice(0, 8);
   }, [allProducts, items, pickerQuery]);
 
   const handleAddItem = (product: StoreProductItem) => {
@@ -133,7 +130,7 @@ export function EditPromoModal({
       const updatedPromo: SuggestedPromotion = {
         ...initialPromo,
         title: title.trim(),
-        description: description.trim() || initialPromo.description || "",
+        description: initialPromo.description || "",
         type: items.length > 1 ? "bundle" : "single_discount",
         items,
         originalPricePiasters,
@@ -153,7 +150,7 @@ export function EditPromoModal({
 
   return (
     <Modal
-      title="تعديل العرض الترويجي"
+      title="تعديل تفاصيل العرض الترويجي"
       onClose={onClose}
       footer={
         <>
@@ -167,156 +164,168 @@ export function EditPromoModal({
             loading={isSubmitting}
             disabled={items.length === 0 || promoPricePiasters <= 0}
           >
-            حفظ ونشر في واجهة البيع ✓
+            حفظ ونشر في البيع ✓
           </Button>
         </>
       }
     >
       <div className={styles.container}>
-        <Field label="عنوان العرض">
-          <input
-            type="text"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="مثال: كومبو توفير عصير وبسكويت"
-          />
-        </Field>
+        {/* Form Inputs Grid */}
+        <div className={styles.formGrid}>
+          <Field label="عنوان العرض">
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="مثال: كومبو عصير وبسكويت"
+            />
+          </Field>
 
-        <Field label="وصف أو ملاحظة (اختياري)">
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="عرض تشجيعي لتصفية المخزون"
-          />
-        </Field>
-
-        {/* Items Included */}
-        <div className={styles.sectionHeader}>
-          <h4 className={styles.sectionTitle}>
-            الأصناف المشمولة بالعرض ({items.length})
-          </h4>
-          <button
-            type="button"
-            className={styles.addItemBtn}
-            onClick={() => setShowPicker(!showPicker)}
-          >
-            <Icon n="plus" s={14} />
-            <span>إضافة صنف آخر</span>
-          </button>
+          <Field label="سعر بيع العرض للزبون">
+            <div className={styles.priceInputWrapper}>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.5"
+                value={promoPriceEgp}
+                onChange={(e) => setPromoPriceEgp(e.target.value)}
+                placeholder="0.00"
+              />
+              <span className={styles.currencySuffix}>ج.م</span>
+            </div>
+          </Field>
         </div>
 
-        {/* Product Picker Box */}
-        {showPicker && (
-          <div className={styles.addPickerBox}>
-            <SearchBox
-              value={pickerQuery}
-              onChange={setPickerQuery}
-              placeholder="ابحث عن منتج لإضافته..."
-            />
-            <div className={styles.productPickList}>
-              {filteredProducts.length === 0 ? (
-                <span
-                  style={{ fontSize: 12, color: "var(--ink2)", padding: 6 }}
-                >
-                  لا توجد منتجات مطابقة
-                </span>
-              ) : (
-                filteredProducts.map((prod) => (
-                  <button
-                    key={prod.id}
-                    type="button"
-                    className={styles.productPickOption}
-                    onClick={() => handleAddItem(prod)}
-                  >
-                    <span>{prod.name_ar}</span>
-                    <span style={{ fontSize: 11, color: "var(--ink2)" }}>
-                      {formatMoney(prod.sell_price_piasters || 0)}
-                    </span>
-                  </button>
-                ))
-              )}
-            </div>
+        {/* Included Items Section */}
+        <div className={styles.itemsSection}>
+          <div className={styles.itemsHeader}>
+            <h4 className={styles.itemsTitle}>
+              <Icon n="box" s={16} />
+              <span>الأصناف المشمولة بالعرض ({items.length})</span>
+            </h4>
+            <button
+              type="button"
+              className={styles.addBtn}
+              onClick={() => setShowPicker(!showPicker)}
+            >
+              <Icon n={showPicker ? "x" : "plus"} s={14} />
+              <span>{showPicker ? "إغلاق البحث" : "إضافة صنف آخر"}</span>
+            </button>
           </div>
-        )}
 
-        <div className={styles.itemsList}>
-          {items.map((item, idx) => (
-            <div key={`${item.productId}_${idx}`} className={styles.itemRow}>
-              <div className={styles.itemInfo}>
-                <span className={styles.itemName}>{item.productName}</span>
-                <span className={styles.itemPrice}>
-                  السعر الأصلي: {formatMoney(item.regularPricePiasters)}
-                </span>
-              </div>
-
-              <div className={styles.itemControls}>
-                <div className={styles.qtyWrapper}>
-                  <button
-                    type="button"
-                    className={styles.qtyBtn}
-                    onClick={() => handleUpdateQty(idx, -1)}
-                    title="تقليل الكمية"
+          {/* Product Picker Dropdown */}
+          {showPicker && (
+            <div className={styles.pickerCard}>
+              <SearchBox
+                value={pickerQuery}
+                onChange={setPickerQuery}
+                placeholder="ابحث بالاسم أو التصنيف لإضافة منتج..."
+              />
+              <div className={styles.pickerList}>
+                {filteredProducts.length === 0 ? (
+                  <span
+                    style={{
+                      fontSize: 12.5,
+                      color: "var(--ink2)",
+                      padding: "8px 12px",
+                      textAlign: "center",
+                    }}
                   >
-                    -
-                  </button>
-                  <span className={styles.qtyValue}>
-                    {item.unit === "weight"
-                      ? `${item.quantityBase >= 1000 ? item.quantityBase / 1000 : item.quantityBase} ${item.quantityBase >= 1000 ? "كجم" : "جم"}`
-                      : item.quantityBase}
+                    لا توجد منتجات مطابقة للبحث
                   </span>
-                  <button
-                    type="button"
-                    className={styles.qtyBtn}
-                    onClick={() => handleUpdateQty(idx, 1)}
-                    title="زيادة الكمية"
-                  >
-                    +
-                  </button>
+                ) : (
+                  filteredProducts.map((prod) => (
+                    <button
+                      key={prod.id}
+                      type="button"
+                      className={styles.pickerOption}
+                      onClick={() => handleAddItem(prod)}
+                    >
+                      <span>{prod.name_ar}</span>
+                      <span className={styles.pickerOptionPrice}>
+                        {formatMoney(prod.sell_price_piasters || 0)}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Items List */}
+          <div className={styles.itemsList}>
+            {items.map((item, idx) => (
+              <div key={`${item.productId}_${idx}`} className={styles.itemCard}>
+                <div className={styles.itemMeta}>
+                  <span className={styles.itemTitle}>{item.productName}</span>
+                  <span className={styles.itemSubtitle}>
+                    سعر القطعة: {formatMoney(item.regularPricePiasters)}
+                  </span>
                 </div>
 
-                <button
-                  type="button"
-                  className={styles.deleteItemBtn}
-                  onClick={() => handleRemoveItem(idx)}
-                  title="حذف من العرض"
-                >
-                  <Icon n="trash" s={16} />
-                </button>
+                <div className={styles.itemActions}>
+                  <div className={styles.stepper}>
+                    <button
+                      type="button"
+                      className={styles.stepperBtn}
+                      onClick={() => handleUpdateQty(idx, -1)}
+                      title="تقليل الكمية"
+                    >
+                      -
+                    </button>
+                    <span className={styles.stepperVal}>
+                      {item.unit === "weight"
+                        ? `${item.quantityBase >= 1000 ? item.quantityBase / 1000 : item.quantityBase} كجم`
+                        : item.quantityBase}
+                    </span>
+                    <button
+                      type="button"
+                      className={styles.stepperBtn}
+                      onClick={() => handleUpdateQty(idx, 1)}
+                      title="زيادة الكمية"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={styles.removeBtn}
+                    onClick={() => handleRemoveItem(idx)}
+                    title="حذف من العرض"
+                  >
+                    <Icon n="trash" s={15} />
+                  </button>
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
 
-        {/* Promo Price Field */}
-        <Field label="سعر بيع العرض للزبون (ج.م)">
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.5"
-            value={promoPriceEgp}
-            onChange={(e) => setPromoPriceEgp(e.target.value)}
-            placeholder="اكتب السعر الجديد للعرض"
-          />
-        </Field>
+        {/* KPI Strip Summary */}
+        <div className={styles.kpiStrip}>
+          <div className={styles.kpiCard}>
+            <span className={styles.kpiLabel}>السعر الأصلي</span>
+            <span className={styles.kpiVal}>
+              {formatMoney(originalPricePiasters)}
+            </span>
+          </div>
 
-        {/* Calculation summary */}
-        <div className={styles.summaryBox}>
-          <div className={styles.summaryRow}>
-            <span>إجمالي السعر الأصلي للأصناف:</span>
-            <b>{formatMoney(originalPricePiasters)}</b>
-          </div>
-          <div className={styles.summaryRow}>
-            <span>سعر العرض بعد التخفيض:</span>
-            <b style={{ color: "var(--br, #7fa37c)" }}>
+          <div className={`${styles.kpiCard} ${styles.kpiHighlight}`}>
+            <span className={styles.kpiLabel}>سعر العرض</span>
+            <span className={styles.kpiVal}>
               {formatMoney(promoPricePiasters)}
-            </b>
+            </span>
           </div>
-          <div className={styles.summaryRow}>
-            <span>قيمة توفير الزبون:</span>
-            <b className={styles.savingsValue}>
-              {formatMoney(savingsPiasters)} ({savingsPercent}%)
-            </b>
+
+          <div className={`${styles.kpiCard} ${styles.kpiHighlight}`}>
+            <span className={styles.kpiLabel}>التوفير للزبون</span>
+            <span className={styles.kpiVal}>
+              {formatMoney(savingsPiasters)}
+            </span>
+            {savingsPercent > 0 && (
+              <span className={styles.savingsPercent}>({savingsPercent}%)</span>
+            )}
           </div>
         </div>
       </div>

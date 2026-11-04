@@ -1,205 +1,311 @@
-/* EditPromoModal.module.css */
+/* EditPromoModal.module.css — حسبة (Hesba) Edit Promo Modal */
+
 .container {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding-bottom: 8px;
+}
+
+/* 2-column or stacked form fields */
+.formGrid {
   display: flex;
   flex-direction: column;
   gap: 14px;
 }
 
-.sectionHeader {
+@media (min-width: 500px) {
+  .formGrid {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 12px;
+    align-items: flex-start;
+  }
+}
+
+.priceInputWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.priceInputWrapper input {
+  padding-inline-end: 42px;
+  width: 100%;
+}
+
+.currencySuffix {
+  position: absolute;
+  inset-inline-end: 14px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink2, #a0a8a0);
+  pointer-events: none;
+}
+
+/* Items Section */
+.itemsSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.itemsHeader {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 4px;
+  gap: 8px;
 }
 
-.sectionTitle {
-  font-size: 13.5px;
+.itemsTitle {
+  font-size: 14px;
   font-weight: 800;
-  color: var(--ink);
+  color: var(--ink, #fff);
   margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.addItemBtn {
-  background: var(--sf2);
-  border: 1px solid var(--line);
+.addBtn {
+  background: var(--sf2, #2b2a26);
+  border: 1px solid var(--line, #383b34);
   color: var(--br, #7fa37c);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 700;
-  padding: 4px 10px;
-  border-radius: 8px;
+  padding: 6px 12px;
+  border-radius: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   transition: all 0.15s ease;
 }
 
-.addItemBtn:hover {
-  background: var(--soft, rgba(127, 163, 124, 0.15));
+.addBtn:hover {
+  background: rgba(127, 163, 124, 0.14);
+  border-color: var(--br, #7fa37c);
 }
 
+/* Product Search / Picker */
+.pickerCard {
+  background: var(--sf2, #1f1e1a);
+  border: 1.5px solid var(--br, #7fa37c);
+  border-radius: 14px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  animation: fadeIn 0.18s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.pickerList {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: var(--sf, #23221f);
+  border: 1px solid var(--line, #383b34);
+  border-radius: 10px;
+  padding: 4px;
+}
+
+.pickerOption {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  color: var(--ink, #fff);
+  font-size: 13.5px;
+  text-align: right;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.pickerOption:hover {
+  background: var(--sf2, #2b2a26);
+  color: var(--br, #7fa37c);
+}
+
+.pickerOptionPrice {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink2, #a0a8a0);
+}
+
+/* Items List */
 .itemsList {
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.itemRow {
+.itemCard {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
-  background: var(--sf2);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  padding: 8px 12px;
+  gap: 12px;
+  background: var(--sf, #23221f);
+  border: 1px solid var(--line, #383b34);
+  border-radius: 12px;
+  padding: 10px 14px;
+  transition: border-color 0.15s ease;
 }
 
-.itemInfo {
+.itemCard:hover {
+  border-color: rgba(127, 163, 124, 0.35);
+}
+
+.itemMeta {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
   flex: 1;
 }
 
-.itemName {
-  font-size: 13.5px;
+.itemTitle {
+  font-size: 14px;
   font-weight: 700;
-  color: var(--ink);
+  color: var(--ink, #fff);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.itemPrice {
-  font-size: 11.5px;
-  color: var(--ink2);
+.itemSubtitle {
+  font-size: 12px;
+  color: var(--ink2, #a0a8a0);
 }
 
-.itemControls {
+.itemActions {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 
-.qtyWrapper {
+/* Quantity Stepper */
+.stepper {
   display: flex;
   align-items: center;
   gap: 4px;
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 2px 6px;
+  background: var(--sf2, #2b2a26);
+  border: 1px solid var(--line, #383b34);
+  border-radius: 9px;
+  padding: 2px 4px;
 }
 
-.qtyBtn {
+.stepperBtn {
   background: transparent;
   border: none;
-  color: var(--ink);
-  font-size: 14px;
+  color: var(--ink, #fff);
+  font-size: 15px;
   font-weight: 800;
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  border-radius: 4px;
-}
-
-.qtyBtn:hover {
-  background: var(--sf2);
-}
-
-.qtyValue {
-  font-size: 13px;
-  font-weight: 700;
-  min-width: 24px;
-  text-align: center;
-}
-
-.deleteItemBtn {
-  background: transparent;
-  border: none;
-  color: var(--red, #cf3c3c);
-  padding: 6px;
   border-radius: 6px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.deleteItemBtn:hover {
-  background: color-mix(in srgb, var(--red, #cf3c3c) 15%, transparent);
-}
-
-.addPickerBox {
-  background: var(--sf2);
-  border: 1.5px dashed var(--line);
-  border-radius: 12px;
-  padding: 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.productPickList {
-  max-height: 140px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  background: var(--sf);
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  padding: 4px;
-}
-
-.productPickOption {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 6px;
-  background: transparent;
-  border: none;
-  color: var(--ink);
-  font-size: 13px;
-  text-align: right;
-  cursor: pointer;
   transition: background 0.12s;
 }
 
-.productPickOption:hover {
-  background: var(--sf2);
-  color: var(--br, #7fa37c);
+.stepperBtn:hover {
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.summaryBox {
-  background: color-mix(in srgb, var(--br, #7fa37c) 10%, var(--sf2));
-  border: 1px solid color-mix(in srgb, var(--br, #7fa37c) 30%, transparent);
+.stepperBtn:active {
+  transform: scale(0.92);
+}
+
+.stepperVal {
+  font-size: 13.5px;
+  font-weight: 800;
+  min-width: 34px;
+  text-align: center;
+  color: var(--ink, #fff);
+}
+
+.removeBtn {
+  background: transparent;
+  border: none;
+  color: var(--ink2, #a0a8a0);
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s ease;
+}
+
+.removeBtn:hover {
+  background: rgba(248, 113, 113, 0.15);
+  color: #f87171;
+}
+
+/* KPI Summary Cards Strip */
+.kpiStrip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.kpiCard {
+  background: var(--sf2, #24231f);
+  border: 1px solid var(--line, #383b34);
   border-radius: 12px;
-  padding: 10px 14px;
+  padding: 10px 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-}
-
-.summaryRow {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 13px;
-  color: var(--ink2);
+  text-align: center;
+  gap: 4px;
 }
 
-.summaryRow b {
-  color: var(--ink);
-  font-size: 14px;
+.kpiCard.kpiHighlight {
+  background: rgba(127, 163, 124, 0.12);
+  border-color: rgba(127, 163, 124, 0.35);
 }
 
-.savingsValue {
-  color: var(--ok, #108e5c) !important;
+.kpiLabel {
+  font-size: 11.5px;
+  color: var(--ink2, #a0a8a0);
+  font-weight: 600;
+}
+
+.kpiVal {
+  font-size: 14.5px;
   font-weight: 800;
+  color: var(--ink, #fff);
+}
+
+.kpiHighlight .kpiVal {
+  color: #7fa37c;
+}
+
+.savingsPercent {
+  font-size: 11px;
+  font-weight: 700;
+  color: #7fa37c;
 }

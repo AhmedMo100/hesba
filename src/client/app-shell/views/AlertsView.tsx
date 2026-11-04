@@ -459,102 +459,89 @@ export function AlertsView() {
             <div className={styles.promoCardsList}>
               {visiblePromos.map((promo) => (
                 <div key={promo.id} className={styles.promoCard}>
-                  <div className={styles.promoTitleRow}>
-                    <div>
-                      <h4 className={styles.promoTitle}>{promo.title}</h4>
-                      {promo.description && (
-                        <p className={styles.promoDesc}>{promo.description}</p>
-                      )}
-                    </div>
+                  <div className={styles.promoCardTop}>
+                    <h4 className={styles.promoTitle}>{promo.title}</h4>
                     <span className={styles.savingsTag}>
                       وفّر {formatMoney(promo.savingsPiasters)}
                     </span>
                   </div>
 
-                  {/* Bundled Items pills */}
-                  <div className={styles.promoItemsList}>
-                    {promo.items.map((it) => (
-                      <span
-                        key={`${it.productId}_${it.variantId}`}
-                        className={styles.promoItemChip}
-                      >
-                        <Icon n="box" s={12} />
-                        <span>
-                          {it.productName} (
-                          {it.unit === "weight"
-                            ? `${it.quantityBase >= 1000 ? it.quantityBase / 1000 : it.quantityBase} كجم`
-                            : `${it.quantityBase} ${it.unit}`}
-                          )
-                        </span>
-                      </span>
-                    ))}
-                  </div>
+                  <p className={styles.promoItemsText}>
+                    {promo.items
+                      .map(
+                        (it) =>
+                          `${it.productName} (${
+                            it.unit === "weight"
+                              ? `${
+                                  it.quantityBase >= 1000
+                                    ? it.quantityBase / 1000
+                                    : it.quantityBase
+                                } كجم`
+                              : `${it.quantityBase} ${it.unit}`
+                          })`,
+                      )
+                      .join(" · ")}
+                  </p>
 
-                  {/* Pricing line */}
-                  <div className={styles.promoPriceBar}>
-                    <div>
-                      <span>السعر الأصلي: </span>
+                  <div className={styles.promoCardFooter}>
+                    <div className={styles.promoPricing}>
                       <span className={styles.promoOldPrice}>
                         {formatMoney(promo.originalPricePiasters)}
                       </span>
-                    </div>
-                    <div>
-                      <span>سعر العرض: </span>
                       <b className={styles.promoNewPrice}>
                         {formatMoney(promo.promoPricePiasters)}
                       </b>
                     </div>
-                  </div>
 
-                  {/* Actions */}
-                  <div className={styles.promoActionsRow}>
-                    <button
-                      type="button"
-                      className={styles.approvePromoBtn}
-                      onClick={() => void handleApprovePromotion(promo)}
-                    >
-                      <Icon n="check" s={15} />
-                      <span>موافقة ونشر في البيع</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      className={styles.editPromoBtn}
-                      onClick={() => setEditingPromo(promo)}
-                      title="تعديل تفاصيل العرض"
-                    >
-                      <Icon n="edit" s={14} />
-                      <span>تعديل العرض</span>
-                    </button>
-
-                    {promo.items.length > 0 && (
+                    <div className={styles.promoActions}>
                       <button
                         type="button"
-                        className={styles.wastePromoBtn}
-                        onClick={() => {
-                          const firstItem = promo.items[0];
-                          if (!firstItem) return;
-                          const targetExp =
-                            expired.find(
-                              (e) => e.productId === firstItem.productId,
-                            ) ||
-                            nearExpiry.find(
-                              (e) => e.productId === firstItem.productId,
-                            );
-                          if (targetExp) {
-                            setWasteTarget(targetExp);
-                          } else {
-                            toast.show({
-                              msg: "الصنف ليس لديه باتش منتهي للتسجيل",
-                              kind: "err",
-                            });
-                          }
-                        }}
+                        className={styles.approvePromoBtn}
+                        onClick={() => void handleApprovePromotion(promo)}
                       >
-                        <Icon n="trash" s={14} />
-                        <span>تسجيل كتالف</span>
+                        <Icon n="check" s={15} />
+                        <span>نشر في البيع</span>
                       </button>
-                    )}
+
+                      <button
+                        type="button"
+                        className={styles.editPromoBtn}
+                        onClick={() => setEditingPromo(promo)}
+                        title="تعديل تفاصيل العرض"
+                      >
+                        <Icon n="edit" s={14} />
+                        <span>تعديل</span>
+                      </button>
+
+                      {promo.items.length > 0 && (
+                        <button
+                          type="button"
+                          className={styles.wastePromoBtn}
+                          onClick={() => {
+                            const firstItem = promo.items[0];
+                            if (!firstItem) return;
+                            const targetExp =
+                              expired.find(
+                                (e) => e.productId === firstItem.productId,
+                              ) ||
+                              nearExpiry.find(
+                                (e) => e.productId === firstItem.productId,
+                              );
+                            if (targetExp) {
+                              setWasteTarget(targetExp);
+                            } else {
+                              toast.show({
+                                msg: "الصنف ليس لديه باتش منتهي للتسجيل",
+                                kind: "err",
+                              });
+                            }
+                          }}
+                          title="تسجيل كتالف"
+                        >
+                          <Icon n="trash" s={14} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

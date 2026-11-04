@@ -137,11 +137,7 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  margin-top: 10px;
-  background: rgba(245, 158, 11, 0.05);
-  border: 1.5px dashed rgba(245, 158, 11, 0.3);
-  border-radius: 16px;
-  padding: 14px;
+  margin-top: 18px;
 }
 
 .promoSectionTop {
@@ -149,147 +145,147 @@
   justify-content: space-between;
   align-items: center;
   gap: 8px;
-  flex-wrap: wrap;
+  padding: 0 4px;
 }
 
 .promoSectionTitle {
-  font-size: 14.5px;
+  font-size: 15px;
   font-weight: 800;
-  color: #f59e0b;
+  color: var(--ink, #fff);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin: 0;
 }
 
-.createCustomPromoBtn {
-  border: 1px solid rgba(245, 158, 11, 0.4);
-  background: rgba(245, 158, 11, 0.15);
+.promoSectionTitle i {
   color: #f59e0b;
-  font-size: 12px;
+}
+
+.createCustomPromoBtn {
+  border: 1px solid var(--line, #383b34);
+  background: var(--sf, #23221f);
+  color: var(--br, #7fa37c);
+  font-size: 12.5px;
   font-weight: 700;
-  padding: 5px 10px;
-  border-radius: 8px;
+  padding: 6px 12px;
+  border-radius: 10px;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   transition: all 0.15s ease;
 }
 
 .createCustomPromoBtn:hover {
-  background: rgba(245, 158, 11, 0.25);
+  background: rgba(127, 163, 124, 0.12);
+  border-color: var(--br, #7fa37c);
 }
 
 .promoCardsList {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
+/* Spacious, Uncrowded & Relaxed Promo Card */
 .promoCard {
   background: var(--sf, #23221f);
-  border: 1px solid rgba(245, 158, 11, 0.25);
-  border-radius: 14px;
-  padding: 14px;
+  border: 1px solid var(--line, #33322d);
+  border-radius: 16px;
+  padding: 16px 18px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  gap: 12px;
+  box-shadow: var(--sh, 0 2px 6px rgba(0, 0, 0, 0.08));
+  transition:
+    border-color 0.16s ease,
+    transform 0.16s ease;
 }
 
-.promoTitleRow {
+.promoCard:hover {
+  border-color: color-mix(in srgb, var(--br, #7fa37c) 40%, var(--line));
+}
+
+.promoCardTop {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .promoTitle {
-  font-size: 14.5px;
+  font-size: 15.5px;
   font-weight: 800;
   color: var(--ink, #fff);
   margin: 0;
-}
-
-.promoDesc {
-  font-size: 12px;
-  color: var(--ink2, #a0a8a0);
-  margin-top: 2px;
+  line-height: 1.35;
 }
 
 .savingsTag {
-  background: rgba(127, 163, 124, 0.18);
+  background: rgba(127, 163, 124, 0.16);
   color: #7fa37c;
   font-size: 12px;
   font-weight: 800;
-  padding: 3px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
-.promoItemsList {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  background: var(--sf2, #1b1a17);
-  padding: 8px 10px;
-  border-radius: 8px;
+.promoItemsText {
+  font-size: 13.5px;
+  color: var(--ink2, #a0a8a0);
+  line-height: 1.5;
+  margin: 0;
 }
 
-.promoItemChip {
-  font-size: 12px;
-  color: var(--ink, #fff);
-  background: rgba(255, 255, 255, 0.06);
-  padding: 3px 8px;
-  border-radius: 6px;
+/* Pricing and Actions combined in a relaxed, well-spaced footer */
+.promoCardFooter {
   display: flex;
   align-items: center;
-  gap: 4px;
-}
-
-.promoPriceBar {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-  border-top: 1px solid var(--line, #33322d);
-  padding-top: 8px;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid
+    color-mix(in srgb, var(--line, #33322d) 65%, transparent);
+  flex-wrap: wrap;
+}
+
+.promoPricing {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
 }
 
 .promoOldPrice {
   text-decoration: line-through;
   color: var(--ink2, #888);
-  font-size: 12px;
-  margin-left: 6px;
+  font-size: 13px;
 }
 
 .promoNewPrice {
-  color: #7fa37c;
-  font-size: 16px;
+  color: var(--br, #7fa37c);
+  font-size: 18px;
   font-weight: 800;
 }
 
-.promoActionsRow {
+.promoActions {
   display: flex;
+  align-items: center;
   gap: 8px;
-  margin-top: 4px;
-  flex-wrap: wrap;
 }
 
 .approvePromoBtn {
-  flex: 2;
-  min-width: 130px;
   border: none;
   background: var(--br, #7fa37c);
   color: #122112;
-  padding: 8px 12px;
-  border-radius: 9px;
-  font-size: 13px;
+  padding: 8px 16px;
+  border-radius: 11px;
+  font-size: 13.5px;
   font-weight: 800;
   cursor: pointer;
   display: flex;
-  justify-content: center;
   align-items: center;
   gap: 6px;
   transition: all 0.15s ease;
@@ -297,50 +293,49 @@
 
 .approvePromoBtn:hover {
   filter: brightness(1.1);
+  transform: scale(1.02);
+}
+
+.approvePromoBtn:active {
+  transform: scale(0.97);
 }
 
 .editPromoBtn {
-  flex: 1;
-  min-width: 90px;
   border: 1px solid var(--line, #383b34);
   background: var(--sf2, #2b2a26);
   color: var(--ink, #fff);
-  padding: 8px 10px;
-  border-radius: 9px;
-  font-size: 12.5px;
+  padding: 8px 12px;
+  border-radius: 11px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   transition: all 0.15s ease;
 }
 
 .editPromoBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .wastePromoBtn {
-  flex: 1;
-  min-width: 90px;
-  border: 1px solid rgba(248, 113, 113, 0.35);
-  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  background: transparent;
   color: #f87171;
   padding: 8px 10px;
-  border-radius: 9px;
-  font-size: 12px;
+  border-radius: 11px;
+  font-size: 13px;
   font-weight: 700;
   cursor: pointer;
   display: flex;
-  justify-content: center;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
   transition: all 0.15s ease;
 }
 
 .wastePromoBtn:hover {
-  background: rgba(248, 113, 113, 0.2);
+  background: rgba(248, 113, 113, 0.15);
 }
 
 /* Confirm Waste Modal Sheet (Screenshot 2) */
