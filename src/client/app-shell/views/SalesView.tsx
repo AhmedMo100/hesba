@@ -215,7 +215,7 @@ export function SalesView() {
   const [sales, setSales] = useState<SaleRecord[]>(initial.initialSales);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [services, setServices] = useState<StoreProductItem[]>([]);
-  const [enabledServiceIds] = useState<string[]>(
+  const [enabledServiceIds, setEnabledServiceIds] = useState<string[]>(
     initial.initialEnabledServices,
   );
   const [stagedItem] = useState<DisplaySaleItem | null>(initial.stagedSaleItem);
@@ -323,10 +323,39 @@ export function SalesView() {
       }
     });
 
+    const loadConfig = () => {
+      fetch("/api/sales/config")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!isMounted) return;
+          if (
+            data?.config?.enabledServiceIds &&
+            Array.isArray(data.config.enabledServiceIds)
+          ) {
+            const remoteIds: string[] = data.config.enabledServiceIds;
+            setEnabledServiceIds((prev) => {
+              const combined = Array.from(new Set([...prev, ...remoteIds]));
+              try {
+                localStorage.setItem(
+                  getServicesStorageKey(storeId),
+                  JSON.stringify(combined),
+                );
+              } catch {}
+              return combined;
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
+    void loadConfig();
+    window.addEventListener("hesba_sales_config_updated", loadConfig);
+
     return () => {
       isMounted = false;
+      window.removeEventListener("hesba_sales_config_updated", loadConfig);
     };
-  }, []);
+  }, [storeId]);
 
   // Calculate today's sales and total
   const todaySales = useMemo(() => {
@@ -474,6 +503,23 @@ export function SalesView() {
               : inv,
           ),
         );
+
+        // Deduct stock in DB via /api/stock delta
+        try {
+          void fetch("/api/stock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              action: "adjust",
+              storeVariantId: item.productId,
+              mode: "delta",
+              deltaQuantityBase: -quantityBase,
+              reason: `بيع: ${item.name}`,
+            }),
+          }).catch(() => {});
+        } catch {
+          // Offline fallback
+        }
       }
 
       // Flash animation on card

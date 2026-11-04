@@ -286,9 +286,13 @@ describe("AddStockModal Component", () => {
     );
 
     expect(html).toContain("إضافة للمخزون: بيبسي 1 لتر");
-    expect(html).toContain("نوع الكمية التي يتم إدخالها:");
-    expect(html).toContain("بالقطعة / الكرتونة");
-    expect(html).toContain("بالوزن");
+    expect(html).toContain("طريقة البيع والكمية المدخلة:");
+    expect(html).toContain("قطعة");
+    expect(html).toContain("علبة");
+    expect(html).toContain("برطمان");
+    expect(html).toContain("كيس");
+    expect(html).toContain("كرتونة");
+    expect(html).toContain("وزن");
     expect(html).toContain("كراتين");
     expect(html).toContain("قطع زيادة");
     expect(html).toContain("قطع/كرتونة");

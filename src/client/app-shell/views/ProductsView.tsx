@@ -425,6 +425,15 @@ export function ProductsView() {
         currentList.push(product.id);
         localStorage.setItem(storageKey, JSON.stringify(currentList));
 
+        // Persist to supermarket database configuration
+        void fetch("/api/sales/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ enabledServiceIds: currentList }),
+        }).catch(() => {});
+
+        window.dispatchEvent(new CustomEvent("hesba_sales_config_updated"));
+
         const stagedItem = {
           id: product.id,
           name: product.name_ar,

@@ -16,6 +16,7 @@ import {
 import { useAuth } from "../../shared/auth";
 import { MachineTopupModal } from "./MachineTopupModal";
 import type { StoreProductItem } from "./ProductsView";
+import { isServiceProduct } from "./ProductsView";
 import styles from "./StockView.module.css";
 
 export interface StockInventoryItem {
@@ -184,6 +185,7 @@ export function StockView() {
   const storeId = session?.store?.id;
 
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
+  const [storeProducts, setStoreProducts] = useState<StoreProductItem[]>([]);
   const [movements, setMovements] = useState<StockMovementItem[]>([]);
   const [machines, setMachines] = useState<PosMachine[]>(() => {
     return getStoredMachines(storeId);
@@ -219,11 +221,19 @@ export function StockView() {
 
   const loadData = useCallback(async () => {
     try {
-      const res = await fetch("/api/stock?view=all");
-      if (!res.ok) throw new Error("فشل تحميل بيانات المخزون");
-      const data = await res.json();
+      const [stockRes, prodRes] = await Promise.all([
+        fetch("/api/stock?view=all"),
+        fetch("/api/products?filter=all").catch(() => null),
+      ]);
+      if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
+      const data = await stockRes.json();
       setInventory(data.inventory || []);
       setMovements(data.movements || []);
+
+      if (prodRes && prodRes.ok) {
+        const prodData = await prodRes.json();
+        setStoreProducts(prodData.products || []);
+      }
     } catch (err: unknown) {
       console.error("Failed to load stock data:", err);
       setError("تعذر تحميل المخزون، برجاء التحقق من الاتصال");
@@ -236,12 +246,19 @@ export function StockView() {
     let ignore = false;
     const fetchStock = async () => {
       try {
-        const res = await fetch("/api/stock?view=all");
-        if (!res.ok) throw new Error("فشل تحميل بيانات المخزون");
-        const data = await res.json();
+        const [stockRes, prodRes] = await Promise.all([
+          fetch("/api/stock?view=all"),
+          fetch("/api/products?filter=all").catch(() => null),
+        ]);
+        if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
+        const data = await stockRes.json();
         if (!ignore) {
           setInventory(data.inventory || []);
           setMovements(data.movements || []);
+        }
+        if (!ignore && prodRes && prodRes.ok) {
+          const prodData = await prodRes.json();
+          setStoreProducts(prodData.products || []);
         }
       } catch (err: unknown) {
         console.error("Failed to load stock data:", err);
@@ -354,19 +371,71 @@ export function StockView() {
     });
   }, [inventory, query, filter]);
 
-  // Options for AddStockModal dropdown
+  // Options for AddStockModal dropdown - includes ALL products from Products page + inventory
   const productOptions: StockProductOption[] = useMemo(() => {
-    return inventory.map((i) => ({
-      variantId: i.variantId,
-      productId: i.productId,
-      productName: i.productName,
-      flavor: i.flavor,
-      unitMode: i.unitMode,
-      packQty: i.packQty,
-      currentStockBase: i.currentStockBase,
-      buyCostPiasters: i.buyPricePiasters,
-    }));
-  }, [inventory]);
+    const invMap = new Map<string, StockInventoryItem>();
+    inventory.forEach((i) => {
+      invMap.set(i.variantId, i);
+      invMap.set(i.productId, i);
+    });
+
+    const options: StockProductOption[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Physical products present in the store's Products list
+    storeProducts
+      .filter((p) => !isServiceProduct(p))
+      .forEach((p) => {
+        const v = p.variants?.[0];
+        const vId = v?.id || p.id;
+        seenIds.add(vId);
+        seenIds.add(p.id);
+
+        const invItem = invMap.get(vId) || invMap.get(p.id);
+        const isWeight =
+          p.unit === "weight" ||
+          p.unit === "kg" ||
+          p.unit === "g" ||
+          invItem?.unitMode === "weight";
+
+        options.push({
+          variantId: vId,
+          productId: p.id,
+          productName: p.name_ar,
+          flavor: v?.flavor || invItem?.flavor,
+          unitMode: isWeight ? "weight" : "piece",
+          packQty: v?.pack_qty || invItem?.packQty || 12,
+          currentStockBase:
+            invItem?.currentStockBase ?? (p.stock_quantity || 0),
+          buyCostPiasters:
+            invItem?.buyPricePiasters ||
+            p.buy_cost_piasters ||
+            v?.buy_cost_piasters,
+          unit: p.unit,
+          category: p.category,
+        });
+      });
+
+    // 2. Any additional items that were in inventory directly
+    inventory.forEach((i) => {
+      if (!seenIds.has(i.variantId) && !seenIds.has(i.productId)) {
+        options.push({
+          variantId: i.variantId,
+          productId: i.productId,
+          productName: i.productName,
+          flavor: i.flavor,
+          unitMode: i.unitMode,
+          packQty: i.packQty,
+          currentStockBase: i.currentStockBase,
+          buyCostPiasters: i.buyPricePiasters,
+          unit: i.unitMode,
+          category: i.category,
+        });
+      }
+    });
+
+    return options;
+  }, [inventory, storeProducts]);
 
   // Tab 2 movements filtered by selected period (additions / purchases log)
   const filteredMovements = useMemo(() => {
