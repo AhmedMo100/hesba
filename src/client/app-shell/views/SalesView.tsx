@@ -22,6 +22,7 @@ import {
   fetchStoreMachines,
   getServiceLinkedMachineIds,
   deductRemoteMachineBalance,
+  addRemoteMachineTopup,
   type PosMachine,
 } from "../../shared/machines";
 
@@ -36,6 +37,9 @@ export interface SaleRecord {
   isCarton?: boolean;
   commissionPiasters?: number;
   timestamp: number;
+  machineId?: string;
+  machineDeductPiasters?: number;
+  machineName?: string;
 }
 
 interface DisplaySaleItem {
@@ -290,6 +294,11 @@ export function SalesView() {
     msg: string;
     undoIds: string[];
     restoreQty?: { productId: string; qtyBase: number };
+    restoreMachine?: {
+      machineId: string;
+      amountPiasters: number;
+      machineName: string;
+    };
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -395,6 +404,14 @@ export function SalesView() {
       label: string;
       isCarton?: boolean;
       commissionPiasters?: number;
+      restoreMachine?: {
+        machineId: string;
+        amountPiasters: number;
+        machineName: string;
+      };
+      machineId?: string;
+      machineDeductPiasters?: number;
+      machineName?: string;
     }) => {
       const {
         item,
@@ -403,6 +420,10 @@ export function SalesView() {
         label,
         isCarton,
         commissionPiasters,
+        restoreMachine,
+        machineId,
+        machineDeductPiasters,
+        machineName,
       } = params;
 
       const now = Date.now();
@@ -419,6 +440,9 @@ export function SalesView() {
         isCarton,
         commissionPiasters,
         timestamp: now,
+        machineId,
+        machineDeductPiasters,
+        machineName,
       };
 
       // Update sales state and localStorage
@@ -464,6 +488,7 @@ export function SalesView() {
         restoreQty: !item.isService
           ? { productId: item.productId, qtyBase: quantityBase }
           : undefined,
+        restoreMachine,
       });
       toastTimerRef.current = setTimeout(() => {
         setActiveToast(null);
@@ -510,11 +535,17 @@ export function SalesView() {
     [storeId],
   );
 
-  // Undo / Revert a sale
-  const handleUndo = (
+  // Undo / Revert a sale: refunds machine balance or restores physical stock
+  const handleUndo = async (
     saleIds: string[],
     restore?: { productId: string; qtyBase: number },
+    restoreMachine?: {
+      machineId: string;
+      amountPiasters: number;
+      machineName: string;
+    },
   ) => {
+    // 1. Remove sale from state & localStorage
     setSales((prev) => {
       const updated = prev.filter((s) => !saleIds.includes(s.id));
       try {
@@ -528,17 +559,73 @@ export function SalesView() {
       return updated;
     });
 
-    if (restore) {
+    // 2. Void sale in Dexie for offline consistency
+    try {
+      if (db?.sales) {
+        for (const sid of saleIds) {
+          void db.sales
+            .update(sid, {
+              is_voided: true,
+              voided_at: new Date().toISOString(),
+            })
+            .catch(() => {});
+        }
+      }
+    } catch {
+      // Ignore
+    }
+
+    // 3. If machine service, refund the deducted balance back to the POS machine immediately
+    if (restoreMachine && restoreMachine.amountPiasters > 0) {
+      try {
+        await addRemoteMachineTopup(
+          restoreMachine.machineId,
+          restoreMachine.amountPiasters,
+          {
+            source: "تراجع عن عملية بيع",
+            reference: saleIds[0],
+            notes: `استرداد فوري لرصيد ${formatMoney(restoreMachine.amountPiasters)} لماكينة ${restoreMachine.machineName}`,
+          },
+          storeId,
+        );
+        await reloadMachines();
+      } catch (err) {
+        console.error("Machine refund on undo failed:", err);
+      }
+    }
+
+    // 4. If physical product, restore quantity to inventory immediately (both locally and remote DB)
+    if (restore && restore.qtyBase > 0) {
       setInventory((prev) =>
         prev.map((inv) =>
           inv.productId === restore.productId
             ? {
                 ...inv,
                 currentStockBase: inv.currentStockBase + restore.qtyBase,
+                status:
+                  inv.currentStockBase + restore.qtyBase > 0
+                    ? "ok"
+                    : inv.status,
               }
             : inv,
         ),
       );
+
+      try {
+        await fetch("/api/stock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "adjust",
+            storeVariantId: restore.productId,
+            mode: "delta",
+            deltaQuantityBase: restore.qtyBase,
+            reason: "تراجع عن بيع",
+          }),
+        });
+      } catch {
+        // Ignore offline or test failures
+      }
     }
 
     setActiveToast(null);
@@ -630,6 +717,14 @@ export function SalesView() {
         quantityBase: 1,
         amountPiasters: cardAmountPiasters,
         label: `1 كارت (${targetMachine.name})`,
+        restoreMachine: {
+          machineId: targetMachine.id,
+          amountPiasters: cardAmountPiasters,
+          machineName: targetMachine.name,
+        },
+        machineId: targetMachine.id,
+        machineDeductPiasters: cardAmountPiasters,
+        machineName: targetMachine.name,
       });
       return;
     }
@@ -772,6 +867,14 @@ export function SalesView() {
       amountPiasters: totalCustomerPiasters,
       label: `شحن ${amountEgp} ج.م (${chosenMachine.name})`,
       commissionPiasters,
+      restoreMachine: {
+        machineId: chosenMachine.id,
+        amountPiasters: principalPiasters,
+        machineName: chosenMachine.name,
+      },
+      machineId: chosenMachine.id,
+      machineDeductPiasters: principalPiasters,
+      machineName: chosenMachine.name,
     });
 
     setServiceModalItem(null);
@@ -954,10 +1057,22 @@ export function SalesView() {
                       type="button"
                       className={styles.rcUndoBtn}
                       onClick={() =>
-                        handleUndo([sale.id], {
-                          productId: sale.productId,
-                          qtyBase: sale.quantity,
-                        })
+                        handleUndo(
+                          [sale.id],
+                          sale.unit !== "service"
+                            ? {
+                                productId: sale.productId,
+                                qtyBase: sale.quantity,
+                              }
+                            : undefined,
+                          sale.machineId && sale.machineDeductPiasters
+                            ? {
+                                machineId: sale.machineId,
+                                amountPiasters: sale.machineDeductPiasters,
+                                machineName: sale.machineName || "الماكينة",
+                              }
+                            : undefined,
+                        )
                       }
                       title="تراجع عن هذه العملية"
                     >
@@ -1250,11 +1365,11 @@ export function SalesView() {
             {serviceAmountNum > 0 && (
               <div className={styles.serviceBreakdown}>
                 <div className={styles.serviceBreakdownRow}>
-                  <span>مبلغ الشحن / المعاملة:</span>
+                  <span>مبلغ الشحن (يُخصم من رصيد الماكينة):</span>
                   <b>{serviceAmountNum} ج.م</b>
                 </div>
                 <div className={styles.serviceBreakdownRow}>
-                  <span>عمولة المحل:</span>
+                  <span>عمولة المحل (تُحصّل كاش في الدرج):</span>
                   <b style={{ color: "var(--br, #8db68a)" }}>
                     + {serviceCommissionEgp} ج.م
                   </b>
@@ -1262,7 +1377,7 @@ export function SalesView() {
                 <div
                   className={`${styles.serviceBreakdownRow} ${styles.total}`}
                 >
-                  <span>المطلوب من الزبون:</span>
+                  <span>المطلوب من الزبون كاش:</span>
                   <b>{serviceTotalEgp} ج.م</b>
                 </div>
               </div>
@@ -1300,7 +1415,11 @@ export function SalesView() {
               type="button"
               className={styles.toastUndoBtn}
               onClick={() =>
-                handleUndo(activeToast.undoIds, activeToast.restoreQty)
+                handleUndo(
+                  activeToast.undoIds,
+                  activeToast.restoreQty,
+                  activeToast.restoreMachine,
+                )
               }
             >
               <Icon n="undo" s={14} />

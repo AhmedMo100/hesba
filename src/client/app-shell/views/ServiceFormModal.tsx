@@ -3,6 +3,7 @@
 import React, { useState, useMemo } from "react";
 import { Modal, Field, Icon } from "../../shared/ui";
 import styles from "./ProductsView.module.css";
+import { normalizeArabic } from "@/domain/normalize";
 
 export interface ServiceFormModalProps {
   product?: {
@@ -19,6 +20,7 @@ export interface ServiceFormModalProps {
       sell_price_piasters?: number;
     }>;
   } | null;
+  existingServices?: Array<{ id: string; name_ar: string }>;
   presetCategory?: string;
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
@@ -36,6 +38,7 @@ const SERVICE_CATEGORIES = [
 
 export function ServiceFormModal({
   product,
+  existingServices,
   presetCategory = "خدمات مرافق",
   onClose,
   onSaved,
@@ -83,6 +86,14 @@ export function ServiceFormModal({
 
     if (!name.trim()) {
       newErrors.name = "اكتب اسم الخدمة أو الكارت";
+    } else if (!product && existingServices && existingServices.length > 0) {
+      const normInput = normalizeArabic(name.trim());
+      const duplicate = existingServices.find(
+        (s) => normalizeArabic(s.name_ar) === normInput,
+      );
+      if (duplicate) {
+        newErrors.name = `هذه الخدمة «${duplicate.name_ar}» مسجلة بالفعل في قائمتك`;
+      }
     }
 
     let sellPriceNum = 0;

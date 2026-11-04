@@ -1,18 +1,21 @@
 "use client";
 
 import React, { useState } from "react";
-import { Modal, Button, Field } from "../../shared/ui";
+import { Modal, Button, Field, Icon } from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import {
   type PosMachine,
   addMachineTopup,
   addRemoteMachineTopup,
+  setMachineExactBalance,
+  setRemoteMachineExactBalance,
 } from "../../shared/machines";
 import { normalizeNumberString, parseEgpToPiasters } from "@/domain/money";
 
 export interface MachineTopupModalProps {
   machine: PosMachine;
   storeId?: string;
+  initialMode?: "topup" | "adjust";
   onClose: () => void;
   onSuccess: (updatedMachine: PosMachine) => void;
 }
@@ -20,72 +23,149 @@ export interface MachineTopupModalProps {
 export function MachineTopupModal({
   machine,
   storeId,
+  initialMode = "topup",
   onClose,
   onSuccess,
 }: MachineTopupModalProps) {
+  const [mode, setMode] = useState<"topup" | "adjust">(initialMode);
+
+  // Topup inputs
   const [amountEgp, setAmountEgp] = useState("");
   const [source, setSource] = useState("خزينة المحل (كاش)");
   const [customSource, setCustomSource] = useState("");
+
+  // Adjust inputs
+  const currentBalancePiasters = machine.currentBalancePiasters || 0;
+  const currentBalanceEgp = currentBalancePiasters / 100;
+  const [targetBalanceEgp, setTargetBalanceEgp] = useState(
+    currentBalanceEgp > 0 ? currentBalanceEgp.toString() : "",
+  );
+  const [adjustReason, setAdjustReason] = useState("تصحيح خطأ إدخال رصيد سابق");
+  const [customReason, setCustomReason] = useState("");
+
+  // Common inputs
   const [reference, setReference] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Adjust calculations
+  const targetNum = parseFloat(normalizeNumberString(targetBalanceEgp)) || 0;
+  const targetPiasters = Math.round(targetNum * 100);
+  const deltaPiasters = targetPiasters - currentBalancePiasters;
+  const deltaEgp = deltaPiasters / 100;
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanStr = normalizeNumberString(amountEgp).trim();
-    let amountPiasters = 0;
-    try {
-      amountPiasters = parseEgpToPiasters(cleanStr);
-    } catch {
-      amountPiasters = 0;
-    }
-
-    if (!amountPiasters || amountPiasters <= 0) {
-      setError("أدخل مبلغ الشحن / الإيداع بشكل صحيح");
-      return;
-    }
-
-    setIsSubmitting(true);
     setError(null);
 
-    const resolvedSource =
-      source === "أخرى" ? customSource.trim() || "مصدر مخصص" : source;
+    if (mode === "topup") {
+      const cleanStr = normalizeNumberString(amountEgp).trim();
+      let amountPiasters = 0;
+      try {
+        amountPiasters = parseEgpToPiasters(cleanStr);
+      } catch {
+        amountPiasters = 0;
+      }
 
-    void addRemoteMachineTopup(
-      machine.id,
-      amountPiasters,
-      {
-        source: resolvedSource,
-        reference: reference.trim() || undefined,
-        notes: notes.trim() || undefined,
-      },
-      storeId,
-    ).then((updatedList) => {
-      const target = updatedList.find((m) => m.id === machine.id) || machine;
-      onSuccess(target);
-    });
+      if (!amountPiasters || amountPiasters <= 0) {
+        setError("أدخل مبلغ الشحن / الإيداع بشكل صحيح");
+        return;
+      }
 
-    const localList = addMachineTopup(
-      machine.id,
-      amountPiasters,
-      {
-        source: resolvedSource,
-        reference: reference.trim() || undefined,
-        notes: notes.trim() || undefined,
-      },
-      storeId,
-    );
+      setIsSubmitting(true);
+      const resolvedSource =
+        source === "أخرى" ? customSource.trim() || "مصدر مخصص" : source;
 
-    const localTarget = localList.find((m) => m.id === machine.id) || machine;
-    setIsSubmitting(false);
-    onSuccess(localTarget);
-    onClose();
+      try {
+        const updatedList = await addRemoteMachineTopup(
+          machine.id,
+          amountPiasters,
+          {
+            source: resolvedSource,
+            reference: reference.trim() || undefined,
+            notes: notes.trim() || undefined,
+          },
+          storeId,
+        );
+        const target = updatedList.find((m) => m.id === machine.id) || machine;
+        onSuccess(target);
+      } catch {
+        const localList = addMachineTopup(
+          machine.id,
+          amountPiasters,
+          {
+            source: resolvedSource,
+            reference: reference.trim() || undefined,
+            notes: notes.trim() || undefined,
+          },
+          storeId,
+        );
+        const localTarget =
+          localList.find((m) => m.id === machine.id) || machine;
+        onSuccess(localTarget);
+      } finally {
+        setIsSubmitting(false);
+        onClose();
+      }
+    } else {
+      // mode === "adjust"
+      if (targetNum < 0) {
+        setError("رصيد الماكينة لا يمكن أن يكون سالباً");
+        return;
+      }
+
+      setIsSubmitting(true);
+      const resolvedReason =
+        adjustReason === "أخرى"
+          ? customReason.trim() || "تعديل رصيد مخصص"
+          : adjustReason;
+
+      try {
+        const updatedList = await setRemoteMachineExactBalance(
+          machine.id,
+          targetPiasters,
+          {
+            source:
+              deltaPiasters >= 0 ? "تصحيح رصيد (زيادة)" : "تصحيح رصيد (تخفيض)",
+            reason: resolvedReason,
+            reference: reference.trim() || undefined,
+            notes: notes.trim() || undefined,
+          },
+          storeId,
+        );
+        const target = updatedList.find((m) => m.id === machine.id) || machine;
+        onSuccess(target);
+      } catch {
+        const localList = setMachineExactBalance(
+          machine.id,
+          targetPiasters,
+          {
+            source:
+              deltaPiasters >= 0 ? "تصحيح رصيد (زيادة)" : "تصحيح رصيد (تخفيض)",
+            reason: resolvedReason,
+            reference: reference.trim() || undefined,
+            notes: notes.trim() || undefined,
+          },
+          storeId,
+        );
+        const localTarget =
+          localList.find((m) => m.id === machine.id) || machine;
+        onSuccess(localTarget);
+      } finally {
+        setIsSubmitting(false);
+        onClose();
+      }
+    }
   };
 
   return (
     <Modal
-      title={`إضافة رصيد: ${machine.name}`}
+      title={
+        mode === "topup"
+          ? `إضافة رصيد: ${machine.name}`
+          : `تعديل رصيد: ${machine.name}`
+      }
       onClose={onClose}
       footer={
         <>
@@ -98,7 +178,7 @@ export function MachineTopupModal({
             disabled={isSubmitting}
             loading={isSubmitting}
           >
-            تأكيد إضافة الرصيد ✓
+            {mode === "topup" ? "تأكيد إضافة الرصيد ✓" : "حفظ وتصحيح الرصيد ✓"}
           </Button>
         </>
       }
@@ -107,6 +187,74 @@ export function MachineTopupModal({
         onSubmit={handleSubmit}
         style={{ display: "flex", flexDirection: "column", gap: 14 }}
       >
+        {/* Mode Switcher Tabs */}
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 6,
+            background: "rgba(0, 0, 0, 0.2)",
+            padding: 4,
+            borderRadius: 12,
+            border: "1px solid var(--line)",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setMode("topup");
+              setError(null);
+            }}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 9,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "none",
+              background:
+                mode === "topup" ? "var(--br, #5a7d5a)" : "transparent",
+              color: mode === "topup" ? "#122112" : "var(--ink2)",
+              transition: "all 0.15s ease",
+              fontFamily: "inherit",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <Icon n="plus" s={14} />
+            <span>شحن رصيد إضافي</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("adjust");
+              setError(null);
+            }}
+            style={{
+              padding: "8px 10px",
+              borderRadius: 9,
+              fontSize: 13,
+              fontWeight: 700,
+              cursor: "pointer",
+              border: "none",
+              background:
+                mode === "adjust" ? "var(--br, #5a7d5a)" : "transparent",
+              color: mode === "adjust" ? "#122112" : "var(--ink2)",
+              transition: "all 0.15s ease",
+              fontFamily: "inherit",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 6,
+            }}
+          >
+            <Icon n="edit" s={14} />
+            <span>تعديل الرصيد مباشرة</span>
+          </button>
+        </div>
+
         {error && (
           <div
             style={{
@@ -158,95 +306,238 @@ export function MachineTopupModal({
                 fontWeight: 800,
               }}
             >
-              {formatMoney(machine.currentBalancePiasters || 0)}
+              {formatMoney(currentBalancePiasters)}
             </b>
           </div>
         </div>
 
-        {/* Topup Amount */}
-        <Field label="مبلغ الشحن / الإيداع المطلوب إضافته">
-          <div style={{ position: "relative", width: "100%" }}>
-            <input
-              type="number"
-              step="any"
-              min="1"
-              value={amountEgp}
-              onChange={(e) => setAmountEgp(e.target.value)}
-              placeholder="مثال: 1000"
-              autoFocus
+        {mode === "topup" ? (
+          <>
+            {/* Topup Amount */}
+            <Field label="مبلغ الشحن / الإيداع المطلوب إضافته">
+              <div style={{ position: "relative", width: "100%" }}>
+                <input
+                  type="number"
+                  step="any"
+                  min="1"
+                  value={amountEgp}
+                  onChange={(e) => setAmountEgp(e.target.value)}
+                  placeholder="مثال: 1000"
+                  autoFocus
+                  style={{
+                    width: "100%",
+                    padding: "10px 45px 10px 12px",
+                    borderRadius: 10,
+                    border: "1.5px solid var(--line)",
+                    fontSize: 16,
+                    fontWeight: 700,
+                    background: "var(--sf)",
+                    color: "var(--ink)",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--ink2)",
+                  }}
+                >
+                  ج.م
+                </span>
+              </div>
+            </Field>
+
+            {/* Source of Funds */}
+            <Field label="مصدر الرصيد (من أين تم دفع المبلغ)">
+              <select
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--line)",
+                  fontSize: 14,
+                  background: "var(--sf)",
+                  color: "var(--ink)",
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="خزينة المحل (كاش)">
+                  خزينة المحل (كاش نقدي)
+                </option>
+                <option value="تحويل بنكي / إنستاباي">
+                  تحويل بنكي / إنستاباي
+                </option>
+                <option value="محفظة فودافون كاش">محفظة فودافون كاش</option>
+                <option value="شحن مباشر من مندوب الشركة">
+                  شحن مباشر من مندوب الشركة
+                </option>
+                <option value="أخرى">أخرى (مصدر مخصص)</option>
+              </select>
+            </Field>
+
+            {source === "أخرى" && (
+              <Field label="اكتب مصدر الرصيد">
+                <input
+                  type="text"
+                  value={customSource}
+                  onChange={(e) => setCustomSource(e.target.value)}
+                  placeholder="مثال: سلفة من حساب المالك"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1.5px solid var(--line)",
+                    fontSize: 14,
+                    background: "var(--sf)",
+                    color: "var(--ink)",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </Field>
+            )}
+          </>
+        ) : (
+          <>
+            {/* Target Exact Balance Input */}
+            <Field label="الرصيد الفعلي الجديد للماكينة">
+              <div style={{ position: "relative", width: "100%" }}>
+                <input
+                  type="number"
+                  step="any"
+                  min="0"
+                  value={targetBalanceEgp}
+                  onChange={(e) => setTargetBalanceEgp(e.target.value)}
+                  placeholder="اكتب الرصيد الصحيح..."
+                  autoFocus
+                  style={{
+                    width: "100%",
+                    padding: "10px 45px 10px 12px",
+                    borderRadius: 10,
+                    border: "1.5px solid var(--br, #5a7d5a)",
+                    fontSize: 16,
+                    fontWeight: 700,
+                    background: "var(--sf)",
+                    color: "var(--ink)",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 12,
+                    top: "50%",
+                    transform: "translateY(-50%)",
+                    fontSize: 13,
+                    fontWeight: 700,
+                    color: "var(--ink2)",
+                  }}
+                >
+                  ج.م
+                </span>
+              </div>
+            </Field>
+
+            {/* Live Delta Calculation Card */}
+            <div
               style={{
-                width: "100%",
-                padding: "10px 45px 10px 12px",
+                padding: "10px 12px",
+                background:
+                  deltaPiasters > 0
+                    ? "rgba(16, 142, 92, 0.08)"
+                    : deltaPiasters < 0
+                      ? "rgba(207, 60, 60, 0.08)"
+                      : "var(--sf)",
+                border: "1px solid",
+                borderColor:
+                  deltaPiasters > 0
+                    ? "rgba(16, 142, 92, 0.25)"
+                    : deltaPiasters < 0
+                      ? "rgba(207, 60, 60, 0.25)"
+                      : "var(--line)",
                 borderRadius: 10,
-                border: "1.5px solid var(--line)",
-                fontSize: 16,
-                fontWeight: 700,
-                background: "var(--sf)",
-                color: "var(--ink)",
-                boxSizing: "border-box",
-              }}
-            />
-            <span
-              style={{
-                position: "absolute",
-                left: 12,
-                top: "50%",
-                transform: "translateY(-50%)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
                 fontSize: 13,
-                fontWeight: 700,
-                color: "var(--ink2)",
               }}
             >
-              ج.م
-            </span>
-          </div>
-        </Field>
+              <span style={{ color: "var(--ink2)" }}>فارق التعديل:</span>
+              <b
+                style={{
+                  color:
+                    deltaPiasters > 0
+                      ? "var(--ok, #108e5c)"
+                      : deltaPiasters < 0
+                        ? "var(--red, #cf3c3c)"
+                        : "var(--ink2)",
+                  fontSize: 14,
+                }}
+              >
+                {deltaPiasters > 0
+                  ? `+${deltaEgp} ج.م (زيادة بالرصيد)`
+                  : deltaPiasters < 0
+                    ? `${deltaEgp} ج.م (عجز / تخفيض بالرصيد)`
+                    : "لا يوجد تغيير"}
+              </b>
+            </div>
 
-        {/* Source of Funds */}
-        <Field label="مصدر الرصيد (من أين تم دفع المبلغ)">
-          <select
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1.5px solid var(--line)",
-              fontSize: 14,
-              background: "var(--sf)",
-              color: "var(--ink)",
-              boxSizing: "border-box",
-            }}
-          >
-            <option value="خزينة المحل (كاش)">خزينة المحل (كاش نقدي)</option>
-            <option value="تحويل بنكي / إنستاباي">تحويل بنكي / إنستاباي</option>
-            <option value="محفظة فودافون كاش">محفظة فودافون كاش</option>
-            <option value="شحن مباشر من مندوب الشركة">
-              شحن مباشر من مندوب الشركة
-            </option>
-            <option value="أخرى">أخرى (مصدر مخصص)</option>
-          </select>
-        </Field>
+            {/* Reason for Adjustment */}
+            <Field label="سبب تعديل وتصحيح الرصيد">
+              <select
+                value={adjustReason}
+                onChange={(e) => setAdjustReason(e.target.value)}
+                style={{
+                  width: "100%",
+                  padding: "10px 12px",
+                  borderRadius: 10,
+                  border: "1.5px solid var(--line)",
+                  fontSize: 14,
+                  background: "var(--sf)",
+                  color: "var(--ink)",
+                  boxSizing: "border-box",
+                }}
+              >
+                <option value="تصحيح خطأ إدخال رصيد سابق">
+                  تصحيح خطأ إدخال رصيد سابق
+                </option>
+                <option value="جرد ومطابقة رصيد الماكينة الفعلي">
+                  جرد ومطابقة رصيد الماكينة الفعلي
+                </option>
+                <option value="خصم رسوم شبكة أو اشتراك مزود">
+                  خصم رسوم شبكة أو اشتراك مزود
+                </option>
+                <option value="أخرى">أخرى (سبب مخصص)</option>
+              </select>
+            </Field>
 
-        {source === "أخرى" && (
-          <Field label="اكتب مصدر الرصيد">
-            <input
-              type="text"
-              value={customSource}
-              onChange={(e) => setCustomSource(e.target.value)}
-              placeholder="مثال: سلفة من حساب المالك"
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1.5px solid var(--line)",
-                fontSize: 14,
-                background: "var(--sf)",
-                color: "var(--ink)",
-                boxSizing: "border-box",
-              }}
-            />
-          </Field>
+            {adjustReason === "أخرى" && (
+              <Field label="اكتب سبب التعديل">
+                <input
+                  type="text"
+                  value={customReason}
+                  onChange={(e) => setCustomReason(e.target.value)}
+                  placeholder="مثال: تسوية شهرية مع الشركة"
+                  style={{
+                    width: "100%",
+                    padding: "10px 12px",
+                    borderRadius: 10,
+                    border: "1.5px solid var(--line)",
+                    fontSize: 14,
+                    background: "var(--sf)",
+                    color: "var(--ink)",
+                    boxSizing: "border-box",
+                  }}
+                />
+              </Field>
+            )}
+          </>
         )}
 
         {/* Reference Number */}
@@ -275,7 +566,7 @@ export function MachineTopupModal({
             type="text"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="مثال: شحن رصيد لتغطية فواتير بداية الشهر"
+            placeholder="ملاحظات إضافية..."
             style={{
               width: "100%",
               padding: "10px 12px",
@@ -326,11 +617,20 @@ export function MachineTopupModal({
                     }}
                   >
                     <div>
-                      <b style={{ color: "var(--ok, #108e5c)" }}>
-                        +{formatMoney(tx.amountPiasters)}
+                      <b
+                        style={{
+                          color:
+                            tx.amountPiasters >= 0
+                              ? "var(--ok, #108e5c)"
+                              : "var(--red, #cf3c3c)",
+                        }}
+                      >
+                        {tx.amountPiasters >= 0
+                          ? `+${formatMoney(tx.amountPiasters)}`
+                          : formatMoney(tx.amountPiasters)}
                       </b>
                       <span style={{ color: "var(--ink2)", marginRight: 6 }}>
-                        ({tx.source || "إيداع"})
+                        ({tx.source || "حركة رصيد"})
                       </span>
                     </div>
                     <span style={{ color: "var(--ink2)", fontSize: 11 }}>

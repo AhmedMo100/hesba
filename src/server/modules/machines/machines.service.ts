@@ -245,6 +245,98 @@ export class MachinesService {
   }
 
   /**
+   * Adjusts / sets the exact balance of a POS machine (correction / audit).
+   */
+  async adjustMachineBalance(
+    storeId: string,
+    userId: string | null,
+    machineId: string,
+    targetBalancePiasters: number,
+    params?: {
+      source?: string | null;
+      reason?: string | null;
+      reference?: string | null;
+      notes?: string | null;
+    },
+  ): Promise<PosMachineDto> {
+    if (targetBalancePiasters < 0) {
+      throw AppError.badRequest("رصيد الماكينة لا يمكن أن يكون سالباً");
+    }
+
+    return await withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const machine = await tx.posMachine.findFirst({
+          where: { id: machineId, storeId, deletedAt: null },
+        });
+
+        if (!machine) {
+          throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
+        }
+
+        const currentBalance = Number(machine.currentBalancePiasters);
+        const delta = targetBalancePiasters - currentBalance;
+
+        await tx.posMachineTopup.create({
+          data: {
+            storeId,
+            machineId,
+            amountPiasters: BigInt(delta),
+            balanceAfterPiasters: BigInt(targetBalancePiasters),
+            source:
+              params?.source?.trim() ||
+              (delta >= 0 ? "تصحيح رصيد (زيادة)" : "تصحيح رصيد (تخفيض)"),
+            reference: params?.reference?.trim() || null,
+            notes:
+              params?.notes?.trim() ||
+              params?.reason?.trim() ||
+              "تعديل رصيد يدوي",
+          },
+        });
+
+        const updated = await tx.posMachine.update({
+          where: { id: machineId },
+          data: {
+            currentBalancePiasters: BigInt(targetBalancePiasters),
+          },
+          include: {
+            topups: {
+              orderBy: { createdAt: "desc" },
+              take: 20,
+            },
+          },
+        });
+
+        return {
+          id: updated.id,
+          name: updated.name,
+          provider: updated.provider,
+          terminalId: updated.terminalId,
+          status: updated.status as "active" | "inactive" | "maintenance",
+          notes: updated.notes,
+          currentBalancePiasters: Number(updated.currentBalancePiasters),
+          balanceTransactions: updated.topups.map((t) => ({
+            id: t.id,
+            type:
+              Number(t.amountPiasters) >= 0
+                ? ("deposit" as const)
+                : ("withdrawal" as const),
+            amountPiasters: Number(t.amountPiasters),
+            balanceAfterPiasters: Number(t.balanceAfterPiasters),
+            source: t.source,
+            reference: t.reference,
+            notes: t.notes,
+            createdAt: t.createdAt.toISOString(),
+          })),
+          createdAt: updated.createdAt.toISOString(),
+        };
+      },
+      this.db,
+    );
+  }
+
+  /**
    * Soft deletes a POS machine.
    */
   async deleteMachine(

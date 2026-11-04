@@ -415,10 +415,15 @@ export function ProductsView() {
         const storageKey = `hesba_sales_enabled_services_${storeId || "default"}`;
         const raw = localStorage.getItem(storageKey);
         const currentList: string[] = raw ? JSON.parse(raw) : [];
-        if (!currentList.includes(product.id)) {
-          currentList.push(product.id);
-          localStorage.setItem(storageKey, JSON.stringify(currentList));
+        if (currentList.includes(product.id)) {
+          alert(
+            `⚠️ هذه الخدمة «${product.name_ar}» مضافة بالفعل إلى صفحة البيع ومتاحة للبيع الآن!`,
+          );
+          return;
         }
+
+        currentList.push(product.id);
+        localStorage.setItem(storageKey, JSON.stringify(currentList));
 
         const stagedItem = {
           id: product.id,
@@ -951,6 +956,11 @@ export function ProductsView() {
                               className={styles.menuItem}
                               onClick={() => {
                                 setMenuOpenId(null);
+                                if ((p.stock_quantity ?? 0) > 0) {
+                                  alert(
+                                    `⚠️ هذا المنتج «${p.name_ar}» مضاف بالفعل في المخزون (الرصيد المتاح: ${p.stock_quantity}). يمكنك إضافة دفعة توريد جديدة أو تعديل رصيده.`,
+                                  );
+                                }
                                 setStockModalProduct(p);
                               }}
                             >
@@ -1472,6 +1482,7 @@ export function ProductsView() {
         (editingProduct && !isServiceProduct(editingProduct))) && (
         <ProductFormModal
           product={editingProduct}
+          existingProducts={products}
           defaultCategory={
             activeCategory !== "all" ? activeCategory : "السلع الاستهلاكية"
           }
@@ -1497,6 +1508,7 @@ export function ProductsView() {
         (editingProduct && isServiceProduct(editingProduct))) && (
         <ServiceFormModal
           product={editingProduct}
+          existingServices={serviceProducts}
           presetCategory={
             editingProduct?.category ||
             (serviceCategory === "utilities"

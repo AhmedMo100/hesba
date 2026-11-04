@@ -8,6 +8,7 @@ import {
   type CatalogSearchResult,
 } from "../../shared/catalog";
 import { formatMoney } from "../../shared/i18n";
+import { normalizeArabic } from "@/domain/normalize";
 import styles from "./ProductsView.module.css";
 
 export interface ProductFormModalProps {
@@ -36,6 +37,12 @@ export interface ProductFormModalProps {
   presetName?: string;
   initialCatalogProduct?: CatalogSearchResult | null;
   defaultCategory?: string;
+  existingProducts?: Array<{
+    id: string;
+    name_ar: string;
+    barcode?: string | null;
+    global_product_id?: string | null;
+  }>;
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
   onDeleted?: (productId: string) => void;
@@ -65,6 +72,7 @@ export function ProductFormModal({
   presetName,
   initialCatalogProduct,
   defaultCategory,
+  existingProducts,
   onClose,
   onSaved,
   onDeleted,
@@ -322,6 +330,21 @@ export function ProductFormModal({
   };
 
   const handleSelectCatalogMatch = (match: CatalogSearchResult) => {
+    if (existingProducts && existingProducts.length > 0) {
+      const matchNameNorm = normalizeArabic(match.product.nameAr);
+      const isAlreadyAdded = existingProducts.some(
+        (p) =>
+          normalizeArabic(p.name_ar).trim() === matchNameNorm ||
+          (p.global_product_id && p.global_product_id === match.product.id),
+      );
+      if (isAlreadyAdded) {
+        alert(
+          `⚠️ الصنف «${match.product.nameAr}» مضاف بالفعل مسبقاً في المحل! يمكنك تعديل سعره أو كميته في المخزون مباشرة.`,
+        );
+        return;
+      }
+    }
+
     setSelectedGlobalProduct(match);
     setName(match.product.nameAr);
     setCategory(match.product.category);
@@ -459,6 +482,30 @@ export function ProductFormModal({
 
     if (!name.trim()) {
       newErrors.name = "اكتب اسم المنتج";
+    }
+
+    if (!product && existingProducts && existingProducts.length > 0) {
+      const trimmedName = name.trim();
+      const normName = normalizeArabic(trimmedName);
+      const trimmedBarcode = barcode.trim();
+
+      const existingMatch = existingProducts.find((p) => {
+        if (
+          trimmedBarcode &&
+          p.barcode &&
+          p.barcode.trim() === trimmedBarcode
+        ) {
+          return true;
+        }
+        if (trimmedName && normalizeArabic(p.name_ar).trim() === normName) {
+          return true;
+        }
+        return false;
+      });
+
+      if (existingMatch) {
+        newErrors.name = `⚠️ هذا الصنف «${existingMatch.name_ar}» مضاف بالفعل مسبقاً في المحل!`;
+      }
     }
 
     let sellPriceNum = 0;

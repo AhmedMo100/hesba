@@ -189,6 +189,9 @@ export function StockView() {
     return getStoredMachines(storeId);
   });
   const [topupMachine, setTopupMachine] = useState<PosMachine | null>(null);
+  const [topupInitialMode, setTopupInitialMode] = useState<"topup" | "adjust">(
+    "topup",
+  );
 
   // Listen for pos machine updates across tabs and views & fetch from DB
   useEffect(() => {
@@ -712,14 +715,49 @@ export function StockView() {
                           {formatMoney(m.currentBalancePiasters || 0)}
                         </b>
                       </div>
-                      <button
-                        type="button"
-                        className={styles.machineTopupBtn}
-                        onClick={() => setTopupMachine(m)}
+                      <div
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          alignItems: "center",
+                        }}
                       >
-                        <Icon n="plus" s={14} />
-                        <span>شحن رصيد</span>
-                      </button>
+                        <button
+                          type="button"
+                          className={styles.machineTopupBtn}
+                          onClick={() => {
+                            setTopupInitialMode("topup");
+                            setTopupMachine(m);
+                          }}
+                        >
+                          <Icon n="plus" s={14} />
+                          <span>شحن</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setTopupInitialMode("adjust");
+                            setTopupMachine(m);
+                          }}
+                          title="تعديل وتصحيح الرصيد"
+                          style={{
+                            background: "var(--sf)",
+                            border: "1.5px solid var(--line)",
+                            borderRadius: 8,
+                            padding: "6px 9px",
+                            fontSize: 12,
+                            fontWeight: 700,
+                            cursor: "pointer",
+                            color: "var(--ink2)",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          <Icon n="edit" s={13} />
+                          <span>تعديل</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))
@@ -986,11 +1024,12 @@ export function StockView() {
         </p>
       </div>
 
-      {/* Machine Topup Modal */}
+      {/* Machine Topup / Adjust Modal */}
       {topupMachine && (
         <MachineTopupModal
           machine={topupMachine}
           storeId={storeId}
+          initialMode={topupInitialMode}
           onClose={() => setTopupMachine(null)}
           onSuccess={() => {
             setMachines(getStoredMachines(storeId));

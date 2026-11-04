@@ -322,6 +322,99 @@ export function addMachineTopup(
 }
 
 /**
+ * Sets / adjusts the exact balance of a POS machine (reconciliation / correction).
+ */
+export async function setRemoteMachineExactBalance(
+  machineId: string,
+  targetBalancePiasters: number,
+  params?: {
+    source?: string;
+    reason?: string;
+    reference?: string;
+    notes?: string;
+  },
+  storeId?: string,
+): Promise<PosMachine[]> {
+  try {
+    const res = await fetch("/api/machines/adjust", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        machineId,
+        targetBalancePiasters,
+        source: params?.source,
+        reason: params?.reason,
+        reference: params?.reference,
+        notes: params?.notes,
+      }),
+    });
+
+    if (res.ok) {
+      return await fetchStoreMachines(storeId);
+    } else {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.error?.message || "فشل تعديل رصيد الماكينة");
+    }
+  } catch (err: unknown) {
+    console.error(
+      "Remote balance adjustment failed, falling back to local:",
+      err,
+    );
+  }
+
+  return setMachineExactBalance(
+    machineId,
+    targetBalancePiasters,
+    params,
+    storeId,
+  );
+}
+
+/**
+ * Synchronous local exact balance adjustment fallback
+ */
+export function setMachineExactBalance(
+  machineId: string,
+  targetBalancePiasters: number,
+  params?: {
+    source?: string;
+    reason?: string;
+    reference?: string;
+    notes?: string;
+  },
+  storeId?: string,
+): PosMachine[] {
+  const current = getStoredMachines(storeId);
+  const updated = current.map((m) => {
+    if (m.id !== machineId) return m;
+    const curBal = m.currentBalancePiasters || 0;
+    const delta = targetBalancePiasters - curBal;
+    const tx: BalanceTransaction = {
+      id: `tx-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type: "adjustment",
+      amountPiasters: delta,
+      balanceAfterPiasters: targetBalancePiasters,
+      source:
+        params?.source?.trim() ||
+        (delta >= 0 ? "تصحيح رصيد (زيادة)" : "تصحيح رصيد (تخفيض)"),
+      reference: params?.reference?.trim() || undefined,
+      notes:
+        params?.notes?.trim() ||
+        params?.reason?.trim() ||
+        "تعديل وتصحيح رصيد الماكينة",
+      createdAt: new Date().toISOString(),
+    };
+    return {
+      ...m,
+      currentBalancePiasters: targetBalancePiasters,
+      balanceTransactions: [tx, ...(m.balanceTransactions || [])],
+    };
+  });
+  saveStoredMachines(updated, storeId);
+  return updated;
+}
+
+/**
  * Deducts balance from a POS machine upon executing a bill or service sale.
  */
 export async function deductRemoteMachineBalance(
