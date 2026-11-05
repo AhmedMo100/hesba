@@ -12,9 +12,15 @@ import type {
   SuggestedPromotion,
 } from "@/app/api/alerts/route";
 import type { PublishedPromotion } from "@/app/api/promotions/route";
+import { fetchStoreMachines, type PosMachine } from "../../shared/machines";
+import { useAuth } from "../../shared/auth";
+import { MachineTopupModal } from "./MachineTopupModal";
 import styles from "./AlertsView.module.css";
 
 export function AlertsView() {
+  const { session } = useAuth();
+  const storeId = session?.store?.id;
+
   const [tab, setTab] = useState<"all" | "stock" | "exp">("all");
   const [loading, setLoading] = useState(true);
   const [outOfStock, setOutOfStock] = useState<StockAlertItem[]>([]);
@@ -24,7 +30,12 @@ export function AlertsView() {
   const [suggestedPromos, setSuggestedPromos] = useState<SuggestedPromotion[]>(
     [],
   );
+  const [publishedPromotions, setPublishedPromotions] = useState<
+    PublishedPromotion[]
+  >([]);
   const [allProducts, setAllProducts] = useState<StoreProductItem[]>([]);
+  const [machines, setMachines] = useState<PosMachine[]>([]);
+  const [topupMachine, setTopupMachine] = useState<PosMachine | null>(null);
 
   const toast = useToast();
   const [wasteTarget, setWasteTarget] = useState<ExpiryAlertItem | null>(null);
@@ -35,10 +46,6 @@ export function AlertsView() {
   // Edit / Custom Promo state
   const [editingPromo, setEditingPromo] = useState<SuggestedPromotion | null>(
     null,
-  );
-
-  const [publishedPromoIds, setPublishedPromoIds] = useState<Set<string>>(
-    new Set(),
   );
 
   const loadAlerts = useCallback(async () => {
@@ -104,22 +111,71 @@ export function AlertsView() {
     };
   }, []);
 
-  // Load published promo IDs to avoid re-suggesting
-  useEffect(() => {
+  // Load published promotions
+  const loadPromotions = useCallback(() => {
     fetch("/api/promotions")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.promotions && Array.isArray(data.promotions)) {
-          const ids = new Set<string>(
-            data.promotions.map((p: PublishedPromotion) => p.id),
-          );
-          setPublishedPromoIds(ids);
+          setPublishedPromotions(data.promotions);
         }
       })
       .catch(() => {});
   }, []);
 
-  const totalStockAlerts = outOfStock.length + lowStock.length;
+  // Load POS Machines to monitor low balance (< 200 EGP)
+  const loadMachines = useCallback(() => {
+    void fetchStoreMachines(storeId).then((m) => {
+      if (m && Array.isArray(m)) {
+        setMachines(m);
+      }
+    });
+  }, [storeId]);
+
+  useEffect(() => {
+    loadPromotions();
+    loadMachines();
+
+    window.addEventListener("hesba_promotions_updated", loadPromotions);
+    window.addEventListener("hesba_machines_updated", loadMachines);
+    return () => {
+      window.removeEventListener("hesba_promotions_updated", loadPromotions);
+      window.removeEventListener("hesba_machines_updated", loadMachines);
+    };
+  }, [loadPromotions, loadMachines]);
+
+  // Machines with balance less than 200 EGP (20,000 piasters)
+  const lowMachines = useMemo(() => {
+    return machines.filter(
+      (m) => m.status === "active" && (m.currentBalancePiasters || 0) < 20000,
+    );
+  }, [machines]);
+
+  // All promotions (both published and suggested)
+  const allPromos = useMemo((): Array<
+    SuggestedPromotion & { isPublished: boolean }
+  > => {
+    const pubIds = new Set(publishedPromotions.map((p) => p.id));
+    const pending = suggestedPromos.filter((p) => !pubIds.has(p.id));
+    return [
+      ...publishedPromotions.map((p) => ({
+        id: p.id,
+        title: p.title,
+        description: p.description || "",
+        type: (p.type || "bundle") as "bundle" | "single_discount",
+        items: p.items,
+        originalPricePiasters: p.originalPricePiasters,
+        promoPricePiasters: p.promoPricePiasters,
+        savingsPiasters: p.savingsPiasters,
+        expiryDaysMin: p.expiryDaysMin ?? 7,
+        isPublished: true,
+      })),
+      ...pending.map((p) => ({ ...p, isPublished: false })),
+    ];
+  }, [suggestedPromos, publishedPromotions]);
+
+  const totalStockAlerts =
+    outOfStock.length + lowStock.length + lowMachines.length;
   const totalExpiryAlerts = expired.length + nearExpiry.length;
   const totalAlerts = totalStockAlerts + totalExpiryAlerts;
 
@@ -247,7 +303,15 @@ export function AlertsView() {
         throw new Error("تعذر نشر العرض");
       }
 
-      setPublishedPromoIds((prev) => new Set([...prev, promo.id]));
+      setPublishedPromotions((prev) => {
+        const idx = prev.findIndex((p) => p.id === promo.id);
+        if (idx >= 0) {
+          const u = [...prev];
+          u[idx] = promo as PublishedPromotion;
+          return u;
+        }
+        return [...prev, promo as PublishedPromotion];
+      });
       toast.show({
         msg: `تمت الموافقة ونشر «${promo.title}» في واجهة البيع ✓`,
         kind: "ok",
@@ -302,10 +366,6 @@ export function AlertsView() {
     });
   };
 
-  const visiblePromos = useMemo(() => {
-    return suggestedPromos.filter((p) => !publishedPromoIds.has(p.id));
-  }, [suggestedPromos, publishedPromoIds]);
-
   return (
     <div className={styles.page} data-testid="page-alerts" dir="rtl">
       {/* Seg tabs control matching demo */}
@@ -328,11 +388,12 @@ export function AlertsView() {
         />
       )}
 
-      {/* Stock Depletion Section (نفاد المخزون — خلصان خالص + قرب يخلص) */}
-      {showStock && stockAlertsList.length > 0 && (
+      {/* Stock Depletion Section (نفاد المخزون — خلصان خالص + قرب يخلص + الماكينات المنخفضة) */}
+      {showStock && (stockAlertsList.length > 0 || lowMachines.length > 0) && (
         <section>
-          <h2 className={styles.secTitle}>نفاد المخزون</h2>
+          <h2 className={styles.secTitle}>نفاد المخزون والماكينات</h2>
           <div className={styles.listCard}>
+            {/* Products Low / Out of Stock */}
             {stockAlertsList.map((item) => (
               <div key={item.id} className={styles.lrow}>
                 <div className={styles.rowInfo}>
@@ -387,6 +448,42 @@ export function AlertsView() {
                 </button>
               </div>
             ))}
+
+            {/* POS Machines with Balance < 200 EGP */}
+            {lowMachines.map((m) => {
+              const balPiasters = m.currentBalancePiasters || 0;
+              const isOut = balPiasters <= 0;
+              return (
+                <div key={m.id} className={styles.lrow}>
+                  <div className={styles.rowInfo}>
+                    <div className={styles.rowTitleGroup}>
+                      <span
+                        className={`${styles.dot} ${
+                          isOut ? styles.dotRed : styles.dotYellow
+                        }`}
+                      />
+                      <span className={styles.itemName}>
+                        {m.name} (ماكينة دفع)
+                      </span>
+                    </div>
+                    <span className={styles.itemSub}>
+                      {isOut
+                        ? "رصيد منتهي (0 ج.م)"
+                        : `فاضل ${(balPiasters / 100).toFixed(1)} ج.م بس (أقل من 200 ج.م)`}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    className={styles.doneBtn}
+                    onClick={() => setTopupMachine(m)}
+                    title="شحن رصيد الماكينة"
+                  >
+                    <Icon n="check" s={14} />
+                    <span>تم</span>
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </section>
       )}
@@ -429,27 +526,7 @@ export function AlertsView() {
       {/* Promotional Clearance Offers: ONLY visible in the Expiry Tab! */}
       {tab === "exp" && (
         <section className={styles.promoSection}>
-          <div className={styles.promoHeaderCard}>
-            <div className={styles.promoHeaderInfo}>
-              <h3 className={styles.promoHeaderTitle}>
-                <Icon n="sparkle" s={16} />
-                <span>عروض وتخفيضات الصلاحية</span>
-              </h3>
-              <span className={styles.promoHeaderSub}>
-                عروض ذكية لتصريف البضاعة قرب الانتهاء وتنشيط المبيعات
-              </span>
-            </div>
-            <button
-              type="button"
-              className={styles.createCustomPromoBtn}
-              onClick={handleStartCreateCustomPromo}
-            >
-              <Icon n="plus" s={14} />
-              <span>إنشاء عرض مخصص</span>
-            </button>
-          </div>
-
-          {visiblePromos.length === 0 ? (
+          {allPromos.length === 0 ? (
             <div className={styles.emptyPromoCard}>
               <div className={styles.emptyPromoTitle}>
                 لا توجد عروض مقترحة حالياً
@@ -464,100 +541,165 @@ export function AlertsView() {
                 onClick={handleStartCreateCustomPromo}
               >
                 <Icon n="plus" s={14} />
-                <span>إنشاء أول عرض الآن</span>
+                <span>إنشاء عرض مخصص</span>
               </button>
             </div>
           ) : (
-            <div className={styles.promoCardsList}>
-              {visiblePromos.map((promo) => (
-                <div key={promo.id} className={styles.promoCard}>
-                  <div className={styles.promoCardTop}>
-                    <h4 className={styles.promoTitle}>{promo.title}</h4>
-                    <span className={styles.savingsTag}>
-                      وفّر {formatMoney(promo.savingsPiasters)}
-                    </span>
-                  </div>
+            <>
+              <div className={styles.promoBar}>
+                <div className={styles.promoSectionTitle}>
+                  <Icon n="sparkle" s={16} />
+                  <span>عروض وتخفيضات الصلاحية ({allPromos.length})</span>
+                </div>
+                <button
+                  type="button"
+                  className={styles.createCustomPromoBtn}
+                  onClick={handleStartCreateCustomPromo}
+                >
+                  <Icon n="plus" s={14} />
+                  <span>إنشاء عرض مخصص</span>
+                </button>
+              </div>
 
-                  <p className={styles.promoItemsText}>
-                    {promo.items
-                      .map(
-                        (it) =>
-                          `${it.productName} (${
-                            it.unit === "weight"
-                              ? `${
-                                  it.quantityBase >= 1000
-                                    ? it.quantityBase / 1000
-                                    : it.quantityBase
-                                } كجم`
-                              : `${it.quantityBase} ${it.unit}`
-                          })`,
-                      )
-                      .join(" · ")}
-                  </p>
-
-                  <div className={styles.promoCardFooter}>
-                    <div className={styles.promoPricing}>
-                      <span className={styles.promoOldPrice}>
-                        {formatMoney(promo.originalPricePiasters)}
-                      </span>
-                      <b className={styles.promoNewPrice}>
-                        {formatMoney(promo.promoPricePiasters)}
-                      </b>
-                    </div>
-
-                    <div className={styles.promoActions}>
-                      <button
-                        type="button"
-                        className={styles.approvePromoBtn}
-                        onClick={() => void handleApprovePromotion(promo)}
-                      >
-                        <Icon n="check" s={15} />
-                        <span>نشر في البيع</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className={styles.editPromoBtn}
-                        onClick={() => setEditingPromo(promo)}
-                        title="تعديل تفاصيل العرض"
-                      >
-                        <Icon n="edit" s={14} />
-                        <span>تعديل</span>
-                      </button>
-
-                      {promo.items.length > 0 && (
-                        <button
-                          type="button"
-                          className={styles.wastePromoBtn}
-                          onClick={() => {
-                            const firstItem = promo.items[0];
-                            if (!firstItem) return;
-                            const targetExp =
-                              expired.find(
-                                (e) => e.productId === firstItem.productId,
-                              ) ||
-                              nearExpiry.find(
-                                (e) => e.productId === firstItem.productId,
-                              );
-                            if (targetExp) {
-                              setWasteTarget(targetExp);
-                            } else {
-                              toast.show({
-                                msg: "الصنف ليس لديه باتش منتهي للتسجيل",
-                                kind: "err",
-                              });
-                            }
-                          }}
-                          title="تسجيل كتالف"
-                        >
-                          <Icon n="trash" s={14} />
-                        </button>
+              <div className={styles.promoCardsList}>
+                {allPromos.map((promo) => (
+                  <div key={promo.id} className={styles.promoCard}>
+                    <div className={styles.promoCardTop}>
+                      <h4 className={styles.promoTitle}>{promo.title}</h4>
+                      {promo.isPublished ? (
+                        <span className={styles.publishedTag}>
+                          <Icon n="check" s={12} />
+                          <span>منشور في البيع</span>
+                        </span>
+                      ) : (
+                        <span className={styles.savingsTag}>
+                          وفّر {formatMoney(promo.savingsPiasters)}
+                        </span>
                       )}
                     </div>
+
+                    <p className={styles.promoItemsText}>
+                      {promo.items
+                        .map(
+                          (it) =>
+                            `${it.productName} (${
+                              it.unit === "weight"
+                                ? `${
+                                    it.quantityBase >= 1000
+                                      ? it.quantityBase / 1000
+                                      : it.quantityBase
+                                  } كجم`
+                                : `${it.quantityBase} ${it.unit}`
+                            })`,
+                        )
+                        .join(" · ")}
+                    </p>
+
+                    <div className={styles.promoCardFooter}>
+                      <div className={styles.promoPricing}>
+                        <span className={styles.promoOldPrice}>
+                          {formatMoney(promo.originalPricePiasters)}
+                        </span>
+                        <b className={styles.promoNewPrice}>
+                          {formatMoney(promo.promoPricePiasters)}
+                        </b>
+                      </div>
+
+                      <div className={styles.promoActions}>
+                        {promo.isPublished ? (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.editPromoBtn}
+                              onClick={() => setEditingPromo(promo)}
+                              title="تعديل تفاصيل العرض"
+                            >
+                              <Icon n="edit" s={14} />
+                              <span>تعديل</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.deletePromoBtn}
+                              onClick={async () => {
+                                await fetch(
+                                  `/api/promotions?id=${encodeURIComponent(promo.id)}`,
+                                  { method: "DELETE" },
+                                );
+                                setPublishedPromotions((prev) =>
+                                  prev.filter((p) => p.id !== promo.id),
+                                );
+                                window.dispatchEvent(
+                                  new CustomEvent("hesba_promotions_updated"),
+                                );
+                                toast.show({
+                                  msg: "تم حذف العرض من البيع",
+                                  kind: "ok",
+                                });
+                              }}
+                              title="حذف العرض من البيع"
+                            >
+                              <Icon n="trash" s={14} />
+                              <span>حذف</span>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              className={styles.approvePromoBtn}
+                              onClick={() => void handleApprovePromotion(promo)}
+                            >
+                              <Icon n="check" s={15} />
+                              <span>نشر في البيع</span>
+                            </button>
+                            <button
+                              type="button"
+                              className={styles.editPromoBtn}
+                              onClick={() => setEditingPromo(promo)}
+                              title="تعديل تفاصيل العرض"
+                            >
+                              <Icon n="edit" s={14} />
+                              <span>تعديل</span>
+                            </button>
+                            {promo.items.length > 0 && (
+                              <button
+                                type="button"
+                                className={styles.wastePromoBtn}
+                                onClick={() => {
+                                  const firstItem = promo.items[0];
+                                  if (!firstItem) return;
+                                  const targetExp =
+                                    expired.find(
+                                      (e) =>
+                                        e.productId === firstItem.productId,
+                                    ) ||
+                                    nearExpiry.find(
+                                      (e) =>
+                                        e.productId === firstItem.productId,
+                                    );
+                                  if (targetExp) {
+                                    setWasteTarget(targetExp);
+                                  } else {
+                                    toast.show({
+                                      msg: "الصنف ليس لديه باتش منتهي للتسجيل",
+                                      kind: "err",
+                                    });
+                                  }
+                                }}
+                                title="تسجيل كتالف"
+                              >
+                                <Icon n="trash" s={14} />
+                                <span>تالف</span>
+                              </button>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>
           )}
         </section>
       )}
@@ -664,6 +806,25 @@ export function AlertsView() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* POS Machine Topup / Recharge Modal */}
+      {topupMachine && (
+        <MachineTopupModal
+          machine={topupMachine}
+          storeId={storeId}
+          onClose={() => setTopupMachine(null)}
+          onSuccess={(updated) => {
+            setTopupMachine(null);
+            setMachines((prev) =>
+              prev.map((m) => (m.id === updated.id ? updated : m)),
+            );
+            toast.show({
+              msg: `تم شحن رصيد «${updated.name}» بنجاح ✓`,
+              kind: "ok",
+            });
+          }}
+        />
       )}
     </div>
   );

@@ -1,7 +1,15 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
-import { Modal, Field, Button, Icon, SearchBox } from "../../shared/ui";
+import {
+  Modal,
+  Field,
+  Input,
+  Num,
+  Button,
+  Icon,
+  SearchBox,
+} from "../../shared/ui";
 import { formatMoney } from "../../shared/i18n";
 import type { StoreProductItem } from "./ProductsView";
 import type { SuggestedPromotion } from "@/app/api/alerts/route";
@@ -201,7 +209,7 @@ export function EditPromoModal({
         {/* Section 1: Main Details */}
         <div className={styles.row2}>
           <Field label="اسم أو عنوان العرض">
-            <input
+            <Input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
@@ -211,17 +219,12 @@ export function EditPromoModal({
           </Field>
 
           <Field label="سعر البيع بعد الخصم">
-            <div className={styles.priceWrapper}>
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.5"
-                value={promoPriceEgp}
-                onChange={(e) => setPromoPriceEgp(e.target.value)}
-                placeholder="0.00"
-              />
-              <span className={styles.currencySuffix}>ج.م</span>
-            </div>
+            <Num
+              value={promoPriceEgp}
+              onChange={setPromoPriceEgp}
+              suffix="ج.م"
+              placeholder="0.00"
+            />
           </Field>
         </div>
 
