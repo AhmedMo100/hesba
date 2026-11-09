@@ -38,6 +38,7 @@ import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
 import { Empty, SearchBox, Icon } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
+import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
 import { useAuth } from "@/client/shared/auth";
 import { db } from "@/client/offline/db";
@@ -58,10 +59,13 @@ import {
   type PosMachine,
 } from "@/client/shared/api/machines";
 import {
+  clearStagedSandwich,
   fetchSandwiches,
+  readStagedSandwich,
   sellSandwich,
   type Sandwich,
 } from "@/client/shared/api/sandwiches";
+import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
 
 export interface SaleRecord {
   id: string;
@@ -326,10 +330,11 @@ export function SalesView() {
     fetchStoreMachines(storeId).then((remote) => {
       if (isMounted) setMachines(remote);
     });
+    // The event means the local machines cache was just updated (fetchStoreMachines saves
+    // and dispatches it), so read the cache. Fetching again here re-dispatched the event and
+    // looped forever (UE-20), starving the screen's other requests.
     const onMachinesUpdated = () => {
-      fetchStoreMachines(storeId).then((remote) => {
-        if (isMounted) setMachines(remote);
-      });
+      if (isMounted) setMachines(getStoredMachines(storeId));
     };
     window.addEventListener("hesba_machines_updated", onMachinesUpdated);
     window.addEventListener(
@@ -403,6 +408,15 @@ export function SalesView() {
   );
   const [allProducts, setAllProducts] = useState<StoreProductItem[]>([]);
   const [sandwiches, setSandwiches] = useState<Sandwich[]>([]);
+  const [sandwichesLoaded, setSandwichesLoaded] = useState(false);
+  // "إضافة إلى البيع" from Products: the sandwich to open the quantity step for. Read once;
+  // the hand-off is cleared below so a reload does not reopen it.
+  const [stagedSandwichId] = useState<string | null>(() =>
+    typeof window === "undefined" ? null : readStagedSandwich(),
+  );
+  const [stagedHandled, setStagedHandled] = useState(false);
+  const [qtyBusy, setQtyBusy] = useState(false);
+  const [qtyError, setQtyError] = useState<string | null>(null);
   const sellingSandwichRef = useRef(false);
   // The sandwich tile being sold right now (shown busy until the server answers).
   const [sellingSandwichId, setSellingSandwichId] = useState<string | null>(
@@ -437,6 +451,7 @@ export function SalesView() {
       } else {
         setSandwiches(sandwichList);
       }
+      setSandwichesLoaded(true);
       if (stockData?.inventory) {
         setInventory(stockData.inventory);
       }
@@ -1165,13 +1180,19 @@ export function SalesView() {
   }, []);
 
   /**
-   * Sells one sandwich and waits for the server. Nothing changes on screen until the server
-   * has recorded the sale and deducted the ingredients; then the list, the ingredient stock
-   * and the sandwich counts are reloaded from the server.
+   * Sells `count` sandwiches as ONE sale and waits for the server. Nothing changes on screen
+   * until the server has recorded the sale and deducted the ingredients; then the list, the
+   * ingredient stock and the sandwich counts are reloaded from the server. Returns the
+   * server's error message when the sale was rejected (the caller decides how to show it).
    */
   const handleSellSandwich = useCallback(
-    async (item: DisplaySaleItem) => {
-      if (sellingSandwichRef.current) return;
+    async (
+      item: DisplaySaleItem,
+      count = 1,
+    ): Promise<{ ok: true } | { ok: false; message: string }> => {
+      if (sellingSandwichRef.current) {
+        return { ok: false, message: t("sandwich.sellBusy") };
+      }
       sellingSandwichRef.current = true;
       setSellingSandwichId(item.id);
       const saleId = generateUuid();
@@ -1185,14 +1206,18 @@ export function SalesView() {
             name: item.name,
             sellPricePiasters: item.sellPricePiasters,
           },
-          count: 1,
+          count,
         });
+        const amountPiasters = calculateLineTotal(
+          item.sellPricePiasters,
+          count,
+        );
         const record: SaleRecord = {
           id: saleId,
           productId: item.productId,
           name: item.name,
-          amountPiasters: item.sellPricePiasters,
-          quantity: 1,
+          amountPiasters,
+          quantity: count,
           category: item.category || "",
           unit: "piece",
           timestamp: Date.now(),
@@ -1216,28 +1241,37 @@ export function SalesView() {
         setFlashId(item.id);
         setTimeout(() => setFlashId(null), 450);
         showToast(
-          t("sandwich.sold", {
-            name: item.name,
-            amount: formatMoney(item.sellPricePiasters),
-          }),
+          count > 1
+            ? t("sandwich.soldMany", {
+                count,
+                name: item.name,
+                amount: formatMoney(amountPiasters),
+              })
+            : t("sandwich.sold", {
+                name: item.name,
+                amount: formatMoney(amountPiasters),
+              }),
           "success",
         );
-        // Refresh ingredient stock and "can make N" counts from the server.
-        const [stockData, sandwichList] = await Promise.all([
+        // Refresh ingredient stock and "can make N" counts from the server in the background:
+        // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
+        void Promise.all([
           fetch("/api/stock?view=all")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
-        ]);
-        if (stockData?.inventory) setInventory(stockData.inventory);
-        if (sandwichList) setSandwiches(sandwichList);
+        ]).then(([stockData, sandwichList]) => {
+          if (stockData?.inventory) setInventory(stockData.inventory);
+          if (sandwichList) setSandwiches(sandwichList);
+        });
+        return { ok: true };
       } catch (err: unknown) {
-        if (!sold) {
-          showToast(
+        if (sold) return { ok: true }; // only the refresh failed; the sale is recorded
+        return {
+          ok: false,
+          message:
             err instanceof Error ? err.message : t("sandwich.sellFailed"),
-            "error",
-          );
-        }
+        };
       } finally {
         if (!sold) {
           sellingSandwichRef.current = false;
@@ -1248,11 +1282,41 @@ export function SalesView() {
     [storeId, showToast],
   );
 
+  useEffect(() => {
+    if (stagedSandwichId) clearStagedSandwich();
+  }, [stagedSandwichId]);
+
+  // The quantity step is open while a staged sandwich is waiting and has been found.
+  const stagedOpen = Boolean(stagedSandwichId) && !stagedHandled;
+  const qtyItem = stagedOpen
+    ? displayItems.find((i) => i.isSandwich && i.id === stagedSandwichId)
+    : undefined;
+  const stagedMissing = stagedOpen && sandwichesLoaded && !qtyItem;
+
+  const closeQuantitySheet = () => {
+    setStagedHandled(true);
+    setQtyError(null);
+  };
+
+  const confirmQuantity = async (quantity: number) => {
+    if (!qtyItem) return;
+    setQtyBusy(true);
+    setQtyError(null);
+    const outcome = await handleSellSandwich(qtyItem, quantity);
+    setQtyBusy(false);
+    if (outcome.ok) {
+      closeQuantitySheet();
+    } else {
+      setQtyError(outcome.message);
+    }
+  };
+
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
     // 0. Sandwich: the server checks and deducts the ingredients
     if (item.isSandwich) {
-      await handleSellSandwich(item);
+      const outcome = await handleSellSandwich(item);
+      if (!outcome.ok) showToast(outcome.message, "error");
       return;
     }
 
@@ -2169,6 +2233,42 @@ export function SalesView() {
           onSaveAndPublish={handleSaveEditedPromotion}
           onDelete={handleDeletePromotion}
         />
+      )}
+
+      {/* "إضافة إلى البيع": how many sandwiches (nothing is saved until confirmed) */}
+      {qtyItem && (
+        <SandwichQuantitySheet
+          sandwich={{
+            id: qtyItem.id,
+            name: qtyItem.name,
+            sellPricePiasters: qtyItem.sellPricePiasters,
+            availableCount: qtyItem.currentStockBase,
+          }}
+          busy={qtyBusy}
+          error={qtyError}
+          onCancel={closeQuantitySheet}
+          onConfirm={(q) => void confirmQuantity(q)}
+        />
+      )}
+      {stagedMissing && (
+        <div
+          className={`${styles.toastBar} ${styles.toastError}`}
+          role="alert"
+          data-testid="staged-sandwich-missing"
+        >
+          <div className={styles.toastMsg}>
+            <Icon n="alert" s={18} />
+            <span>{t("sandwichSale.missing")}</span>
+          </div>
+          <button
+            type="button"
+            className={styles.toastUndoBtn}
+            onClick={closeQuantitySheet}
+            aria-label={t("common.close")}
+          >
+            <Icon n="x" s={14} />
+          </button>
+        </div>
       )}
 
       {/* Floating Bottom Toast with Undo matching Image 1 */}

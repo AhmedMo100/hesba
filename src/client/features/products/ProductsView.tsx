@@ -17,7 +17,11 @@ import {
   fetchStoreMachines,
   setServiceLinkedMachineIds,
 } from "@/client/shared/api/machines";
-import { fetchSandwiches, type Sandwich } from "@/client/shared/api/sandwiches";
+import {
+  fetchSandwiches,
+  stageSandwichForSale,
+  type Sandwich,
+} from "@/client/shared/api/sandwiches";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StoreProductItem,
@@ -1126,6 +1130,30 @@ export function ProductsView() {
                               <Icon n="edit" s={14} />
                               <span>تعديل الأسعار</span>
                             </button>
+                            {isSandwich(p) && !p.is_hidden && (
+                              <button
+                                type="button"
+                                className={styles.menuItem}
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  // Opens the Sales screen with a quantity step; nothing is
+                                  // sold until the user confirms there.
+                                  stageSandwichForSale(p.id);
+                                  window.history.pushState(
+                                    null,
+                                    "",
+                                    "/app/sales",
+                                  );
+                                  window.dispatchEvent(
+                                    new PopStateEvent("popstate"),
+                                  );
+                                }}
+                                data-testid={`add-to-sale-${p.id}`}
+                              >
+                                <Icon n="cart" s={14} />
+                                <span>{t("sandwich.addToSale")}</span>
+                              </button>
+                            )}
                             {!isSandwich(p) && (
                               <button
                                 type="button"

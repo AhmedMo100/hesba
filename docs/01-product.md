@@ -629,6 +629,7 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | D27 | **Passkeys (WebAuthn) as primary authentication, single-use email recovery links, and local PIN strictly as on-device screen lock** (SMS OTP, passwords, and server-side PIN reset completely removed) | ADR-0006, 03, 06 | ✅ Accepted |
 | D28 | **Sandwiches are composite products**: a store product of `kind = 'sandwich'` with a recipe of existing stock variants, no stock of its own; selling it consumes the ingredients (FEFO) in the sale transaction; cost is calculated live from purchase prices and snapshotted on each sale line; online only | ADR-0018 | Proposed |
 | D29 | **Shop-created products can be deleted**. A product with no history is removed; a product with sales or stock history is archived (hidden); catalog products can only be hidden; a product used in a sandwich recipe can't be deleted until the recipe changes | `docs/03-data.md` Part 1 §3.2 | Implemented (2026-11-09) |
+| D30 | **"إضافة إلى البيع" for sandwiches is a quantity step, not a cart** (owner's choice, 2026-11-09). It opens Sales with that sandwich and a quantity picker. Confirming saves ONE sale of N sandwiches through the existing sandwich sale (ingredients deducted once, atomically); cancelling saves nothing. A multi-item cart stays a V1.1 item: ordinary products need roadmap Phase 1 (K1/K2) before they can share an atomic checkout | ADR-0018 | Implemented |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |

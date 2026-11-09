@@ -212,6 +212,7 @@ Inconsistent error handling for clients.
 - **Seen:** 81 `GET /api/machines` requests within about two minutes of one open sales screen. The page never reaches network idle.
 - **Impact:** constant load on the server and database (each request is a tenant transaction), plus battery and data use on phones.
 - **Fix:** do not dispatch the event from the fetch path, or ignore the event when it was caused by our own fetch.
+- **Status (2026-11-09):** fixed on the **Sales** screen only. The loop there kept the screen's own data requests waiting, which the sandwich "إضافة إلى البيع" step depends on. The `hesba_machines_updated` listener in `SalesView` now reads the cache (`getStoredMachines`) instead of fetching again. `AlertsView` (`loadMachines`) still has the same loop and is **not fixed**.
 
 ---
 

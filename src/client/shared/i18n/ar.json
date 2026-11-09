@@ -493,7 +493,10 @@
     "groupOther": "باقي المنتجات",
     "alreadyAdded": "متضاف",
     "stockGrams": "متاح {count} جرام",
-    "stockUnits": "متاح {count} {unit}"
+    "stockUnits": "متاح {count} {unit}",
+    "soldMany": "اتباع {count} × {name} بـ {amount}",
+    "sellBusy": "فيه بيعة لسه بتتسجل، استنى ثانية",
+    "addToSale": "إضافة إلى البيع"
   },
   "productDelete": {
     "menu": "حذف المنتج",
@@ -506,5 +509,21 @@
     "deleted": "اتحذف «{name}» ✓",
     "archived": "«{name}» عليه حركات قديمة، فاتأرشف واتشال من القوايم ✓",
     "failed": "تعذر حذف المنتج، جرب تاني"
+  },
+  "sandwichSale": {
+    "title": "بيع ساندوتش",
+    "unitPrice": "سعر الواحد {amount}",
+    "quantity": "العدد",
+    "more": "زوّد واحد",
+    "less": "قلّل واحد",
+    "total": "الإجمالي",
+    "confirm": "تأكيد البيع · {amount}",
+    "confirmPlain": "تأكيد البيع",
+    "cancel": "إلغاء",
+    "notEnough": "المكونات تكفي {count} بس",
+    "tooMany": "العدد كبير قوي",
+    "invalid": "اكتب عدد صحيح من 1",
+    "note": "مفيش حاجة بتتسجل غير لما تأكد البيع. وقتها البيعة بتتسجل والمكونات بتتخصم مرة واحدة.",
+    "missing": "الساندوتش ده مش متاح للبيع دلوقتي"
   }
 }
