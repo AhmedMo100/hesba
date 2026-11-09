@@ -448,6 +448,72 @@ export function ProductsView() {
     setEditingProduct(p);
   };
 
+  // Deleting a product the shop created (never a catalog product; server-enforced too).
+  const [deleteTarget, setDeleteTarget] = useState<StoreProductItem | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const isShopCreated = (p: StoreProductItem) =>
+    p.is_custom && !p.global_product_id;
+
+  const handleDeleteShopProduct = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(
+        `/api/products?id=${encodeURIComponent(target.id)}&action=delete`,
+        { method: "DELETE" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        result?: "deleted" | "archived";
+        error?: { message?: string };
+      };
+      if (!res.ok || !body.result) {
+        throw new Error(body.error?.message || t("productDelete.failed"));
+      }
+      if (body.result === "deleted") {
+        setProducts((prev) => prev.filter((x) => x.id !== target.id));
+        setSummary((prev) => ({
+          ...prev,
+          total: Math.max(0, prev.total - 1),
+          customCount: Math.max(0, prev.customCount - 1),
+        }));
+      } else {
+        setProducts((prev) =>
+          prev.map((x) => (x.id === target.id ? { ...x, is_hidden: true } : x)),
+        );
+        setSummary((prev) => ({
+          ...prev,
+          hiddenCount: target.is_hidden
+            ? prev.hiddenCount
+            : prev.hiddenCount + 1,
+        }));
+      }
+      if (target.kind === "sandwich") {
+        setSandwiches((prev) => prev.filter((sw) => sw.id !== target.id));
+      }
+      setNotice(t(`productDelete.${body.result}`, { name: target.name_ar }));
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      setDeleteError(
+        err instanceof Error ? err.message : t("productDelete.failed"),
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   const handleToggleHide = async (product: StoreProductItem) => {
     const isNowHidden = !product.is_hidden;
     try {
@@ -898,6 +964,16 @@ export function ProductsView() {
             ))}
           </div>
 
+          {notice && (
+            <div
+              role="status"
+              data-testid="product-notice"
+              style={{ color: "var(--ok)", fontSize: 13, fontWeight: 700 }}
+            >
+              {notice}
+            </div>
+          )}
+
           {/* Sandwich load failure (cost/profit cannot be shown without the server) */}
           {sandwichError && (
             <div
@@ -1091,6 +1167,21 @@ export function ProductsView() {
                               >
                                 <Icon n="eyeoff" s={14} />
                                 <span>إخفاء من المحل</span>
+                              </button>
+                            )}
+                            {isShopCreated(p) && (
+                              <button
+                                type="button"
+                                className={`${styles.menuItem} ${styles.danger}`}
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  setDeleteError(null);
+                                  setDeleteTarget(p);
+                                }}
+                                data-testid={`delete-product-${p.id}`}
+                              >
+                                <Icon n="trash" s={14} />
+                                <span>{t("productDelete.menu")}</span>
                               </button>
                             )}
                           </div>
@@ -1581,6 +1672,65 @@ export function ProductsView() {
             </div>
           )}
         </>
+      )}
+
+      {/* Delete a shop-created product: confirmation */}
+      {deleteTarget && (
+        <Modal
+          title={t("productDelete.title")}
+          onClose={() => !deleting && setDeleteTarget(null)}
+          footer={
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <Button
+                kind="ghost"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                {t("productDelete.cancel")}
+              </Button>
+              <Button
+                kind="danger"
+                icon="trash"
+                style={{ flex: 1 }}
+                busy={deleting}
+                onClick={() => void handleDeleteShopProduct()}
+                data-testid="confirm-delete-product"
+              >
+                {t("productDelete.confirmBtn")}
+              </Button>
+            </div>
+          }
+        >
+          <div
+            style={{ fontSize: 15, lineHeight: 1.6, color: "var(--ink)" }}
+            data-testid="delete-product-dialog"
+          >
+            <b>{t("productDelete.confirm", { name: deleteTarget.name_ar })}</b>
+            <p
+              style={{ margin: "8px 0 0", color: "var(--ink2)", fontSize: 13 }}
+            >
+              {t("productDelete.note")}
+            </p>
+            <p
+              style={{ margin: "6px 0 0", color: "var(--ink2)", fontSize: 13 }}
+            >
+              {t("productDelete.historyNote")}
+            </p>
+            {deleteError && (
+              <p
+                role="alert"
+                style={{
+                  margin: "10px 0 0",
+                  color: "var(--red)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              >
+                {deleteError}
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
 
       {/* "إضافة منتج": normal product or sandwich */}

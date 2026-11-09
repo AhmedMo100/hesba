@@ -22,6 +22,7 @@ import {
   type SandwichIngredientOption,
 } from "@/client/shared/api/sandwiches";
 import { allowedRecipeUnits } from "@/domain/recipe";
+import { IngredientPicker } from "./IngredientPicker";
 import {
   buildSandwichInput,
   defaultUnitFor,
@@ -84,6 +85,8 @@ export function SandwichFormModal({
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The row just added with "ضيف مكوّن": its product list opens straight away.
+  const [justAddedKey, setJustAddedKey] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -176,226 +179,277 @@ export function SandwichFormModal({
   const profitClass =
     preview.profitPiasters < 0 ? styles.loss : styles.profitValue;
 
+  // Enter in a text field must never submit the form by accident; only Save submits.
+  const preventEnterSubmit = (e: React.KeyboardEvent<HTMLFormElement>) => {
+    const target = e.target as HTMLElement;
+    if (e.key === "Enter" && target.tagName === "INPUT") e.preventDefault();
+  };
+
+  const addRow = () => {
+    const row = emptyRow();
+    setJustAddedKey(row.key);
+    setRows((prev) => [...prev, row]);
+  };
+
   return (
     <Modal
       title={isEdit ? t("sandwich.editTitle") : t("sandwich.addTitle")}
       onClose={onClose}
       footer={
-        <Button
-          kind="primary"
-          wide
-          type="submit"
-          form="sandwich-form"
-          busy={saving}
-          disabled={!online || loading}
-          data-testid="sandwich-save"
-        >
-          {t("sandwich.save")}
-        </Button>
+        <div className={styles.footer}>
+          <Button
+            kind="ghost"
+            onClick={onClose}
+            disabled={saving}
+            data-testid="sandwich-cancel"
+          >
+            {t("sandwich.cancel")}
+          </Button>
+          <Button
+            kind="primary"
+            type="submit"
+            form="sandwich-form"
+            busy={saving}
+            disabled={!online || loading}
+            className={styles.saveBtn}
+            data-testid="sandwich-save"
+          >
+            {t("sandwich.save")}
+          </Button>
+        </div>
       }
     >
       <form
         id="sandwich-form"
         onSubmit={handleSubmit}
+        onKeyDown={preventEnterSubmit}
         noValidate
         data-testid="sandwich-form"
+        className={styles.form}
       >
         {!online && <Alert kind="warning">{t("sandwich.offline")}</Alert>}
 
-        <Field
-          label={t("sandwich.name")}
-          err={errors.name ? t(`sandwich.${errors.name}`) : undefined}
-        >
-          <Input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder={t("sandwich.namePlaceholder")}
-            maxLength={80}
-            data-testid="sandwich-name"
-          />
-        </Field>
+        {/* 1. Name */}
+        <section className={styles.card}>
+          <Field
+            label={t("sandwich.name")}
+            err={errors.name ? t(`sandwich.${errors.name}`) : undefined}
+            className={styles.fieldTight}
+          >
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={t("sandwich.namePlaceholder")}
+              maxLength={80}
+              data-testid="sandwich-name"
+            />
+          </Field>
+        </section>
 
-        <div className={styles.sectionHead}>
-          <b>{t("sandwich.ingredients")}</b>
-          <small>{t("sandwich.ingredientsHint")}</small>
-        </div>
+        {/* 2. Ingredients */}
+        <section className={styles.card} aria-labelledby="sandwich-ing-title">
+          <header className={styles.cardHead}>
+            <b id="sandwich-ing-title">{t("sandwich.ingredients")}</b>
+            <span className={styles.countBadge}>{rows.length}</span>
+          </header>
+          <small className={styles.cardHint}>
+            {t("sandwich.ingredientsHint")}
+          </small>
 
-        {loading ? (
-          <div className={styles.muted} role="status">
-            {t("sandwich.loadingIngredients")}
-          </div>
-        ) : loadError ? (
-          <Alert kind="error">{loadError}</Alert>
-        ) : options.length === 0 ? (
-          <Alert kind="info">{t("sandwich.noIngredientOptions")}</Alert>
-        ) : null}
+          {loading ? (
+            <div className={styles.muted} role="status">
+              {t("sandwich.loadingIngredients")}
+            </div>
+          ) : loadError ? (
+            <Alert kind="error">{loadError}</Alert>
+          ) : options.length === 0 ? (
+            <Alert kind="info">{t("sandwich.noIngredientOptions")}</Alert>
+          ) : null}
 
-        <div className={styles.rows} data-testid="sandwich-ingredients">
-          {rows.map((row, index) => {
-            const option = optionById.get(row.variantId);
-            const units = option ? allowedRecipeUnits(option.unit) : ["piece"];
-            const rowPreview = preview.rows[index];
-            const rowErr = errors.rows?.[row.key];
-            return (
-              <div
-                className={`${styles.row} ${rowErr ? styles.rowBad : ""}`}
-                key={row.key}
-                data-testid={`sandwich-row-${index}`}
-              >
-                <div className={styles.rowTop}>
-                  <select
-                    className={styles.select}
-                    value={row.variantId}
-                    onChange={(e) =>
-                      handleProductChange(row.key, e.target.value)
-                    }
-                    aria-label={t("sandwich.product")}
-                    data-testid={`sandwich-row-${index}-product`}
-                  >
-                    <option value="">{t("sandwich.choose")}</option>
-                    {options.map((o) => (
-                      <option key={o.variantId} value={o.variantId}>
-                        {o.name}
-                      </option>
-                    ))}
-                  </select>
-                  <button
-                    type="button"
-                    className={styles.removeBtn}
-                    onClick={() =>
-                      setRows((prev) => prev.filter((r) => r.key !== row.key))
-                    }
-                    aria-label={t("sandwich.removeIngredient", {
-                      name: option?.name ?? "",
-                    })}
-                  >
-                    <Icon n="trash" s={18} />
-                  </button>
-                </div>
-                <div className={styles.rowBottom}>
-                  <input
-                    className={styles.qty}
-                    inputMode="decimal"
-                    value={row.quantity}
-                    onChange={(e) =>
-                      updateRow(row.key, { quantity: e.target.value })
-                    }
-                    aria-label={t("sandwich.quantity")}
-                    placeholder="0"
-                    data-testid={`sandwich-row-${index}-qty`}
-                  />
-                  {units.length > 1 ? (
-                    <select
-                      className={styles.unit}
-                      value={units.includes(row.unit) ? row.unit : units[0]}
-                      onChange={(e) =>
-                        updateRow(row.key, {
-                          unit: e.target.value as IngredientRow["unit"],
-                        })
-                      }
-                      aria-label={t("sandwich.unit")}
-                      data-testid={`sandwich-row-${index}-unit`}
-                    >
-                      {units.map((u) => (
-                        <option key={u} value={u}>
-                          {t(UNIT_LABEL[u as IngredientRow["unit"]])}
-                        </option>
-                      ))}
-                    </select>
-                  ) : (
-                    <span className={styles.unitFixed}>
-                      {recipeUnitLabel(option?.unit)}
+          <div className={styles.rows} data-testid="sandwich-ingredients">
+            {rows.map((row, index) => {
+              const option = optionById.get(row.variantId);
+              const units = option
+                ? allowedRecipeUnits(option.unit)
+                : ["piece"];
+              const rowPreview = preview.rows[index];
+              const rowErr = errors.rows?.[row.key];
+              const takenIds = new Set(
+                rows
+                  .filter((r) => r.key !== row.key && r.variantId)
+                  .map((r) => r.variantId),
+              );
+              return (
+                <div
+                  className={`${styles.row} ${rowErr ? styles.rowBad : ""}`}
+                  key={row.key}
+                  data-testid={`sandwich-row-${index}`}
+                >
+                  <div className={styles.rowTop}>
+                    <span className={styles.rowIndex} aria-hidden="true">
+                      {index + 1}
                     </span>
-                  )}
-                  <span
-                    className={styles.rowCost}
-                    aria-label={t("sandwich.cost")}
-                    data-testid={`sandwich-row-${index}-cost`}
-                  >
-                    {rowPreview?.costPiasters != null
-                      ? formatMoney(rowPreview.costPiasters)
-                      : "—"}
-                  </span>
+                    <IngredientPicker
+                      options={options}
+                      value={row.variantId}
+                      takenIds={takenIds}
+                      onChange={(variantId) =>
+                        handleProductChange(row.key, variantId)
+                      }
+                      testId={`sandwich-row-${index}`}
+                      defaultOpen={row.key === justAddedKey && !row.variantId}
+                    />
+                    <button
+                      type="button"
+                      className={styles.removeBtn}
+                      onClick={() =>
+                        setRows((prev) => prev.filter((r) => r.key !== row.key))
+                      }
+                      aria-label={t("sandwich.removeIngredient", {
+                        name: option?.name ?? "",
+                      })}
+                      data-testid={`sandwich-row-${index}-remove`}
+                    >
+                      <Icon n="trash" s={18} />
+                    </button>
+                  </div>
+                  <div className={styles.rowBottom}>
+                    <label className={styles.qtyLabel}>
+                      <span>{t("sandwich.quantity")}</span>
+                      <input
+                        className={styles.qty}
+                        inputMode="decimal"
+                        value={row.quantity}
+                        onChange={(e) =>
+                          updateRow(row.key, { quantity: e.target.value })
+                        }
+                        placeholder="0"
+                        data-testid={`sandwich-row-${index}-qty`}
+                      />
+                    </label>
+                    {units.length > 1 ? (
+                      <select
+                        className={styles.unit}
+                        value={units.includes(row.unit) ? row.unit : units[0]}
+                        onChange={(e) =>
+                          updateRow(row.key, {
+                            unit: e.target.value as IngredientRow["unit"],
+                          })
+                        }
+                        aria-label={t("sandwich.unit")}
+                        data-testid={`sandwich-row-${index}-unit`}
+                      >
+                        {units.map((u) => (
+                          <option key={u} value={u}>
+                            {t(UNIT_LABEL[u as IngredientRow["unit"]])}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <span className={styles.unitFixed}>
+                        {recipeUnitLabel(option?.unit)}
+                      </span>
+                    )}
+                    <span className={styles.rowCost}>
+                      <small>{t("sandwich.cost")}</small>
+                      <b data-testid={`sandwich-row-${index}-cost`}>
+                        {rowPreview?.costPiasters != null
+                          ? formatMoney(rowPreview.costPiasters)
+                          : "—"}
+                      </b>
+                    </span>
+                  </div>
+                  {rowErr ? (
+                    <span className={styles.rowErr} role="alert">
+                      {t(`sandwich.${rowErr}`)}
+                    </span>
+                  ) : option && isWholePackUnit(option.unit) ? (
+                    <span className={styles.rowWarn}>
+                      {t("sandwich.wholeUnitHint", {
+                        unit: recipeUnitLabel(option.unit),
+                      })}
+                    </span>
+                  ) : rowPreview?.missingCost ? (
+                    <span className={styles.rowWarn}>
+                      {t("sandwich.missingCost")}
+                    </span>
+                  ) : null}
                 </div>
-                {rowErr ? (
-                  <span className={styles.rowErr} role="alert">
-                    {t(`sandwich.${rowErr}`)}
-                  </span>
-                ) : option && isWholePackUnit(option.unit) ? (
-                  <span className={styles.rowWarn}>
-                    {t("sandwich.wholeUnitHint", {
-                      unit: recipeUnitLabel(option.unit),
-                    })}
-                  </span>
-                ) : rowPreview?.missingCost ? (
-                  <span className={styles.rowWarn}>
-                    {t("sandwich.missingCost")}
-                  </span>
-                ) : null}
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
 
-        {errors.ingredients && (
-          <span className={styles.rowErr} role="alert">
-            {t(`sandwich.${errors.ingredients}`)}
-          </span>
-        )}
+          {errors.ingredients && (
+            <span className={styles.rowErr} role="alert">
+              {t(`sandwich.${errors.ingredients}`)}
+            </span>
+          )}
 
-        <Button
-          kind="soft"
-          icon="plus"
-          wide
-          onClick={() => setRows((prev) => [...prev, emptyRow()])}
-          disabled={options.length === 0}
-          data-testid="sandwich-add-ingredient"
-        >
-          {t("sandwich.addIngredient")}
-        </Button>
+          <button
+            type="button"
+            className={styles.addRowBtn}
+            onClick={addRow}
+            disabled={options.length === 0}
+            data-testid="sandwich-add-ingredient"
+          >
+            <Icon n="plus" s={18} />
+            <span>{t("sandwich.addIngredient")}</span>
+          </button>
+        </section>
 
-        <div className={styles.summary}>
-          <div className={styles.sumRow}>
-            <span>{t("sandwich.totalCost")}</span>
-            <b data-testid="sandwich-total-cost">
+        {/* 3. Money: cost → price → profit */}
+        <section className={styles.moneyCard} aria-live="polite">
+          <div className={styles.moneyRow}>
+            <span className={styles.moneyLabel}>
+              {t("sandwich.totalCost")}
+              <small>{t("sandwich.costNote")}</small>
+            </span>
+            <b className={styles.moneyValue} data-testid="sandwich-total-cost">
               {formatMoney(preview.costPiasters)}
             </b>
           </div>
-          <small className={styles.muted}>{t("sandwich.costNote")}</small>
-        </div>
 
-        <Field
-          label={t("sandwich.sellPrice")}
-          err={errors.price ? t(`sandwich.${errors.price}`) : undefined}
-        >
-          <Input
-            inputMode="decimal"
-            value={sellPrice}
-            onChange={(e) => setSellPrice(e.target.value)}
-            placeholder="0"
-            data-testid="sandwich-sell-price"
-          />
-        </Field>
-
-        <div className={styles.summary}>
-          <div className={styles.sumRow}>
-            <span>{t("sandwich.profit")}</span>
-            <b className={profitClass} data-testid="sandwich-profit">
-              {preview.sellPricePiasters > 0
-                ? formatMoney(preview.profitPiasters)
-                : "—"}
-            </b>
-          </div>
-          {preview.marginPercent !== null && (
-            <div className={styles.sumRow}>
-              <span>{t("sandwich.margin")}</span>
-              <b className={profitClass}>{preview.marginPercent}%</b>
+          <Field
+            label={t("sandwich.sellPrice")}
+            err={errors.price ? t(`sandwich.${errors.price}`) : undefined}
+            className={styles.fieldTight}
+          >
+            <div className={styles.priceInput}>
+              <Input
+                inputMode="decimal"
+                value={sellPrice}
+                onChange={(e) => setSellPrice(e.target.value)}
+                placeholder="0"
+                data-testid="sandwich-sell-price"
+              />
+              <span className={styles.priceSuffix} aria-hidden="true">
+                ج
+              </span>
             </div>
-          )}
+          </Field>
+
+          <div className={`${styles.moneyRow} ${styles.profitRow}`}>
+            <span className={styles.moneyLabel}>{t("sandwich.profit")}</span>
+            <span className={styles.profitBox}>
+              <b className={profitClass} data-testid="sandwich-profit">
+                {preview.sellPricePiasters > 0
+                  ? formatMoney(preview.profitPiasters)
+                  : "—"}
+              </b>
+              {preview.marginPercent !== null && (
+                <span
+                  className={`${styles.marginChip} ${preview.profitPiasters < 0 ? styles.marginChipLoss : ""}`}
+                  title={t("sandwich.margin")}
+                >
+                  {preview.marginPercent}%
+                </span>
+              )}
+            </span>
+          </div>
           {preview.sellPricePiasters > 0 && preview.profitPiasters < 0 && (
             <small className={styles.loss}>{t("sandwich.loss")}</small>
           )}
-        </div>
+        </section>
 
         {submitError && <Alert kind="error">{submitError}</Alert>}
       </form>

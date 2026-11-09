@@ -43,6 +43,8 @@ export interface SandwichIngredientOption {
   variantId: string;
   productId: string;
   name: string;
+  /** English catalog name (used by search), when the product comes from the catalog. */
+  nameEn?: string | null;
   unit: string;
   isWeight: boolean;
   buyPricePiasters: number;

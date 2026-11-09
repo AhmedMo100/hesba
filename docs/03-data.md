@@ -239,6 +239,19 @@ CREATE TABLE sandwich_ingredients (
 - The sum is computed exactly in milli-piasters and rounded **once**, half up.
 - The current cost is computed on read and never stored. Each sale stores its own snapshot in `sale_lines.cost_piasters`.
 
+### 3.2 Deleting a product the shop created (as built, 2026-11-09)
+
+`DELETE /api/products?id=…&action=delete` calls `CatalogService.deleteShopProduct`. A plain `DELETE` (no `action`) still only hides the product.
+
+- **Which products:** only rows with `global_product_id IS NULL` (created by this shop, sandwiches included).
+  - A catalog product, or a `gp_…` id, is refused with 400; the shop can only hide it.
+  - `global_products` is never written.
+- **Scope:** everything runs in `withTenant`, so another shop's id is simply not found (404).
+- **No history** (no sale lines, stock movements, batches, purchase lines, waste records or supplier links): the product is removed together with its variants and any zero `stock_levels` rows. For a sandwich, its recipe lines are removed too.
+- **Any history:** the product is **archived** with the existing hide flag (`is_active = false` on the product and its variants). Invoices, movements and reports keep their references.
+- **Used as a sandwich ingredient:** refused (409), naming the sandwiches. The recipe must be changed first.
+- **Afterwards:** deleted or archived products leave the normal lists and the sandwich ingredient options.
+
 ---
 
 ## 4. Inventory (Batches + Movements)

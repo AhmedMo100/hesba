@@ -1021,6 +1021,129 @@ export class CatalogService {
   }
 
   /**
+   * Deletes a product **this shop created** (`global_product_id` is null) — never a global
+   * catalog record and never another shop's row (every query is store-scoped under RLS).
+   *
+   * - No history (no sale lines, stock movements, batches, purchase lines, waste records or
+   *   supplier links): the product and its variants are physically removed (`deleted`).
+   * - Any history: the product is archived with the existing hide mechanism (`archived`), so
+   *   past invoices, movements and reports keep their references.
+   * - Used as an ingredient in a sandwich recipe: refused (409) and the sandwiches are named;
+   *   the recipe must be changed first so a sandwich never consumes a removed product.
+   *
+   * @throws AppError 404 (not in this shop), 400 (a catalog product: hide it instead),
+   *   409 (used in a sandwich).
+   */
+  async deleteShopProduct(
+    storeId: string,
+    userId: string | null,
+    productId: string,
+  ): Promise<{ result: "deleted" | "archived"; productId: string }> {
+    if (productId.startsWith("gp_")) {
+      throw AppError.badRequest(
+        "ده منتج من الكتالوج العام، مينفعش يتحذف. تقدر تخفيه من محلك بس",
+      );
+    }
+    if (
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        productId,
+      )
+    ) {
+      throw AppError.notFound("المنتج ده مش موجود في محلك");
+    }
+
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const product = await tx.storeProduct.findFirst({
+          where: { id: productId, storeId },
+          select: {
+            id: true,
+            globalProductId: true,
+            storeVariants: { select: { id: true } },
+          },
+        });
+        if (!product) {
+          throw AppError.notFound("المنتج ده مش موجود في محلك");
+        }
+        if (product.globalProductId) {
+          throw AppError.badRequest(
+            "ده منتج من الكتالوج العام، مينفعش يتحذف. تقدر تخفيه من محلك بس",
+          );
+        }
+
+        const variantIds = product.storeVariants.map((v) => v.id);
+        const usedIn = await tx.sandwichIngredient.findMany({
+          where: { storeId, ingredientVariantId: { in: variantIds } },
+          select: { sandwichProduct: { select: { nameAr: true } } },
+        });
+        if (usedIn.length > 0) {
+          const names = [
+            ...new Set(usedIn.map((u) => u.sandwichProduct.nameAr ?? "")),
+          ].join("، ");
+          throw AppError.conflict(
+            `المنتج ده داخل في ساندوتش (${names}). شيله من الساندوتش الأول`,
+          );
+        }
+
+        const byVariant = { storeId, storeVariantId: { in: variantIds } };
+        const [sales, movements, batches, purchases, waste, suppliers] =
+          await Promise.all([
+            tx.saleLine.count({
+              where: {
+                storeId,
+                OR: [
+                  { storeProductId: productId },
+                  { storeVariantId: { in: variantIds } },
+                ],
+              },
+            }),
+            tx.stockMovement.count({ where: byVariant }),
+            tx.storeStockBatch.count({ where: byVariant }),
+            tx.purchaseLine.count({
+              where: {
+                storeId,
+                OR: [
+                  { storeProductId: productId },
+                  { storeVariantId: { in: variantIds } },
+                ],
+              },
+            }),
+            tx.wasteRecord.count({ where: byVariant }),
+            tx.supplierProduct.count({
+              where: { storeId, storeProductId: productId },
+            }),
+          ]);
+        const hasHistory =
+          sales + movements + batches + purchases + waste + suppliers > 0;
+
+        const now = new Date();
+        if (hasHistory) {
+          await tx.storeProduct.update({
+            where: { id: productId },
+            data: { isActive: false, updatedAt: now },
+          });
+          await tx.storeVariant.updateMany({
+            where: { storeId, storeProductId: productId },
+            data: { isActive: false, updatedAt: now },
+          });
+          return { result: "archived" as const, productId };
+        }
+
+        // No history: stock_levels rows (if any) can only be zero-balance caches.
+        await tx.stockLevel.deleteMany({ where: byVariant });
+        await tx.storeVariant.deleteMany({
+          where: { storeId, storeProductId: productId },
+        });
+        await tx.storeProduct.delete({ where: { id: productId } });
+        return { result: "deleted" as const, productId };
+      },
+      this.prisma,
+    );
+  }
+
+  /**
    * Deactivates / hides a store product and its variants.
    */
   async deleteStoreProduct(

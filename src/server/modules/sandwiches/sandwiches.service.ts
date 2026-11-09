@@ -48,6 +48,8 @@ export interface IngredientOption {
   variantId: string;
   productId: string;
   name: string;
+  /** English name of the catalog product this item comes from (search only), if any. */
+  nameEn: string | null;
   unit: string;
   isWeight: boolean;
   /** Registered purchase price: per kg for `kg`, per gram for `g`, per unit otherwise. */
@@ -191,7 +193,12 @@ export async function listIngredientOptions(
             unit: { not: "service" },
           },
         },
-        include: { storeProduct: true, stockLevels: true },
+        include: {
+          storeProduct: {
+            include: { globalProduct: { select: { nameEn: true } } },
+          },
+          stockLevels: true,
+        },
       }),
     prisma,
   );
@@ -203,6 +210,7 @@ export async function listIngredientOptions(
         variantId: v.id,
         productId: v.storeProductId ?? "",
         name: variantName(v),
+        nameEn: v.storeProduct?.globalProduct?.nameEn ?? null,
         unit,
         isWeight: isWeightUnit(unit),
         buyPricePiasters: resolveBuyPrice(v),

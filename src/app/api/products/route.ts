@@ -172,6 +172,10 @@ export async function PATCH(req: Request) {
 /**
  * DELETE /api/products?id=<productId>
  * Hides a store product and its variants for this store only.
+ *
+ * DELETE /api/products?id=<productId>&action=delete
+ * Deletes a product this shop created (`CatalogService.deleteShopProduct`): removed when it
+ * has no history, archived (hidden) when it does. Catalog products are refused.
  */
 export async function DELETE(req: Request) {
   try {
@@ -186,6 +190,16 @@ export async function DELETE(req: Request) {
     }
 
     const catalogService = new CatalogService(prisma);
+
+    if (searchParams.get("action") === "delete") {
+      const outcome = await catalogService.deleteShopProduct(
+        context.store.id,
+        context.user.id,
+        productId,
+      );
+      return NextResponse.json({ success: true, ...outcome });
+    }
+
     await catalogService.hideStoreProduct(
       context.store.id,
       context.user.id,

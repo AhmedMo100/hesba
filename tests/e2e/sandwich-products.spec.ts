@@ -136,6 +136,22 @@ test.describe("Sandwich products", () => {
       sellPricePiasters: 20000,
       stock: 1000,
     });
+    // Two more stock items to check ordering and English search: ketchup (priority 3) and a
+    // product whose own name is English ("Heinz Mayo", priority 3 via "mayo").
+    const ketchup = await createIngredient(api, {
+      nameAr: `كاتشب ${runId}`,
+      unit: "piece",
+      buyCostPiasters: 50,
+      sellPricePiasters: 75,
+      stock: 20,
+    });
+    const mayo = await createIngredient(api, {
+      nameAr: `Heinz Mayo ${runId}`,
+      unit: "piece",
+      buyCostPiasters: 60,
+      sellPricePiasters: 90,
+      stock: 20,
+    });
     const name = `سندوتش لانشون ${runId}`;
 
     // ---- A. Create -------------------------------------------------------------------
@@ -153,14 +169,72 @@ test.describe("Sandwich products", () => {
     const form = dialog.getByTestId("sandwich-form");
     await expect(form).toBeVisible();
 
+    const searchOf = (row: number) =>
+      dialog.getByTestId(`sandwich-row-${row}-search`);
+    const optionIds = () =>
+      dialog
+        .locator('[data-testid^="ingredient-option-"]')
+        .evaluateAll((els) =>
+          els.map((e) =>
+            (e.getAttribute("data-testid") ?? "").replace(
+              "ingredient-option-",
+              "",
+            ),
+          ),
+        );
+    const pick = async (row: number, query: string, variantId: string) => {
+      if (!(await searchOf(row).isVisible())) {
+        await dialog.getByTestId(`sandwich-row-${row}-product`).click();
+      }
+      await searchOf(row).fill(query);
+      await dialog.getByTestId(`ingredient-option-${variantId}`).click();
+      await expect(searchOf(row)).toHaveCount(0);
+    };
+
     await dialog.getByTestId("sandwich-name").fill(name);
-    await dialog.getByTestId("sandwich-row-0-product").selectOption(bread);
+
+    // Ordering: cheese/luncheon first, then ketchup/mayonnaise, then everything else.
+    await dialog.getByTestId("sandwich-row-0-product").click();
+    await expect(searchOf(0)).toBeVisible();
+    await expect(dialog.getByTestId(`ingredient-option-${bread}`)).toBeVisible(
+      SERVER,
+    );
+    const order = await optionIds();
+    expect(order).toHaveLength(5);
+    expect(new Set(order.slice(0, 2))).toEqual(new Set([cheese, luncheon]));
+    expect(new Set(order.slice(2, 4))).toEqual(new Set([ketchup, mayo]));
+    expect(order[4]).toBe(bread);
+    // Arabic search (ة/ه-insensitive) and English search (case-insensitive)
+    await searchOf(0).fill(`جبنه ${runId}`);
+    expect(await optionIds()).toEqual([cheese]);
+    await searchOf(0).fill("HEINZ");
+    expect(await optionIds()).toEqual([mayo]);
+    await searchOf(0).fill("zzz-no-such");
+    await expect(
+      dialog.getByText("مفيش منتج بالاسم ده في المخزون"),
+    ).toBeVisible();
+    await pick(0, `عيش`, bread);
+    await expect(dialog.getByTestId("sandwich-row-0-product")).toContainText(
+      `عيش ${runId}`,
+    );
     await dialog.getByTestId("sandwich-row-0-qty").fill("1");
+
+    // A newly added row opens its list; searching there keeps row 1 as it was.
     await dialog.getByTestId("sandwich-add-ingredient").click();
-    await dialog.getByTestId("sandwich-row-1-product").selectOption(luncheon);
+    await expect(searchOf(1)).toBeVisible();
+    await searchOf(1).fill("zzz");
+    await expect(dialog.getByTestId("sandwich-row-0-product")).toContainText(
+      `عيش ${runId}`,
+    );
+    await expect(dialog.getByTestId("sandwich-row-0-qty")).toHaveValue("1");
+    await searchOf(1).fill("");
+    await expect(
+      dialog.getByTestId(`ingredient-option-${bread}`),
+    ).toBeDisabled(); // already used in row 1
+    await pick(1, "لانشون", luncheon);
     await dialog.getByTestId("sandwich-row-1-qty").fill("5");
     await dialog.getByTestId("sandwich-add-ingredient").click();
-    await dialog.getByTestId("sandwich-row-2-product").selectOption(cheese);
+    await pick(2, "جبنة", cheese);
     await dialog.getByTestId("sandwich-row-2-qty").fill("5");
 
     await expect(dialog.getByTestId("sandwich-row-0-cost")).toHaveText("3 ج.م");
@@ -270,5 +344,42 @@ test.describe("Sandwich products", () => {
     } finally {
       await other.close();
     }
+
+    // ---- F. Delete a product the shop added ------------------------------------------
+    const doomedName = `منتج للحذف ${runId}`;
+    const doomed = await api.post("/api/products", {
+      data: {
+        nameAr: doomedName,
+        category: "تجربة الحذف",
+        unit: "piece",
+        sellPricePiasters: 500,
+        buyCostPiasters: 300,
+        isCustom: true,
+        variants: [
+          { packQty: 1, sellPricePiasters: 500, costPricePiasters: 300 },
+        ],
+      },
+    });
+    expect(doomed.ok()).toBe(true);
+    const doomedId: string = (await doomed.json()).data.id;
+    await page.goto("/app/products");
+    await hideDevOverlay(page);
+    const doomedCard = page.getByTestId(`product-card-${doomedId}`);
+    await expect(doomedCard).toBeVisible(SERVER);
+    await page.getByRole("button", { name: `خيارات ${doomedName}` }).click();
+    await page.getByTestId(`delete-product-${doomedId}`).click();
+    await expect(dialog.getByTestId("delete-product-dialog")).toContainText(
+      doomedName,
+    );
+    await dialog.getByTestId("confirm-delete-product").click();
+    await expect(page.getByTestId("product-notice")).toContainText(
+      doomedName,
+      SERVER,
+    );
+    await expect(doomedCard).toHaveCount(0);
+    const after = await (await api.get("/api/products?filter=all")).json();
+    expect(after.products.some((p: { id: string }) => p.id === doomedId)).toBe(
+      false,
+    );
   });
 });
