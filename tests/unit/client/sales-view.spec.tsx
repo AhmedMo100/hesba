@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SalesView } from "@/client/app-shell/views/SalesView";
+import { SalesView } from "@/client/features/sales/SalesView";
 
 describe("SalesView Client Component", () => {
   const STAGED_KEY = "hesba_staged_sale_item";

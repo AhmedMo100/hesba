@@ -1,5 +1,19 @@
 "use client";
 
+/**
+ * @file AppShell.tsx
+ * @description The single-route client application under `/app/*` (ADR-0013): header,
+ * side/bottom navigation, sync bar, and the active screen.
+ *
+ * @responsibility
+ * - Switches between screens in client state; Home is bundled, every other screen is a lazy
+ *   chunk preloaded after first render so navigation keeps working offline.
+ * - Registers the service worker (`/sw.js`) in production; in development unregisters old
+ *   workers and clears their caches.
+ * - Tracks online/offline from browser events for the sync bar.
+ * - Opens the login modal and the profile modal.
+ */
+
 import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
@@ -10,16 +24,16 @@ import { ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
 
 // Eagerly loaded default view
-import { HomeView } from "./views/HomeView";
+import { HomeView } from "../features/home/HomeView";
 
 // Lazy-loaded views
-const loadProductsView = () => import("./views/ProductsView");
-const loadSalesView = () => import("./views/SalesView");
-const loadStockView = () => import("./views/StockView");
-const loadExpensesView = () => import("./views/ExpensesView");
-const loadPeopleView = () => import("./views/PeopleView");
-const loadAlertsView = () => import("./views/AlertsView");
-const loadAiView = () => import("./views/AiView");
+const loadProductsView = () => import("../features/products/ProductsView");
+const loadSalesView = () => import("../features/sales/SalesView");
+const loadStockView = () => import("../features/stock/StockView");
+const loadExpensesView = () => import("../features/expenses/ExpensesView");
+const loadPeopleView = () => import("../features/people/PeopleView");
+const loadAlertsView = () => import("../features/alerts/AlertsView");
+const loadAiView = () => import("../features/ai/AiView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -60,12 +74,9 @@ function ViewLoading() {
   );
 }
 
-import {
-  AuthProvider,
-  useAuth,
-  ProfileModal,
-  AuthScreen,
-} from "../shared/auth";
+import { AuthProvider, useAuth } from "../shared/auth";
+import { AuthScreen } from "../features/auth/AuthScreen";
+import { ProfileModal } from "../features/auth/ProfileModal";
 
 function AppShellInner() {
   const { session, isOfflineExpired } = useAuth();

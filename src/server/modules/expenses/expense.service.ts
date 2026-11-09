@@ -1,4 +1,22 @@
 import "server-only";
+
+/**
+ * @file expense.service.ts
+ * @description Store expenses (rent, transport, salaries, ...) with period filters.
+ *
+ * @responsibility
+ * List expenses for a period with totals per category, create, edit, and delete.
+ *
+ * @usedBy
+ * `src/app/api/expenses/route.ts`, `src/app/api/expenses/[id]/route.ts`.
+ *
+ * @remarks
+ * - Periods (`today`, `yesterday`, `7days`/`week`, `month`, `year`, `custom`, `all`; unknown
+ *   values mean today) are computed on the Cairo calendar and compared against UTC timestamps.
+ * - Delete is a soft delete (`deletedAt`); deleted expenses are excluded from lists and totals.
+ * - Amounts are integer piasters.
+ */
+
 import { type Prisma, type PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { prisma as defaultPrisma } from "@/server/infra/db/client";

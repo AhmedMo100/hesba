@@ -1,0 +1,226 @@
+/* Sandwich form + "add product" type picker (ADR-0018). Tokens from styles/tokens.css. */
+
+.choiceList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choiceBtn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  background: var(--sf);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.choiceBtn:hover,
+.choiceBtn:focus-visible {
+  border-color: var(--br);
+  background: var(--hov);
+  outline: 0;
+}
+
+.choiceIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--br);
+}
+
+.choiceText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.choiceText b {
+  font-size: 16px;
+}
+
+.choiceText small {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.4;
+}
+
+.sectionHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 4px 0 10px;
+}
+
+.sectionHead b {
+  font-size: 15px;
+}
+
+.sectionHead small,
+.muted {
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf2);
+}
+
+.rowBad {
+  border-color: var(--red);
+}
+
+.rowTop,
+.rowBottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.select,
+.unit,
+.qty {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 16px;
+  min-width: 0;
+}
+
+.select {
+  flex: 1;
+}
+
+.qty {
+  width: 84px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.unit {
+  flex-shrink: 0;
+}
+
+.unitFixed {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink2);
+  padding-inline: 4px;
+}
+
+.select:focus,
+.unit:focus,
+.qty:focus {
+  border-color: var(--br);
+  outline: 0;
+}
+
+.rowCost {
+  margin-inline-start: auto;
+  font-weight: 800;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.removeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+}
+
+.rowErr {
+  display: block;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.rowWarn {
+  color: var(--yel);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.summary {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--soft);
+}
+
+.sumRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 15px;
+}
+
+.sumRow b {
+  font-size: 17px;
+}
+
+.profitValue {
+  color: var(--ok);
+}
+
+.loss {
+  color: var(--red);
+}
+
+/* Product-card details for sandwiches (ProductsView). */
+.cardRecipe {
+  font-size: 12.5px;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .choiceBtn {
+    transition: none;
+  }
+}

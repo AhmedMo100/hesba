@@ -1,4 +1,19 @@
 import "server-only";
+
+/**
+ * @file error.ts
+ * @description The API error contract: `AppError` and the single converter every route
+ * handler uses in its `catch` block.
+ *
+ * @usedBy
+ * All route handlers under `src/app/api` and the server modules that throw `AppError`.
+ *
+ * @remarks
+ * Error body shape: `{ error: { code, message, details?, request_id? } }`, where `message` is a
+ * short Arabic text safe to show to the user. Internal details (stack, SQL, Prisma messages)
+ * are logged, never returned.
+ */
+
 import { z } from "zod";
 import { logger } from "@/server/platform/logger";
 
@@ -112,8 +127,28 @@ export class AppError extends Error {
 }
 
 /**
+ * Reads a request's JSON body. A missing or malformed body is the client's mistake, so it
+ * becomes a 400 `VALIDATION_ERROR` instead of an unhandled `SyntaxError` (which
+ * `toSafeErrorResponse` would report as a 500).
+ */
+export async function readJsonBody(req: Request): Promise<unknown> {
+  try {
+    return await req.json();
+  } catch {
+    throw new AppError("VALIDATION_ERROR", "البيانات المرسلة غير صحيحة", 400);
+  }
+}
+
+/**
  * Converts any unknown error into a safe standardized JSON error response.
  * Never leaks stack traces, database schema, or internal credentials to clients.
+ *
+ * Mapping: `AppError` → its own status; `ZodError` → 400 `VALIDATION_ERROR` with the first
+ * issue's message and field path; database unreachable (initialization error / P1001) → 503;
+ * anything else → 500 `INTERNAL_ERROR`. The 503 and 500 cases are written to the pino log.
+ *
+ * @param error - Whatever was thrown.
+ * @param requestId - Optional id echoed as `request_id` in the body.
  */
 export function toSafeErrorResponse(
   error: unknown,

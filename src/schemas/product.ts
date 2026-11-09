@@ -34,3 +34,11 @@ export const upsertProductInputSchema = z.object({
 });
 
 export type UpsertProductInput = z.infer<typeof upsertProductInputSchema>;
+
+/** Body of `POST /api/store/custom-taxonomy`: a store-specific category and/or selling method to add. */
+export const customTaxonomyInputSchema = z.object({
+  newCategory: z.string().trim().min(1).optional(),
+  newSellingMethod: z.string().trim().min(1).optional(),
+});
+
+export type CustomTaxonomyInput = z.infer<typeof customTaxonomyInputSchema>;

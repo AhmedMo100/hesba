@@ -1,8 +1,33 @@
 import "server-only";
+
+/**
+ * @file catalog.service.ts
+ * @description The store's product list: store-owned products and variants, merged with the
+ * shared global catalog.
+ *
+ * @responsibility
+ * Create/upsert store products and their variants (with an optional opening stock), list the
+ * store's products together with global-catalog items, and hide/unhide or deactivate products
+ * for this store only.
+ *
+ * @dependencies
+ * `withTenant`, `domain/normalize` (Arabic search key), `domain/product-matcher`, and
+ * `CommunitySuggestionsService` (custom products may be submitted to the community pool).
+ *
+ * @usedBy
+ * `src/app/api/products/route.ts`.
+ *
+ * @remarks
+ * Global catalog rows are shared by every store and never hold prices, stock or store
+ * identity (AGENTS.md rule 8): a store's price and stock live only on its own
+ * `store_products` / `store_variants`.
+ */
+
 import { type PrismaClient } from "@prisma/client";
 import { normalizeArabic } from "@/domain/normalize";
 import { matchProducts } from "@/domain/product-matcher";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
+import { AppError } from "@/server/platform/error";
 import { CommunitySuggestionsService } from "./community-suggestions.service";
 
 export interface CreateStoreProductInput {
@@ -332,6 +357,8 @@ export class CatalogService {
           is_hidden: boolean;
           globalProductId: string | null;
           global_product_id: string | null;
+          /** 'standard' or 'sandwich' (ADR-0018). */
+          kind: string;
           globalProduct?: {
             id: string;
             nameAr: string;
@@ -469,6 +496,7 @@ export class CatalogService {
             is_hidden: isHidden,
             globalProductId: gp.id,
             global_product_id: gp.id,
+            kind: override?.kind ?? "standard",
             globalProduct: {
               id: gp.id,
               nameAr: gp.nameAr,
@@ -555,6 +583,7 @@ export class CatalogService {
             is_hidden: isHidden,
             globalProductId: null,
             global_product_id: null,
+            kind: sp.kind,
             globalProduct: null,
             variants,
             storeVariants: variants,
@@ -782,6 +811,11 @@ export class CatalogService {
           });
           if (!existing) {
             throw new Error("Product not found or unauthorized");
+          }
+          if (existing.kind === "sandwich") {
+            // Sandwiches are edited through the sandwiches module (ADR-0018); this path would
+            // give them a stock variant and submit them to the community catalog.
+            throw AppError.badRequest("عدّل الساندوتش من شاشة الساندوتش");
           }
 
           await tx.storeProduct.update({

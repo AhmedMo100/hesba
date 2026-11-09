@@ -1,4 +1,30 @@
 import "server-only";
+
+/**
+ * @file session.service.ts
+ * @description Server-side sessions for the httpOnly `hesba_session` cookie.
+ *
+ * @responsibility
+ * Create, validate, rotate and revoke sessions, and resolve the authenticated
+ * user + store for every API request (`requireSession`).
+ *
+ * @dependencies
+ * Prisma (`sessions`, `users`), `withTenant` (to load the store under RLS), `./crypto`.
+ *
+ * @usedBy
+ * Every authenticated route handler under `src/app/api` (through `requireSession`),
+ * `login.service.ts`, `signup.service.ts`, the `/api/auth/{session,rotate,logout,
+ * revoke-other-sessions}` routes.
+ *
+ * @remarks
+ * - Only the SHA-256 hash of the token is stored (`idHash`); the raw token exists only in
+ *   the cookie, so a database leak does not expose usable sessions.
+ * - The `sessions` table is an identity table queried with the plain client (no tenant
+ *   context): the session is what *establishes* the tenant for the request.
+ * - The session pins one store (`storeId`). Store membership is checked at login, not on
+ *   every request.
+ */
+
 import { prisma } from "@/server/infra/db/client";
 import { hashToken, generateSecureToken } from "./crypto";
 import { AppError } from "@/server/platform/error";
@@ -46,6 +72,14 @@ export function getSessionCookieOptions() {
   };
 }
 
+/**
+ * Creates a 30-day session for a user in one store.
+ *
+ * @param userId - The authenticated user.
+ * @param storeId - The store this session acts on (becomes the tenant of every request).
+ * @param deviceId - Optional device the session was created on.
+ * @returns The raw token (to put in the cookie — never stored) and the session row.
+ */
 export async function createSession(
   userId: string,
   storeId: string,
@@ -72,6 +106,18 @@ export async function createSession(
 
 import { withTenant } from "@/server/infra/db/tenant";
 
+/**
+ * Resolves a raw session token to the user and store it belongs to.
+ *
+ * Side effect: updates `lastSeenAt` on every successful validation.
+ *
+ * @param rawToken - The token from the cookie or `Authorization: Bearer` header.
+ * @returns The session context, or `null` when the token is missing, unknown, or its store
+ * no longer exists.
+ * @throws AppError (401) when the session has expired, or when a revoked (already rotated)
+ * token is presented. In the second case every active session of that user is revoked first:
+ * reuse of a rotated token is treated as a stolen-token signal.
+ */
 export async function validateSession(
   rawToken: string,
 ): Promise<SessionContext | null> {
@@ -170,6 +216,14 @@ export async function validateSession(
   };
 }
 
+/**
+ * Replaces a valid session with a new token (same user, store and device, fresh 30-day
+ * expiry). The old row is marked revoked and linked through `rotatedFrom`, in one transaction.
+ *
+ * @remarks Any later request that still carries the old token triggers the reuse detection in
+ * {@link validateSession}, which revokes all of the user's sessions.
+ * @throws AppError (401) when the current token is not a valid session.
+ */
 export async function rotateSession(rawToken: string) {
   const context = await validateSession(rawToken);
   if (!context) {
@@ -241,6 +295,13 @@ export async function revokeOtherUserSessions(
   });
 }
 
+/**
+ * Reads the session token from the `hesba_session` cookie, falling back to an
+ * `Authorization: Bearer <token>` header, and validates it.
+ *
+ * @returns The session context, or `null` when no token is present or it is not valid.
+ * @throws AppError (401) — see {@link validateSession}.
+ */
 export async function getSessionFromRequest(
   req: Request,
 ): Promise<SessionContext | null> {
@@ -271,6 +332,12 @@ export async function getSessionFromRequest(
   return await validateSession(rawToken);
 }
 
+/**
+ * The authentication gate for route handlers. Use `context.store.id` and
+ * `context.user.id` from the result as the tenant for every `withTenant` call.
+ *
+ * @throws AppError (401) when the request has no valid session.
+ */
 export async function requireSession(req: Request): Promise<SessionContext> {
   const context = await getSessionFromRequest(req);
   if (!context) {

@@ -1,3 +1,5 @@
+import "server-only";
+
 /**
  * Community Catalog & Suggestions Policy Constants
  * Values defined in accordance with docs/03-data.md and docs/01-product.md.

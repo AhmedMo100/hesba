@@ -15,6 +15,23 @@ import { normalizePhone } from "./signup.service";
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
+/**
+ * Phone + password login.
+ *
+ * Flow: rate-limit (5 attempts per phone, 15 per IP, per 15 minutes) → look up the user by
+ * normalized phone → verify the Argon2id hash → pick the user's oldest store membership →
+ * register a new device row → create a session for that store.
+ *
+ * Unknown phones and wrong passwords return the same message so the response does not reveal
+ * which phones have accounts.
+ *
+ * @param rawInput - Phone and password (validated with `loginInputSchema`).
+ * @param clientIp - Used only for the per-IP rate limit, when known.
+ * @param deviceLabel - Label stored on the device row created for this login.
+ * @returns The raw session token (for the cookie) plus the user and store summary.
+ * @throws AppError (400) when rate-limited; (401) on bad credentials; (500) when the user has
+ * no store membership. A zod error on invalid input.
+ */
 export async function loginWithPassword(
   rawInput: LoginInput,
   clientIp?: string,

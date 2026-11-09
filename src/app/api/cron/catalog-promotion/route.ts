@@ -2,9 +2,10 @@ import "server-only";
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { systemPrisma } from "@/server/infra/db/client";
-import { CommunitySuggestionsService } from "@/server/modules/catalog/community-suggestions.service";
+import { CommunitySuggestionsService } from "@/server/modules/catalog";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
+import { env } from "@/server/config/env";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization") || "";
-    const expectedSecret = process.env.HESBA_CRON_SECRET || "";
+    const expectedSecret = env.HESBA_CRON_SECRET;
 
     if (!expectedSecret) {
       logger.error("HESBA_CRON_SECRET is not configured on the server");

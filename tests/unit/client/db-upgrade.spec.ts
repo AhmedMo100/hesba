@@ -5,7 +5,7 @@ import {
   HesbaDatabase,
   assertIntegerPiasters,
   assertIntegerBaseUnits,
-} from "@/client/shared/db";
+} from "@/client/offline/db";
 import type {
   LocalStore,
   LocalStoreProduct,
@@ -13,7 +13,7 @@ import type {
   LocalStockBatch,
   LocalSale,
   LocalSaleLine,
-} from "@/client/shared/db";
+} from "@/client/offline/db";
 
 describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () => {
   const DB_NAME = "hesba_test_upgrade_db";

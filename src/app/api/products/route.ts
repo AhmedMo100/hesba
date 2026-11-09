@@ -54,6 +54,7 @@ export async function GET(req: Request) {
       added_by_this_store: p.added_by_this_store,
       is_hidden: p.is_hidden,
       global_product_id: p.global_product_id,
+      kind: p.kind,
       variants: p.variants.map((v) => ({
         id: v.id,
         flavor: v.flavor,

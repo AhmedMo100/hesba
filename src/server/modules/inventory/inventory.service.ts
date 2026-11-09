@@ -1,6 +1,6 @@
 import "server-only";
 import { PrismaClient } from "@prisma/client";
-import { withTenant } from "@/server/infra/db/tenant";
+import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
   depleteStockFEFO,
@@ -8,7 +8,157 @@ import {
   type StockBatchCandidate,
 } from "@/domain/stock/stock-engine";
 
+/**
+ * @file inventory.service.ts
+ * @description Store inventory: stock batches, the append-only stock movement ledger, and the
+ * per-variant `stock_levels` cache.
+ *
+ * @responsibility
+ * Add stock (a batch + `purchase` movement), record waste, void a batch, adjust (set/delta),
+ * clear, archive, deplete for a sale (FEFO), and read inventory and movement history.
+ *
+ * @dependencies
+ * `withTenant` (every method runs in one tenant transaction), `domain/stock/stock-engine`
+ * (pure FEFO allocation and near-expiry rule).
+ *
+ * @usedBy
+ * `src/app/api/stock/route.ts`, `src/server/modules/alerts` (`getStoreInventory`).
+ *
+ * @remarks
+ * - Quantities are integer base units (pieces or grams) held as `bigint`; costs are integer
+ *   piasters.
+ * - Movements are never updated or deleted: every change appends a movement whose
+ *   `balanceAfterBase` records the running balance. `stock_levels` and each batch's
+ *   `remainingQuantityBase` are caches derived from those movements.
+ * - Methods that accept an `opId` return `{ duplicate: true }` when a movement with that
+ *   `opId` already exists for the store.
+ * - Batch and level updates are read-then-write within the transaction (no row locks).
+ * - `depleteStockForSale` is not called by any route handler today; the sales screen deducts
+ *   stock through `adjustStockQuantity` in delta mode. Its FEFO core,
+ *   `depleteVariantFefoInTx`, is also used by the sandwich sale path (ADR-0018).
+ */
+
 const ZERO = BigInt(0);
+
+/**
+ * FEFO-depletes `quantityBase` of one variant inside the caller's tenant transaction: updates
+ * the batches it draws from, appends one `type: "sale"` movement per allocation (linked to
+ * `saleLineId`), and writes the new `stock_levels` balance.
+ *
+ * Shared by {@link InventoryService.depleteStockForSale} and the sandwich sale path, so a sale
+ * and its stock movements commit or roll back together. It performs no availability check
+ * and takes no locks: callers that must not go below zero check and lock first. Quantity not
+ * covered by batches becomes an unbatched allocation flagged `negative` (stock-engine rule 6).
+ */
+export async function depleteVariantFefoInTx(
+  tx: TenantTx,
+  storeId: string,
+  input: {
+    storeVariantId: string;
+    storeProductId: string | null;
+    quantityBase: bigint;
+    saleLineId: string | null;
+    opId: string | null;
+    now: Date;
+  },
+) {
+  const { now } = input;
+  const batches = await tx.storeStockBatch.findMany({
+    where: {
+      storeId,
+      storeVariantId: input.storeVariantId,
+      remainingQuantityBase: { gt: ZERO },
+    },
+  });
+
+  const candidates: StockBatchCandidate[] = batches.map((b) => ({
+    id: b.id,
+    storeVariantId: b.storeVariantId,
+    batchCode: b.batchCode,
+    remainingQuantityBase: b.remainingQuantityBase,
+    costPriceMinor: b.costPriceMinor,
+    expiryDate: b.expiryDate,
+    receivedAt: b.receivedAt,
+  }));
+
+  const depletion = depleteStockFEFO(candidates, input.quantityBase);
+
+  for (const updated of depletion.updatedBatches) {
+    await tx.storeStockBatch.update({
+      where: { id: updated.id },
+      data: {
+        remainingQuantityBase: updated.remainingQuantityBase,
+        updatedAt: now,
+      },
+    });
+  }
+
+  const currentLevel = await tx.stockLevel.findUnique({
+    where: {
+      storeId_storeVariantId: {
+        storeId,
+        storeVariantId: input.storeVariantId,
+      },
+    },
+  });
+
+  let runningBalance = currentLevel?.quantityBase ?? ZERO;
+
+  for (const allocation of depletion.allocations) {
+    runningBalance -= allocation.quantityBase;
+    await tx.stockMovement.create({
+      data: {
+        storeId,
+        storeVariantId: input.storeVariantId,
+        storeProductId: input.storeProductId,
+        batchId: allocation.batchId,
+        type: "sale",
+        quantityBase: -allocation.quantityBase,
+        costPriceMinor: allocation.costPriceMinor,
+        balanceAfterBase: runningBalance,
+        negative: allocation.isNegative,
+        saleLineId: input.saleLineId,
+        opId: input.opId,
+        createdAt: now,
+      },
+    });
+  }
+
+  await tx.stockLevel.upsert({
+    where: {
+      storeId_storeVariantId: {
+        storeId,
+        storeVariantId: input.storeVariantId,
+      },
+    },
+    update: {
+      quantityBase: runningBalance,
+      updatedAt: now,
+    },
+    create: {
+      storeId,
+      storeVariantId: input.storeVariantId,
+      quantityBase: runningBalance,
+      updatedAt: now,
+    },
+  });
+
+  return {
+    allocations: depletion.allocations.map((a) => ({
+      batchId: a.batchId,
+      quantityBase: Number(a.quantityBase),
+      costPriceMinor: Number(a.costPriceMinor),
+      isNegative: a.isNegative,
+    })),
+    shortfallBase: Number(depletion.shortfallBase),
+    newBalance: Number(runningBalance),
+  };
+}
+
+/**
+ * A variant with at most this many base units in stock is reported as "low" (5 pieces, or
+ * 5 grams for weighed items).
+ */
 const FIVE = BigInt(5);
 
 export class InventoryService {
@@ -424,104 +574,20 @@ export class InventoryService {
           }
         }
 
-        // Fetch active batches with remaining quantity
-        const batches = await tx.storeStockBatch.findMany({
-          where: {
-            storeId,
-            storeVariantId: input.storeVariantId,
-            remainingQuantityBase: { gt: ZERO },
-          },
-        });
-
-        const candidates: StockBatchCandidate[] = batches.map((b) => ({
-          id: b.id,
-          storeVariantId: b.storeVariantId,
-          batchCode: b.batchCode,
-          remainingQuantityBase: b.remainingQuantityBase,
-          costPriceMinor: b.costPriceMinor,
-          expiryDate: b.expiryDate,
-          receivedAt: b.receivedAt,
-        }));
-
-        // Execute pure FEFO depletion
-        const depletion = depleteStockFEFO(candidates, qtyBase);
-
-        // Update batches
-        for (const updated of depletion.updatedBatches) {
-          await tx.storeStockBatch.update({
-            where: { id: updated.id },
-            data: {
-              remainingQuantityBase: updated.remainingQuantityBase,
-              updatedAt: now,
-            },
-          });
-        }
-
-        // Update stock level cache
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: input.storeVariantId,
-            },
-          },
-        });
-
-        let runningBalance = currentLevel?.quantityBase ?? ZERO;
-
-        // Record movements for each allocation
-        const movementResults = [];
-        for (const allocation of depletion.allocations) {
-          runningBalance -= allocation.quantityBase;
-
-          const mov = await tx.stockMovement.create({
-            data: {
-              storeId,
-              storeVariantId: input.storeVariantId,
-              storeProductId: variant.storeProductId,
-              batchId: allocation.batchId,
-              type: "sale",
-              quantityBase: -allocation.quantityBase,
-              costPriceMinor: allocation.costPriceMinor,
-              balanceAfterBase: runningBalance,
-              negative: allocation.isNegative,
-              saleLineId: input.saleLineId ?? null,
-              opId: input.opId ?? null,
-              createdAt: now,
-            },
-          });
-          movementResults.push(mov);
-        }
-
-        await tx.stockLevel.upsert({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: input.storeVariantId,
-            },
-          },
-          update: {
-            quantityBase: runningBalance,
-            updatedAt: now,
-          },
-          create: {
-            storeId,
-            storeVariantId: input.storeVariantId,
-            quantityBase: runningBalance,
-            updatedAt: now,
-          },
+        const result = await depleteVariantFefoInTx(tx, storeId, {
+          storeVariantId: input.storeVariantId,
+          storeProductId: variant.storeProductId,
+          quantityBase: qtyBase,
+          saleLineId: input.saleLineId ?? null,
+          opId: input.opId ?? null,
+          now,
         });
 
         return {
           duplicate: false,
-          allocations: depletion.allocations.map((a) => ({
-            batchId: a.batchId,
-            quantityBase: Number(a.quantityBase),
-            costPriceMinor: Number(a.costPriceMinor),
-            isNegative: a.isNegative,
-          })),
-          shortfallBase: Number(depletion.shortfallBase),
-          newBalance: Number(runningBalance),
+          allocations: result.allocations,
+          shortfallBase: result.shortfallBase,
+          newBalance: result.newBalance,
         };
       },
       this.prisma,
@@ -709,9 +775,15 @@ export class InventoryService {
   /**
    * Adjusts stock quantity for a variant.
    * Supports:
-   * 1) mode === "set": Sets final balance to `targetQuantityBase`.
-   * 2) mode === "delta": Increments or decrements balance by `deltaQuantityBase`.
-   * Enforces tenant isolation and append-only audit trail.
+   * 1) mode === "set": Sets final balance to `targetQuantityBase` (a negative target is
+   *    rejected with 400).
+   * 2) mode === "delta": Increments or decrements balance by `deltaQuantityBase`. A decrement
+   *    larger than the current stock is floored: the balance becomes 0 and the recorded delta
+   *    is reduced to `-current`, so the cashier can keep selling when stock intake was never
+   *    recorded.
+   * Enforces tenant isolation and append-only audit trail; `opId` makes a retry a no-op.
+   *
+   * @remarks The sales screen uses delta mode to deduct sold quantities.
    */
   async adjustStockQuantity(
     storeId: string,

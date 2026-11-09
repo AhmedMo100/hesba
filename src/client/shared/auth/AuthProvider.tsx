@@ -1,5 +1,22 @@
 "use client";
 
+/**
+ * @file AuthProvider.tsx
+ * @description React context holding the current session (user + store) for the client app.
+ *
+ * @responsibility
+ * Loads the session once on mount from `/api/auth/session`, mirrors the active store id into
+ * `sessionStorage` (`hesba_current_store_id`, read by the client API helpers), and exposes
+ * `logout`, `setSession` and `updateProfile`.
+ *
+ * @usedBy
+ * `app-shell/AppShell.tsx` (provider) and every feature that calls `useAuth()`.
+ *
+ * @remarks
+ * When the session request fails (including offline) the session is `null`. `lock`/`unlock`
+ * are no-ops.
+ */
+
 import React, {
   createContext,
   useContext,

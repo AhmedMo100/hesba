@@ -15,6 +15,27 @@ import { env } from "@/server/config/env";
 import { hashPassword } from "./password.service";
 import { revokeAllUserSessions } from "./session.service";
 
+/**
+ * @file forgot-password.service.ts
+ * @description Password recovery by an emailed one-time code.
+ *
+ * @responsibility
+ * Issue a reset code by email (`requestPasswordResetCode`) and set a new password when the
+ * code is correct (`resetPasswordWithCode`).
+ *
+ * @usedBy
+ * `src/app/api/auth/forgot-password/{request,reset}/route.ts`.
+ *
+ * @remarks
+ * - Codes are stored as an HMAC (keyed with `HESBA_SESSION_SECRET` and bound to the user id),
+ *   never in plain text. They expire after 10 minutes and allow 5 wrong attempts.
+ * - Requesting a code for an unknown email returns the same generic response, so the endpoint
+ *   does not reveal which emails are registered.
+ * - A successful reset revokes every session of the user.
+ * - Rate limits: 3 requests per email and 10 per IP per hour; 15 verify attempts per IP per
+ *   15 minutes (in-memory, see `rate-limiter.ts`).
+ */
+
 const CODE_EXPIRY_MS = 10 * 60 * 1000; // 10 minutes
 const MAX_CODE_ATTEMPTS = 5;
 

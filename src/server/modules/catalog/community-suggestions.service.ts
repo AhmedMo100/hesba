@@ -1,4 +1,26 @@
 import "server-only";
+
+/**
+ * @file community-suggestions.service.ts
+ * @description The community catalog pipeline: stores' custom products become candidates,
+ * other stores adopt or report them, and well-adopted candidates are promoted into the global
+ * catalog.
+ *
+ * @responsibility
+ * Submit candidates, record one adoption per store, report candidates (auto-hide at the
+ * report threshold), and evaluate promotion.
+ *
+ * @usedBy
+ * `catalog.service.ts`, `src/app/api/cron/catalog-promotion/route.ts`.
+ *
+ * @remarks
+ * - The pool is cross-tenant by design, so this service works on the client it is given
+ *   (the cron route passes `systemPrisma`) rather than inside one store's `withTenant`.
+ * - Only product identity is shared (name, brand, category, size) — never prices, stock or
+ *   the submitting store's identity (AGENTS.md rule 8).
+ * - Thresholds (minimum adopting stores, minimum age, report limit) are in `./constants.ts`.
+ */
+
 import { type PrismaClient } from "@prisma/client";
 import { normalizeArabic } from "@/domain/normalize";
 import { matchProducts } from "@/domain/product-matcher";

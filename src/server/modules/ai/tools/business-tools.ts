@@ -1,4 +1,18 @@
 import "server-only";
+
+/**
+ * @file business-tools.ts
+ * @description The read-only tools the AI model may call to answer questions about the store
+ * (sales summary, top sellers, inventory status, product search, purchases, expenses,
+ * customer debts, supplier payables, financial overview) plus the external market search tool.
+ *
+ * @usedBy
+ * `ai.service.ts`.
+ *
+ * @remarks
+ * Every store tool runs inside `withTenant` for the requesting store, so the model can only
+ * ever see that store's data. Tools only read; none of them writes.
+ */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { getCairoMidnightDate } from "../cairo-date";

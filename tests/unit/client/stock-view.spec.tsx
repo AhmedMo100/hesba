@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  StockView,
-  type StockInventoryItem,
-} from "@/client/app-shell/views/StockView";
-import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
-import { ClearStockModal } from "@/client/app-shell/views/ClearStockModal";
-import { ArchiveStockModal } from "@/client/app-shell/views/ArchiveStockModal";
-import { MachineTopupModal } from "@/client/app-shell/views/MachineTopupModal";
+import { StockView } from "@/client/features/stock/StockView";
+import type { StockInventoryItem } from "@/client/shared/store-items";
+import { AddStockModal } from "@/client/features/stock/AddStockModal";
+import { ClearStockModal } from "@/client/features/stock/ClearStockModal";
+import { ArchiveStockModal } from "@/client/features/stock/ArchiveStockModal";
+import { MachineTopupModal } from "@/client/features/stock/MachineTopupModal";
 
 describe("StockView Component (Phase 2 Inventory UI)", () => {
   beforeEach(() => {

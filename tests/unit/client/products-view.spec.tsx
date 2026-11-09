@@ -1,11 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProductsView } from "@/client/app-shell/views/ProductsView";
-import { ProductFormModal } from "@/client/app-shell/views/ProductFormModal";
-import { ServiceFormModal } from "@/client/app-shell/views/ServiceFormModal";
-import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
-import { MachinesModal } from "@/client/app-shell/views/MachinesModal";
+import { ProductsView } from "@/client/features/products/ProductsView";
+import { ProductFormModal } from "@/client/features/products/ProductFormModal";
+import { ServiceFormModal } from "@/client/features/products/ServiceFormModal";
+import { AddStockModal } from "@/client/features/stock/AddStockModal";
+import { MachinesModal } from "@/client/features/products/MachinesModal";
 
 describe("ProductsView Client Component", () => {
   beforeEach(() => {

@@ -1,3 +1,5 @@
+import "server-only";
+
 import { type PeopleSection } from "@/schemas/people";
 
 export interface SuppliedProductItem {

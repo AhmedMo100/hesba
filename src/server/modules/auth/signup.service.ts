@@ -8,6 +8,23 @@ import { createSession } from "./session.service";
 import { randomUUID } from "node:crypto";
 import { withTenant } from "@/server/infra/db/tenant";
 
+/**
+ * @file signup.service.ts
+ * @description Owner sign-up: creates the user, their first store, the owner membership, a
+ * device, and the first session.
+ *
+ * @usedBy
+ * `src/app/api/auth/signup/route.ts`; `normalizePhone` is also used by `login.service.ts` and
+ * `forgot-password.service.ts`.
+ */
+
+/**
+ * Normalizes an Egyptian mobile number to the stored `+20…` form. Arabic-Indic digits,
+ * spaces, `-` and `_` are accepted. Login looks users up by this normalized form, so every
+ * write of `users.phone` must use it.
+ *
+ * @example normalizePhone("٠١٠ ١٢٣٤ ٥٦٧٨") // "+201012345678"
+ */
 export function normalizePhone(v: string): string {
   let cleaned = v
     .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
@@ -26,6 +43,18 @@ export function normalizePhone(v: string): string {
   return cleaned;
 }
 
+/**
+ * Registers a new owner and their store, and signs them in.
+ *
+ * Runs in two separate database steps: (1) create the user (identity table, no tenant
+ * context); (2) in one `withTenant` transaction for the new store id, create the store, the
+ * `owner` membership and the first device. The session is created afterwards.
+ *
+ * @param rawInput - Sign-up form data (validated with `signupInputSchema`).
+ * @returns The raw session token plus the user and store summary.
+ * @throws AppError (409) when the phone or email is already registered. A zod error on
+ * invalid input.
+ */
 export async function registerUserWithPassword(rawInput: SignupInput) {
   const data = signupInputSchema.parse(rawInput);
   const normalizedPhone = normalizePhone(data.phone);

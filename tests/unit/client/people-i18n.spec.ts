@@ -8,7 +8,7 @@ describe("People Module i18n Verification", () => {
   it("has Arabic Egyptian translations for all keys used in PeopleView", () => {
     const peopleViewPath = path.resolve(
       __dirname,
-      "../../../src/client/app-shell/views/PeopleView.tsx",
+      "../../../src/client/features/people/PeopleView.tsx",
     );
     const content = fs.readFileSync(peopleViewPath, "utf-8");
 

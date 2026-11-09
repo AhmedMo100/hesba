@@ -1,4 +1,15 @@
 import "server-only";
+
+/**
+ * @file people.service.ts
+ * @description The people module's public API. Routes call these functions with a `section`
+ * (`owedToMe` → customers, `iOwe` → payables, otherwise → suppliers) and they dispatch to the
+ * matching service.
+ *
+ * @usedBy
+ * `src/app/api/people/route.ts`, `src/app/api/people/[id]/route.ts`,
+ * `src/app/api/people/[id]/transactions/route.ts` (through `./index.ts`).
+ */
 import { type PrismaClient } from "@prisma/client";
 import {
   type CreatePersonInput,

@@ -1,4 +1,26 @@
 import "server-only";
+
+/**
+ * @file customer.service.ts
+ * @description Customers who owe the store money (section "owedToMe", ليك): receivables.
+ *
+ * @responsibility
+ * List customers with their receivable balance, create (with an optional opening debt), view
+ * details with the running ledger, record a debt or a collection, edit, and delete.
+ * A debt is `owed_to_me`; a collection (تحصيل) is `i_owe`.
+ *
+ * @usedBy
+ * `people.service.ts` (section dispatcher).
+ *
+ * @remarks
+ * - Balances are never stored: they are recomputed from the person's `debt_entries` ledger
+ *   (`owed_to_me` adds to what others owe the store, `i_owe` adds to what the store owes).
+ *   A "payment" is recorded as an entry in the opposite direction of a "debt".
+ * - Displayed balances are floored at 0 (`Math.max(0, …)`), so an overpayment shows as 0.
+ * - A transaction with an `opId` already recorded for the store returns the existing entry
+ *   instead of creating a second one; when no `opId` is sent, a random one is generated.
+ * - Delete is a soft delete. Money is integer piasters.
+ */
 import { type Prisma, type PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { prisma as defaultPrisma } from "@/server/infra/db/client";

@@ -1,4 +1,22 @@
 import "server-only";
+
+/**
+ * @file machines.service.ts
+ * @description POS machines (e-payment / top-up terminals) and their prepaid balances.
+ *
+ * @responsibility
+ * List, create/update and soft-delete machines; top up, set (reconcile) and deduct a machine's
+ * balance. Every balance change writes a `pos_machine_topups` history row (deductions are
+ * negative amounts) together with the new `current_balance_piasters`.
+ *
+ * @usedBy
+ * `src/app/api/machines/{route,topup,adjust,deduct}/route.ts`.
+ *
+ * @remarks
+ * The balance is a stored column updated read-then-write inside `withTenant`. Money is integer
+ * piasters. There is no idempotency key on balance operations.
+ */
+
 import { type DatabaseInstance } from "@/server/infra/db/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
@@ -367,7 +385,11 @@ export class MachinesService {
 
   /**
    * Deducts balance from a POS machine upon executing a bill or service sale.
-   * Atomically checks balance and updates history.
+   * Checks the balance and writes the history row and new balance in one tenant transaction
+   * (read-then-write: concurrent deductions are not serialized by a row lock).
+   *
+   * @throws AppError (400) for a non-positive amount or insufficient balance; (404) when the
+   * machine does not exist or was deleted.
    */
   async deductMachineBalance(
     storeId: string,

@@ -1,17 +1,13 @@
 import "server-only";
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { requireSession } from "@/server/modules/auth";
-import { withTenant } from "@/server/infra/db/tenant";
+import {
+  getSalesViewConfig,
+  saveSalesViewConfig,
+} from "@/server/modules/sales";
 import { toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
-
-export interface SalesViewConfig {
-  enabledServiceIds: string[];
-  enabledProductIds?: string[];
-  updatedAt?: string;
-}
 
 /**
  * GET /api/sales/config
@@ -20,29 +16,7 @@ export interface SalesViewConfig {
 export async function GET(req: Request) {
   try {
     const context = await requireSession(req);
-
-    const config = await withTenant(
-      context.store.id,
-      context.user.id,
-      async (tx) => {
-        const store = await tx.store.findUnique({
-          where: { id: context.store.id },
-          select: { settings: true },
-        });
-
-        const rawSettings = (store?.settings as Record<string, unknown>) || {};
-        const salesConfig = rawSettings.salesConfig as
-          SalesViewConfig | undefined;
-
-        return (
-          salesConfig || {
-            enabledServiceIds: [],
-            enabledProductIds: [],
-          }
-        );
-      },
-    );
-
+    const config = await getSalesViewConfig(context.store.id, context.user.id);
     return NextResponse.json({ config });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
@@ -56,42 +30,12 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
-
-    const { enabledServiceIds, enabledProductIds } = body;
-
-    const updatedConfig: SalesViewConfig = {
-      enabledServiceIds: Array.isArray(enabledServiceIds)
-        ? Array.from(new Set(enabledServiceIds.map(String)))
-        : [],
-      enabledProductIds: Array.isArray(enabledProductIds)
-        ? Array.from(new Set(enabledProductIds.map(String)))
-        : [],
-      updatedAt: new Date().toISOString(),
-    };
-
-    await withTenant(context.store.id, context.user.id, async (tx) => {
-      const store = await tx.store.findUnique({
-        where: { id: context.store.id },
-        select: { settings: true },
-      });
-
-      const currentSettings =
-        (store?.settings as Record<string, unknown>) || {};
-      const newSettings = {
-        ...currentSettings,
-        salesConfig: updatedConfig,
-      };
-
-      await tx.store.update({
-        where: { id: context.store.id },
-        data: {
-          settings: newSettings as unknown as Prisma.InputJsonValue,
-        },
-      });
-    });
-
-    return NextResponse.json({ success: true, config: updatedConfig });
+    const config = await saveSalesViewConfig(
+      context.store.id,
+      context.user.id,
+      await req.json(),
+    );
+    return NextResponse.json({ success: true, config });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }

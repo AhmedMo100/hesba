@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * @file SyncBar.tsx
+ * @description The connection/sync status strip under the header.
+ *
+ * @remarks
+ * Purely presentational: it renders the `state` and `pendingCount` it is given. Today
+ * `AppShell` drives `state` only from the browser's `online`/`offline` events, and no caller
+ * computes `pendingCount`.
+ */
+
 import React from "react";
 import styles from "./SyncBar.module.css";
 import { Icon } from "../shared/ui";

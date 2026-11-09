@@ -208,6 +208,37 @@ CREATE UNIQUE INDEX ON products (store_id, barcode) WHERE barcode IS NOT NULL AN
 ```
 > The purchase price is **not** on the product; it lives on the batches (`batches.cost_total_minor`). Average/last cost are computed.
 
+### 3.1 Sandwiches — composite products (ADR-0018, as built)
+
+The built schema uses `store_products` / `store_variants`. In it:
+
+- **`store_products.kind`** is `'standard'` (default) or `'sandwich'`, enforced by `chk_store_products_kind`.
+  - A sandwich has **no `store_variants` row and no stock**.
+  - Its category is `ساندوتشات`.
+  - It is never submitted to the community catalog.
+- **`sandwich_ingredients`** holds the recipe. It has FORCE RLS with `tenant_isolation`, and `hesba_app` has full CRUD (recipe lines are configuration).
+
+```sql
+CREATE TABLE sandwich_ingredients (
+  id uuid PRIMARY KEY, store_id uuid NOT NULL REFERENCES stores(id),
+  sandwich_product_id uuid NOT NULL REFERENCES store_products(id) ON DELETE CASCADE,
+  ingredient_variant_id uuid NOT NULL REFERENCES store_variants(id) ON DELETE RESTRICT,
+  quantity_base int NOT NULL CHECK (quantity_base > 0),  -- grams for kg/g goods, else units
+  position int NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (sandwich_product_id, ingredient_variant_id)
+);
+-- trigger trg_sandwich_ingredients_check: sandwich and ingredient belong to store_id,
+-- the parent is a sandwich, the ingredient is not.
+```
+
+**Cost:**
+
+- Each line costs `quantity_base × purchase price`. The price is the variant's `buy_price_piasters`, else the product's.
+  - It is per kg for `kg` products, so the line cost is divided by 1000.
+  - It is per gram for `g` products and per piece otherwise.
+- The sum is computed exactly in milli-piasters and rounded **once**, half up.
+- The current cost is computed on read and never stored. Each sale stores its own snapshot in `sale_lines.cost_piasters`.
+
 ---
 
 ## 4. Inventory (Batches + Movements)
@@ -291,6 +322,18 @@ CREATE INDEX ON sale_lines (store_id, product_id);
 - V1: every sale tap = one `sales` row with one `sale_lines` row. (Both tables are ready for a multi-item basket in V1.1.)
 - **Undo (void):** sets `voided_at` and adds reversing `type='void'` movements according to `takes`. Nothing is deleted.
 - Reports ignore rows where `voided_at IS NOT NULL`.
+
+**As built (2026-11-09).** The tables are `sales` / `sale_lines` (Prisma `Sale` / `SaleLine`), with these differences from the design above:
+
+- There is no `voided_at` or `takes` yet.
+- `sale_lines.cost_piasters` (nullable) is the line's cost at sale time. Today only **sandwich** lines set it.
+- **Selling a sandwich (ADR-0018)** goes through `POST /api/sales` with a client `opId`. In one transaction it:
+  - locks the ingredients' `stock_levels` rows;
+  - rejects the whole sale (409) if any ingredient is short;
+  - writes one line targeting only the sandwich product;
+  - FEFO-depletes every ingredient with `type='sale'` movements linked to that line.
+- A repeated `opId` returns the first sale.
+- Sandwich sales have no undo until `sale.void` exists.
 
 ## 6. Expenses and People
 

@@ -163,6 +163,7 @@ model Store {
   supplierProducts     SupplierProduct[]
   posMachines          PosMachine[]
   posMachineTopups     PosMachineTopup[]
+  sandwichIngredients  SandwichIngredient[]
 
   @@map("stores")
 }
@@ -400,15 +401,18 @@ model StoreProduct {
   buyPricePiasters  BigInt?  @default(0) @map("buy_price_piasters")
   isActive          Boolean  @default(true) @map("is_active")
   isCustom          Boolean  @default(false) @map("is_custom")
+  /// 'standard' (a stocked product) or 'sandwich' (a composite made from ingredients, ADR-0018).
+  kind              String   @default("standard") @db.Text
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  globalProduct    GlobalProduct?    @relation(fields: [globalProductId], references: [id], onDelete: SetNull)
-  storeVariants    StoreVariant[]
-  purchaseLines    PurchaseLine[]
-  saleLines        SaleLine[]
-  supplierProducts SupplierProduct[]
+  store               Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  globalProduct       GlobalProduct?       @relation(fields: [globalProductId], references: [id], onDelete: SetNull)
+  storeVariants       StoreVariant[]
+  purchaseLines       PurchaseLine[]
+  saleLines           SaleLine[]
+  supplierProducts    SupplierProduct[]
+  sandwichIngredients SandwichIngredient[]
 
   @@index([storeId, nameNorm], map: "idx_store_products_store_name_norm")
   @@map("store_products")
@@ -430,16 +434,17 @@ model StoreVariant {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store             Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  storeProduct      StoreProduct?     @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
-  globalProduct     GlobalProduct?    @relation(fields: [productId], references: [id], onDelete: Cascade)
-  globalVariant     GlobalVariant?    @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
+  store             Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeProduct      StoreProduct?        @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
+  globalProduct     GlobalProduct?       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  globalVariant     GlobalVariant?       @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
   purchaseLines     PurchaseLine[]
   saleLines         SaleLine[]
   storeStockBatches StoreStockBatch[]
   stockMovements    StockMovement[]
   stockLevels       StockLevel[]
   wasteRecords      WasteRecord[]
+  usedInSandwiches  SandwichIngredient[]
 
   @@map("store_variants")
 }
@@ -775,6 +780,8 @@ model SaleLine {
   quantityBaseUnits  Int      @map("quantity_base_units")
   unitPricePiasters  BigInt   @map("unit_price_piasters")
   totalPiasters      BigInt   @map("total_piasters")
+  /// Cost of the whole line at the time of sale (set for sandwich lines, ADR-0018); null otherwise.
+  costPiasters       BigInt?  @map("cost_piasters")
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store            Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -941,6 +948,28 @@ model CatalogNotification {
   @@map("catalog_notifications")
 }
 
+/// One ingredient line of a sandwich recipe (ADR-0018). Recipe configuration, not history:
+/// editing a sandwich replaces its lines; past sales keep their own sale line and movements.
+model SandwichIngredient {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId             String   @map("store_id") @db.Uuid
+  sandwichProductId   String   @map("sandwich_product_id") @db.Uuid
+  ingredientVariantId String   @map("ingredient_variant_id") @db.Uuid
+  /// Integer base units per sandwich: grams for weighed goods, otherwise units of the product.
+  quantityBase        Int      @map("quantity_base")
+  position            Int      @default(0)
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store             Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sandwichProduct   StoreProduct @relation(fields: [sandwichProductId], references: [id], onDelete: Cascade)
+  ingredientVariant StoreVariant @relation(fields: [ingredientVariantId], references: [id], onDelete: Restrict)
+
+  @@unique([sandwichProductId, ingredientVariantId], map: "uq_sandwich_ingredients_sandwich_variant")
+  @@index([storeId, sandwichProductId], map: "idx_sandwich_ingredients_store_sandwich")
+  @@index([storeId, ingredientVariantId], map: "idx_sandwich_ingredients_store_variant")
+  @@map("sandwich_ingredients")
+}
+
 model StoreStockBatch {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   storeId               String    @map("store_id") @db.Uuid
@@ -1074,4 +1103,3 @@ model PosMachineTopup {
   @@index([storeId, machineId, createdAt(sort: Desc)], map: "idx_pos_machine_topups_store_machine")
   @@map("pos_machine_topups")
 }
-
