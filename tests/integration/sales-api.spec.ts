@@ -472,6 +472,58 @@ describe("QA-01 — atomic ordinary sale", () => {
     });
   });
 
+  describe("queued (offline) sales — QA-04, ADR-0020", () => {
+    it("a sale queued in another shop is refused (403 STORE_MISMATCH) and changes nothing", async () => {
+      const p = await f.product(A, { name: "مستنية", sell: 300 });
+      await f.addStock(A, p.variantId, 3);
+      const opId = crypto.randomUUID();
+      const wrong = await f.request(
+        A,
+        "POST",
+        { variantId: p.variantId, quantityBase: 1, opId },
+        "",
+        { "X-Hesba-Store-Id": B.storeId },
+      );
+      expect(wrong.status).toBe(403);
+      expect((wrong.json.error as { code: string }).code).toBe(
+        "STORE_MISMATCH",
+      );
+      expect((await f.stockState(A, p.variantId)).level).toBe(3);
+      expect(
+        await f.as(A, (tx) =>
+          tx.sale.count({ where: { storeId: A.storeId, opId } }),
+        ),
+      ).toBe(0);
+
+      // The same queued sale, sent while its own shop is signed in, is recorded once.
+      const right = await f.request(
+        A,
+        "POST",
+        { variantId: p.variantId, quantityBase: 1, opId },
+        "",
+        { "X-Hesba-Store-Id": A.storeId },
+      );
+      expect(right.status).toBe(200);
+      expect((await f.stockState(A, p.variantId)).level).toBe(2);
+    });
+
+    it("a queued sale arriving after the stock was sold elsewhere is rejected whole (409), never partially", async () => {
+      const p = await f.product(A, { name: "متأخرة", sell: 300 });
+      await f.addStock(A, p.variantId, 10);
+      const offlineOp = crypto.randomUUID(); // queued while offline: 8 pieces
+      expect((await f.sell(A, p.variantId, 6)).status).toBe(200); // another device, online
+      const before = await f.stockState(A, p.variantId);
+      const synced = await f.sell(A, p.variantId, 8, { opId: offlineOp });
+      expect(synced.status).toBe(409);
+      expect(await f.stockState(A, p.variantId)).toEqual(before);
+      expect(
+        await f.as(A, (tx) =>
+          tx.sale.count({ where: { storeId: A.storeId, opId: offlineOp } }),
+        ),
+      ).toBe(0);
+    });
+  });
+
   describe("tenant isolation", () => {
     it("cannot sell another shop's variant, and the other shop's stock is untouched", async () => {
       const own = await f.product(B, { name: "منتج ب", sell: 300 });

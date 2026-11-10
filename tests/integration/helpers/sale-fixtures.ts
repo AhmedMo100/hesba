@@ -190,12 +190,14 @@ export class SaleFixtures {
     method: "GET" | "POST" | "DELETE",
     body?: unknown,
     query = "",
+    headers: Record<string, string> = {},
   ): Promise<{ status: number; json: Json }> {
     const req = new Request(`http://localhost:3000/api/sales${query}`, {
       method,
       headers: {
         "Content-Type": "application/json",
         cookie: `hesba_session=${await this.token(shop)}`,
+        ...headers,
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });

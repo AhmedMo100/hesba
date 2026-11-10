@@ -27,7 +27,9 @@ export type ErrorCode =
   | "RATE_LIMITED"
   | "MAINTENANCE"
   | "SERVICE_UNAVAILABLE"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  /** A queued sale was made in another shop than the one signed in now (ADR-0020). */
+  | "STORE_MISMATCH";
 
 export interface ErrorResponsePayload {
   error: {

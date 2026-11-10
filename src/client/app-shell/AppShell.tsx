@@ -10,7 +10,8 @@
  *   chunk preloaded after first render so navigation keeps working offline.
  * - Registers the service worker (`/sw.js`) in production; in development unregisters old
  *   workers and clears their caches.
- * - Tracks online/offline from browser events for the sync bar.
+ * - Drives the sync bar from the connection and the sales outbox, and triggers the outbox sync
+ *   on events (startup/sign-in, back online, tab visible, a tap on the bar) — ADR-0020.
  * - Opens the login modal and the profile modal.
  */
 
@@ -75,6 +76,15 @@ function ViewLoading() {
 }
 
 import { AuthProvider, useAuth } from "../shared/auth";
+import { useLiveQuery } from "dexie-react-hooks";
+import {
+  lastOutboxStore,
+  listSaleOps,
+  rememberOutboxStore,
+  scheduleSaleSync,
+  setActiveOutboxStore,
+  type SaleOutboxOp,
+} from "../offline/outbox";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileModal } from "../features/auth/ProfileModal";
 
@@ -221,7 +231,65 @@ function AppShellInner() {
     }
   };
 
-  const effectiveSyncState: SyncState = isOfflineExpired ? "login" : syncState;
+  // Sales waiting in the outbox (ADR-0020), live across tabs. Sync runs on events only:
+  // startup / sign-in, back online, tab visible again, a new sale, or a tap on the bar.
+  // Offline the session request fails; the shop last signed in on this device still owns the
+  // queue, so its waiting sales stay visible (and new ones can be queued) after a reload.
+  const { isLoading: authLoading } = useAuth();
+  useEffect(() => {
+    if (session?.store?.id) {
+      rememberOutboxStore(session.store.id);
+    } else if (
+      !authLoading &&
+      typeof navigator !== "undefined" &&
+      navigator.onLine
+    ) {
+      rememberOutboxStore(null); // online and signed out: forget it
+    }
+  }, [session?.store?.id, authLoading]);
+  // While the session is not (re)loaded — offline, or just back online — keep showing the
+  // remembered shop's queue instead of a false "0 waiting / synced".
+  const storeId = session?.store?.id ?? lastOutboxStore();
+  // `undefined` until IndexedDB has answered: the bar must not claim "synced" before that.
+  const queuedSales = useLiveQuery(
+    () =>
+      storeId ? listSaleOps(storeId) : Promise.resolve([] as SaleOutboxOp[]),
+    [storeId],
+  );
+  useEffect(() => {
+    // Only the signed-in shop's queued sales are ever sent from this tab.
+    setActiveOutboxStore(storeId ?? null);
+    if (!storeId || typeof window === "undefined") return;
+    scheduleSaleSync(storeId, { now: true });
+    const onOnline = () => scheduleSaleSync(storeId, { now: true });
+    const onVisible = () => {
+      if (document.visibilityState === "visible") scheduleSaleSync(storeId);
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [storeId]);
+  const queueKnown = queuedSales !== undefined;
+  const waitingCount = (queuedSales ?? []).filter(
+    (o) => o.status === "pending" || o.status === "sending",
+  ).length;
+  const reviewCount = (queuedSales ?? []).filter(
+    (o) => o.status === "rejected" || o.status === "quarantined",
+  ).length;
+
+  // Honest status: "synced" only when nothing is waiting or needs review.
+  const effectiveSyncState: SyncState = isOfflineExpired
+    ? "login"
+    : syncState === "offline"
+      ? "offline"
+      : reviewCount > 0
+        ? "needsReview"
+        : waitingCount > 0 || !queueKnown
+          ? "syncing"
+          : "synced";
 
   return (
     <div className={styles.app} dir="rtl">
@@ -235,8 +303,14 @@ function AppShellInner() {
         />
         <SyncBar
           state={effectiveSyncState}
+          pendingCount={waitingCount + reviewCount}
           onClick={() => {
-            if (isOfflineExpired) setShowAuthModal(true);
+            if (isOfflineExpired) {
+              setShowAuthModal(true);
+              return;
+            }
+            scheduleSaleSync(storeId, { now: true });
+            if (reviewCount > 0) navigate("sales");
           }}
         />
         <main

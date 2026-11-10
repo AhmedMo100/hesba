@@ -360,6 +360,8 @@ CREATE INDEX ON sale_lines (store_id, product_id);
 - The client's amount and timestamp are ignored for goods; the sale time is the server's clock.
 - Sales have no undo until `sale.void` exists (the app role cannot delete sales).
 
+**POS-machine money (ADR-0020).** `pos_machines.current_balance_piasters` changes only through `changeMachineBalanceInTx`: the machine row is locked (`FOR UPDATE`), the ledger row (`pos_machine_topups`, with the client `op_id`, unique per store) and the new balance are computed from the locked value in one transaction, and a balance below zero is rejected (also `CHECK … >= 0`). A service sale paid through a machine charges it inside the sale transaction.
+
 **Stock concurrency (ADR-0019).** Every operation that changes a variant's stock — a sale, add, waste, void, adjust, clear, archive — first locks that variant's `stock_levels` row (`SELECT … FOR UPDATE`, creating it at 0 when missing; several variants are locked in id order). The new balance, the batch updates and each movement's `balance_after_base` are computed from the locked value. Concurrent operations on the same variant therefore run one after the other and none is lost; different variants do not wait for each other.
 
 ## 6. Expenses and People
@@ -814,6 +816,14 @@ Every rejected operation is assigned a canonical reason and must appear in the "
 ---
 
 ## 7. Client Outbox Lifecycle & Trigger Events
+
+**As built (2026-11-10, ADR-0020).** The outbox is in use for **sales** (`src/client/offline/outbox`). It follows the states and triggers below, with these specifics:
+
+- Transport: each op is sent to `POST /api/sales` (the same transaction as an online sale, ADR-0019) rather than the batched `/api/sync/push`. The `op_id` is the sale's `opId`.
+- Every sale is enqueued before it is sent; a sale sent right after the tap and rejected then is shown as an error and removed, not kept for review.
+- `401` and `403 STORE_MISMATCH` (the op belongs to another shop than the one signed in) keep the op `pending` without counting an attempt; after 8 transient failures an op is `quarantined`.
+- A queued sale rejected for stock (`409`) is kept for review ("جرّب تاني" / "إلغاء البيعة"): decision D32.
+
 
 ### 7.1 Operation States
 ```text

@@ -17,11 +17,60 @@
  * MachineTopupModal), features/alerts (AlertsView), features/sales (SalesView).
  *
  * @remarks
- * When a remote call does not succeed (network error or non-2xx response), the `*Remote*`
- * functions fall back to the local-only function and return the locally changed list. The
- * caller cannot tell from the return value whether the server accepted the change.
+ * - Money operations (`addRemoteMachineTopup`, `setRemoteMachineExactBalance`,
+ *   `deductRemoteMachineBalance`) succeed only when the server accepted them (ADR-0020). Any
+ *   failure — offline, rejected, server error — throws `MachineApiError` with the server's
+ *   message; nothing is changed locally. Each call carries an `opId`: pass the same `opId`
+ *   to retry the SAME operation, and the server applies it at most once.
+ * - Creating/deleting a machine still falls back to the local copy on failure (not money).
  * Money is integer piasters.
  */
+
+/** A machine money operation the server did not apply. `status` 0 = no answer (network). */
+export class MachineApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "MachineApiError";
+  }
+}
+
+async function postMachineMoney(
+  path: string,
+  body: Record<string, unknown>,
+  fallbackMessage: string,
+): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new MachineApiError(
+      "رصيد الماكينة محتاج إنترنت — مفيش حاجة اتغيرت",
+      0,
+    );
+  }
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch {
+    throw new MachineApiError(
+      "النت فصل قبل ما نتأكد — جرّب تاني، العملية مش هتتكرر",
+      0,
+    );
+  }
+  if (!res.ok) {
+    const data = (await res.json().catch(() => ({}))) as {
+      error?: { message?: string };
+    };
+    throw new MachineApiError(
+      data.error?.message || fallbackMessage,
+      res.status,
+    );
+  }
+}
 
 export interface BalanceTransaction {
   id: string;
@@ -269,7 +318,8 @@ export async function deleteRemoteMachine(
 }
 
 /**
- * Adds a topup / balance deposit to a POS machine in the database.
+ * Adds a top-up to a POS machine on the server, then reloads the list. Throws
+ * `MachineApiError` when the server did not apply it (nothing changes locally).
  */
 export async function addRemoteMachineTopup(
   machineId: string,
@@ -280,35 +330,26 @@ export async function addRemoteMachineTopup(
     notes?: string;
   },
   storeId?: string,
+  opId: string = crypto.randomUUID(),
 ): Promise<PosMachine[]> {
-  try {
-    const res = await fetch("/api/machines/topup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        machineId,
-        amountPiasters,
-        source: params?.source,
-        reference: params?.reference,
-        notes: params?.notes,
-      }),
-    });
-
-    if (res.ok) {
-      const data = await res.json();
-      if (data.machine) {
-        return await fetchStoreMachines(storeId);
-      }
-    }
-  } catch (err) {
-    console.error("Remote topup failed, falling back to local:", err);
-  }
-
-  return addMachineTopup(machineId, amountPiasters, params, storeId);
+  await postMachineMoney(
+    "/api/machines/topup",
+    {
+      machineId,
+      amountPiasters,
+      opId,
+      source: params?.source,
+      reference: params?.reference,
+      notes: params?.notes,
+    },
+    "فشل شحن رصيد الماكينة",
+  );
+  return fetchStoreMachines(storeId);
 }
 
 /**
- * Synchronous local topup fallback
+ * Applies a top-up to the `localStorage` copy only. Never used as a stand-in for a failed
+ * server operation (ADR-0020).
  */
 export function addMachineTopup(
   machineId: string,
@@ -345,7 +386,8 @@ export function addMachineTopup(
 }
 
 /**
- * Sets / adjusts the exact balance of a POS machine (reconciliation / correction).
+ * Sets the exact balance of a POS machine on the server (reconciliation), then reloads the
+ * list. Throws `MachineApiError` when the server did not apply it.
  */
 export async function setRemoteMachineExactBalance(
   machineId: string,
@@ -357,44 +399,27 @@ export async function setRemoteMachineExactBalance(
     notes?: string;
   },
   storeId?: string,
+  opId: string = crypto.randomUUID(),
 ): Promise<PosMachine[]> {
-  try {
-    const res = await fetch("/api/machines/adjust", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        machineId,
-        targetBalancePiasters,
-        source: params?.source,
-        reason: params?.reason,
-        reference: params?.reference,
-        notes: params?.notes,
-      }),
-    });
-
-    if (res.ok) {
-      return await fetchStoreMachines(storeId);
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error?.message || "فشل تعديل رصيد الماكينة");
-    }
-  } catch (err: unknown) {
-    console.error(
-      "Remote balance adjustment failed, falling back to local:",
-      err,
-    );
-  }
-
-  return setMachineExactBalance(
-    machineId,
-    targetBalancePiasters,
-    params,
-    storeId,
+  await postMachineMoney(
+    "/api/machines/adjust",
+    {
+      machineId,
+      targetBalancePiasters,
+      opId,
+      source: params?.source,
+      reason: params?.reason,
+      reference: params?.reference,
+      notes: params?.notes,
+    },
+    "فشل تعديل رصيد الماكينة",
   );
+  return fetchStoreMachines(storeId);
 }
 
 /**
- * Synchronous local exact balance adjustment fallback
+ * Sets the balance in the `localStorage` copy only. Never used as a stand-in for a failed
+ * server operation (ADR-0020).
  */
 export function setMachineExactBalance(
   machineId: string,
@@ -438,7 +463,9 @@ export function setMachineExactBalance(
 }
 
 /**
- * Deducts balance from a POS machine upon executing a bill or service sale.
+ * Deducts from a POS machine on the server, then reloads the list. Throws `MachineApiError`
+ * when the server did not apply it (e.g. insufficient balance). A service SALE does not use
+ * this: it charges the machine inside the sale transaction (`POST /api/sales`).
  */
 export async function deductRemoteMachineBalance(
   machineId: string,
@@ -449,38 +476,26 @@ export async function deductRemoteMachineBalance(
     notes?: string;
   },
   storeId?: string,
+  opId: string = crypto.randomUUID(),
 ): Promise<PosMachine[]> {
-  try {
-    const res = await fetch("/api/machines/deduct", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        machineId,
-        amountPiasters,
-        source: params?.source,
-        reference: params?.reference,
-        notes: params?.notes,
-      }),
-    });
-
-    if (res.ok) {
-      return await fetchStoreMachines(storeId);
-    } else {
-      const errData = await res.json().catch(() => ({}));
-      throw new Error(errData.error?.message || "فشل خصم رصيد الماكينة");
-    }
-  } catch (err: unknown) {
-    if (err instanceof Error && err.message.includes("غير كافٍ")) {
-      throw err;
-    }
-    console.error("Remote deduct failed, falling back to local:", err);
-  }
-
-  return deductMachineBalance(machineId, amountPiasters, params, storeId);
+  await postMachineMoney(
+    "/api/machines/deduct",
+    {
+      machineId,
+      amountPiasters,
+      opId,
+      source: params?.source,
+      reference: params?.reference,
+      notes: params?.notes,
+    },
+    "فشل خصم رصيد الماكينة",
+  );
+  return fetchStoreMachines(storeId);
 }
 
 /**
- * Synchronous local deduction fallback
+ * Deducts in the `localStorage` copy only. Never used as a stand-in for a failed server
+ * operation (ADR-0020).
  */
 export function deductMachineBalance(
   machineId: string,

@@ -18,6 +18,7 @@ export class SaleApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly code?: string,
   ) {
     super(message);
     this.name = "SaleApiError";
@@ -44,26 +45,59 @@ export interface SaleRequest {
   machineName?: string;
 }
 
-export async function postSale(body: SaleRequest): Promise<RecordedSale> {
+/** How long to wait for the server before treating the answer as lost (status 0). */
+export const SALE_REQUEST_TIMEOUT_MS = 30_000;
+
+/**
+ * Sends one sale and resolves only with the server's recorded sale. `status` 0 means there
+ * was no answer (offline, network drop, timeout): the sale MAY have been recorded, so the
+ * caller must retry with the same `opId` rather than treat it as failed or as done.
+ */
+export async function postSale(
+  body: SaleRequest,
+  options: {
+    timeoutMs?: number;
+    /**
+     * The shop this sale belongs to (queued sales). The server refuses it with
+     * `STORE_MISMATCH` when another shop is signed in, instead of trying it in that shop.
+     */
+    storeId?: string;
+  } = {},
+): Promise<RecordedSale> {
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     throw new SaleApiError(t("sale.onlineOnly"), 0);
   }
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(),
+    options.timeoutMs ?? SALE_REQUEST_TIMEOUT_MS,
+  );
   let res: Response;
   try {
     res = await fetch("/api/sales", {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.storeId ? { "X-Hesba-Store-Id": options.storeId } : {}),
+      },
       body: JSON.stringify(body),
+      signal: controller.signal,
     });
   } catch {
     throw new SaleApiError(t("sale.onlineOnly"), 0);
+  } finally {
+    clearTimeout(timer);
   }
   const json = (await res.json().catch(() => ({}))) as {
     data?: RecordedSale;
-    error?: { message?: string };
+    error?: { message?: string; code?: string };
   };
   if (!res.ok || !json.data) {
-    throw new SaleApiError(json.error?.message || t("sale.failed"), res.status);
+    throw new SaleApiError(
+      json.error?.message || t("sale.failed"),
+      res.status,
+      json.error?.code,
+    );
   }
   return json.data;
 }

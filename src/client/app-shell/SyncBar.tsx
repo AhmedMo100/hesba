@@ -5,9 +5,9 @@
  * @description The connection/sync status strip under the header.
  *
  * @remarks
- * Purely presentational: it renders the `state` and `pendingCount` it is given. Today
- * `AppShell` drives `state` only from the browser's `online`/`offline` events, and no caller
- * computes `pendingCount`.
+ * Purely presentational: it renders the `state` and `pendingCount` it is given. `AppShell`
+ * derives both from the browser's connection and the sales outbox (ADR-0020): "synced" only
+ * when no sale is waiting or needs review.
  */
 
 import React from "react";
@@ -35,7 +35,10 @@ export function SyncBar({
   let iconName: "check" | "refresh" | "wifioff" | "alert" = "check";
 
   if (state === "syncing") {
-    text = t("sync.syncing");
+    text =
+      pendingCount > 0
+        ? t("sync.syncing", { count: pendingCount })
+        : t("sync.syncingPlain");
     iconName = "refresh";
   } else if (state === "offline") {
     text = t("sync.offline", { count: pendingCount });
@@ -47,7 +50,7 @@ export function SyncBar({
     text = t("sync.updating");
     iconName = "refresh";
   } else if (state === "needsReview") {
-    text = t("sync.needsReview");
+    text = t("sync.needsReview", { count: pendingCount });
     iconName = "alert";
   }
 

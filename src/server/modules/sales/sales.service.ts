@@ -33,6 +33,7 @@ import {
   lockStockLevelInTx,
   lockStockLevelsInTx,
 } from "@/server/modules/inventory";
+import { changeMachineBalanceInTx } from "@/server/modules/machines";
 import { findPromotionInTx } from "@/server/modules/promotions";
 import {
   isSandwichProductInTx,
@@ -237,6 +238,8 @@ export async function recordSale(
             target,
             quantityBase: input.quantityBase,
             amountPiasters: input.amountPiasters,
+            machineId: input.machineId,
+            machineDeductPiasters: input.machineDeductPiasters,
             now,
           });
         }
@@ -500,8 +503,14 @@ async function recordProductSaleInTx(
 }
 
 /**
- * Sells a service (top-up, bill, card). Services hold no stock, so nothing is deducted; the
- * amount is what the cashier entered for this transaction.
+ * Sells a service (top-up, bill, card). Services hold no stock; the amount is what the cashier
+ * entered for this transaction.
+ *
+ * When the service is paid through a POS machine (`machineDeductPiasters` > 0), the machine is
+ * charged INSIDE this transaction (ADR-0020): the machine row is locked, the balance must
+ * cover the deduction (no overdraft), and the ledger row carries the sale's `opId`. The sale
+ * and the machine deduction therefore commit or roll back together, and a retry with the same
+ * `opId` charges the machine once.
  */
 async function recordServiceSaleInTx(
   tx: TenantTx,
@@ -512,6 +521,8 @@ async function recordServiceSaleInTx(
     target: SaleTarget;
     quantityBase: number;
     amountPiasters: number | undefined;
+    machineId: string | null | undefined;
+    machineDeductPiasters: number | null | undefined;
     now: Date;
   },
 ): Promise<RecordedSale> {
@@ -525,6 +536,40 @@ async function recordServiceSaleInTx(
   }
   if (params.quantityBase !== 1) {
     throw AppError.badRequest("الخدمة بتتباع واحدة واحدة");
+  }
+
+  let machine: RecordedSale["machine"];
+  const deduct = params.machineDeductPiasters ?? 0;
+  if (deduct > 0) {
+    if (deduct > amount) {
+      throw AppError.badRequest(
+        "المبلغ المخصوم من الماكينة أكبر من اللي الزبون دفعه",
+      );
+    }
+    if (!isValidUuid(params.machineId)) {
+      throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
+    }
+    const charged = await changeMachineBalanceInTx(
+      tx,
+      storeId,
+      params.machineId,
+      { kind: "delta", amountPiasters: -deduct },
+      {
+        opId: params.opId,
+        source: `بيع خدمة: ${target.name}`,
+        reference: params.saleId,
+      },
+    );
+    if (charged.duplicate) {
+      // A concurrent request with this opId committed the sale and the charge first.
+      const winner = await findSaleIdByOpIdInTx(tx, storeId, params.opId);
+      if (winner) return loadSaleSummaryInTx(tx, storeId, winner, true);
+      throw AppError.conflict("العملية دي اتسجلت قبل كده");
+    }
+    machine = {
+      machineId: charged.machineId,
+      balanceAfterPiasters: charged.balanceAfterPiasters,
+    };
   }
 
   const sale = await tx.sale.create({
@@ -565,6 +610,7 @@ async function recordServiceSaleInTx(
         stockAfterBase: null,
       },
     ],
+    ...(machine ? { machine } : {}),
   };
 }
 

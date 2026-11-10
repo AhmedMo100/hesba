@@ -13,8 +13,8 @@
  * `app-shell/AppShell.tsx` (provider) and every feature that calls `useAuth()`.
  *
  * @remarks
- * When the session request fails (including offline) the session is `null`. `lock`/`unlock`
- * are no-ops.
+ * When the session request fails (including offline) the session is `null`; it is read again
+ * when the browser comes back online. `lock`/`unlock` are no-ops.
  */
 
 import React, {
@@ -63,6 +63,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       setIsLoading(false);
     });
+    // Offline the session request fails; read it again when the connection returns, so
+    // queued sales (ADR-0020) sync under the real server session.
+    const onOnline = () => {
+      authApi.getSession().then((s) => {
+        if (s) setSession(s);
+      });
+    };
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
   }, []);
 
   const unlock = useCallback(() => {}, []);

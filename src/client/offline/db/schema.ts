@@ -2,7 +2,7 @@
  * @file schema.ts
  * @description The browser's IndexedDB database (`hesba_db`, via Dexie): table definitions
  * and version upgrades (v1 base tables; v2 `sku` index + `sync_meta.updated_at` backfill;
- * v3 global catalog tables).
+ * v3 global catalog tables; v4 outbox indexed by shop).
  *
  * @usedBy
  * `offline/catalog/*`, `features/products/ProductFormModal.tsx` (catalog search),
@@ -10,7 +10,8 @@
  *
  * @remarks
  * The Dexie version number is the local schema version only; it is not linked to a server
- * protocol version. The `outbox` table is defined but nothing reads or writes it yet.
+ * protocol version. The `outbox` holds sales waiting for the server (`offline/outbox`,
+ * ADR-0020).
  */
 
 import Dexie, { type Table } from "dexie";
@@ -95,6 +96,12 @@ export class HesbaDatabase extends Dexie {
       global_brands: "id, name_ar",
       global_products: "id, brand_id, name_norm, category, type, updated_at",
       global_variants: "id, global_product_id, name_norm",
+    });
+
+    // Schema Version 4 (ADR-0020): the outbox is used for sales; index it by shop so a shop's
+    // operations are listed and sent only while that shop is signed in.
+    this.version(4).stores({
+      outbox: "op_id, status, created_at, store_id",
     });
   }
 }

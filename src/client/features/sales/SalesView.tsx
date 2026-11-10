@@ -38,7 +38,6 @@ import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
 import { useAuth } from "@/client/shared/auth";
-import { db } from "@/client/offline/db";
 import {
   type StockInventoryItem,
   type StoreProductItem,
@@ -51,22 +50,29 @@ import {
   getStoredMachines,
   fetchStoreMachines,
   getServiceLinkedMachineIds,
-  deductRemoteMachineBalance,
-  addRemoteMachineTopup,
   type PosMachine,
 } from "@/client/shared/api/machines";
 import {
   clearStagedSandwich,
   fetchSandwiches,
   readStagedSandwich,
-  sellSandwich,
   type Sandwich,
 } from "@/client/shared/api/sandwiches";
+import type { RecordedSale, SaleRequest } from "@/client/shared/api/sales";
 import {
-  postSale,
-  SaleApiError,
-  type RecordedSale,
-} from "@/client/shared/api/sales";
+  dismissSaleOp,
+  enqueueSale,
+  lastOutboxStore,
+  listSaleOps,
+  retrySaleOp,
+  scheduleSaleSync,
+  sendSaleOp,
+  SALE_SYNCED_EVENT,
+  type SaleOpSummary,
+  type SaleOutboxOp,
+  type SaleSyncedDetail,
+} from "@/client/offline/outbox";
+import { useLiveQuery } from "dexie-react-hooks";
 import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
 
 export interface SaleRecord {
@@ -283,6 +289,9 @@ function loadInitialData(storeId?: string): {
 export function SalesView() {
   const { session } = useAuth();
   const storeId = session?.store?.id;
+  // The shop that owns the sales queue: the signed-in shop, or — while the session is not
+  // loaded (offline, or just back online) — the shop last signed in on this device (ADR-0020).
+  const queueStoreId = storeId ?? lastOutboxStore();
 
   const initial = useMemo(() => loadInitialData(storeId), [storeId]);
   const [sales, setSales] = useState<SaleRecord[]>(initial.initialSales);
@@ -367,15 +376,18 @@ export function SalesView() {
   // void, which does not exist yet (audit QA-10, ADR-0019).
   const [activeToast, setActiveToast] = useState<{
     msg: string;
-    type?: "success" | "error";
+    type?: "success" | "error" | "pending";
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const showToast = useCallback((msg: string, type: "success" | "error") => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setActiveToast({ msg, type });
-    toastTimerRef.current = setTimeout(() => setActiveToast(null), 4500);
-  }, []);
+  const showToast = useCallback(
+    (msg: string, type: "success" | "error" | "pending") => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({ msg, type });
+      toastTimerRef.current = setTimeout(() => setActiveToast(null), 4500);
+    },
+    [],
+  );
 
   // Active Promotional clearance offers
   const [activePromotions, setActivePromotions] = useState<
@@ -592,10 +604,11 @@ export function SalesView() {
     });
   }, [displayItems, query]);
 
-  /** Adds a recorded sale to today's list (and its local copy). */
+  /** Adds a recorded sale to today's list (and its local copy). A sale already listed is kept once. */
   const addSaleRecord = useCallback(
     (record: SaleRecord) => {
       setSales((prev) => {
+        if (prev.some((s) => s.id === record.id)) return prev;
         const updated = [record, ...prev];
         try {
           localStorage.setItem(
@@ -633,14 +646,112 @@ export function SalesView() {
     );
   }, []);
 
+  /** The shop's sales waiting for the server (the outbox), live from IndexedDB and all tabs. */
+  const queuedSales = useLiveQuery(
+    () =>
+      queueStoreId
+        ? listSaleOps(queueStoreId)
+        : Promise.resolve([] as SaleOutboxOp[]),
+    [queueStoreId],
+    [] as SaleOutboxOp[],
+  );
+
+  // A queued sale the server has now recorded — right after the tap, or later by a background
+  // sync: list it with the server's total and show the server's stock, exactly once.
+  useEffect(() => {
+    const onSynced = (e: Event) => {
+      const d = (e as CustomEvent<SaleSyncedDetail>).detail;
+      if (!d || d.storeId !== queueStoreId) return;
+      applyRecordedStock(d.recorded);
+      addSaleRecord({
+        id: d.recorded.id,
+        productId:
+          d.payload.productId ||
+          d.payload.variantId ||
+          d.payload.promotionId ||
+          "sale",
+        name: d.summary.name,
+        amountPiasters: d.recorded.totalPiasters,
+        quantity: d.summary.quantity,
+        category: d.summary.category || "عام",
+        unit: d.summary.unit || "piece",
+        timestamp: Date.now(),
+        machineId: d.payload.machineId,
+        machineDeductPiasters: d.payload.machineDeductPiasters,
+        machineName: d.payload.machineName,
+      });
+      if (d.recorded.machine) void reloadMachines();
+    };
+    window.addEventListener(SALE_SYNCED_EVENT, onSynced);
+    return () => window.removeEventListener(SALE_SYNCED_EVENT, onSynced);
+  }, [queueStoreId, applyRecordedStock, addSaleRecord, reloadMachines]);
+
   /**
-   * Records a sale on the server and waits for it (ADR-0019). The server writes the sale and
-   * deducts the stock in one transaction; the screen changes only after it accepted the sale
-   * (list, stock figures, success toast). A rejection — not enough stock, offline, server
-   * error — is shown as an error and nothing is added or deducted on screen.
-   *
-   * Services: the POS-machine balance is deducted by the caller before this runs. If the sale
-   * is then rejected, the deduction is refunded so the machine and the sales stay in step.
+   * The one way a sale is submitted (ADR-0020). The sale is first written to the outbox
+   * (IndexedDB) with a new `opId`, then sent to the server's sale transaction:
+   * - recorded → "applied" (the list is updated by the synced event);
+   * - rejected now (e.g. not enough stock) → removed from the queue and shown as an error;
+   * - offline or no answer → "queued": it stays in the outbox, is shown as waiting, and is
+   *   sent automatically later with the SAME `opId`, so it can never be recorded twice.
+   * `needsServer` (services charged to a POS machine) refuses to start while offline.
+   */
+  const submitSale = useCallback(
+    async (
+      request: Omit<SaleRequest, "opId" | "id">,
+      summary: SaleOpSummary,
+      options: { needsServer?: boolean } = {},
+    ): Promise<
+      | { kind: "applied"; recorded: RecordedSale }
+      | { kind: "queued" }
+      | { kind: "failed"; message: string }
+    > => {
+      if (!queueStoreId) return { kind: "failed", message: t("sale.failed") };
+      const offline =
+        typeof navigator !== "undefined" && navigator.onLine === false;
+      if (offline && options.needsServer) {
+        return { kind: "failed", message: t("sale.serviceOnlineOnly") };
+      }
+      const full: SaleRequest = {
+        ...request,
+        opId: generateUuid(),
+        id: generateUuid(),
+      };
+      try {
+        await enqueueSale({
+          storeId: queueStoreId,
+          userId: session?.user?.id,
+          request: full,
+          summary,
+        });
+      } catch {
+        return { kind: "failed", message: t("sale.storageFailed") };
+      }
+      if (offline) return { kind: "queued" };
+
+      const outcome = await sendSaleOp(full.opId, queueStoreId);
+      switch (outcome.kind) {
+        case "applied":
+          return { kind: "applied", recorded: outcome.recorded };
+        case "rejected":
+          // The cashier sees the rejection now: nothing to keep for later review.
+          await dismissSaleOp(full.opId, queueStoreId);
+          return {
+            kind: "failed",
+            message: outcome.message || t("sale.failed"),
+          };
+        case "missing":
+          return { kind: "failed", message: t("sale.failed") };
+        default:
+          scheduleSaleSync(queueStoreId);
+          return { kind: "queued" };
+      }
+    },
+    [queueStoreId, session],
+  );
+
+  /**
+   * Sells one tile (product, carton, weighed item or service). Success is shown only after the
+   * server recorded the sale; a queued sale is shown as waiting, never as done.
    *
    * @returns true when the server recorded the sale.
    */
@@ -653,22 +764,13 @@ export function SalesView() {
       label: string;
       isCarton?: boolean;
       commissionPiasters?: number;
-      restoreMachine?: {
-        machineId: string;
-        amountPiasters: number;
-        machineName: string;
-      };
       machineId?: string;
       machineDeductPiasters?: number;
       machineName?: string;
     }): Promise<boolean> => {
-      const { item, quantityBase, label, restoreMachine } = params;
-
-      let recorded: RecordedSale;
-      try {
-        recorded = await postSale({
-          opId: generateUuid(),
-          id: generateUuid(),
+      const { item, quantityBase, label } = params;
+      const outcome = await submitSale(
+        {
           variantId: item.isService ? undefined : item.variantId,
           productId: item.productId,
           name: item.name,
@@ -681,110 +783,39 @@ export function SalesView() {
           machineId: params.machineId,
           machineDeductPiasters: params.machineDeductPiasters,
           machineName: params.machineName,
-        });
-      } catch (err: unknown) {
-        const message =
-          err instanceof SaleApiError ? err.message : t("sale.failed");
-        if (restoreMachine && restoreMachine.amountPiasters > 0) {
-          const amount = formatMoney(restoreMachine.amountPiasters);
-          try {
-            await addRemoteMachineTopup(
-              restoreMachine.machineId,
-              restoreMachine.amountPiasters,
-              {
-                source: "بيعة لم تُسجل",
-                notes: `استرداد ${amount} لأن البيعة لم تُسجل`,
-              },
-              storeId,
-            );
-            await reloadMachines();
-            showToast(
-              `${message} — ${t("sale.machineRefunded", { amount, machine: restoreMachine.machineName })}`,
-              "error",
-            );
-          } catch {
-            showToast(
-              t("sale.machineRefundFailed", {
-                amount,
-                machine: restoreMachine.machineName,
-              }),
-              "error",
-            );
-          }
-        } else {
-          showToast(message, "error");
-        }
+        },
+        {
+          name: item.name,
+          label,
+          amountPiasters: params.amountPiasters ?? 0,
+          quantity: quantityBase,
+          category: item.category || "عام",
+          unit: item.unitMode,
+        },
+        { needsServer: Boolean(item.isService) },
+      );
+
+      if (outcome.kind === "failed") {
+        showToast(outcome.message, "error");
         return false;
       }
-
-      applyRecordedStock(recorded);
-      const now = Date.now();
-      addSaleRecord({
-        id: recorded.id,
-        productId: item.productId,
-        name: item.name,
-        amountPiasters: recorded.totalPiasters,
-        quantity: quantityBase,
-        category: item.category || "عام",
-        unit: item.unitMode,
-        isCarton: params.isCarton,
-        commissionPiasters: params.commissionPiasters,
-        timestamp: now,
-        machineId: params.machineId,
-        machineDeductPiasters: params.machineDeductPiasters,
-        machineName: params.machineName,
-      });
-
+      if (outcome.kind === "queued") {
+        showToast(t("sale.queued", { name: item.name, label }), "pending");
+        return false;
+      }
       setFlashId(item.id);
       setTimeout(() => setFlashId(null), 450);
       showToast(
         t("sale.sold", {
           name: item.name,
           label,
-          amount: formatMoney(recorded.totalPiasters),
+          amount: formatMoney(outcome.recorded.totalPiasters),
         }),
         "success",
       );
-
-      // Local copy for the offline database (not read anywhere yet; see ADR-0019)
-      try {
-        if (db?.sales && db?.sale_lines && !recorded.duplicate) {
-          const isoNow = new Date(now).toISOString();
-          void db.sales
-            .add({
-              id: recorded.id,
-              store_id: storeId || "default",
-              device_id: "local-device",
-              cashier_id: null,
-              total_minor: recorded.totalPiasters,
-              discount_minor: 0,
-              paid_minor: recorded.totalPiasters,
-              payment_method: "cash",
-              is_voided: false,
-              voided_at: null,
-              created_at: isoNow,
-              updated_at: isoNow,
-            })
-            .catch(() => {});
-          void db.sale_lines
-            .add({
-              id: `line-${now}`,
-              sale_id: recorded.id,
-              store_variant_id: item.variantId || item.productId,
-              unit_mode: item.unitMode === "weight" ? "weight" : "piece",
-              quantity_base: quantityBase,
-              unit_price_minor: recorded.totalPiasters,
-              total_minor: recorded.totalPiasters,
-              created_at: isoNow,
-            })
-            .catch(() => {});
-        }
-      } catch {
-        // Ignore
-      }
       return true;
     },
-    [storeId, showToast, addSaleRecord, applyRecordedStock, reloadMachines],
+    [submitSale, showToast],
   );
 
   // Sell a published offer (bundle or single clearance offer). The server reads the offer's
@@ -804,41 +835,35 @@ export function SalesView() {
         }
       }
 
-      let recorded: RecordedSale;
-      try {
-        recorded = await postSale({
-          opId: generateUuid(),
-          id: generateUuid(),
-          promotionId: promo.id,
-        });
-      } catch (err: unknown) {
-        showToast(
-          err instanceof SaleApiError ? err.message : t("sale.failed"),
-          "error",
-        );
-        return;
-      }
-
-      applyRecordedStock(recorded);
-      addSaleRecord({
-        id: recorded.id,
-        productId: promo.items[0]?.productId || "promo",
-        name: promo.title,
-        amountPiasters: recorded.totalPiasters,
-        quantity: 1,
-        category: "عروض ترويجية",
-        unit: "عرض",
-        timestamp: Date.now(),
-      });
-      showToast(
-        t("sale.promoSold", {
-          title: promo.title,
-          amount: formatMoney(recorded.totalPiasters),
-        }),
-        "success",
+      const outcome = await submitSale(
+        { promotionId: promo.id },
+        {
+          name: promo.title,
+          label: "عرض",
+          amountPiasters: promo.promoPricePiasters,
+          quantity: 1,
+          category: "عروض ترويجية",
+          unit: "عرض",
+        },
       );
+      if (outcome.kind === "failed") {
+        showToast(outcome.message, "error");
+      } else if (outcome.kind === "queued") {
+        showToast(
+          t("sale.queued", { name: promo.title, label: "عرض" }),
+          "pending",
+        );
+      } else {
+        showToast(
+          t("sale.promoSold", {
+            title: promo.title,
+            amount: formatMoney(outcome.recorded.totalPiasters),
+          }),
+          "success",
+        );
+      }
     },
-    [inventory, showToast, applyRecordedStock, addSaleRecord],
+    [inventory, showToast, submitSale],
   );
 
   // Delete promotional offer from sales page
@@ -925,10 +950,10 @@ export function SalesView() {
   );
 
   /**
-   * Sells `count` sandwiches as ONE sale and waits for the server. Nothing changes on screen
-   * until the server has recorded the sale and deducted the ingredients; then the list, the
-   * ingredient stock and the sandwich counts are reloaded from the server. Returns the
-   * server's error message when the sale was rejected (the caller decides how to show it).
+   * Sells `count` sandwiches as ONE sale through the same outbox path as every sale
+   * (ADR-0020). Success is shown only after the server recorded the sale and deducted the
+   * ingredients; offline or without an answer the sale is queued (and shown as waiting).
+   * Returns the server's error message when the sale was rejected.
    */
   const handleSellSandwich = useCallback(
     async (
@@ -940,49 +965,30 @@ export function SalesView() {
       }
       sellingSandwichRef.current = true;
       setSellingSandwichId(item.id);
-      const saleId = generateUuid();
-      let sold = false;
       try {
-        await sellSandwich({
-          saleId,
-          opId: generateUuid(),
-          sandwich: {
-            id: item.productId,
+        const estimate = calculateLineTotal(item.sellPricePiasters, count);
+        const outcome = await submitSale(
+          { productId: item.productId, name: item.name, quantityBase: count },
+          {
             name: item.name,
-            sellPricePiasters: item.sellPricePiasters,
+            label: `${count}`,
+            amountPiasters: estimate,
+            quantity: count,
+            category: item.category || "",
+            unit: "piece",
           },
-          count,
-        });
-        const amountPiasters = calculateLineTotal(
-          item.sellPricePiasters,
-          count,
         );
-        const record: SaleRecord = {
-          id: saleId,
-          productId: item.productId,
-          name: item.name,
-          amountPiasters,
-          quantity: count,
-          category: item.category || "",
-          unit: "piece",
-          timestamp: Date.now(),
-        };
-        setSales((prev) => {
-          const updated = [record, ...prev];
-          try {
-            localStorage.setItem(
-              getSalesStorageKey(storeId),
-              JSON.stringify(updated),
-            );
-          } catch {
-            // Ignore quota error
-          }
-          return updated;
-        });
-        sold = true;
-        // The sale is recorded: the next tap may sell again while the screen refreshes.
-        sellingSandwichRef.current = false;
-        setSellingSandwichId(null);
+        if (outcome.kind === "failed") {
+          return { ok: false, message: outcome.message };
+        }
+        if (outcome.kind === "queued") {
+          showToast(
+            t("sale.queued", { name: item.name, label: `${count}` }),
+            "pending",
+          );
+          return { ok: true };
+        }
+        const amountPiasters = outcome.recorded.totalPiasters;
         setFlashId(item.id);
         setTimeout(() => setFlashId(null), 450);
         showToast(
@@ -1010,21 +1016,12 @@ export function SalesView() {
           if (sandwichList) setSandwiches(sandwichList);
         });
         return { ok: true };
-      } catch (err: unknown) {
-        if (sold) return { ok: true }; // only the refresh failed; the sale is recorded
-        return {
-          ok: false,
-          message:
-            err instanceof Error ? err.message : t("sandwich.sellFailed"),
-        };
       } finally {
-        if (!sold) {
-          sellingSandwichRef.current = false;
-          setSellingSandwichId(null);
-        }
+        sellingSandwichRef.current = false;
+        setSellingSandwichId(null);
       }
     },
-    [storeId, showToast],
+    [submitSale, showToast],
   );
 
   useEffect(() => {
@@ -1126,34 +1123,12 @@ export function SalesView() {
         return;
       }
 
-      try {
-        await deductRemoteMachineBalance(
-          targetMachine.id,
-          cardAmountPiasters,
-          {
-            source: `بيع كارت شحن: ${item.name}`,
-            reference: item.productId,
-          },
-          storeId,
-        );
-        await reloadMachines();
-      } catch (err: unknown) {
-        const errorMsg =
-          err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
-        setActiveToast({ msg: errorMsg, type: "error" });
-        return;
-      }
-
+      // The machine is charged by the server inside the sale transaction (ADR-0020).
       void recordSale({
         item,
         quantityBase: 1,
         amountPiasters: cardAmountPiasters,
         label: `1 كارت (${targetMachine.name})`,
-        restoreMachine: {
-          machineId: targetMachine.id,
-          amountPiasters: cardAmountPiasters,
-          machineName: targetMachine.name,
-        },
         machineId: targetMachine.id,
         machineDeductPiasters: cardAmountPiasters,
         machineName: targetMachine.name,
@@ -1276,35 +1251,13 @@ export function SalesView() {
 
     const totalCustomerPiasters = principalPiasters + commissionPiasters;
 
-    try {
-      await deductRemoteMachineBalance(
-        chosenMachine.id,
-        principalPiasters,
-        {
-          source: `تنفيذ معاملة: ${serviceModalItem.name}`,
-          reference: serviceModalItem.productId,
-        },
-        storeId,
-      );
-      await reloadMachines();
-    } catch (err: unknown) {
-      const errorMsg =
-        err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
-      setActiveToast({ msg: errorMsg, type: "error" });
-      return;
-    }
-
+    // The machine is charged by the server inside the sale transaction (ADR-0020).
     void recordSale({
       item: serviceModalItem,
       quantityBase: 1,
       amountPiasters: totalCustomerPiasters,
       label: `شحن ${amountEgp} ج.م (${chosenMachine.name})`,
       commissionPiasters,
-      restoreMachine: {
-        machineId: chosenMachine.id,
-        amountPiasters: principalPiasters,
-        machineName: chosenMachine.name,
-      },
       machineId: chosenMachine.id,
       machineDeductPiasters: principalPiasters,
       machineName: chosenMachine.name,
@@ -1542,6 +1495,79 @@ export function SalesView() {
         )}
 
         {/* Recent Sales List matching Image 3 */}
+        {queuedSales.length > 0 && (
+          <section
+            className={styles.queueSection}
+            data-testid="sale-queue"
+            aria-label={t("outbox.title")}
+          >
+            <div className={styles.queueHead}>
+              <div>
+                <b>{t("outbox.title")}</b>
+                <small>{t("outbox.hint")}</small>
+              </div>
+              <button
+                type="button"
+                className={styles.queueSyncBtn}
+                onClick={() => scheduleSaleSync(queueStoreId, { now: true })}
+                data-testid="sale-queue-sync"
+              >
+                <Icon n="refresh" s={14} />
+                <span>{t("outbox.syncNow")}</span>
+              </button>
+            </div>
+            <ul className={styles.queueList}>
+              {queuedSales.map((op) => {
+                const review =
+                  op.status === "rejected" || op.status === "quarantined";
+                return (
+                  <li
+                    key={op.op_id}
+                    className={`${styles.queueRow} ${review ? styles.queueRowBad : ""}`}
+                    data-testid="sale-queue-row"
+                    data-status={op.status}
+                  >
+                    <div className={styles.queueInfo}>
+                      <span className={styles.rcName}>
+                        {op.summary.name}
+                        <small> · {op.summary.label}</small>
+                      </span>
+                      <span className={styles.queueStatus}>
+                        {t(`outbox.status.${op.status}`)}
+                        {review && op.last_error ? ` — ${op.last_error}` : ""}
+                      </span>
+                    </div>
+                    {review && (
+                      <div className={styles.queueActions}>
+                        <button
+                          type="button"
+                          className={styles.queueBtn}
+                          onClick={() => {
+                            if (queueStoreId)
+                              void retrySaleOp(op.op_id, queueStoreId);
+                          }}
+                        >
+                          {t("outbox.retry")}
+                        </button>
+                        <button
+                          type="button"
+                          className={styles.queueBtnGhost}
+                          onClick={() => {
+                            if (queueStoreId)
+                              void dismissSaleOp(op.op_id, queueStoreId);
+                          }}
+                        >
+                          {t("outbox.dismiss")}
+                        </button>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        )}
+
         <div className={styles.recentSection}>
           <div
             style={{
@@ -1986,10 +2012,21 @@ export function SalesView() {
       {/* Floating Bottom Toast with Undo matching Image 1 */}
       {activeToast && (
         <div
-          className={`${styles.toastBar} ${activeToast.type === "error" ? styles.toastError : ""}`}
+          className={`${styles.toastBar} ${activeToast.type === "error" ? styles.toastError : ""} ${activeToast.type === "pending" ? styles.toastPending : ""}`}
+          data-testid="sale-toast"
+          data-kind={activeToast.type ?? "success"}
         >
           <div className={styles.toastMsg}>
-            <Icon n={activeToast.type === "error" ? "alert" : "check"} s={18} />
+            <Icon
+              n={
+                activeToast.type === "error"
+                  ? "alert"
+                  : activeToast.type === "pending"
+                    ? "refresh"
+                    : "check"
+              }
+              s={18}
+            />
             <span>{activeToast.msg}</span>
           </div>
         </div>

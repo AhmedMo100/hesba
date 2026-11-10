@@ -227,6 +227,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** `UPDATE … SET balance = balance − $1 WHERE balance >= $1 RETURNING`, plus an `opId`.
 - **Regression risk:** low–medium.
 
+- **Status (2026-11-10):** fixed on branch `fix/qa-03-qa-04-money-offline` (ADR-0020). Verified by `tests/integration/machines-concurrency.spec.ts` (15 of 17 fail on the previous code) and concurrent requests against the real app.
+
 #### QA-04 · P0 · Offline sale shows success and is never synced
 - **Category:** offline / phantom success · **Area:** Sales, PWA · **Env:** PROD (service worker active) · **Links:** UE-09
 - **Steps:**
@@ -248,6 +250,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Regression risk:** high (architectural).
 
 ### P1
+
+- **Status (2026-11-10):** fixed for sales on branch `fix/qa-03-qa-04-money-offline` (ADR-0020). Verified by `tests/unit/client/sale-outbox.spec.ts`, `tests/e2e/offline-sales.spec.ts` (real IndexedDB, real dev database) and the real app. The offline stock-conflict rule (D32) needs owner confirmation.
 
 #### QA-05 · P1 · Stock cache, batches and movement ledger disagree for the same product
 - **Category:** data consistency · **Area:** Inventory · **Env:** DEV

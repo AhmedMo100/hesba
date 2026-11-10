@@ -117,6 +117,8 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Impact:** wrong financial balances; a misleading success.
 - **Fix:** surface failures. Queue only true offline cases (with the outbox). Lock or atomically increment on the server and add an `opId`.
 
+- **Status (2026-11-10):** fixed by ADR-0020 (audit QA-03). Balance operations lock the machine row, are idempotent by `opId`, never overdraw, and the client's top-up/adjust/deduct no longer fall back to a local change: a failure is shown and nothing changes. A service sale charges the machine inside the sale transaction (no separate deduction or refund). Creating/deleting a machine still falls back locally (not money).
+
 ### UE-07 · P1 · Concurrent stock operations can lose updates
 
 - **Where:** any two devices or tabs changing the same item at once (sell, add stock, adjust).
@@ -143,6 +145,8 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Misleading message:** when the database is unreachable, the API returns "جاري إعادة المحاولة... شغلك محفوظ" ("retrying… your work is saved"). Neither is true ([C] `platform/error.ts`).
 - **Impact:** data loss during outages; false reassurance.
 - **Fix:** sync engine (separate ADR); until then, honest status and messages.
+
+- **Status (2026-11-10):** sales part fixed by ADR-0020 (audit QA-04): sales are queued durably in the outbox, shown as waiting, synced on events with backoff, exactly once; the sync bar shows the real waiting/review count. Other offline writes (expenses, people, stock) are still online-only and out of scope.
 
 ### UE-10 · P2 · Login timing reveals which phones have accounts
 

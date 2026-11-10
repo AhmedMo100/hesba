@@ -11,6 +11,8 @@ import { MAX_SALE_QUANTITY_BASE } from "@/domain/sale-pricing";
  * - Promotion: `promotionId`; the price and items come from the offer the shop saved.
  * - Service (top-up, bill, card): `productId` (or `name` for a service not yet in the shop)
  *   + `amountPiasters` = what the customer paid, because the amount varies per transaction.
+ *   With `machineId` + `machineDeductPiasters`, the POS machine is charged in the same
+ *   transaction (ADR-0020).
  *
  * `opId` makes the request idempotent: sending the same `opId` again returns the first sale.
  * `timestamp` is accepted for older clients but ignored: the sale time is the server's.
@@ -33,7 +35,14 @@ export const createSaleSchema = z.object({
   isCarton: z.boolean().optional(),
   commissionPiasters: z.number().int().min(0).optional(),
   machineId: z.string().optional().nullable(),
-  machineDeductPiasters: z.number().int().optional().nullable(),
+  /** Services paid through a POS machine: charged in the sale transaction (ADR-0020). */
+  machineDeductPiasters: z
+    .number()
+    .int("المبلغ لازم يكون بالقروش (رقم صحيح)")
+    .min(0)
+    .max(1_000_000_000, "المبلغ كبير قوي")
+    .optional()
+    .nullable(),
   machineName: z.string().optional().nullable(),
   timestamp: z.number().optional(),
 });
@@ -57,4 +66,6 @@ export interface RecordedSale {
   /** True when this `opId` was already recorded and the first sale is returned. */
   duplicate: boolean;
   lines: RecordedSaleLine[];
+  /** Service sales paid through a POS machine: the machine's balance after the charge. */
+  machine?: { machineId: string; balanceAfterPiasters: number };
 }

@@ -814,3 +814,108 @@
     opacity: 1;
   }
 }
+
+/* Sales waiting for the server (outbox, ADR-0020) */
+.queueSection {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--yel, #d4a017);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--yel, #d4a017) 8%, transparent);
+}
+
+.queueHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.queueHead b {
+  display: block;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.queueHead small {
+  display: block;
+  font-size: 12px;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+.queueSyncBtn,
+.queueBtn,
+.queueBtnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.queueSyncBtn,
+.queueBtn {
+  border: 1.5px solid var(--br);
+  background: transparent;
+  color: var(--br);
+}
+
+.queueBtnGhost {
+  border: 1.5px solid var(--line);
+  background: transparent;
+  color: var(--ink2);
+}
+
+.queueList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.queueRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.queueRowBad .queueStatus {
+  color: var(--red);
+}
+
+.queueInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queueStatus {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--yel, #b8860b);
+}
+
+.queueActions {
+  display: flex;
+  gap: 6px;
+}
+
+.toastPending {
+  background: #2a2412 !important;
+  border-color: #d4a017 !important;
+}
+
+.toastPending .toastMsg {
+  color: #fde68a !important;
+}
