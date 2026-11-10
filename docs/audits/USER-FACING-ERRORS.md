@@ -64,6 +64,7 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Workaround:** none.
 - **Should:** a sale and its stock deduction are recorded atomically, and the UI reports failure.
 - **Fix:** set exactly one target on the line, record the sale and FEFO deduction in one server transaction, and remove the separate client deduction (see Roadmap phase 1).
+- **Status (2026-11-10):** fixed by ADR-0019 (audit QA-01). The server records the sale, its lines and the FEFO stock deduction in one transaction, priced by the server and idempotent by `opId`; the Sales screen sends one request and shows success only after the server accepted it.
 
 ### UE-02 · P0 · Today's sales exist only in one browser's storage
 
@@ -122,6 +123,7 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Cause:** inventory methods read `remaining_quantity` and `stock_levels`, then write computed values, under READ COMMITTED with no row lock or atomic increment ([C] `inventory.service.ts`).
 - **Impact:** stock overstated or understated. Evidence type [R]: not reproduced, but the code path is clear.
 - **Fix:** `SELECT … FOR UPDATE` on the batches and level row, or atomic `increment`.
+- **Status (2026-11-10):** fixed by ADR-0019 (audit QA-02). Every stock writer locks the variant's `stock_levels` row first and computes from the locked value; reproduced and verified by `tests/integration/sales-concurrency.spec.ts`.
 
 ### UE-08 · P2 · Overselling silently zeros stock (K5)
 

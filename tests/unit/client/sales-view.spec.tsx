@@ -49,7 +49,7 @@ describe("SalesView Client Component", () => {
     expect(html).toContain("لسه مفيش مبيعات اتسجلت النهارده");
   });
 
-  it("ingests staged sale item from sessionStorage and records it into sales list", () => {
+  it("shows a staged service as a tile without recording a sale (ADR-0019)", () => {
     // Stage an item as if user clicked 'إضافة إلى البيع' on a card/service
     const stagedItem = {
       id: "prod-service-1",
@@ -62,10 +62,14 @@ describe("SalesView Client Component", () => {
 
     const html = renderToStaticMarkup(<SalesView />);
 
-    // Check that the staged item is displayed
+    // The staged item is displayed as a tile…
     expect(html).toContain("شحن كارت كهرباء مسبق الدفع");
-    expect(html).toContain("50 ج.م");
+    expect(html).toContain('aria-label="بيع شحن كارت كهرباء مسبق الدفع"');
+    expect(html).toContain("عمولة 50 ج");
     expect(html).toContain("آخر البيعات");
+    // …but nothing was sold: no sale exists until the server records one.
+    expect(html).toContain("لسه مفيش مبيعات اتسجلت النهارده");
+    expect(localStorage.getItem("hesba_sales_records_default")).toBeNull();
 
     // Check that sessionStorage item was consumed
     expect(sessionStorage.getItem(STAGED_KEY)).toBeNull();

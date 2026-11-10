@@ -31,24 +31,79 @@ import {
  *   `balanceAfterBase` records the running balance. `stock_levels` and each batch's
  *   `remainingQuantityBase` are caches derived from those movements.
  * - Methods that accept an `opId` return `{ duplicate: true }` when a movement with that
- *   `opId` already exists for the store.
- * - Batch and level updates are read-then-write within the transaction (no row locks).
- * - `depleteStockForSale` is not called by any route handler today; the sales screen deducts
- *   stock through `adjustStockQuantity` in delta mode. Its FEFO core,
- *   `depleteVariantFefoInTx`, is also used by the sandwich sale path (ADR-0018).
+ *   `opId` already exists for the store. The check runs after the stock lock, so a
+ *   concurrent retry waits for the first attempt and then sees it.
+ * - Concurrency (ADR-0019): every method that changes a variant's stock first locks that
+ *   variant's `stock_levels` row (`lockStockLevelInTx`, `SELECT … FOR UPDATE`) and computes
+ *   the new balance from the locked value. Operations on the same variant therefore run one
+ *   after the other, and the level, the batches and each movement's `balanceAfterBase` stay
+ *   consistent. Operations on different variants do not wait for each other.
+ * - Sales deplete stock through `depleteVariantFefoInTx` inside the sale transaction
+ *   (`modules/sales`); the sales screen no longer deducts stock with a separate request.
  */
 
 const ZERO = BigInt(0);
+
+/**
+ * Locks the `stock_levels` rows of the given variants for the rest of the caller's tenant
+ * transaction and returns their balances (ADR-0019).
+ *
+ * Every write to a variant's stock — its level, its batches and its movements — goes through
+ * this lock first, so concurrent operations on the same variant run one after the other:
+ * each one reads the balance left by the previous commit instead of overwriting it (no lost
+ * updates). Under READ COMMITTED, statements after the lock see everything committed before
+ * it, which is why callers check their `opId` after locking.
+ *
+ * A variant without a level row gets one at 0 first, because only an existing row can be
+ * locked. Rows are locked in id order, so multi-variant callers (sandwiches, promotions)
+ * cannot deadlock with each other.
+ */
+export async function lockStockLevelsInTx(
+  tx: TenantTx,
+  storeId: string,
+  variantIds: readonly string[],
+): Promise<Map<string, bigint>> {
+  const ids = [...new Set(variantIds)].sort();
+  if (ids.length === 0) return new Map();
+  await tx.$executeRaw`
+    INSERT INTO stock_levels (store_id, store_variant_id, quantity_base, updated_at)
+    SELECT ${storeId}::uuid, v.id, 0, now()
+      FROM unnest(${ids}::uuid[]) AS v(id)
+    ON CONFLICT (store_id, store_variant_id) DO NOTHING`;
+  const rows = await tx.$queryRaw<
+    Array<{ store_variant_id: string; quantity_base: bigint }>
+  >`SELECT store_variant_id::text AS store_variant_id, quantity_base
+      FROM stock_levels
+     WHERE store_id = ${storeId}::uuid
+       AND store_variant_id = ANY(${ids}::uuid[])
+     ORDER BY store_variant_id
+       FOR UPDATE`;
+  return new Map(
+    rows.map((r) => [r.store_variant_id, BigInt(r.quantity_base)]),
+  );
+}
+
+/** Locks one variant's level (see {@link lockStockLevelsInTx}) and returns its balance. */
+export async function lockStockLevelInTx(
+  tx: TenantTx,
+  storeId: string,
+  variantId: string,
+): Promise<bigint> {
+  const levels = await lockStockLevelsInTx(tx, storeId, [variantId]);
+  return levels.get(variantId) ?? ZERO;
+}
 
 /**
  * FEFO-depletes `quantityBase` of one variant inside the caller's tenant transaction: updates
  * the batches it draws from, appends one `type: "sale"` movement per allocation (linked to
  * `saleLineId`), and writes the new `stock_levels` balance.
  *
- * Shared by {@link InventoryService.depleteStockForSale} and the sandwich sale path, so a sale
- * and its stock movements commit or roll back together. It performs no availability check
- * and takes no locks: callers that must not go below zero check and lock first. Quantity not
- * covered by batches becomes an unbatched allocation flagged `negative` (stock-engine rule 6).
+ * Shared by {@link InventoryService.depleteStockForSale}, the ordinary sale and the sandwich
+ * sale, so a sale and its stock movements commit or roll back together. It locks the
+ * variant's level first (a no-op when the caller already holds the lock), so the balance and
+ * the batches it reads cannot change under it. It performs no availability check: callers
+ * that must not go below zero check after locking. Quantity not covered by batches becomes an
+ * unbatched allocation flagged `negative` (stock-engine rule 6).
  */
 export async function depleteVariantFefoInTx(
   tx: TenantTx,
@@ -63,6 +118,11 @@ export async function depleteVariantFefoInTx(
   },
 ) {
   const { now } = input;
+  const lockedBalance = await lockStockLevelInTx(
+    tx,
+    storeId,
+    input.storeVariantId,
+  );
   const batches = await tx.storeStockBatch.findMany({
     where: {
       storeId,
@@ -93,16 +153,7 @@ export async function depleteVariantFefoInTx(
     });
   }
 
-  const currentLevel = await tx.stockLevel.findUnique({
-    where: {
-      storeId_storeVariantId: {
-        storeId,
-        storeVariantId: input.storeVariantId,
-      },
-    },
-  });
-
-  let runningBalance = currentLevel?.quantityBase ?? ZERO;
+  let runningBalance = lockedBalance;
 
   for (const allocation of depletion.allocations) {
     runningBalance -= allocation.quantityBase;
@@ -292,7 +343,13 @@ export class InventoryService {
 
         const resolvedVariantId = variant.id;
 
-        // 2. Check opId idempotency if provided
+        // 2. Lock the variant's stock (ADR-0019), then check opId idempotency: a concurrent
+        // retry waits here and then sees the first attempt's committed movement.
+        const currentQty = await lockStockLevelInTx(
+          tx,
+          storeId,
+          resolvedVariantId,
+        );
         if (input.opId) {
           const existingMovement = await tx.stockMovement.findFirst({
             where: { storeId, opId: input.opId },
@@ -327,17 +384,8 @@ export class InventoryService {
           },
         });
 
-        // 4. Update / create stock level cache
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: resolvedVariantId,
-            },
-          },
-        });
-
-        const newBalance = (currentLevel?.quantityBase ?? ZERO) + qtyBase;
+        // 4. Update the stock level cache from the locked balance
+        const newBalance = currentQty + qtyBase;
 
         await tx.stockLevel.upsert({
           where: {
@@ -423,7 +471,8 @@ export class InventoryService {
           throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
         }
 
-        // 2. Check opId idempotency
+        // 2. Lock the variant's stock (ADR-0019), then check opId idempotency
+        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
         if (input.opId) {
           const existing = await tx.stockMovement.findFirst({
             where: { storeId, opId: input.opId },
@@ -438,7 +487,11 @@ export class InventoryService {
         // 3. If batchId provided, verify and deplete batch
         if (input.batchId) {
           const batch = await tx.storeStockBatch.findFirst({
-            where: { id: input.batchId, storeId },
+            where: {
+              id: input.batchId,
+              storeId,
+              storeVariantId: variant.id,
+            },
           });
           if (batch) {
             costMinor = batch.costPriceMinor;
@@ -470,17 +523,8 @@ export class InventoryService {
           },
         });
 
-        // 5. Update stock_levels
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: input.storeVariantId,
-            },
-          },
-        });
-
-        const newBalance = (currentLevel?.quantityBase ?? ZERO) - qtyBase;
+        // 5. Update stock_levels from the locked balance
+        const newBalance = currentQty - qtyBase;
 
         await tx.stockLevel.upsert({
           where: {
@@ -564,7 +608,8 @@ export class InventoryService {
           throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
         }
 
-        // Check opId idempotency
+        // Lock the variant's stock (ADR-0019), then check opId idempotency
+        await lockStockLevelInTx(tx, storeId, variant.id);
         if (input.opId) {
           const existing = await tx.stockMovement.findFirst({
             where: { storeId, opId: input.opId },
@@ -679,7 +724,20 @@ export class InventoryService {
       storeId,
       userId,
       async (tx) => {
-        // 1. Verify batch
+        // 1. Find the batch's variant, lock its stock (ADR-0019), then re-read the batch so
+        // its remaining quantity reflects every operation committed before the lock.
+        const found = await tx.storeStockBatch.findFirst({
+          where: { id: input.batchId, storeId },
+          select: { storeVariantId: true },
+        });
+        if (!found) {
+          throw AppError.notFound("التشغيلة أو الإضافة غير موجودة");
+        }
+        const currentQty = await lockStockLevelInTx(
+          tx,
+          storeId,
+          found.storeVariantId,
+        );
         const batch = await tx.storeStockBatch.findFirst({
           where: { id: input.batchId, storeId },
         });
@@ -713,17 +771,8 @@ export class InventoryService {
           },
         });
 
-        // 4. Update stock_levels
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: batch.storeVariantId,
-            },
-          },
-        });
-
-        const newBalance = (currentLevel?.quantityBase ?? ZERO) - voidQty;
+        // 4. Update stock_levels from the locked balance
+        const newBalance = currentQty - voidQty;
 
         await tx.stockLevel.upsert({
           where: {
@@ -818,7 +867,11 @@ export class InventoryService {
           throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
         }
 
-        // 2. Check opId idempotency
+        // 2. Lock the variant's stock (ADR-0019): the current balance below is the latest
+        // committed one, and no other operation can change it until this one commits.
+        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
+
+        // 3. Check opId idempotency (after the lock, so a concurrent retry sees the first)
         if (input.opId) {
           const existing = await tx.stockMovement.findFirst({
             where: { storeId, opId: input.opId },
@@ -832,17 +885,6 @@ export class InventoryService {
             };
           }
         }
-
-        // 3. Current balance
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: variant.id,
-            },
-          },
-        });
-        const currentQty = currentLevel?.quantityBase ?? ZERO;
 
         let delta: bigint;
         let newBalance: bigint;
@@ -1012,7 +1054,8 @@ export class InventoryService {
           throw AppError.notFound("الصنف غير موجود في هذا المحل");
         }
 
-        // 2. Check opId idempotency
+        // 2. Lock the variant's stock (ADR-0019), then check opId idempotency
+        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
         if (input.opId) {
           const existing = await tx.stockMovement.findFirst({
             where: { storeId, opId: input.opId },
@@ -1029,18 +1072,7 @@ export class InventoryService {
           }
         }
 
-        // 3. Current stock
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: variant.id,
-            },
-          },
-        });
-        const currentQty = currentLevel?.quantityBase ?? ZERO;
-
-        // 4. Zero all active batches
+        // 3. Zero all active batches
         await tx.storeStockBatch.updateMany({
           where: {
             storeId,
@@ -1151,16 +1183,9 @@ export class InventoryService {
           throw AppError.notFound("الصنف غير موجود في هذا المحل");
         }
 
-        // 2. Check current stock level
-        const currentLevel = await tx.stockLevel.findUnique({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: variant.id,
-            },
-          },
-        });
-        const currentQty = currentLevel?.quantityBase ?? ZERO;
+        // 2. Check current stock level under the stock lock (ADR-0019), so stock added
+        // concurrently cannot end up on an archived variant
+        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
 
         if (currentQty > ZERO) {
           throw AppError.badRequest(

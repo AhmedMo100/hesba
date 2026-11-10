@@ -27,6 +27,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/infra/db/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+import { lockStockLevelsInTx } from "@/server/modules/inventory";
 import { normalizeArabic } from "@/domain/normalize";
 import {
   SANDWICH_CATEGORY,
@@ -525,19 +526,8 @@ export async function prepareSandwichSaleInTx(
     })),
     count,
   );
-  const ids = [...needs.keys()].sort();
-
-  const locked = await tx.$queryRaw<
-    Array<{ store_variant_id: string; quantity_base: bigint }>
-  >`SELECT store_variant_id::text AS store_variant_id, quantity_base
-      FROM stock_levels
-     WHERE store_id = ${storeId}::uuid
-       AND store_variant_id = ANY(${ids}::uuid[])
-     ORDER BY store_variant_id
-       FOR UPDATE`;
-  const available = new Map(
-    locked.map((r) => [r.store_variant_id, BigInt(r.quantity_base)]),
-  );
+  // The shared stock lock (ADR-0019): every stock writer takes the same row locks, in id order.
+  const available = await lockStockLevelsInTx(tx, storeId, [...needs.keys()]);
 
   const shortages: IngredientShortage[] = [];
   for (const line of row.sandwichIngredients) {

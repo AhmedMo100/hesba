@@ -361,7 +361,8 @@ test.describe("Sandwich products", () => {
     expect(await stockOf(api, luncheon)).toBe(1000 - 2 * 10 - 3 * 10);
     expect(await stockOf(api, cheese)).toBe(1000 - 2 * 5 - 3 * 5);
 
-    // Ordinary products still sell with one tap, as before.
+    // Ordinary products still sell with one tap; the sale is now saved on the server with
+    // its stock deduction in one transaction (ADR-0019).
     const ketchupTile = page.getByRole("button", {
       name: `بيع كاتشب ${runId}`,
     });
@@ -370,6 +371,9 @@ test.describe("Sandwich products", () => {
       SERVER,
     );
     await expect.poll(() => stockOf(api, ketchup), SERVER).toBe(19);
+    expect(await salesNamed(api, `كاتشب ${runId}`)).toEqual([
+      expect.objectContaining({ quantity: 1, amountPiasters: 75 }),
+    ]);
 
     // ---- D. Not enough bread -------------------------------------------------------------
     const adjust = await api.post("/api/stock", {

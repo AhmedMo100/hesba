@@ -188,6 +188,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Frequency:** 100% of ordinary sales.
 - **Fix:** one server transaction (sale + one-target line + FEFO depletion + `opId`), with no client-side stock request (Roadmap Phase 1 + 2).
 - **Regression risk:** high. It touches the sale, stock, promotion bundle and service/machine sale paths.
+- **Status (2026-11-10):** fixed on branch `fix/qa-01-qa-02-sales-stock-concurrency` (ADR-0019). Verified by `tests/integration/sales-api.spec.ts`, `tests/e2e/sales-atomic.spec.ts`, and the real app with the dev database.
 
 #### QA-02 · P0 · Concurrent stock writes lose updates and corrupt the stock ledger
 - **Category:** race condition / inventory · **Area:** Inventory · **Env:** DEV · **Links:** UE-07
@@ -209,6 +210,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Frequency:** every overlapping request on the same variant.
 - **Fix:** `SELECT … FOR UPDATE` on the level row and batches (as the sandwich path already does), or atomic increments. Then recompute the cache from the ledger.
 - **Regression risk:** medium (deadlocks if lock order differs; follow the id-ordered locking already used for sandwiches).
+- **Status (2026-11-10):** fixed on branch `fix/qa-01-qa-02-sales-stock-concurrency` (ADR-0019). Verified by `tests/integration/sales-concurrency.spec.ts` (which fails on the previous code) and concurrent requests against the real app.
 
 #### QA-03 · P0 · Concurrent POS-machine deductions lose updates (money)
 - **Category:** financial / race · **Area:** Machines · **Env:** DEV · **Links:** UE-06

@@ -20,12 +20,31 @@ import {
   updateStoreSettings,
   type StoreSettings,
 } from "@/server/modules/tenancy";
+import type { TenantTx } from "@/server/infra/db/tenant";
 import type { PromotionInput, PublishedPromotion } from "@/schemas/promotion";
 
 function promotionsIn(settings: StoreSettings): PublishedPromotion[] {
   return Array.isArray(settings.activePromotions)
     ? (settings.activePromotions as PublishedPromotion[])
     : [];
+}
+
+/**
+ * Reads one published offer inside the caller's tenant transaction (used by the promotion
+ * sale, ADR-0019, so the sale is priced from the offer the shop saved, not from the client).
+ * Returns null when the store has no offer with that id.
+ */
+export async function findPromotionInTx(
+  tx: TenantTx,
+  storeId: string,
+  promotionId: string,
+): Promise<PublishedPromotion | null> {
+  const store = await tx.store.findUnique({
+    where: { id: storeId },
+    select: { settings: true },
+  });
+  const settings = (store?.settings as StoreSettings | null) ?? {};
+  return promotionsIn(settings).find((p) => p.id === promotionId) ?? null;
 }
 
 /** Returns the store's published offers, newest first. */

@@ -32,14 +32,15 @@ export async function GET(req: Request) {
 
 /**
  * POST /api/sales
- * Records a new completed sale with sale lines under tenant isolation.
+ * Records a sale, its lines and its stock deduction in one transaction (ADR-0019) and returns
+ * the sale as recorded: `{ success, data: RecordedSale }`. 409 when the stock is not enough.
  */
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
     const input = createSaleSchema.parse(await readJsonBody(req));
-    const created = await recordSale(context.store.id, context.user.id, input);
-    return NextResponse.json({ success: true, data: { id: created.id } });
+    const recorded = await recordSale(context.store.id, context.user.id, input);
+    return NextResponse.json({ success: true, data: recorded });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }

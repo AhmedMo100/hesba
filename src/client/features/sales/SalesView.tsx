@@ -3,27 +3,24 @@
 /**
  * @file SalesView.tsx
  * @description The sales screen (البيع): quick-sell tiles for products and services, weighed
- * and carton sales, POS-machine services, published promotions, today's sales list, and undo.
+ * and carton sales, POS-machine services, published promotions, and today's sales list.
  *
  * @responsibility
- * Recording a sale updates the screen immediately (sales list, local stock figure, success
- * toast with Undo) and then, without waiting:
- * - sends `POST /api/stock` (`adjust`, `delta` = −quantity) for physical products,
- * - sends `POST /api/sales`,
- * - writes a copy of the sale to IndexedDB.
- * Undo removes the sale from the list, adds the quantity back with another delta adjust,
- * refunds a deducted machine balance, and sends `DELETE /api/sales`.
+ * Every sale is ONE `POST /api/sales` request (ADR-0019): the server records the sale and
+ * deducts the stock (or a sandwich's ingredients, or every item of an offer) in one
+ * transaction, priced from the shop's registered prices. The screen waits for it: the sales
+ * list, the stock figures and the success toast change only after the server accepted the
+ * sale. A rejection (not enough stock, offline, server error) is shown as an error toast and
+ * nothing changes. The screen never deducts stock with a separate request.
  *
- * Sandwiches (ADR-0018) are the exception: a sandwich tile waits for `POST /api/sales`, which
- * records the sale and deducts the ingredients in one server transaction. Success is shown
- * only after the server accepts it; a rejection (e.g. not enough ingredients, offline) is
- * shown as an error. Sandwich sales have no Undo, because voiding a sale is not built yet.
+ * There is no Undo: a recorded sale can only be reversed by a server-side void, which is not
+ * built yet (audit QA-10).
  *
  * @remarks
  * - The sales list is kept in `localStorage` per store; on load it is replaced by the
- *   server's list when the server returns at least one sale.
- * - The results of these background requests are not shown to the user (failures are
- *   ignored or written to the console).
+ *   server's list when the server returns at least one sale (audit QA-09, not changed here).
+ * - Services: the POS-machine balance is deducted before the sale request; if the sale is
+ *   rejected, the deduction is refunded (audit QA-03 covers making this server-side).
  * - Money is integer piasters; quantities are base units (pieces or grams).
  */
 
@@ -65,6 +62,11 @@ import {
   sellSandwich,
   type Sandwich,
 } from "@/client/shared/api/sandwiches";
+import {
+  postSale,
+  SaleApiError,
+  type RecordedSale,
+} from "@/client/shared/api/sales";
 import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
 
 export interface SaleRecord {
@@ -240,27 +242,8 @@ function loadInitialData(storeId?: string): {
       if (rawStaged) {
         const staged = JSON.parse(rawStaged);
         if (staged && staged.name) {
-          const newSale: SaleRecord = {
-            id: generateUuid(),
-            productId: staged.id || "manual",
-            name: staged.name,
-            amountPiasters: Number(staged.sellPricePiasters) || 0,
-            quantity: 1,
-            category: staged.category || "خدمات",
-            unit: staged.unit || "service",
-            timestamp: Date.now(),
-          };
-
-          initialSales = [newSale, ...initialSales];
-          try {
-            localStorage.setItem(
-              getSalesStorageKey(storeId),
-              JSON.stringify(initialSales),
-            );
-          } catch {
-            // Ignore
-          }
-
+          // Staging only puts the service's tile on the screen. It records nothing: a sale
+          // exists only once the server has recorded it (ADR-0019).
           if (staged.id && !initialEnabledServices.includes(staged.id)) {
             initialEnabledServices.push(staged.id);
             try {
@@ -380,24 +363,19 @@ export function SalesView() {
       ? userSelectedMachineId
       : linkedServiceMachines[0]?.id || "";
 
-  // Toast with Undo state
+  // Bottom toast. There is no Undo: a recorded sale can only be reversed by a server-side
+  // void, which does not exist yet (audit QA-10, ADR-0019).
   const [activeToast, setActiveToast] = useState<{
     msg: string;
-    undoIds: string[];
     type?: "success" | "error";
-    restoreQty?: { productId: string; variantId?: string; qtyBase: number };
-    restoreBundleItems?: Array<{
-      variantId?: string;
-      productId: string;
-      qtyBase: number;
-    }>;
-    restoreMachine?: {
-      machineId: string;
-      amountPiasters: number;
-      machineName: string;
-    };
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const showToast = useCallback((msg: string, type: "success" | "error") => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setActiveToast({ msg, type });
+    toastTimerRef.current = setTimeout(() => setActiveToast(null), 4500);
+  }, []);
 
   // Active Promotional clearance offers
   const [activePromotions, setActivePromotions] = useState<
@@ -445,7 +423,6 @@ export function SalesView() {
         // Shown, not hidden: without this list the sandwich tiles are missing.
         setActiveToast({
           msg: `${t("sandwich.listFailed")} — ${sandwichList.message}`,
-          undoIds: [],
           type: "error",
         });
       } else {
@@ -615,12 +592,64 @@ export function SalesView() {
     });
   }, [displayItems, query]);
 
-  // Helper to persist a sale record & deduct stock
+  /** Adds a recorded sale to today's list (and its local copy). */
+  const addSaleRecord = useCallback(
+    (record: SaleRecord) => {
+      setSales((prev) => {
+        const updated = [record, ...prev];
+        try {
+          localStorage.setItem(
+            getSalesStorageKey(storeId),
+            JSON.stringify(updated),
+          );
+        } catch {
+          // Ignore quota error
+        }
+        return updated;
+      });
+    },
+    [storeId],
+  );
+
+  /** Shows the server's stock balance after a sale on the tiles (matched by variant). */
+  const applyRecordedStock = useCallback((recorded: RecordedSale) => {
+    const after = new Map<string, number>();
+    for (const line of recorded.lines) {
+      if (line.variantId && line.stockAfterBase !== null) {
+        after.set(line.variantId, line.stockAfterBase);
+      }
+    }
+    if (after.size === 0) return;
+    setInventory((prev) =>
+      prev.map((inv) => {
+        const stock = after.get(inv.variantId);
+        if (stock === undefined) return inv;
+        return {
+          ...inv,
+          currentStockBase: stock,
+          status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+        };
+      }),
+    );
+  }, []);
+
+  /**
+   * Records a sale on the server and waits for it (ADR-0019). The server writes the sale and
+   * deducts the stock in one transaction; the screen changes only after it accepted the sale
+   * (list, stock figures, success toast). A rejection — not enough stock, offline, server
+   * error — is shown as an error and nothing is added or deducted on screen.
+   *
+   * Services: the POS-machine balance is deducted by the caller before this runs. If the sale
+   * is then rejected, the deduction is refunded so the machine and the sales stay in step.
+   *
+   * @returns true when the server recorded the sale.
+   */
   const recordSale = useCallback(
-    (params: {
+    async (params: {
       item: DisplaySaleItem;
       quantityBase: number;
-      amountPiasters: number;
+      /** What the screen shows; the server uses it only for services (it prices goods). */
+      amountPiasters?: number;
       label: string;
       isCarton?: boolean;
       commissionPiasters?: number;
@@ -632,154 +661,104 @@ export function SalesView() {
       machineId?: string;
       machineDeductPiasters?: number;
       machineName?: string;
-    }) => {
-      const {
-        item,
-        quantityBase,
-        amountPiasters,
-        label,
-        isCarton,
-        commissionPiasters,
-        restoreMachine,
-        machineId,
-        machineDeductPiasters,
-        machineName,
-      } = params;
+    }): Promise<boolean> => {
+      const { item, quantityBase, label, restoreMachine } = params;
 
+      let recorded: RecordedSale;
+      try {
+        recorded = await postSale({
+          opId: generateUuid(),
+          id: generateUuid(),
+          variantId: item.isService ? undefined : item.variantId,
+          productId: item.productId,
+          name: item.name,
+          quantityBase,
+          // Used by the server for services only; goods are priced by the server.
+          amountPiasters: params.amountPiasters,
+          label,
+          isCarton: params.isCarton,
+          commissionPiasters: params.commissionPiasters,
+          machineId: params.machineId,
+          machineDeductPiasters: params.machineDeductPiasters,
+          machineName: params.machineName,
+        });
+      } catch (err: unknown) {
+        const message =
+          err instanceof SaleApiError ? err.message : t("sale.failed");
+        if (restoreMachine && restoreMachine.amountPiasters > 0) {
+          const amount = formatMoney(restoreMachine.amountPiasters);
+          try {
+            await addRemoteMachineTopup(
+              restoreMachine.machineId,
+              restoreMachine.amountPiasters,
+              {
+                source: "بيعة لم تُسجل",
+                notes: `استرداد ${amount} لأن البيعة لم تُسجل`,
+              },
+              storeId,
+            );
+            await reloadMachines();
+            showToast(
+              `${message} — ${t("sale.machineRefunded", { amount, machine: restoreMachine.machineName })}`,
+              "error",
+            );
+          } catch {
+            showToast(
+              t("sale.machineRefundFailed", {
+                amount,
+                machine: restoreMachine.machineName,
+              }),
+              "error",
+            );
+          }
+        } else {
+          showToast(message, "error");
+        }
+        return false;
+      }
+
+      applyRecordedStock(recorded);
       const now = Date.now();
-      const newSaleId = generateUuid();
-      const newRecord: SaleRecord = {
-        id: newSaleId,
+      addSaleRecord({
+        id: recorded.id,
         productId: item.productId,
         name: item.name,
-        amountPiasters,
+        amountPiasters: recorded.totalPiasters,
         quantity: quantityBase,
         category: item.category || "عام",
         unit: item.unitMode,
-        isCarton,
-        commissionPiasters,
+        isCarton: params.isCarton,
+        commissionPiasters: params.commissionPiasters,
         timestamp: now,
-        machineId,
-        machineDeductPiasters,
-        machineName,
-      };
-
-      // Update sales state and localStorage
-      setSales((prev) => {
-        const updated = [newRecord, ...prev];
-        try {
-          localStorage.setItem(
-            getSalesStorageKey(storeId),
-            JSON.stringify(updated),
-          );
-        } catch {
-          // Ignore quota error
-        }
-        return updated;
+        machineId: params.machineId,
+        machineDeductPiasters: params.machineDeductPiasters,
+        machineName: params.machineName,
       });
 
-      // Deduct stock for physical products
-      if (!item.isService) {
-        setInventory((prev) =>
-          prev.map((inv) =>
-            inv.productId === item.productId
-              ? {
-                  ...inv,
-                  currentStockBase: Math.max(
-                    0,
-                    inv.currentStockBase - quantityBase,
-                  ),
-                }
-              : inv,
-          ),
-        );
-
-        const variantTargetId = item.variantId || item.productId;
-        // Deduct stock in DB via /api/stock delta
-        try {
-          void fetch("/api/stock", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "adjust",
-              storeVariantId: variantTargetId,
-              mode: "delta",
-              deltaQuantityBase: -quantityBase,
-              reason: `بيع: ${item.name}`,
-            }),
-          }).catch(() => {});
-        } catch {
-          // Offline fallback
-        }
-      }
-
-      // Flash animation on card
       setFlashId(item.id);
       setTimeout(() => setFlashId(null), 450);
+      showToast(
+        t("sale.sold", {
+          name: item.name,
+          label,
+          amount: formatMoney(recorded.totalPiasters),
+        }),
+        "success",
+      );
 
-      // Show toast with Undo
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setActiveToast({
-        msg: `تم تسجيل بيع: ${item.name} (${label}) بـ ${formatMoney(amountPiasters)}`,
-        undoIds: [newSaleId],
-        type: "success",
-        restoreQty: !item.isService
-          ? {
-              productId: item.productId,
-              variantId: item.variantId,
-              qtyBase: quantityBase,
-            }
-          : undefined,
-        restoreMachine,
-      });
-      toastTimerRef.current = setTimeout(() => {
-        setActiveToast(null);
-      }, 4800);
-
-      // Persist sale in server Postgres DB under tenant isolation
+      // Local copy for the offline database (not read anywhere yet; see ADR-0019)
       try {
-        void fetch("/api/sales", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: newSaleId,
-            productId: item.productId,
-            variantId: item.variantId,
-            name: item.name,
-            quantityBase,
-            amountPiasters,
-            label,
-            isCarton: params.isCarton,
-            commissionPiasters: params.commissionPiasters,
-            machineId: params.machineId,
-            machineDeductPiasters: params.machineDeductPiasters,
-            machineName: params.machineName,
-            timestamp: now,
-          }),
-        })
-          .then((r) => {
-            if (!r.ok) {
-              console.warn("Sale persist notice: server status", r.status);
-            }
-          })
-          .catch(() => {});
-      } catch {
-        // Offline fallback
-      }
-
-      // Background write to Dexie for offline-first PWA resilience
-      try {
-        if (db?.sales && db?.sale_lines) {
+        if (db?.sales && db?.sale_lines && !recorded.duplicate) {
           const isoNow = new Date(now).toISOString();
           void db.sales
             .add({
-              id: newSaleId,
+              id: recorded.id,
               store_id: storeId || "default",
               device_id: "local-device",
               cashier_id: null,
-              total_minor: amountPiasters,
+              total_minor: recorded.totalPiasters,
               discount_minor: 0,
-              paid_minor: amountPiasters,
+              paid_minor: recorded.totalPiasters,
               payment_method: "cash",
               is_voided: false,
               voided_at: null,
@@ -787,16 +766,15 @@ export function SalesView() {
               updated_at: isoNow,
             })
             .catch(() => {});
-
           void db.sale_lines
             .add({
               id: `line-${now}`,
-              sale_id: newSaleId,
-              store_variant_id: item.productId,
+              sale_id: recorded.id,
+              store_variant_id: item.variantId || item.productId,
               unit_mode: item.unitMode === "weight" ? "weight" : "piece",
               quantity_base: quantityBase,
-              unit_price_minor: amountPiasters,
-              total_minor: amountPiasters,
+              unit_price_minor: recorded.totalPiasters,
+              total_minor: recorded.totalPiasters,
               created_at: isoNow,
             })
             .catch(() => {});
@@ -804,284 +782,63 @@ export function SalesView() {
       } catch {
         // Ignore
       }
+      return true;
     },
-    [storeId],
+    [storeId, showToast, addSaleRecord, applyRecordedStock, reloadMachines],
   );
 
-  // Undo / Revert a sale: refunds machine balance or restores physical stock
-  const handleUndo = async (
-    saleIds: string[],
-    restore?: { productId: string; variantId?: string; qtyBase: number },
-    restoreMachine?: {
-      machineId: string;
-      amountPiasters: number;
-      machineName: string;
-    },
-    restoreBundleItems?: Array<{
-      variantId?: string;
-      productId: string;
-      qtyBase: number;
-    }>,
-  ) => {
-    // 1. Remove sale from state & localStorage
-    setSales((prev) => {
-      const updated = prev.filter((s) => !saleIds.includes(s.id));
-      try {
-        localStorage.setItem(
-          getSalesStorageKey(storeId),
-          JSON.stringify(updated),
-        );
-      } catch {
-        // Ignore
-      }
-      return updated;
-    });
-
-    // 2. Void sale in Dexie for offline consistency
-    try {
-      if (db?.sales) {
-        for (const sid of saleIds) {
-          void db.sales
-            .update(sid, {
-              is_voided: true,
-              voided_at: new Date().toISOString(),
-            })
-            .catch(() => {});
-        }
-      }
-    } catch {
-      // Ignore
-    }
-
-    // 3. If machine service, refund the deducted balance back to the POS machine immediately
-    if (restoreMachine && restoreMachine.amountPiasters > 0) {
-      try {
-        await addRemoteMachineTopup(
-          restoreMachine.machineId,
-          restoreMachine.amountPiasters,
-          {
-            source: "تراجع عن عملية بيع",
-            reference: saleIds[0],
-            notes: `استرداد فوري لرصيد ${formatMoney(restoreMachine.amountPiasters)} لماكينة ${restoreMachine.machineName}`,
-          },
-          storeId,
-        );
-        await reloadMachines();
-      } catch (err) {
-        console.error("Machine refund on undo failed:", err);
-      }
-    }
-
-    // 4. If physical product, restore quantity to inventory immediately (both locally and remote DB)
-    if (restore && restore.qtyBase > 0) {
-      setInventory((prev) =>
-        prev.map((inv) =>
-          inv.productId === restore.productId
-            ? {
-                ...inv,
-                currentStockBase: inv.currentStockBase + restore.qtyBase,
-                status:
-                  inv.currentStockBase + restore.qtyBase > 0
-                    ? "ok"
-                    : inv.status,
-              }
-            : inv,
-        ),
-      );
-
-      const restoreTargetId = restore.variantId || restore.productId;
-      try {
-        await fetch("/api/stock", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "adjust",
-            storeVariantId: restoreTargetId,
-            mode: "delta",
-            deltaQuantityBase: restore.qtyBase,
-            reason: "تراجع عن بيع",
-          }),
-        });
-      } catch {
-        // Ignore offline or test failures
-      }
-    }
-
-    // 5. If bundle promotion, restore all items in bundle to inventory immediately
-    if (restoreBundleItems && restoreBundleItems.length > 0) {
-      for (const item of restoreBundleItems) {
-        setInventory((prev) =>
-          prev.map((inv) =>
-            inv.productId === item.productId
-              ? {
-                  ...inv,
-                  currentStockBase: inv.currentStockBase + item.qtyBase,
-                  status:
-                    inv.currentStockBase + item.qtyBase > 0 ? "ok" : inv.status,
-                }
-              : inv,
-          ),
-        );
-
-        const restoreTargetId = item.variantId || item.productId;
-        try {
-          await fetch("/api/stock", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "adjust",
-              storeVariantId: restoreTargetId,
-              mode: "delta",
-              deltaQuantityBase: item.qtyBase,
-              reason: "تراجع عن بيع عرض ترويجي",
-            }),
-          });
-        } catch {
-          // Ignore offline
-        }
-      }
-    }
-
-    // 6. Delete sale from server Postgres DB
-    try {
-      for (const sid of saleIds) {
-        void fetch(`/api/sales?id=${sid}`, { method: "DELETE" }).catch(
-          () => {},
-        );
-      }
-    } catch {
-      // Ignore offline
-    }
-
-    setActiveToast(null);
-  };
-
-  // Sell promotional bundle or single clearance offer
+  // Sell a published offer (bundle or single clearance offer). The server reads the offer's
+  // items and price, checks and deducts every item's stock, and records one sale (ADR-0019).
   const handleSellPromotion = useCallback(
     async (promo: PublishedPromotion) => {
-      // Check stock for all bundled items
+      // Quick local check for a clear message; the server checks again under lock.
       for (const bItem of promo.items) {
         const inv = inventory.find((i) => i.productId === bItem.productId);
         const available = inv ? inv.currentStockBase : 999999;
         if (available < bItem.quantityBase) {
-          if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-          setActiveToast({
-            msg: `الكمية غير كافية بالمخزون لإتمام العرض: «${bItem.productName}»`,
-            undoIds: [],
-            type: "error",
-          });
-          toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+          showToast(
+            `الكمية غير كافية بالمخزون لإتمام العرض: «${bItem.productName}»`,
+            "error",
+          );
           return;
         }
       }
 
-      // Deduct stock for all items
-      const restoreItems: Array<{
-        variantId?: string;
-        productId: string;
-        qtyBase: number;
-      }> = [];
-
-      for (const bItem of promo.items) {
-        setInventory((prev) =>
-          prev.map((inv) =>
-            inv.productId === bItem.productId
-              ? {
-                  ...inv,
-                  currentStockBase: Math.max(
-                    0,
-                    inv.currentStockBase - bItem.quantityBase,
-                  ),
-                  status:
-                    inv.currentStockBase - bItem.quantityBase <= 0
-                      ? "out"
-                      : inv.status,
-                }
-              : inv,
-          ),
-        );
-
-        restoreItems.push({
-          variantId: bItem.variantId,
-          productId: bItem.productId,
-          qtyBase: bItem.quantityBase,
+      let recorded: RecordedSale;
+      try {
+        recorded = await postSale({
+          opId: generateUuid(),
+          id: generateUuid(),
+          promotionId: promo.id,
         });
-
-        const deductTargetId = bItem.variantId || bItem.productId;
-        try {
-          void fetch("/api/stock", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              action: "adjust",
-              storeVariantId: deductTargetId,
-              mode: "delta",
-              deltaQuantityBase: -bItem.quantityBase,
-              reason: `بيع عرض ترويجي: ${promo.title}`,
-            }),
-          }).catch(() => {});
-        } catch {
-          // Ignore offline
-        }
+      } catch (err: unknown) {
+        showToast(
+          err instanceof SaleApiError ? err.message : t("sale.failed"),
+          "error",
+        );
+        return;
       }
 
-      // Register sale record
-      const saleId = generateUuid();
-      const now = Date.now();
-      const newRecord: SaleRecord = {
-        id: saleId,
+      applyRecordedStock(recorded);
+      addSaleRecord({
+        id: recorded.id,
         productId: promo.items[0]?.productId || "promo",
         name: promo.title,
-        amountPiasters: promo.promoPricePiasters,
+        amountPiasters: recorded.totalPiasters,
         quantity: 1,
         category: "عروض ترويجية",
         unit: "عرض",
-        timestamp: now,
-      };
-
-      setSales((prev) => {
-        const updated = [newRecord, ...prev];
-        try {
-          localStorage.setItem(
-            getSalesStorageKey(storeId),
-            JSON.stringify(updated),
-          );
-        } catch {}
-        return updated;
+        timestamp: Date.now(),
       });
-
-      try {
-        void fetch("/api/sales", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            id: saleId,
-            totalPiasters: promo.promoPricePiasters,
-            paymentMethod: "cash",
-            items: [
-              {
-                productName: promo.title,
-                categoryName: "عروض ترويجية",
-                quantityBase: 1,
-                unitMode: "piece",
-                unitPriceMinor: promo.promoPricePiasters,
-                totalMinor: promo.promoPricePiasters,
-              },
-            ],
-          }),
-        }).catch(() => {});
-      } catch {}
-
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setActiveToast({
-        msg: `تم بيع ${promo.title} بمبلغ ${formatMoney(promo.promoPricePiasters)}`,
-        undoIds: [saleId],
-        restoreBundleItems: restoreItems,
-        type: "success",
-      });
-      toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
+      showToast(
+        t("sale.promoSold", {
+          title: promo.title,
+          amount: formatMoney(recorded.totalPiasters),
+        }),
+        "success",
+      );
     },
-    [inventory, storeId],
+    [inventory, showToast, applyRecordedStock, addSaleRecord],
   );
 
   // Delete promotional offer from sales page
@@ -1099,7 +856,6 @@ export function SalesView() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
           msg: "تم حذف العرض من شاشة البيع بنجاح ✓",
-          undoIds: [],
           type: "success",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1107,7 +863,6 @@ export function SalesView() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
           msg: "تعذر حذف العرض، حاول مرة أخرى",
-          undoIds: [],
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1116,7 +871,6 @@ export function SalesView() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
         msg: "حدث خطأ أثناء حذف العرض",
-        undoIds: [],
         type: "error",
       });
       toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1147,7 +901,6 @@ export function SalesView() {
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           setActiveToast({
             msg: `تم حفظ وتحديث العرض "${promo.title}" بنجاح ✓`,
-            undoIds: [],
             type: "success",
           });
           toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1155,7 +908,6 @@ export function SalesView() {
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           setActiveToast({
             msg: "تعذر حفظ التعديلات، حاول مرة أخرى",
-            undoIds: [],
             type: "error",
           });
           toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1164,7 +916,6 @@ export function SalesView() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
           msg: "حدث خطأ أثناء حفظ العرض",
-          undoIds: [],
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1172,12 +923,6 @@ export function SalesView() {
     },
     [],
   );
-
-  const showToast = useCallback((msg: string, type: "success" | "error") => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setActiveToast({ msg, undoIds: [], type });
-    toastTimerRef.current = setTimeout(() => setActiveToast(null), 4500);
-  }, []);
 
   /**
    * Sells `count` sandwiches as ONE sale and waits for the server. Nothing changes on screen
@@ -1329,7 +1074,6 @@ export function SalesView() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
           msg: `الخدمة «${item.name}» مش مربوطة بأي ماكينة دفع — اربطها من قسم المنتجات أولاً`,
-          undoIds: [],
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
@@ -1366,7 +1110,6 @@ export function SalesView() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
           msg: `لا توجد ماكينة دفع صالحة لهذه الخدمة`,
-          undoIds: [],
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
@@ -1377,7 +1120,6 @@ export function SalesView() {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
           msg: `رصيد ماكينة «${targetMachine.name}» (${((targetMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لبيع كارت بقيمة ${(cardAmountPiasters / 100).toFixed(2)} ج.م`,
-          undoIds: [],
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
@@ -1398,11 +1140,11 @@ export function SalesView() {
       } catch (err: unknown) {
         const errorMsg =
           err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
-        setActiveToast({ msg: errorMsg, undoIds: [], type: "error" });
+        setActiveToast({ msg: errorMsg, type: "error" });
         return;
       }
 
-      recordSale({
+      void recordSale({
         item,
         quantityBase: 1,
         amountPiasters: cardAmountPiasters,
@@ -1424,7 +1166,6 @@ export function SalesView() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
         msg: `المنتج «${item.name}» خلصان من المخزون! ضيفه من صفحة المخزون الأول`,
-        undoIds: [],
         type: "error",
       });
       toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1440,7 +1181,7 @@ export function SalesView() {
     }
 
     // 4. Single piece sale
-    recordSale({
+    void recordSale({
       item,
       quantityBase: 1,
       amountPiasters: item.sellPricePiasters,
@@ -1458,7 +1199,6 @@ export function SalesView() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
         msg: `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
-        undoIds: [],
         type: "error",
       });
       toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1466,7 +1206,7 @@ export function SalesView() {
     }
 
     const cartonPricePiasters = item.sellPricePiasters * packQty;
-    recordSale({
+    void recordSale({
       item,
       quantityBase: packQty,
       amountPiasters: cartonPricePiasters,
@@ -1490,7 +1230,7 @@ export function SalesView() {
     const amountPiasters = Math.round(kg * weightModalItem.sellPricePiasters);
     const label = grams >= 1000 ? `${kg} كجم` : `${grams} جرام`;
 
-    recordSale({
+    void recordSale({
       item: weightModalItem,
       quantityBase: grams,
       amountPiasters,
@@ -1515,7 +1255,6 @@ export function SalesView() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
         msg: "لا توجد ماكينة دفع صالحة مربوطة بهذه الخدمة",
-        undoIds: [],
         type: "error",
       });
       return;
@@ -1525,7 +1264,6 @@ export function SalesView() {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
       setActiveToast({
         msg: `رصيد ماكينة «${chosenMachine.name}» (${((chosenMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م) لا يكفي لشحن ${amountEgp} ج.م`,
-        undoIds: [],
         type: "error",
       });
       return;
@@ -1552,11 +1290,11 @@ export function SalesView() {
     } catch (err: unknown) {
       const errorMsg =
         err instanceof Error ? err.message : "فشل خصم رصيد الماكينة";
-      setActiveToast({ msg: errorMsg, undoIds: [], type: "error" });
+      setActiveToast({ msg: errorMsg, type: "error" });
       return;
     }
 
-    recordSale({
+    void recordSale({
       item: serviceModalItem,
       quantityBase: 1,
       amountPiasters: totalCustomerPiasters,
@@ -1874,32 +1612,6 @@ export function SalesView() {
                     <b className={styles.rcAmount}>
                       {formatMoney(sale.amountPiasters)}
                     </b>
-                    <button
-                      type="button"
-                      className={styles.rcUndoBtn}
-                      onClick={() =>
-                        handleUndo(
-                          [sale.id],
-                          sale.unit !== "service"
-                            ? {
-                                productId: sale.productId,
-                                qtyBase: sale.quantity,
-                              }
-                            : undefined,
-                          sale.machineId && sale.machineDeductPiasters
-                            ? {
-                                machineId: sale.machineId,
-                                amountPiasters: sale.machineDeductPiasters,
-                                machineName: sale.machineName || "الماكينة",
-                              }
-                            : undefined,
-                        )
-                      }
-                      title="تراجع عن هذه العملية"
-                    >
-                      <Icon n="undo" s={12} />
-                      <span>تراجع</span>
-                    </button>
                   </div>
                 </div>
               ))}
@@ -2280,23 +1992,6 @@ export function SalesView() {
             <Icon n={activeToast.type === "error" ? "alert" : "check"} s={18} />
             <span>{activeToast.msg}</span>
           </div>
-          {activeToast.undoIds.length > 0 && (
-            <button
-              type="button"
-              className={styles.toastUndoBtn}
-              onClick={() =>
-                handleUndo(
-                  activeToast.undoIds,
-                  activeToast.restoreQty,
-                  activeToast.restoreMachine,
-                  activeToast.restoreBundleItems,
-                )
-              }
-            >
-              <Icon n="undo" s={14} />
-              <span>تراجع</span>
-            </button>
-          )}
         </div>
       )}
     </div>

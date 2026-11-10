@@ -735,26 +735,6 @@
   color: var(--ink, #ffffff);
 }
 
-.rcUndoBtn {
-  background: transparent;
-  border: 1px solid var(--line, #2c352c);
-  color: var(--ink2, #a0a8a0);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 3px 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s ease;
-}
-
-.rcUndoBtn:hover {
-  border-color: #f87171;
-  color: #f87171;
-}
-
 /* Top Toast Banner with Undo Button */
 .toastBar {
   position: fixed;

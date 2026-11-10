@@ -306,7 +306,7 @@ CREATE TABLE waste_records (
 - `stock_levels.qty_base = SUM(stock_movements.qty_base)` for the product.
 - `batches.remaining_base = qty_base + SUM(the batch's movements)`.
 - `stock_movements` is never modified or deleted (a trigger prevents it).
-- A product's balance can go negative (a sale actually happened); it is flagged `negative=true` and shows up in alerts.
+- A product's balance can go negative (a sale actually happened); it is flagged `negative=true` and shows up in alerts. *As built (D31): an online sale above the stock is rejected, so sales never take the balance below zero; this rule stays for offline sales once a sync exists.*
 
 ---
 
@@ -336,17 +336,31 @@ CREATE INDEX ON sale_lines (store_id, product_id);
 - **Undo (void):** sets `voided_at` and adds reversing `type='void'` movements according to `takes`. Nothing is deleted.
 - Reports ignore rows where `voided_at IS NOT NULL`.
 
-**As built (2026-11-09).** The tables are `sales` / `sale_lines` (Prisma `Sale` / `SaleLine`), with these differences from the design above:
+**As built (2026-11-10, ADR-0019).** The tables are `sales` / `sale_lines` (Prisma `Sale` / `SaleLine`), with these differences from the design above:
 
 - There is no `voided_at` or `takes` yet.
 - `sale_lines.cost_piasters` (nullable) is the line's cost at sale time. Today only **sandwich** lines set it.
-- **Selling a sandwich (ADR-0018)** goes through `POST /api/sales` with a client `opId`. In one transaction it:
-  - locks the ingredients' `stock_levels` rows;
-  - rejects the whole sale (409) if any ingredient is short;
-  - writes one line targeting only the sandwich product;
-  - FEFO-depletes every ingredient with `type='sale'` movements linked to that line.
-- A repeated `opId` returns the first sale.
-- Sandwich sales have no undo until `sale.void` exists.
+- **Every sale is one `POST /api/sales` transaction** owned by the server. The client never deducts stock itself. In one `withTenant` transaction the server:
+  1. resolves the sold item in **this** store (ids of another store are not found → 404);
+  2. locks the stock rows it will change (`lockStockLevelInTx`, see §4 below);
+  3. returns the first sale when the client's `opId` was already recorded (`(store_id, op_id)` is unique, so a concurrent duplicate also ends with one sale);
+  4. rejects the whole sale with **409** (`details.shortages`) when the stock is not enough — nothing is written (decision D31);
+  5. writes the sale and its lines, priced by the server;
+  6. FEFO-depletes the stock with `type='sale'` movements linked to each line.
+  Any failure rolls back all of it.
+- **Kinds of sale and their lines** (exactly one target per line, `chk_sale_lines_exactly_one_target`):
+
+  | Sale | Line target | Price |
+  |---|---|---|
+  | Ordinary product | the variant | registered selling price × quantity; `kg` products: price per kg × grams ÷ 1000, rounded half up once |
+  | Sandwich (ADR-0018) | the sandwich product | the sandwich price × count; ingredients are deducted |
+  | Promotion | one line per item (its variant) | the shop's saved offer price, split across the lines by regular value (lines add up exactly); `unit_price` = the item's regular price |
+  | Service (top-up, bill, card) | the variant, or the product when it has no variant | the amount the cashier entered (it varies per transaction); no stock |
+
+- The client's amount and timestamp are ignored for goods; the sale time is the server's clock.
+- Sales have no undo until `sale.void` exists (the app role cannot delete sales).
+
+**Stock concurrency (ADR-0019).** Every operation that changes a variant's stock — a sale, add, waste, void, adjust, clear, archive — first locks that variant's `stock_levels` row (`SELECT … FOR UPDATE`, creating it at 0 when missing; several variants are locked in id order). The new balance, the batch updates and each movement's `balance_after_base` are computed from the locked value. Concurrent operations on the same variant therefore run one after the other and none is lost; different variants do not wait for each other.
 
 ## 6. Expenses and People
 
