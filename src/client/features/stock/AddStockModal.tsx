@@ -9,11 +9,6 @@ import {
   type StoreProductItem,
   isServiceProduct,
 } from "@/client/shared/store-items";
-import {
-  getCachedCustomTaxonomy,
-  fetchCustomTaxonomy,
-  saveCustomTaxonomy,
-} from "@/client/shared/api/custom-taxonomy";
 import styles from "../products/ProductsView.module.css";
 
 export type StockSellingMethod =
@@ -163,63 +158,19 @@ export function AddStockModal({
     selectedOption?.category === "كروت شحن" ||
     selectedOption?.category === "كروت مرافق";
 
-  // طريقة البيع: قطعة، علبة، برطمان، كيس، كرتونة، وزن، أو أي طريقة مخصصة
-  const [sellingMethod, setSellingMethod] = useState<StockSellingMethod>(() => {
-    return resolveSellingMethod(targetProduct?.unit || initialOption?.unit);
-  });
-  const [customSellingMethod, setCustomSellingMethod] = useState("");
-
-  const [customTaxonomy, setCustomTaxonomy] = useState(() =>
-    getCachedCustomTaxonomy(),
-  );
-
-  useEffect(() => {
-    void fetchCustomTaxonomy().then(setCustomTaxonomy);
-    const handleTaxonomyUpdate = () => {
-      setCustomTaxonomy(getCachedCustomTaxonomy());
-    };
-    window.addEventListener(
-      "hesba_custom_taxonomy_updated",
-      handleTaxonomyUpdate,
-    );
-    return () => {
-      window.removeEventListener(
-        "hesba_custom_taxonomy_updated",
-        handleTaxonomyUpdate,
-      );
-    };
-  }, []);
-
-  const availableSellingMethods = useMemo(() => {
-    const base = [
-      { key: "piece", label: "قطعة", icon: "box" },
-      { key: "can", label: "علبة", icon: "box" },
-      { key: "jar", label: "برطمان", icon: "box" },
-      { key: "bag", label: "كيس", icon: "layers" },
-      { key: "carton", label: "كرتونة", icon: "store" },
-      { key: "weight", label: "وزن", icon: "scale" },
-    ];
-    const customs = customTaxonomy.customSellingMethods
-      .filter((m) => !base.some((b) => b.key === m || b.label === m))
-      .map((m) => ({ key: m, label: m, icon: "box" }));
-    return [
-      ...base,
-      ...customs,
-      { key: "custom", label: "أخرى", icon: "plus" },
-    ];
-  }, [customTaxonomy.customSellingMethods]);
+  // The selling unit is the product's (set on the Products screen); this form only reads it.
+  const productUnit = targetProduct?.unit || selectedOption?.unit;
+  const sellingMethod: StockSellingMethod = resolveSellingMethod(productUnit);
 
   const isInitialWeight = sellingMethod === "weight";
 
-  const defaultPackN =
-    targetProduct?.variants?.[0]?.pack_qty &&
-    targetProduct.variants[0].pack_qty > 1
-      ? targetProduct.variants[0].pack_qty
-      : selectedOption?.packQty && selectedOption.packQty > 1
-        ? selectedOption.packQty
-        : 12;
+  // Pieces per carton, from the product's variant (not edited here).
+  const productPack = Math.max(
+    1,
+    targetProduct?.variants?.[0]?.pack_qty || selectedOption?.packQty || 1,
+  );
+  const defaultPackN = productPack;
 
-  const [packN, setPackN] = useState<string>(defaultPackN.toString());
   const [cartons, setCartons] = useState(
     !isInitialWeight && defaultPackN > 1 ? "1" : "",
   );
@@ -248,11 +199,10 @@ export function AddStockModal({
       if (val === "carton" || val === "كرتونة") return "كرتونة";
       if (val === "weight" || val === "kg" || val === "g") return "كجم";
       if (isCard) return "كارت";
-      if (val === "custom") return customSellingMethod.trim() || "وحدة";
       if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
       return "قطعة";
     },
-    [isCard, customSellingMethod],
+    [isCard],
   );
 
   const getProductPluralUnitWord = useCallback(
@@ -264,11 +214,10 @@ export function AddStockModal({
       if (val === "carton" || val === "كرتونة") return "كراتين";
       if (val === "weight" || val === "kg" || val === "g") return "كجم";
       if (isCard) return "كروت";
-      if (val === "custom") return customSellingMethod.trim() || "وحدات";
       if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
       return "قطع";
     },
-    [isCard, customSellingMethod],
+    [isCard],
   );
 
   const formatOptionStock = (opt?: StockProductOption) => {
@@ -303,7 +252,7 @@ export function AddStockModal({
     );
   }, [activeOptions, searchDropdown]);
 
-  const packMultiplier = Math.max(1, parseInt(packN, 10) || 1);
+  const packMultiplier = productPack;
 
   // Compute total base quantity (pieces for unit, grams for weight, cartons for carton)
   const totalBaseQty = useMemo(() => {
@@ -459,10 +408,6 @@ export function AddStockModal({
       newErrors.product = "اختر المنتج أولاً";
     }
 
-    if (sellingMethod === "custom" && !customSellingMethod.trim()) {
-      newErrors.customSellingMethod = "اكتب اسم طريقة البيع أولاً";
-    }
-
     if (totalBaseQty <= 0) {
       newErrors.qty =
         sellingMethod === "weight"
@@ -512,11 +457,7 @@ export function AddStockModal({
         // Buy price per SELLING unit (per kg for weighed goods), from the total paid
         // (ADR-0021) — the same rule the server uses for the batch's unit cost.
         const newUnit =
-          sellingMethod === "weight"
-            ? weightUnit
-            : sellingMethod === "custom"
-              ? customSellingMethod.trim()
-              : targetProduct.unit || sellingMethod || "piece";
+          targetProduct.unit || (sellingMethod === "weight" ? "kg" : "piece");
         const derivedUnitCost =
           costPiasters > 0 && totalBaseQty > 0
             ? unitCostFromTotal(costPiasters, totalBaseQty, newUnit)
@@ -548,12 +489,7 @@ export function AddStockModal({
           body: JSON.stringify({
             nameAr: targetProduct.name_ar,
             category: targetProduct.category,
-            unit:
-              sellingMethod === "weight"
-                ? weightUnit
-                : sellingMethod === "custom"
-                  ? customSellingMethod.trim()
-                  : targetProduct.unit || sellingMethod || "piece",
+            unit: newUnit,
             sellPricePiasters:
               targetProduct.sell_price_piasters > 0
                 ? targetProduct.sell_price_piasters
@@ -592,12 +528,6 @@ export function AddStockModal({
         if (!targetVariantId) {
           throw new Error("تعذر تحديد معرّف الصنف في المخزون");
         }
-      }
-
-      if (sellingMethod === "custom" && customSellingMethod.trim()) {
-        void saveCustomTaxonomy({
-          newSellingMethod: customSellingMethod.trim(),
-        });
       }
 
       const payload = {
@@ -819,11 +749,13 @@ export function AddStockModal({
                             key={opt.variantId}
                             onClick={() => {
                               setSelectedVariantId(opt.variantId);
-                              if (opt.unit) {
-                                setSellingMethod(
-                                  resolveSellingMethod(opt.unit),
-                                );
-                              }
+                              // Quantity fields follow the chosen product's unit.
+                              const w =
+                                resolveSellingMethod(opt.unit) === "weight";
+                              const pack = Math.max(1, opt.packQty || 1);
+                              setWeightInput(w ? "1" : "");
+                              setCartons(!w && pack > 1 ? "1" : "");
+                              setPieces(!w && pack <= 1 ? "1" : "");
                               setDropdownOpen(false);
                               setErrors({});
                             }}
@@ -913,110 +845,21 @@ export function AddStockModal({
                 </b>
               </div>
 
-              {/* اختيار طريقة البيع: قطعة، علبة، برطمان، كيس، كرتونة، وزن */}
-              <div style={{ marginBottom: 4 }}>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: 12.5,
-                    fontWeight: 700,
-                    marginBottom: 6,
-                    color: "var(--ink2)",
-                  }}
-                >
-                  طريقة البيع والكمية المدخلة:
+              {/* The unit comes from the product (Products screen), never chosen here. */}
+              <div className={styles.unitFromProduct} data-testid="stock-unit">
+                <Icon n={sellingMethod === "weight" ? "scale" : "box"} s={16} />
+                <span>
+                  بيتباع{" "}
+                  <b>
+                    {sellingMethod === "weight"
+                      ? "بالوزن (كيلو)"
+                      : `بـ${getProductUnitWord(sellingMethod)}`}
+                  </b>
+                  {packMultiplier > 1 && sellingMethod !== "weight"
+                    ? ` · الكرتونة ${packMultiplier} ${getProductUnitWord(sellingMethod)}`
+                    : ""}
                 </span>
-                <div className={styles.sellingMethodsGrid}>
-                  {availableSellingMethods.map((m) => {
-                    const isSelected =
-                      sellingMethod === m.key ||
-                      (m.key === "custom" &&
-                        sellingMethod !== "piece" &&
-                        sellingMethod !== "can" &&
-                        sellingMethod !== "jar" &&
-                        sellingMethod !== "bag" &&
-                        sellingMethod !== "carton" &&
-                        sellingMethod !== "weight" &&
-                        !customTaxonomy.customSellingMethods.includes(
-                          sellingMethod,
-                        ));
-                    const titleText =
-                      m.key === "piece"
-                        ? "بالقطعة"
-                        : m.key === "weight"
-                          ? "بالوزن"
-                          : m.key === "bag"
-                            ? "بالكيس"
-                            : m.key === "can"
-                              ? "بالعلبة"
-                              : m.key === "jar"
-                                ? "بالبرطمان"
-                                : m.key === "carton"
-                                  ? "بالكرتونة"
-                                  : m.label;
-                    return (
-                      <button
-                        key={m.key}
-                        type="button"
-                        className={`${styles.methodCard} ${isSelected ? styles.active : ""}`}
-                        onClick={() => {
-                          setSellingMethod(m.key);
-                          if (m.key !== "custom") {
-                            setCustomSellingMethod("");
-                          }
-                        }}
-                        aria-label={m.label}
-                        title={titleText}
-                      >
-                        <Icon
-                          n={m.icon as Parameters<typeof Icon>[0]["n"]}
-                          s={18}
-                        />
-                        <span className={styles.methodTitle}>{m.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {(sellingMethod === "custom" ||
-                  (!["piece", "can", "jar", "bag", "carton", "weight"].includes(
-                    sellingMethod,
-                  ) &&
-                    !customTaxonomy.customSellingMethods.includes(
-                      sellingMethod,
-                    ))) && (
-                  <div style={{ marginTop: 8 }}>
-                    <Field
-                      label="اكتب طريقة البيع الجديدة"
-                      err={errors.customSellingMethod}
-                    >
-                      <input
-                        type="text"
-                        placeholder="مثلاً: لتر، متر، دستة، برميل، شنطة..."
-                        value={customSellingMethod}
-                        onChange={(e) => {
-                          setCustomSellingMethod(e.target.value);
-                          if (errors.customSellingMethod) {
-                            setErrors((prev) => ({
-                              ...prev,
-                              customSellingMethod: "",
-                            }));
-                          }
-                        }}
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "1.5px solid var(--line)",
-                          fontSize: 14,
-                          background: "var(--sf)",
-                          color: "var(--ink)",
-                          boxSizing: "border-box",
-                        }}
-                      />
-                    </Field>
-                  </div>
-                )}
+                <small>من بيانات المنتج</small>
               </div>
 
               {sellingMethod === "weight" ? (
@@ -1135,61 +978,40 @@ export function AddStockModal({
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr 1fr",
+                      gridTemplateColumns:
+                        packMultiplier > 1 ? "1fr 1fr" : "1fr",
                       gap: 8,
                     }}
                   >
-                    <Field
-                      label={`كراتين ${getProductPluralUnitWord(sellingMethod)}`}
-                    >
-                      <input
-                        type="number"
-                        min="0"
-                        value={cartons}
-                        onChange={(e) => setCartons(e.target.value)}
-                        placeholder="عدد الكراتين"
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "1.5px solid var(--line)",
-                        }}
-                      />
-                    </Field>
+                    {packMultiplier > 1 && (
+                      <Field label="عدد الكراتين">
+                        <input
+                          type="number"
+                          min="0"
+                          inputMode="numeric"
+                          value={cartons}
+                          onChange={(e) => setCartons(e.target.value)}
+                          placeholder="عدد الكراتين"
+                          data-testid="stock-cartons"
+                        />
+                      </Field>
+                    )}
 
                     <Field
-                      label={`${getProductPluralUnitWord(sellingMethod)} زيادة`}
+                      label={
+                        packMultiplier > 1
+                          ? `${getProductPluralUnitWord(sellingMethod)} زيادة`
+                          : `عدد الـ${getProductPluralUnitWord(sellingMethod)}`
+                      }
                     >
                       <input
                         type="number"
                         min="0"
+                        inputMode="numeric"
                         value={pieces}
                         onChange={(e) => setPieces(e.target.value)}
-                        placeholder={`${getProductPluralUnitWord(sellingMethod)} زيادة`}
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "1.5px solid var(--line)",
-                        }}
-                      />
-                    </Field>
-
-                    <Field
-                      label={`${getProductPluralUnitWord(sellingMethod)}/كرتونة`}
-                    >
-                      <input
-                        type="number"
-                        min="1"
-                        value={packN}
-                        onChange={(e) => setPackN(e.target.value)}
-                        placeholder="12"
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "1.5px solid var(--line)",
-                        }}
+                        placeholder={getProductPluralUnitWord(sellingMethod)}
+                        data-testid="stock-pieces"
                       />
                     </Field>
                   </div>

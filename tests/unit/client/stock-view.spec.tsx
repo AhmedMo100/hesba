@@ -4,7 +4,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StockView } from "@/client/features/stock/StockView";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import { AddStockModal } from "@/client/features/stock/AddStockModal";
-import { ClearStockModal } from "@/client/features/stock/ClearStockModal";
 import { ArchiveStockModal } from "@/client/features/stock/ArchiveStockModal";
 import { MachineTopupModal } from "@/client/features/stock/MachineTopupModal";
 
@@ -153,7 +152,7 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
     expect(html).toContain("السعر المتوقع بناءً على سعر الشراء المسجل");
   });
 
-  it("renders explicit 'بالكيس' entry mode in AddStockModal", () => {
+  it("reads the selling unit from the product (bags in cartons of 20): no unit picker, no pack field", () => {
     const html = renderToStaticMarkup(
       <AddStockModal
         targetProduct={{
@@ -178,14 +177,77 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
       />,
     );
 
-    expect(html).toContain("بالكيس");
-    expect(html).toContain("كراتين أكياس");
+    expect(html).toContain("بيتباع");
+    expect(html).toContain("بـكيس");
+    expect(html).toContain("الكرتونة 20 كيس");
+    expect(html).toContain("من بيانات المنتج");
+    expect(html).toContain("عدد الكراتين");
     expect(html).toContain("أكياس زيادة");
-    expect(html).toContain("أكياس/كرتونة");
+    // The product's configuration is not edited here.
+    expect(html).not.toContain("طريقة البيع");
+    expect(html).not.toContain("أكياس/كرتونة");
+    expect(html).not.toContain("اكتب طريقة البيع الجديدة");
+  });
+
+  it("weighed product: the weight field only, in its unit", () => {
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={{
+          id: "prod-cheese",
+          name_ar: "جبنة رومي",
+          category: "ألبان",
+          unit: "kg",
+          sell_price_piasters: 30000,
+          buy_cost_piasters: 25000,
+          is_custom: true,
+          variants: [
+            {
+              id: "v-ch",
+              pack_qty: 1,
+              sell_price_piasters: 30000,
+              buy_cost_piasters: 25000,
+            },
+          ],
+        }}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+    expect(html).toContain("بالوزن (كيلو)");
+    expect(html).toContain("الوزن اللي دخل (بالكيلو)");
+    expect(html).not.toContain("عدد الكراتين");
+  });
+
+  it("piece product without a carton: one count field", () => {
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={{
+          id: "prod-pen",
+          name_ar: "قلم",
+          category: "أدوات",
+          unit: "piece",
+          sell_price_piasters: 500,
+          buy_cost_piasters: 300,
+          is_custom: true,
+          variants: [
+            {
+              id: "v-pen",
+              pack_qty: 1,
+              sell_price_piasters: 500,
+              buy_cost_piasters: 300,
+            },
+          ],
+        }}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+    expect(html).toContain("عدد الـقطع");
+    expect(html).not.toContain("عدد الكراتين");
   });
 });
 
-describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Archiving)", () => {
+describe("ArchiveStockModal (zeroing a product was removed: the quantity is edited)", () => {
   const mockItemWithStock: StockInventoryItem = {
     variantId: "var-100",
     productId: "prod-100",
@@ -207,36 +269,20 @@ describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Ar
     status: "out",
   };
 
-  it("renders ClearStockModal as pure zeroing dialog with warning and confirmation button", () => {
-    const html = renderToStaticMarkup(
-      <ClearStockModal
-        item={mockItemWithStock}
-        onClose={() => {}}
-        onCleared={() => {}}
-      />,
-    );
-
-    expect(html).toContain("تصفير المخزون");
-    expect(html).toContain("تنبيه هام قبل تصفير المخزون");
-    expect(html).toContain("جبنة بيضاء دومتي (فيتا)");
-    expect(html).toContain("2 كرتونة و 4 قطعة");
-    expect(html).toContain("تأكيد تصفير المخزون");
-    expect(html).toContain("سبب تصفير المخزون");
-  });
-
   it("renders ArchiveStockModal with blocker when current balance is positive (> 0)", () => {
     const html = renderToStaticMarkup(
       <ArchiveStockModal
         item={mockItemWithStock}
         onClose={() => {}}
         onArchived={() => {}}
-        onOpenClearStock={() => {}}
+        onOpenEditQuantity={() => {}}
       />,
     );
 
     expect(html).toContain("إزالة الصنف من قائمة المخزون");
     expect(html).toContain("لا يمكن إزالة الصنف لأن رصيده موجب");
-    expect(html).toContain("تصفير المخزون أولاً");
+    expect(html).toContain("عدّل الكمية الأول");
+    expect(html).not.toContain("تصفير");
     expect(html).not.toContain("تأكيد الإزالة من المخزون");
   });
 

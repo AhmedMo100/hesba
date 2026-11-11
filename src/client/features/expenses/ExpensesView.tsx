@@ -5,7 +5,7 @@ import { parseEgpStrict } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./ExpensesView.module.css";
-import { Empty, Icon } from "@/client/shared/ui";
+import { Empty, Icon, PeriodFilter } from "@/client/shared/ui";
 import { t, formatMoney, normDigits } from "@/client/shared/i18n";
 import {
   EXPENSE_CATEGORIES,
@@ -404,55 +404,23 @@ export function ExpensesView() {
           </form>
         </div>
 
-        {/* Period Filter Chips */}
-        <div className={styles.periodRow} role="tablist">
-          {EXPENSE_PERIODS.map((pKey) => (
-            <button
-              type="button"
-              key={pKey}
-              role="tab"
-              aria-selected={period === pKey}
-              className={`${styles.periodChip} ${period === pKey ? styles.active : ""}`}
-              onClick={() => setPeriod(pKey)}
-            >
-              {t(`pages.expenses.periods.${pKey}`)}
-            </button>
-          ))}
-        </div>
-
-        {/* Custom Date Pickers */}
-        {period === "custom" && (
-          <div className={styles.customRange}>
-            <div className={styles.customDateItem}>
-              <span className={styles.customDateLabel}>
-                {t("pages.expenses.customFrom")}
-              </span>
-              <input
-                type="date"
-                value={customFrom}
-                max={getTodayCairoDateString()}
-                onChange={(e) =>
-                  setCustomFrom(e.target.value || getTodayCairoDateString())
-                }
-                className={styles.customDateInput}
-              />
-            </div>
-            <div className={styles.customDateItem}>
-              <span className={styles.customDateLabel}>
-                {t("pages.expenses.customTo")}
-              </span>
-              <input
-                type="date"
-                value={customTo}
-                max={getTodayCairoDateString()}
-                onChange={(e) =>
-                  setCustomTo(e.target.value || getTodayCairoDateString())
-                }
-                className={styles.customDateInput}
-              />
-            </div>
-          </div>
-        )}
+        {/* Period filter: the app's one PeriodFilter (shared chips + custom day/range) */}
+        <PeriodFilter<ExpensePeriod>
+          options={EXPENSE_PERIODS.map(
+            (pKey) => [pKey, t(`pages.expenses.periods.${pKey}`)] as const,
+          )}
+          value={period}
+          onChange={setPeriod}
+          customKey="custom"
+          from={customFrom}
+          to={customTo}
+          onRangeChange={(f, to) => {
+            const today = getTodayCairoDateString();
+            setCustomFrom(f || today);
+            setCustomTo(to || f || today);
+          }}
+          max={getTodayCairoDateString()}
+        />
 
         {/* Total Summary Banner */}
         <div className={styles.totalBanner}>

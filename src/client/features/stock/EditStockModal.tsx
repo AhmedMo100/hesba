@@ -4,6 +4,7 @@ import React, { useState, useMemo } from "react";
 import { Modal, Button, Icon } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import type { StockInventoryItem } from "@/client/shared/store-items";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 
 interface EditStockModalProps {
   item: StockInventoryItem;
@@ -19,6 +20,9 @@ export function EditStockModal({
   const isWeight = item.unitMode === "weight";
   const pack = item.packQty || 1;
   const hasCartons = !isWeight && pack > 1;
+  // The product's own units (Products screen): «قطعة/كيس/علبة…» and its pack word.
+  const uw = unitWord(item.unit);
+  const pw = packWord(item.packName, pack);
 
   // Initial values based on current stock
   const initialCartons = hasCartons
@@ -71,12 +75,12 @@ export function EditStockModal({
       const c = Math.floor(Math.abs(delta) / pack);
       const p = Math.abs(delta) % pack;
       let text = "";
-      if (c > 0 && p > 0) text = `${c} كرتونة و ${p} قطعة`;
-      else if (c > 0) text = `${c} كرتونة`;
-      else text = `${p} قطعة`;
+      if (c > 0 && p > 0) text = `${c} ${pw} و ${p} ${uw}`;
+      else if (c > 0) text = `${c} ${pw}`;
+      else text = `${p} ${uw}`;
       return `${sign}${text} (${delta > 0 ? "زيادة في المخزن" : "عجز أو هالك"})`;
     }
-    return `${sign}${delta} قطعة (${delta > 0 ? "زيادة في المخزن" : "عجز أو هالك"})`;
+    return `${sign}${delta} ${uw} (${delta > 0 ? "زيادة في المخزن" : "عجز أو هالك"})`;
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -190,8 +194,8 @@ export function EditStockModal({
               {isWeight
                 ? `${(item.currentStockBase / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`
                 : hasCartons
-                  ? `${Math.floor(item.currentStockBase / pack)} كرتونة و ${item.currentStockBase % pack} قطعة`
-                  : `${item.currentStockBase} قطعة`}
+                  ? `${Math.floor(item.currentStockBase / pack)} ${pw} و ${item.currentStockBase % pack} ${uw}`
+                  : `${item.currentStockBase} ${uw}`}
             </b>
           </div>
           {item.sellPricePiasters > 0 && (
@@ -206,6 +210,27 @@ export function EditStockModal({
               </b>
             </div>
           )}
+        </div>
+
+        {/* The unit is the product's (Products screen); this form never changes it. */}
+        <div
+          data-testid="stock-unit"
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            fontSize: 13.5,
+            color: "var(--ink)",
+          }}
+        >
+          <Icon n={isWeight ? "scale" : "box"} s={16} />
+          <span>
+            بيتباع <b>{isWeight ? "بالوزن (كيلو)" : `بـ${uw}`}</b>
+            {hasCartons ? ` · الـ${pw} ${pack} ${uw}` : ""}
+          </span>
+          <small style={{ color: "var(--ink2)", marginInlineStart: "auto" }}>
+            من بيانات المنتج
+          </small>
         </div>
 
         {/* Stock inputs */}
@@ -309,7 +334,7 @@ export function EditStockModal({
                 color: "var(--ink)",
               }}
             >
-              الرصيد الفعلي الجديد (كراتين وقطع):
+              الكمية الفعلية الجديدة ({pw} و{uw}):
             </label>
             <div
               style={{
@@ -327,7 +352,7 @@ export function EditStockModal({
                     marginBottom: 4,
                   }}
                 >
-                  عدد الكراتين (الكرتونة {pack} ق):
+                  عدد الـ{pw} (الـ{pw} {pack} {uw}):
                 </span>
                 <input
                   type="number"
@@ -357,7 +382,7 @@ export function EditStockModal({
                     marginBottom: 4,
                   }}
                 >
-                  القطع الفردية الزائدة:
+                  {uw} زيادة:
                 </span>
                 <input
                   type="number"
@@ -380,7 +405,10 @@ export function EditStockModal({
               </div>
             </div>
             <div style={{ fontSize: 12, color: "var(--ink2)", marginTop: 6 }}>
-              الإجمالي الفعلي بعد التعديل: <b>{targetQuantityBase} قطعة</b>
+              الإجمالي الفعلي بعد التعديل:{" "}
+              <b>
+                {targetQuantityBase} {uw}
+              </b>
             </div>
           </div>
         ) : (
@@ -394,7 +422,7 @@ export function EditStockModal({
                 color: "var(--ink)",
               }}
             >
-              الرصيد الفعلي الجديد بالقطع:
+              الكمية الفعلية الجديدة (بالـ{uw}):
             </label>
             <input
               type="number"

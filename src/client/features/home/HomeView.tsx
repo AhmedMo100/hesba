@@ -15,7 +15,14 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
-import { Seg, SearchBox, Icon, Empty, Skeleton } from "@/client/shared/ui";
+import {
+  Seg,
+  SearchBox,
+  Icon,
+  Empty,
+  Skeleton,
+  PeriodFilter,
+} from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import {
   fetchHomeReport,
@@ -28,6 +35,14 @@ import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "./HomeView.module.css";
 
 type PeriodKey = ReportPeriod;
+
+const HOME_PERIODS: ReadonlyArray<readonly [PeriodKey, string]> = [
+  ["today", "النهارده"],
+  ["yesterday", "امبارح"],
+  ["week", "الأسبوع"],
+  ["month", "الشهر"],
+  ["all", "الكل"],
+];
 
 /** Money, or "—" when the server could not determine it from recorded data. */
 function moneyOrUnknown(piasters: number | null): string {
@@ -461,28 +476,11 @@ export function HomeView() {
         /* ===================== TAB: التقرير (Sales & Store Report) ===================== */
         <>
           {/* Period Selector Chips */}
-          <div className={styles.periodBar} role="tablist">
-            {(
-              [
-                ["today", "النهارده"],
-                ["yesterday", "امبارح"],
-                ["week", "الأسبوع"],
-                ["month", "الشهر"],
-                ["all", "الكل"],
-              ] as const
-            ).map(([pKey, label]) => (
-              <button
-                type="button"
-                key={pKey}
-                role="tab"
-                aria-selected={period === pKey}
-                className={`${styles.chip} ${period === pKey ? styles.chipOn : ""}`}
-                onClick={() => setPeriod(pKey)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <PeriodFilter
+            options={HOME_PERIODS}
+            value={period}
+            onChange={setPeriod}
+          />
 
           {reportFailed && (
             <div className={styles.reportError} role="alert">

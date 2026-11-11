@@ -1,12 +1,25 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox, Modal, Icon } from "@/client/shared/ui";
+import {
+  Chip,
+  Chips,
+  Empty,
+  SearchBox,
+  Modal,
+  Icon,
+  PeriodFilter,
+} from "@/client/shared/ui";
+import {
+  cairoDateRange,
+  inCairoRange,
+  type DatePreset,
+} from "@/domain/date-range";
+import { toCairoDateString } from "@/domain/time";
 import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
 import { EditStockModal } from "./EditStockModal";
-import { ClearStockModal } from "./ClearStockModal";
 import { ArchiveStockModal } from "./ArchiveStockModal";
 import {
   type PosMachine,
@@ -126,23 +139,27 @@ function formatMovementQty(m: StockMovementItem): string {
   return `${m.quantityBase > 0 ? "+" : ""}${m.quantityBase} قطعة`;
 }
 
+const STOCK_HISTORY_PERIODS: ReadonlyArray<readonly [DatePreset, string]> = [
+  ["today", "اليوم"],
+  ["yesterday", "امبارح"],
+  ["week", "الأسبوع"],
+  ["month", "الشهر"],
+  ["year", "السنة"],
+  ["custom", "فترة مخصصة"],
+];
+
 export function StockView() {
   const [tab, setTab] = useState<"qty" | "log">("qty");
   const [filter, setFilter] = useState<"all" | "low" | "out" | "nearExpiry">(
     "all",
   );
-  const [period, setPeriod] = useState<
-    "day" | "week" | "month" | "year" | "custom"
-  >("week");
+  const [period, setPeriod] = useState<DatePreset>("week");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [activeItemAction, setActiveItemAction] =
     useState<StockInventoryItem | null>(null);
   const [editingStockItem, setEditingStockItem] =
     useState<StockInventoryItem | null>(null);
-  const [clearingItem, setClearingItem] = useState<StockInventoryItem | null>(
-    null,
-  );
   const [archivingItem, setArchivingItem] = useState<StockInventoryItem | null>(
     null,
   );
@@ -417,6 +434,15 @@ export function StockView() {
     return options;
   }, [inventory, storeProducts]);
 
+  const historyRange = useMemo(
+    () =>
+      cairoDateRange(
+        { preset: period, from: customFrom, to: customTo },
+        nowTimestamp,
+      ),
+    [period, customFrom, customTo, nowTimestamp],
+  );
+
   // Tab 2 movements filtered by selected period (additions / purchases log)
   const filteredMovements = useMemo(() => {
     return movements.filter((m) => {
@@ -425,53 +451,10 @@ export function StockView() {
       // A sale undo puts sold stock back; it is not a purchase or an addition (ADR-0022).
       if (m.type === "sale_void") return false;
 
-      const mTime = new Date(m.createdAt).getTime();
-
-      if (period === "day") {
-        const now = new Date(nowTimestamp);
-        const dayStart = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          0,
-          0,
-          0,
-          0,
-        ).getTime();
-        const dayEnd = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          23,
-          59,
-          59,
-          999,
-        ).getTime();
-        return mTime >= dayStart && mTime <= dayEnd;
-      }
-      if (period === "week") return nowTimestamp - mTime <= 7 * 86400000;
-      if (period === "month") return nowTimestamp - mTime <= 30 * 86400000;
-      if (period === "year") {
-        return (
-          new Date(m.createdAt).getFullYear() ===
-          new Date(nowTimestamp).getFullYear()
-        );
-      }
-      if (period === "custom") {
-        let matches = true;
-        if (customFrom) {
-          const fromTime = new Date(`${customFrom}T00:00:00`).getTime();
-          if (!isNaN(fromTime) && mTime < fromTime) matches = false;
-        }
-        if (customTo) {
-          const toTime = new Date(`${customTo}T23:59:59.999`).getTime();
-          if (!isNaN(toTime) && mTime > toTime) matches = false;
-        }
-        return matches;
-      }
-      return true;
+      // Cairo calendar days (the shop's business day), not the device's clock.
+      return inCairoRange(m.createdAt, historyRange);
     });
-  }, [movements, period, nowTimestamp, customFrom, customTo]);
+  }, [movements, historyRange]);
 
   // Tab 2 summary total cost and additions count
   const movementSummary = useMemo(() => {
@@ -587,38 +570,25 @@ export function StockView() {
           />
 
           {/* Status Filter Chips matching Image 1 */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "all" ? styles.active : ""}`}
-              onClick={() => setFilter("all")}
-            >
+          <Chips>
+            <Chip active={filter === "all"} onClick={() => setFilter("all")}>
               الكل
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "low" ? styles.active : ""}`}
-              onClick={() => setFilter("low")}
-            >
+            </Chip>
+            <Chip active={filter === "low"} onClick={() => setFilter("low")}>
               قرب يخلص ({counts.low})
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "out" ? styles.active : ""}`}
-              onClick={() => setFilter("out")}
-            >
+            </Chip>
+            <Chip active={filter === "out"} onClick={() => setFilter("out")}>
               خلصان ({counts.out})
-            </button>
+            </Chip>
             {counts.nearExpiry > 0 && (
-              <button
-                type="button"
-                className={`${styles.chip} ${filter === "nearExpiry" ? styles.active : ""}`}
+              <Chip
+                active={filter === "nearExpiry"}
                 onClick={() => setFilter("nearExpiry")}
               >
                 صلاحية قريبة ({counts.nearExpiry})
-              </button>
+              </Chip>
             )}
-          </div>
+          </Chips>
 
           {loading ? (
             <div
@@ -819,61 +789,19 @@ export function StockView() {
       ) : (
         /* Tab 2: Additions Log matching Image 5 */
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Period Filter Chips matching Image 5 */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "week" ? styles.active : ""}`}
-              onClick={() => setPeriod("week")}
-            >
-              الأسبوع
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "month" ? styles.active : ""}`}
-              onClick={() => setPeriod("month")}
-            >
-              الشهر
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "year" ? styles.active : ""}`}
-              onClick={() => setPeriod("year")}
-            >
-              السنة
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "custom" ? styles.active : ""}`}
-              onClick={() => setPeriod("custom")}
-            >
-              يوم/فترة
-            </button>
-          </div>
-
-          {/* Custom Date Range Picker */}
-          {period === "custom" && (
-            <div className={styles.dateRangeRow}>
-              <div className={styles.dateInputGroup}>
-                <label>من تاريخ:</label>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                />
-              </div>
-              <div className={styles.dateInputGroup}>
-                <label>إلى تاريخ:</label>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
+          <PeriodFilter<DatePreset>
+            options={STOCK_HISTORY_PERIODS}
+            value={period}
+            onChange={setPeriod}
+            customKey="custom"
+            from={customFrom}
+            to={customTo}
+            onRangeChange={(f, t) => {
+              setCustomFrom(f);
+              setCustomTo(t);
+            }}
+            max={toCairoDateString(nowTimestamp)}
+          />
 
           {/* Summary Row matching Image 5 */}
           <div className={styles.summaryRow}>
@@ -1158,20 +1086,6 @@ export function StockView() {
               <span>إضافة بضاعة جديدة للمخزون</span>
             </button>
 
-            {/* 2. Clear Stock */}
-            <button
-              type="button"
-              className={styles.actionItemBtn}
-              onClick={() => {
-                const itm = activeItemAction;
-                setActiveItemAction(null);
-                setClearingItem(itm);
-              }}
-            >
-              <span style={{ fontSize: 16 }}>0️⃣</span>
-              <span>تصفير المخزون (تحويل الرصيد لـ 0)</span>
-            </button>
-
             {/* 3. Archive from active inventory */}
             <button
               type="button"
@@ -1272,18 +1186,6 @@ export function StockView() {
         />
       )}
 
-      {/* Clear Stock Modal */}
-      {clearingItem && (
-        <ClearStockModal
-          item={clearingItem}
-          onClose={() => setClearingItem(null)}
-          onCleared={() => {
-            setClearingItem(null);
-            void loadData();
-          }}
-        />
-      )}
-
       {/* Archive Stock Modal */}
       {archivingItem && (
         <ArchiveStockModal
@@ -1293,10 +1195,10 @@ export function StockView() {
             setArchivingItem(null);
             void loadData();
           }}
-          onOpenClearStock={() => {
+          onOpenEditQuantity={() => {
             const itm = archivingItem;
             setArchivingItem(null);
-            setClearingItem(itm);
+            setEditingStockItem(itm);
           }}
         />
       )}

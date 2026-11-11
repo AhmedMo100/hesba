@@ -1302,112 +1302,6 @@ export class InventoryService {
   }
 
   /**
-   * Clears all stock for a variant: takes everything out of its batches (FEFO, one
-   * `type: "adjustment"` movement per batch part) so batches, ledger and cache all reach 0.
-   * Optionally soft-removes the variant from active inventory view (isActive = false).
-   */
-  async clearVariantStock(
-    storeId: string,
-    userId: string | null,
-    input: {
-      storeVariantId: string;
-      reason?: string;
-      removeFromView?: boolean;
-      opId?: string | null;
-    },
-  ) {
-    const now = new Date();
-
-    return withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        // 1. Verify variant
-        const variant = await tx.storeVariant.findFirst({
-          where: {
-            storeId,
-            OR: [
-              { id: input.storeVariantId },
-              { storeProductId: input.storeVariantId },
-            ],
-          },
-          include: { storeProduct: true },
-        });
-        if (!variant) {
-          throw AppError.notFound("الصنف غير موجود في هذا المحل");
-        }
-
-        // 2. Lock the variant's stock (ADR-0019), then check opId idempotency
-        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
-        if (input.opId) {
-          const existing = await tx.stockMovement.findFirst({
-            where: { storeId, opId: input.opId },
-          });
-          if (existing) {
-            assertSameStockOperation(existing, {
-              variantId: variant.id,
-              types: ["adjustment"],
-            });
-            return {
-              variantId: variant.id,
-              movementId: existing.id,
-              clearedQuantity: Number(
-                existing.quantityBase ? -existing.quantityBase : 0,
-              ),
-              duplicate: true,
-            };
-          }
-        }
-
-        // 3. Take everything there is
-        let movementId: string | null = null;
-        if (currentQty > ZERO) {
-          await takeStockInTx(tx, storeId, {
-            storeVariantId: variant.id,
-            storeProductId: variant.storeProductId,
-            quantityBase: currentQty,
-            type: "adjustment",
-            opId: input.opId ?? null,
-            now,
-          });
-          const first = await tx.stockMovement.findFirst({
-            where: {
-              storeId,
-              storeVariantId: variant.id,
-              type: "adjustment",
-              createdAt: now,
-            },
-            select: { id: true },
-          });
-          movementId = first?.id ?? null;
-        } else {
-          await writeLevelInTx(tx, storeId, variant.id, currentQty, now);
-        }
-
-        // 4. If removeFromView is true, deactivate variant
-        if (input.removeFromView) {
-          await tx.storeVariant.update({
-            where: { id: variant.id },
-            data: {
-              isActive: false,
-              updatedAt: now,
-            },
-          });
-        }
-
-        return {
-          variantId: variant.id,
-          movementId,
-          clearedQuantity: Number(currentQty > ZERO ? currentQty : ZERO),
-          removedFromView: Boolean(input.removeFromView),
-          duplicate: false,
-        };
-      },
-      this.prisma,
-    );
-  }
-
-  /**
    * Archives a variant from the active inventory view (sets isActive = false).
    * Strict safety check: ONLY permitted if the current stock level is 0.
    * If current stock > 0, throws AppError.badRequest to prevent hidden inventory.
@@ -1447,7 +1341,7 @@ export class InventoryService {
 
         if (currentQty > ZERO) {
           throw AppError.badRequest(
-            "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. يرجى تصفير المخزون أولاً.",
+            "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. عدّل الكمية لـ 0 الأول.",
           );
         }
 

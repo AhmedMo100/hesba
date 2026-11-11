@@ -4,6 +4,7 @@ import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { InventoryService } from "@/server/modules/inventory";
 import { CatalogService } from "@/server/modules/catalog";
+import { createSession } from "@/server/modules/auth";
 
 const directUrl =
   // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
@@ -532,76 +533,32 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
   });
 
-  it("clears variant stock to zero, records adjustment movement, and optionally deactivates variant", async () => {
-    const catalog = new CatalogService(appPrisma);
-    const prod = await catalog.upsertStoreProduct(storeAId, userAId, {
-      nameAr: `عصير تفاح تيست ${runId}`,
-      category: "مشروبات",
-      unit: "piece",
-      sellPricePiasters: 1500,
-      isCustom: true,
-      variants: [{ flavor: "تفاح", packQty: 1, sellPricePiasters: 1500 }],
-    });
-    const clearVarId = prod.variants[0]!.id;
-
-    const inventory = new InventoryService(appPrisma);
-
-    // Add initial stock: 10 units
-    await inventory.addStockBatch(storeAId, userAId, {
-      storeVariantId: clearVarId,
-      receivedQuantityBase: 10,
-      costTotalMinor: 10 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
-    });
-
-    // Clear stock and remove from view
-    const clearRes = await inventory.clearVariantStock(storeAId, userAId, {
-      storeVariantId: clearVarId,
-      removeFromView: true,
-      reason: "توقف التعامل مع المنتج وتصفيره",
-    });
-
-    expect(clearRes.clearedQuantity).toBe(10);
-    expect(clearRes.removedFromView).toBe(true);
-
-    // Verify stock_levels is 0
-    const levelAfterClear = await migratorPrisma.stockLevel.findUnique({
-      where: {
-        storeId_storeVariantId: {
-          storeId: storeAId,
-          storeVariantId: clearVarId,
-        },
-      },
-    });
-    expect(Number(levelAfterClear?.quantityBase)).toBe(0);
-
-    // Verify all active batches are zeroed
-    const activeBatches = await migratorPrisma.storeStockBatch.findMany({
-      where: {
-        storeId: storeAId,
-        storeVariantId: clearVarId,
-        remainingQuantityBase: { gt: BigInt(0) },
-      },
-    });
-    expect(activeBatches).toHaveLength(0);
-
-    // Verify StoreVariant.isActive is false
-    const variantRow = await withTenant(
-      storeAId,
-      userAId,
-      async (tx) =>
-        tx.storeVariant.findUnique({
-          where: { id: clearVarId },
+  it("zeroing a whole product is no longer an API (quantities change by adjustment)", async () => {
+    const { POST, DELETE } = await import("@/app/api/stock/route");
+    const token = (await createSession(userAId, storeAId)).rawToken;
+    const headers = {
+      cookie: `hesba_session=${token}`,
+      "content-type": "application/json",
+      origin: "http://localhost:3000",
+    };
+    const post = await POST(
+      new Request("http://localhost:3000/api/stock", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "clear",
+          storeVariantId: crypto.randomUUID(),
         }),
-      appPrisma,
-    );
-    expect(variantRow?.isActive).toBe(false);
-
-    // Store B cannot clear Store A variant
-    await expect(
-      inventory.clearVariantStock(storeBId, userBId, {
-        storeVariantId: clearVarId,
       }),
-    ).rejects.toThrow("الصنف غير موجود في هذا المحل");
+    );
+    expect(post.status).toBe(400);
+    const del = await DELETE(
+      new Request(
+        `http://localhost:3000/api/stock?variantId=${crypto.randomUUID()}`,
+        { method: "DELETE", headers },
+      ),
+    );
+    expect(del.status).toBe(400);
   });
 
   it("archives variant from active inventory view only when stock is zero", async () => {
@@ -630,16 +587,16 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
         storeVariantId: archiveVarId,
       }),
     ).rejects.toThrow(
-      "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. يرجى تصفير المخزون أولاً.",
+      "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. عدّل الكمية لـ 0 الأول.",
     );
 
-    // 3. Clear stock to 0 first (pure zeroing, keep in view)
-    const clearRes = await inventory.clearVariantStock(storeAId, userAId, {
+    // 3. Adjust the quantity to 0 first (keeps the product in view)
+    await inventory.adjustStockQuantity(storeAId, userAId, {
       storeVariantId: archiveVarId,
-      removeFromView: false,
-      reason: "تصفير قبل الأرشفة",
+      mode: "set",
+      targetQuantityBase: 0,
+      reason: "جرد قبل الإزالة",
     });
-    expect(clearRes.clearedQuantity).toBe(5);
 
     // Check variant is still active after pure zeroing
     const variantStillActive = await withTenant(
