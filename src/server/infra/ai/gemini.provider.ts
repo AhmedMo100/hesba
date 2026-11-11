@@ -21,13 +21,30 @@ export function providerBusy(): AppError {
   return err;
 }
 
+/** The server has no AI key: the assistant is switched off here (a 503, not a crash). */
+export function providerNotConfigured(): AppError {
+  return AppError.serviceUnavailable(
+    "المساعد مش متاح دلوقتي على السيرفر. رصيد رسالتك رجعلك.",
+    { reason: "ai_not_configured" },
+  );
+}
+
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+/**
+ * Gemini "thinking" tokens (AI 503 root cause, 2026-11-12): with the default dynamic budget a
+ * single tool-choosing call took ~27 s with this prompt and tools, past the 20 s reply budget
+ * (AI_REPLY_TIMEOUT_MS), so every business question ended as a 503. The assistant answers
+ * from tool data, so thinking adds latency without better answers: 0 = off (~1 s per call).
+ * `GEMINI_THINKING_BUDGET` overrides it.
+ */
+const DEFAULT_THINKING_BUDGET = 0;
 const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 export class GeminiProvider implements AIProvider {
   readonly name = "gemini";
   private readonly apiKey: string;
   private readonly modelName: string;
+  private readonly thinkingBudget: number;
 
   constructor(apiKey?: string, modelName?: string) {
     this.apiKey =
@@ -40,6 +57,11 @@ export class GeminiProvider implements AIProvider {
       process.env.GEMINI_MODEL ||
       process.env.HESBA_GEMINI_MODEL ||
       DEFAULT_GEMINI_MODEL;
+    const budget = Number(process.env.GEMINI_THINKING_BUDGET);
+    this.thinkingBudget =
+      process.env.GEMINI_THINKING_BUDGET && Number.isInteger(budget)
+        ? budget
+        : DEFAULT_THINKING_BUDGET;
 
     if (!this.apiKey) {
       logger.warn(
@@ -55,9 +77,8 @@ export class GeminiProvider implements AIProvider {
     options?: { signal?: AbortSignal },
   ): Promise<ProviderResponse> {
     if (!this.apiKey) {
-      throw AppError.internal(
-        "مفتاح مزود الذكاء الاصطناعي (Gemini API) غير مهيأ في الخادم",
-      );
+      logger.error("AI chat called but GEMINI_API_KEY is not set");
+      throw providerNotConfigured();
     }
 
     const url = `${GEMINI_API_BASE_URL}/models/${encodeURIComponent(this.modelName)}:generateContent?key=${this.apiKey}`;
@@ -93,22 +114,33 @@ export class GeminiProvider implements AIProvider {
           parts: [{ text: msg.content }],
         });
       } else if (msg.role === "assistant") {
-        contents.push({
-          role: "model",
-          parts: [{ text: msg.content }],
-        });
+        // A turn that called tools is replayed exactly (functionCall parts + thought
+        // signatures): without it Gemini cannot tie the results to its request.
+        const parts = msg.providerParts?.length
+          ? (msg.providerParts as (typeof contents)[number]["parts"])
+          : msg.toolCalls?.length
+            ? msg.toolCalls.map((c) => ({
+                functionCall: { name: c.name, args: c.arguments },
+              }))
+            : [{ text: msg.content }];
+        contents.push({ role: "model", parts });
       } else if (msg.role === "tool") {
-        contents.push({
-          role: "user",
-          parts: [
-            {
-              functionResponse: {
-                name: msg.name || "tool_result",
-                response: { content: msg.content },
-              },
-            },
-          ],
-        });
+        const part = {
+          functionResponse: {
+            name: msg.name || "tool_result",
+            response: { content: msg.content },
+          },
+        };
+        // All results of one round go back in one turn, in the order they were asked for.
+        const last = contents[contents.length - 1];
+        if (
+          last?.role === "user" &&
+          last.parts.every((p) => "functionResponse" in p)
+        ) {
+          last.parts.push(part);
+        } else {
+          contents.push({ role: "user", parts: [part] });
+        }
       }
     }
 
@@ -135,6 +167,7 @@ export class GeminiProvider implements AIProvider {
       generationConfig: {
         temperature: 0.2, // Low temperature for high factual precision
         maxOutputTokens: 1024,
+        thinkingConfig: { thinkingBudget: this.thinkingBudget },
       },
     };
 
@@ -167,6 +200,10 @@ export class GeminiProvider implements AIProvider {
         if (response.status === 429 || response.status >= 500) {
           throw providerBusy();
         }
+        // The key is refused or the model is retired: a server setting, not the user's fault.
+        if ([401, 403, 404].includes(response.status)) {
+          throw providerNotConfigured();
+        }
         throw AppError.internal("تعذر الحصول على رد من مزود الذكاء الاصطناعي");
       }
 
@@ -193,6 +230,7 @@ export class GeminiProvider implements AIProvider {
     candidates?: Array<{
       content?: {
         parts?: Array<{
+          thought?: boolean;
           text?: string;
           functionCall?: {
             name: string;
@@ -217,7 +255,7 @@ export class GeminiProvider implements AIProvider {
     const toolCalls: ToolCall[] = [];
 
     for (const part of parts) {
-      if (part.text) {
+      if (part.text && !part.thought) {
         text += part.text;
       }
       if (part.functionCall) {
@@ -240,6 +278,7 @@ export class GeminiProvider implements AIProvider {
     return {
       text,
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+      providerParts: toolCalls.length > 0 ? parts : undefined,
       usage,
     };
   }
