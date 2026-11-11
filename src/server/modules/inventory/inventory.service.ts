@@ -284,6 +284,102 @@ export async function depleteVariantFefoInTx(
   };
 }
 
+/**
+ * Puts back exactly what a sale took, inside the caller's (void) transaction (ADR-0022,
+ * QA-10). The sale's recorded takes are its `type: "sale"` movements (one per batch part, for
+ * every line — products, promotion items and sandwich ingredients). For each one:
+ * - the same quantity goes back to the SAME batch (or stays unbatched when the take had no
+ *   batch), whatever the product's current price, batches or stock are;
+ * - a `type: "sale_void"` movement of +quantity is appended, linked to the same sale line and
+ *   carrying the take's unit cost, with the running ledger balance;
+ * - the new ledger balance is written to `stock_levels`.
+ *
+ * The variants are locked first, in id order (ADR-0019). A line already restored (a
+ * `sale_void` movement exists for it) is refused, so stock can never be restored twice.
+ *
+ * @returns the new balance of every variant that changed.
+ */
+export async function restoreSaleTakesInTx(
+  tx: TenantTx,
+  storeId: string,
+  input: { saleLineIds: readonly string[]; opId: string; now: Date },
+): Promise<Map<string, bigint>> {
+  const { now } = input;
+  if (input.saleLineIds.length === 0) return new Map();
+  const takes = await tx.stockMovement.findMany({
+    where: {
+      storeId,
+      saleLineId: { in: [...input.saleLineIds] },
+      type: { in: ["sale", "sale_void"] },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  });
+  if (takes.some((m) => m.type === "sale_void")) {
+    throw AppError.conflict("البيعة دي اتلغت قبل كده");
+  }
+
+  const balances = await lockStockLevelsInTx(
+    tx,
+    storeId,
+    takes.map((m) => m.storeVariantId),
+  );
+  const changed = new Map<string, bigint>();
+
+  for (const take of takes) {
+    const quantity = -take.quantityBase; // a take is recorded as a negative quantity
+    if (quantity <= ZERO) continue;
+    if (take.batchId) {
+      const batch = await tx.storeStockBatch.findFirst({
+        where: { id: take.batchId, storeId },
+        select: { remainingQuantityBase: true, receivedQuantityBase: true },
+      });
+      if (
+        !batch ||
+        batch.remainingQuantityBase + quantity > batch.receivedQuantityBase
+      ) {
+        // Restoring would put more into the batch than it ever received: the ledger and the
+        // batches disagree, so refuse rather than invent stock.
+        throw AppError.conflict(
+          "مقدرناش نرجّع كمية البيعة دي للمخزن — راجع المخزون",
+        );
+      }
+      await tx.storeStockBatch.update({
+        where: { id: take.batchId },
+        data: {
+          remainingQuantityBase: { increment: quantity },
+          updatedAt: now,
+        },
+      });
+    }
+    const balance =
+      (changed.get(take.storeVariantId) ??
+        balances.get(take.storeVariantId) ??
+        ZERO) + quantity;
+    changed.set(take.storeVariantId, balance);
+    await tx.stockMovement.create({
+      data: {
+        storeId,
+        storeVariantId: take.storeVariantId,
+        storeProductId: take.storeProductId,
+        batchId: take.batchId,
+        type: "sale_void",
+        quantityBase: quantity,
+        costPriceMinor: take.costPriceMinor,
+        balanceAfterBase: balance,
+        negative: balance < ZERO,
+        saleLineId: take.saleLineId,
+        opId: input.opId,
+        createdAt: now,
+      },
+    });
+  }
+
+  for (const [variantId, balance] of changed) {
+    await writeLevelInTx(tx, storeId, variantId, balance, now);
+  }
+  return changed;
+}
+
 /** Cost of one movement's quantity from its batch's recorded total (ADR-0021); null = unknown. */
 function movementCostPiasters(m: {
   quantityBase: bigint;

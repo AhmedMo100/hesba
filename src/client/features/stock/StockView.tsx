@@ -418,6 +418,8 @@ export function StockView() {
     return movements.filter((m) => {
       // Show additions (purchases) in the additions log
       if (m.type !== "purchase" && m.quantityBase <= 0) return false;
+      // A sale undo puts sold stock back; it is not a purchase or an addition (ADR-0022).
+      if (m.type === "sale_void") return false;
 
       const mTime = new Date(m.createdAt).getTime();
 

@@ -7,6 +7,7 @@ import { Modal, Button, Field, useToast, Alert } from "@/client/shared/ui";
 import { useTranslation } from "@/client/shared/i18n";
 import { authApi } from "@/client/shared/api";
 import type { StoreProfile } from "@/client/shared/api";
+import { useAuth } from "@/client/shared/auth";
 import {
   GOVERNORATES,
   SHOP_TYPES,
@@ -20,10 +21,19 @@ export interface ProfileModalProps {
   onProfileUpdated?: (profile: StoreProfile) => void;
 }
 
+/**
+ * The stored phone is canonical `+20…` (what login looks up); the form shows and validates
+ * the local `01…` form the owner types. The server normalizes it back (QA-11).
+ */
+function toLocalPhone(phone: string): string {
+  return phone.startsWith("+20") ? `0${phone.slice(3)}` : phone;
+}
+
 export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
   const router = useRouter();
   const { t } = useTranslation();
   const toast = useToast();
+  const { setSession } = useAuth();
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -45,7 +55,7 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
       if (session) {
         setProfile({
           ownerName: session.user.name,
-          phone: session.user.phone,
+          phone: toLocalPhone(session.user.phone),
           email: session.user.email,
           emailVerified: session.user.emailVerified ?? true,
           storeName: session.store.name,
@@ -100,6 +110,11 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
         return;
       }
 
+      // Show what the server saved (e.g. the phone in its +20… form) everywhere the session
+      // is used, such as the header's store name (QA-11).
+      setProfile({ ...res.data, phone: toLocalPhone(res.data.phone) });
+      const refreshed = await authApi.getSession();
+      if (refreshed) setSession(refreshed);
       toast.show({ msg: t("profile.saveSuccess") });
       onProfileUpdated?.(res.data);
       onClose();

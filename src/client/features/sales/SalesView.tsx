@@ -13,12 +13,15 @@
  * sale. A rejection (not enough stock, offline, server error) is shown as an error toast and
  * nothing changes. The screen never deducts stock with a separate request.
  *
- * There is no Undo: a recorded sale can only be reversed by a server-side void, which is not
- * built yet (audit QA-10).
+ * Undo (تراجع, in the success toast) is a server-side void (`POST /api/sales/void`, ADR-0022):
+ * the sale stays recorded and is shown as voided, and its stock comes back only after the
+ * server confirmed the void.
  *
  * @remarks
- * - The sales list is kept in `localStorage` per store; on load it is replaced by the
- *   server's list when the server returns at least one sale (audit QA-09, not changed here).
+ * - Recorded sales — the list, today's total and count — come ONLY from the server
+ *   (`GET /api/sales`), re-read after every recorded sale or void (QA-09). Sales the server
+ *   has not recorded yet are the outbox's, shown apart as waiting and never counted. While
+ *   the list is loading or unreachable the total is "—", never a stale or local figure.
  * - Services: the POS-machine balance is deducted before the sale request; if the sale is
  *   rejected, the deduction is refunded (audit QA-03 covers making this server-side).
  * - Money is integer piasters; quantities are base units (pieces or grams).
@@ -58,7 +61,15 @@ import {
   readStagedSandwich,
   type Sandwich,
 } from "@/client/shared/api/sandwiches";
-import type { RecordedSale, SaleRequest } from "@/client/shared/api/sales";
+import {
+  fetchSalesOverview,
+  voidSale,
+  type ListedSale,
+  type RecordedSale,
+  type SaleRequest,
+  type SalesOverview,
+  type VoidedSale,
+} from "@/client/shared/api/sales";
 import {
   dismissSaleOp,
   enqueueSale,
@@ -74,22 +85,6 @@ import {
 } from "@/client/offline/outbox";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
-
-export interface SaleRecord {
-  id: string;
-  productId: string;
-  name: string;
-  amountPiasters: number;
-  quantity: number;
-  category: string;
-  unit: string;
-  isCarton?: boolean;
-  commissionPiasters?: number;
-  timestamp: number;
-  machineId?: string;
-  machineDeductPiasters?: number;
-  machineName?: string;
-}
 
 interface DisplaySaleItem {
   id: string;
@@ -110,11 +105,23 @@ interface DisplaySaleItem {
   isSandwich?: boolean;
 }
 
-const STORAGE_KEY_PREFIX = "hesba_sales_records";
+/**
+ * Older versions kept a copy of the sales list in `localStorage` under this prefix and showed
+ * it as recorded sales — including sales the server had rejected (QA-09). The server's list is
+ * now the only source, so the old copy is removed instead of read.
+ */
+const LEGACY_SALES_KEY_PREFIX = "hesba_sales_records";
 const STAGED_KEY = "hesba_staged_sale_item";
 
-function getSalesStorageKey(storeId?: string): string {
-  return `${STORAGE_KEY_PREFIX}_${storeId || "default"}`;
+function removeLegacySalesCopy(storeId?: string): void {
+  try {
+    localStorage.removeItem(
+      `${LEGACY_SALES_KEY_PREFIX}_${storeId || "default"}`,
+    );
+    localStorage.removeItem(`${LEGACY_SALES_KEY_PREFIX}_default`);
+  } catch {
+    // Storage unavailable: nothing to remove.
+  }
 }
 
 function getServicesStorageKey(storeId?: string): string {
@@ -216,23 +223,14 @@ function formatStockText(item: DisplaySaleItem): string {
 }
 
 function loadInitialData(storeId?: string): {
-  initialSales: SaleRecord[];
   initialEnabledServices: string[];
   stagedSaleItem: DisplaySaleItem | null;
 } {
-  let initialSales: SaleRecord[] = [];
   let initialEnabledServices: string[] = [];
   let stagedSaleItem: DisplaySaleItem | null = null;
 
   if (typeof window !== "undefined" || typeof localStorage !== "undefined") {
-    try {
-      const rawSales = localStorage.getItem(getSalesStorageKey(storeId));
-      if (rawSales) {
-        initialSales = JSON.parse(rawSales);
-      }
-    } catch {
-      // Ignore
-    }
+    removeLegacySalesCopy(storeId);
 
     try {
       const rawServices = localStorage.getItem(getServicesStorageKey(storeId));
@@ -283,7 +281,7 @@ function loadInitialData(storeId?: string): {
     }
   }
 
-  return { initialSales, initialEnabledServices, stagedSaleItem };
+  return { initialEnabledServices, stagedSaleItem };
 }
 
 export function SalesView() {
@@ -294,7 +292,11 @@ export function SalesView() {
   const queueStoreId = storeId ?? lastOutboxStore();
 
   const initial = useMemo(() => loadInitialData(storeId), [storeId]);
-  const [sales, setSales] = useState<SaleRecord[]>(initial.initialSales);
+  // The server's recorded sales (QA-09). null = not loaded yet.
+  const [salesOverview, setSalesOverview] = useState<SalesOverview | null>(
+    null,
+  );
+  const [salesLoadFailed, setSalesLoadFailed] = useState(false);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [services, setServices] = useState<StoreProductItem[]>([]);
   const [enabledServiceIds, setEnabledServiceIds] = useState<string[]>(
@@ -372,19 +374,28 @@ export function SalesView() {
       ? userSelectedMachineId
       : linkedServiceMachines[0]?.id || "";
 
-  // Bottom toast. There is no Undo: a recorded sale can only be reversed by a server-side
-  // void, which does not exist yet (audit QA-10, ADR-0019).
+  // Bottom toast. A sale the server recorded gets "تراجع" (undo): a server-side void
+  // (ADR-0022) — nothing changes on screen until the server confirmed it.
   const [activeToast, setActiveToast] = useState<{
     msg: string;
     type?: "success" | "error" | "pending";
+    undoSale?: { id: string; name: string };
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [voidingSaleId, setVoidingSaleId] = useState<string | null>(null);
 
   const showToast = useCallback(
-    (msg: string, type: "success" | "error" | "pending") => {
+    (
+      msg: string,
+      type: "success" | "error" | "pending",
+      undoSale?: { id: string; name: string },
+    ) => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setActiveToast({ msg, type });
-      toastTimerRef.current = setTimeout(() => setActiveToast(null), 4500);
+      setActiveToast({ msg, type, undoSale });
+      toastTimerRef.current = setTimeout(
+        () => setActiveToast(null),
+        undoSale ? 6000 : 4500,
+      );
     },
     [],
   );
@@ -423,13 +434,10 @@ export function SalesView() {
       fetch("/api/products?filter=all")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/sales")
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
         err instanceof Error ? err : new Error(t("sandwich.loadFailed")),
       ),
-    ]).then(([stockData, prodData, salesData, sandwichList]) => {
+    ]).then(([stockData, prodData, sandwichList]) => {
       if (!isMounted) return;
       if (sandwichList instanceof Error) {
         // Shown, not hidden: without this list the sandwich tiles are missing.
@@ -448,17 +456,6 @@ export function SalesView() {
         const allProds: StoreProductItem[] = prodData.products;
         setAllProducts(allProds);
         setServices(allProds.filter((p) => isServiceProduct(p)));
-      }
-      if (salesData?.sales && Array.isArray(salesData.sales)) {
-        if (salesData.sales.length > 0) {
-          setSales(salesData.sales);
-          try {
-            localStorage.setItem(
-              getSalesStorageKey(storeId),
-              JSON.stringify(salesData.sales),
-            );
-          } catch {}
-        }
       }
     });
 
@@ -517,15 +514,46 @@ export function SalesView() {
     };
   }, [storeId]);
 
-  // Calculate today's sales and total
-  const todaySales = useMemo(() => {
-    const today = new Date().toDateString();
-    return sales.filter((s) => new Date(s.timestamp).toDateString() === today);
-  }, [sales]);
+  /**
+   * Reads the recorded sales from the server — the only source of what was sold (QA-09). An
+   * empty list is shown as empty; a failed read keeps the last server answer and says so.
+   */
+  const reloadSales = useCallback(async () => {
+    try {
+      const overview = await fetchSalesOverview();
+      setSalesOverview(overview);
+      setSalesLoadFailed(false);
+    } catch {
+      setSalesLoadFailed(true);
+    }
+  }, []);
 
-  const todayTotalPiasters = useMemo(() => {
-    return todaySales.reduce((sum, s) => sum + s.amountPiasters, 0);
-  }, [todaySales]);
+  useEffect(() => {
+    let alive = true;
+    const load = () => {
+      fetchSalesOverview()
+        .then((overview) => {
+          if (!alive) return;
+          setSalesOverview(overview);
+          setSalesLoadFailed(false);
+        })
+        .catch(() => {
+          if (alive) setSalesLoadFailed(true);
+        });
+    };
+    load();
+    window.addEventListener("online", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", load);
+    };
+  }, [storeId]);
+
+  // Today's sales (Cairo day) and the total of those not voided, both as the server computed.
+  const todaySales: ListedSale[] = salesOverview?.todaySales ?? [];
+  const todayActiveCount = salesOverview?.todayCount ?? 0;
+  const todayTotalPiasters: number | null =
+    salesOverview?.todayTotalPiasters ?? null;
 
   // Prepare combined items for the Sales Grid
   const displayItems = useMemo<DisplaySaleItem[]>(() => {
@@ -604,26 +632,6 @@ export function SalesView() {
     });
   }, [displayItems, query]);
 
-  /** Adds a recorded sale to today's list (and its local copy). A sale already listed is kept once. */
-  const addSaleRecord = useCallback(
-    (record: SaleRecord) => {
-      setSales((prev) => {
-        if (prev.some((s) => s.id === record.id)) return prev;
-        const updated = [record, ...prev];
-        try {
-          localStorage.setItem(
-            getSalesStorageKey(storeId),
-            JSON.stringify(updated),
-          );
-        } catch {
-          // Ignore quota error
-        }
-        return updated;
-      });
-    },
-    [storeId],
-  );
-
   /** Shows the server's stock balance after a sale on the tiles (matched by variant). */
   const applyRecordedStock = useCallback((recorded: RecordedSale) => {
     const after = new Map<string, number>();
@@ -657,34 +665,18 @@ export function SalesView() {
   );
 
   // A queued sale the server has now recorded — right after the tap, or later by a background
-  // sync: list it with the server's total and show the server's stock, exactly once.
+  // sync: show the server's stock, and re-read the recorded sales from the server.
   useEffect(() => {
     const onSynced = (e: Event) => {
       const d = (e as CustomEvent<SaleSyncedDetail>).detail;
       if (!d || d.storeId !== queueStoreId) return;
       applyRecordedStock(d.recorded);
-      addSaleRecord({
-        id: d.recorded.id,
-        productId:
-          d.payload.productId ||
-          d.payload.variantId ||
-          d.payload.promotionId ||
-          "sale",
-        name: d.summary.name,
-        amountPiasters: d.recorded.totalPiasters,
-        quantity: d.summary.quantity,
-        category: d.summary.category || "عام",
-        unit: d.summary.unit || "piece",
-        timestamp: Date.now(),
-        machineId: d.payload.machineId,
-        machineDeductPiasters: d.payload.machineDeductPiasters,
-        machineName: d.payload.machineName,
-      });
+      void reloadSales();
       if (d.recorded.machine) void reloadMachines();
     };
     window.addEventListener(SALE_SYNCED_EVENT, onSynced);
     return () => window.removeEventListener(SALE_SYNCED_EVENT, onSynced);
-  }, [queueStoreId, applyRecordedStock, addSaleRecord, reloadMachines]);
+  }, [queueStoreId, applyRecordedStock, reloadSales, reloadMachines]);
 
   /**
    * The one way a sale is submitted (ADR-0020). The sale is first written to the outbox
@@ -812,10 +804,63 @@ export function SalesView() {
           amount: formatMoney(outcome.recorded.totalPiasters),
         }),
         "success",
+        { id: outcome.recorded.id, name: item.name },
       );
       return true;
     },
     [submitSale, showToast],
+  );
+
+  /**
+   * Undo (تراجع): asks the server to void the sale (ADR-0022). The server keeps the sale,
+   * marks it void and puts its stock back in one transaction; only then does the screen show
+   * the server's stock and re-read the sales list. Offline or refused → an error, nothing
+   * changes. The same `opId` is used if the cashier taps again while it is being sent.
+   */
+  const voidOpRef = useRef<{ saleId: string; opId: string } | null>(null);
+  const handleUndoSale = useCallback(
+    async (target: { id: string; name: string }) => {
+      if (voidingSaleId) return;
+      if (voidOpRef.current?.saleId !== target.id) {
+        voidOpRef.current = { saleId: target.id, opId: generateUuid() };
+      }
+      setVoidingSaleId(target.id);
+      let voided: VoidedSale;
+      try {
+        voided = await voidSale(target.id, voidOpRef.current.opId);
+      } catch (err) {
+        setVoidingSaleId(null);
+        showToast(
+          err instanceof Error ? err.message : t("sale.voidFailed"),
+          "error",
+        );
+        return;
+      }
+      setVoidingSaleId(null);
+      voidOpRef.current = null;
+      const after = new Map(
+        voided.stock.map((s) => [s.variantId, s.stockAfterBase]),
+      );
+      setInventory((prev) =>
+        prev.map((inv) => {
+          const stock = after.get(inv.variantId);
+          if (stock === undefined) return inv;
+          return {
+            ...inv,
+            currentStockBase: stock,
+            status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+          };
+        }),
+      );
+      showToast(t("sale.voided", { name: target.name }), "success");
+      void reloadSales();
+      if (voided.machine) void reloadMachines();
+      // Sandwich tiles show how many their ingredients can make: read them again.
+      void fetchSandwiches()
+        .then(setSandwiches)
+        .catch(() => undefined);
+    },
+    [voidingSaleId, showToast, reloadSales, reloadMachines],
   );
 
   // Sell a published offer (bundle or single clearance offer). The server reads the offer's
@@ -860,6 +905,7 @@ export function SalesView() {
             amount: formatMoney(outcome.recorded.totalPiasters),
           }),
           "success",
+          { id: outcome.recorded.id, name: promo.title },
         );
       }
     },
@@ -1003,6 +1049,7 @@ export function SalesView() {
                 amount: formatMoney(amountPiasters),
               }),
           "success",
+          { id: outcome.recorded.id, name: item.name },
         );
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
@@ -1317,8 +1364,10 @@ export function SalesView() {
         <div className={styles.sBar}>
           <div className={styles.sTotal} data-testid="today-sales-pill">
             <span className={styles.sTotalLabel}>مبيعات النهارده</span>
-            <b className={styles.sTotalAmount}>
-              {formatMoney(todayTotalPiasters)}
+            <b className={styles.sTotalAmount} data-testid="today-sales-total">
+              {todayTotalPiasters === null
+                ? "—"
+                : formatMoney(todayTotalPiasters)}
             </b>
           </div>
 
@@ -1584,12 +1633,12 @@ export function SalesView() {
                 آخر البيعات
               </h3>
               <span style={{ fontSize: 12, color: "var(--ink2)" }}>
-                {todaySales.length === 0
+                {todayActiveCount === 0
                   ? "مفيش بيعات اتسجلت لسه"
-                  : `${todaySales.length} ${todaySales.length === 1 ? "عملية بيع اليوم" : "عمليات بيع اليوم"}`}
+                  : `${todayActiveCount} ${todayActiveCount === 1 ? "عملية بيع اليوم" : "عمليات بيع اليوم"}`}
               </span>
             </div>
-            {todaySales.length > 0 && (
+            {todayTotalPiasters !== null && todayActiveCount > 0 && (
               <div style={{ textAlign: "left" }}>
                 <span
                   style={{
@@ -1613,7 +1662,31 @@ export function SalesView() {
             )}
           </div>
 
-          {todaySales.length === 0 ? (
+          {salesLoadFailed && (
+            <div className={styles.salesLoadError} role="alert">
+              <span>{t("sale.listFailed")}</span>
+              <button
+                type="button"
+                className={styles.queueBtn}
+                onClick={() => void reloadSales()}
+              >
+                {t("sale.listRetry")}
+              </button>
+            </div>
+          )}
+          {salesOverview === null ? (
+            !salesLoadFailed && (
+              <div
+                style={{
+                  color: "var(--ink2)",
+                  fontSize: 13.5,
+                  padding: "10px 2px",
+                }}
+              >
+                {t("common.loading")}
+              </div>
+            )
+          ) : todaySales.length === 0 ? (
             <div
               style={{
                 color: "var(--ink2)",
@@ -1627,10 +1700,23 @@ export function SalesView() {
             <div
               className={styles.recentList}
               style={{ maxHeight: 380, overflowY: "auto" }}
+              data-testid="recent-sales"
             >
               {todaySales.map((sale) => (
-                <div key={sale.id} className={styles.rcRow}>
-                  <span className={styles.rcName}>{sale.name}</span>
+                <div
+                  key={sale.id}
+                  className={`${styles.rcRow} ${sale.voided ? styles.rcVoided : ""}`}
+                  data-testid="recent-sale-row"
+                  data-voided={sale.voided ? "true" : "false"}
+                >
+                  <span className={styles.rcName}>
+                    {sale.name}
+                    {sale.voided && (
+                      <small className={styles.rcVoidBadge}>
+                        {t("sale.voidedBadge")}
+                      </small>
+                    )}
+                  </span>
                   <div className={styles.rcMeta}>
                     <span className={styles.rcTime}>
                       {formatCairoTime(sale.timestamp)}
@@ -2029,6 +2115,25 @@ export function SalesView() {
             />
             <span>{activeToast.msg}</span>
           </div>
+          {activeToast.undoSale && (
+            <button
+              type="button"
+              className={styles.toastUndoBtn}
+              data-testid="sale-undo"
+              disabled={voidingSaleId !== null}
+              onClick={() => {
+                const target = activeToast.undoSale;
+                if (target) void handleUndoSale(target);
+              }}
+            >
+              <Icon n="undo" s={14} />
+              <span>
+                {voidingSaleId === activeToast.undoSale.id
+                  ? t("sale.voiding")
+                  : t("sale.undo")}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>

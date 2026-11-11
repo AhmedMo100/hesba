@@ -112,6 +112,8 @@ async function salesInRange(
     where: {
       storeId,
       createdAt: { ...(from ? { gte: from } : {}), lt: to },
+      // A voided sale is not revenue and its cost is not COGS (ADR-0022).
+      saleVoid: { is: null },
     },
     orderBy: { createdAt: "asc" },
     select: {

@@ -164,6 +164,7 @@ model Store {
   posMachines          PosMachine[]
   posMachineTopups     PosMachineTopup[]
   sandwichIngredients  SandwichIngredient[]
+  saleVoids            SaleVoid[]
 
   @@map("stores")
 }
@@ -189,6 +190,7 @@ model User {
   passwordResetCodes      PasswordResetCode[]
   magicLinkTokens         MagicLinkToken[]
   sessions                Session[]
+  saleVoids               SaleVoid[]
 
   @@map("users")
 }
@@ -696,6 +698,8 @@ model DebtEntry {
   noteAr         String?       @map("note_ar") @db.Text
   settlesEntryId String?       @map("settles_entry_id") @db.Uuid
   opId           String        @map("op_id") @db.Uuid
+  /// opening | transaction | adjustment (ADR-0023): an owner adjustment is never a debt/payment.
+  entryKind      String        @default("transaction") @map("entry_kind") @db.Text
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -764,9 +768,32 @@ model Sale {
   customerContact Contact?   @relation(fields: [customerContactId], references: [id], onDelete: SetNull)
   customer        Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
   saleLines       SaleLine[]
+  /// Set when the sale was undone (ADR-0022): the sale row itself is never changed or deleted.
+  saleVoid        SaleVoid?
 
   @@unique([storeId, opId])
+  @@unique([storeId, id], map: "uq_sales_store_id_id")
   @@map("sales")
+}
+
+/// A reversing void of one sale (ADR-0022, QA-10). Append-only for the app role: one per sale,
+/// one per client op_id. The stock it restored is the sale's `type: "void"` movements.
+model SaleVoid {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId   String   @map("store_id") @db.Uuid
+  saleId    String   @map("sale_id") @db.Uuid
+  opId      String   @map("op_id") @db.Uuid
+  reason    String?  @db.Text
+  voidedBy  String?  @map("voided_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sale  Sale  @relation(fields: [storeId, saleId], references: [storeId, id], onDelete: Cascade, map: "sale_voids_sale_fkey")
+  user  User? @relation(fields: [voidedBy], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, saleId], map: "uq_sale_voids_sale")
+  @@unique([storeId, opId], map: "uq_sale_voids_store_op")
+  @@map("sale_voids")
 }
 
 model SaleLine {

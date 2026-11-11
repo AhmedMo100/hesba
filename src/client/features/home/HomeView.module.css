@@ -517,3 +517,24 @@
   cursor: pointer;
   padding: 4px 0;
 }
+
+/* The report could not be read: say so, never show 0 (QA-06). */
+.reportError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.reportError button {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--br);
+  background: transparent;
+  color: var(--br);
+  font-weight: 700;
+}

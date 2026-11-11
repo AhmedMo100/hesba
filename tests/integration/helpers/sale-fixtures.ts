@@ -12,8 +12,8 @@ import { InventoryService } from "@/server/modules/inventory";
 import {
   GET as listSalesRoute,
   POST as postSaleRoute,
-  DELETE as deleteSaleRoute,
 } from "@/app/api/sales/route";
+import { POST as voidSaleRoute } from "@/app/api/sales/void/route";
 
 export const directUrl =
   process.env["HESBA_DIRECT_URL"] ??
@@ -92,6 +92,7 @@ export class SaleFixtures {
       await sql`DELETE FROM "stock_levels" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "waste_records" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_stock_batches" WHERE store_id IN ${sql(ids)}`;
+      await sql`DELETE FROM "sale_voids" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sale_lines" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sales" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_variants" WHERE store_id IN ${sql(ids)}`;
@@ -190,7 +191,7 @@ export class SaleFixtures {
 
   async request(
     shop: Shop,
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST",
     body?: unknown,
     query = "",
     headers: Record<string, string> = {},
@@ -204,13 +205,23 @@ export class SaleFixtures {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const handler =
-      method === "GET"
-        ? listSalesRoute
-        : method === "POST"
-          ? postSaleRoute
-          : deleteSaleRoute;
+    const handler = method === "GET" ? listSalesRoute : postSaleRoute;
     const res = await handler(req);
+    return { status: res.status, json: (await res.json()) as Json };
+  }
+
+  /** POST /api/sales/void (ADR-0022). */
+  async void(shop: Shop, body: Json): Promise<{ status: number; json: Json }> {
+    const res = await voidSaleRoute(
+      new Request("http://localhost:3000/api/sales/void", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${await this.token(shop)}`,
+        },
+        body: JSON.stringify(body),
+      }),
+    );
     return { status: res.status, json: (await res.json()) as Json };
   }
 
@@ -266,7 +277,7 @@ export class SaleFixtures {
     return this.as(shop, (tx) =>
       tx.sale.findMany({
         where: { storeId: shop.storeId },
-        include: { saleLines: true },
+        include: { saleLines: true, saleVoid: true },
         orderBy: { createdAt: "asc" },
       }),
     );

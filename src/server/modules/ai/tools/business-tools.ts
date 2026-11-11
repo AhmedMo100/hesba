@@ -278,6 +278,7 @@ export class BusinessToolsService {
       where: {
         storeId,
         createdAt: { gte: start, lte: end },
+        saleVoid: { is: null }, // voided sales are not sales (ADR-0022)
       },
       select: {
         totalPiasters: true,
@@ -322,6 +323,7 @@ export class BusinessToolsService {
       where: {
         storeId,
         createdAt: { gte: start, lte: end },
+        sale: { saleVoid: { is: null } }, // voided sales are not sales (ADR-0022)
       },
       include: {
         storeProduct: { select: { nameAr: true } },

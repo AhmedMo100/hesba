@@ -346,6 +346,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** the server is the source; unsynced items are shown separately.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-09-qa-12-sales-profile-ledger` (ADR-0022). Verified by `tests/unit/client/sales-view.spec.tsx`, `tests/unit/client/sales-server-source.spec.ts`, `tests/e2e/sales-void.spec.ts`.
+
 #### QA-10 · P1 · Undo sale always fails on the server
 - **Category:** broken flow · **Area:** Sales · **Env:** DEV · **Links:** UE-03, K3
 - **Steps:** `DELETE /api/sales?id=<id>`.
@@ -360,6 +362,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** Roadmap Phase 3 (`voidSale`). Ship it together with QA-01.
 - **Regression risk:** medium.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-09-qa-12-sales-profile-ledger` (ADR-0022). Verified by `tests/integration/sales-void.spec.ts`.
+
 #### QA-11 · P1 · Saving the store profile always fails
 - **Category:** broken flow · **Area:** Profile · **Env:** DEV · **Links:** UE-04, K4
 - **Steps:** `PUT /api/auth/profile` with valid data.
@@ -371,6 +375,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Frequency:** always.
 - **Fix:** Roadmap Phase 4.
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-09-qa-12-sales-profile-ledger` (—). Verified by `tests/integration/profile-api.spec.ts`.
 
 #### QA-12 · P1 · Overpayment creates a hidden credit; editing the balance then fabricates a debt entry
 - **Category:** financial integrity · **Area:** People (customers, payables) · **Env:** DEV · **Links:** UE-11 (extends it)
@@ -394,6 +400,8 @@ Issues are ordered by severity. Each one lists, in this order:
   - Reject or confirm overpayments, and show credit balances (negative).
   - A balance edit must be an explicit labelled adjustment, approved by the owner.
 - **Regression risk:** medium.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-09-qa-12-sales-profile-ledger` (ADR-0023). Verified by `tests/integration/people-ledger.spec.ts`.
 
 #### QA-13 · P1 · After logout, the shop's data is still served offline from the service-worker cache
 - **Category:** privacy/security · **Area:** PWA · **Env:** PROD

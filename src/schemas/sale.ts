@@ -69,3 +69,29 @@ export interface RecordedSale {
   /** Service sales paid through a POS machine: the machine's balance after the charge. */
   machine?: { machineId: string; balanceAfterPiasters: number };
 }
+
+/**
+ * `POST /api/sales/void` (ADR-0022, QA-10): undo a recorded sale with a reversing void.
+ * `opId` is the client's id for THIS void: a retry with the same `opId` is applied once.
+ */
+export const voidSaleSchema = z.object({
+  saleId: z.string().uuid("معرّف البيعة غير صحيح"),
+  opId: z.string().uuid().optional(),
+  reason: z.string().trim().max(200).optional(),
+});
+
+export type VoidSaleInput = z.infer<typeof voidSaleSchema>;
+
+/** Result of a void: the sale stays recorded, marked void, and its stock is back. */
+export interface VoidedSale {
+  saleId: string;
+  voidId: string;
+  voidedAt: string;
+  totalPiasters: number;
+  /** True when the sale was already void (nothing was restored a second time). */
+  alreadyVoided: boolean;
+  /** Each restored variant's stock balance after the void. */
+  stock: Array<{ variantId: string; stockAfterBase: number }>;
+  /** A service sale paid through a POS machine: the machine's balance after the refund. */
+  machine?: { machineId: string; balanceAfterPiasters: number };
+}

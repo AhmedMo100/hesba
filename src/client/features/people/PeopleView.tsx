@@ -25,7 +25,10 @@ interface PersonItem {
   kind: "customer" | "supplier" | "both";
   name: string;
   phone: string | null;
+  /** Signed, never floored (ADR-0023): < 0 is a credit (paid beyond what was owed). */
   amount_piasters: number;
+  /** The credit of a negative balance (≥ 0). */
+  credit_piasters?: number;
   total_original_piasters?: number;
   total_paid_piasters?: number;
   is_settled?: boolean;
@@ -88,7 +91,10 @@ function getWaUrl(
       : `20${cleanDigits}`;
 
   let text = "";
-  if (sec === "owedToMe") {
+  if (sec !== "suppliers" && amountPiasters <= 0) {
+    // Nothing is owed (or the balance is a credit): no amount to ask about.
+    text = `السلام عليكم يا ${name}.`;
+  } else if (sec === "owedToMe") {
     text = `السلام عليكم يا ${name}، بخصوص الحساب المتبقي وقدره ${formatEgp(amountPiasters)}.`;
   } else if (sec === "iOwe") {
     text = `السلام عليكم يا ${name}، بخصوص المبلغ المستحق لحضرتك وقدره ${formatEgp(amountPiasters)} من طرفنا.`;
@@ -279,6 +285,9 @@ export function PeopleView() {
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formAmount, setFormAmount] = useState("");
+  // The amount the edit form opened with: the balance is sent only when the owner changed
+  // it, so renaming a person never writes a balance entry (QA-12).
+  const [formAmountInitial, setFormAmountInitial] = useState("");
   const [formNote, setFormNote] = useState("");
   const [supplierOwedMoneyNote, setSupplierOwedMoneyNote] = useState("");
   const [supplierProductsNote, setSupplierProductsNote] = useState("");
@@ -401,13 +410,14 @@ export function PeopleView() {
     setFormName(p.name);
     setFormPhone(p.phone || "");
     const egpVal = p.amount_piasters / 100;
-    setFormAmount(
+    const initialAmount =
       p.amount_piasters > 0
         ? p.amount_piasters % 100 === 0
           ? String(egpVal)
           : egpVal.toFixed(2)
-        : "",
-    );
+        : "";
+    setFormAmount(initialAmount);
+    setFormAmountInitial(initialAmount);
     if (p.section === "suppliers") {
       const parsed = parseSupplierNotes(p.note);
       setSupplierOwedMoneyNote(parsed.owedMoneyNote);
@@ -482,8 +492,12 @@ export function PeopleView() {
       );
     }
 
+    // Suppliers' balances are not edited in this form. For the others, an edit sends the
+    // balance only when the owner changed the field (the server then records ONE labelled
+    // owner adjustment); a new person sends their opening balance.
+    const amountChanged = formAmount.trim() !== formAmountInitial.trim();
     const amountNum = isSupplier
-      ? editingPerson?.amount_piasters || 0
+      ? 0
       : formAmount.trim()
         ? parseEgpToPiasters(formAmount)
         : 0;
@@ -505,7 +519,9 @@ export function PeopleView() {
           body: JSON.stringify({
             name: formName.trim(),
             phone: formPhone.trim() || null,
-            amountPiasters: amountNum,
+            ...(!isSupplier && amountChanged
+              ? { amountPiasters: amountNum }
+              : {}),
             note: finalNote,
             supplies: isSupplier ? formSupplies.map((s) => s.id) : [],
           }),
@@ -930,6 +946,18 @@ export function PeopleView() {
                             {parsed.generalNote}
                           </span>
                         )}
+                        {p.amount_piasters < 0 && (
+                          <div className={styles.cardFooter}>
+                            <span
+                              className={styles.amountCredit}
+                              data-testid={`person-balance-${p.id}`}
+                            >
+                              {t("pages.people.creditPayable", {
+                                amount: formatEgp(p.credit_piasters ?? 0),
+                              })}
+                            </span>
+                          </div>
+                        )}
                         {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
                           <div className={styles.cardFooter}>
                             <span className={styles.amountLabel}>
@@ -965,12 +993,22 @@ export function PeopleView() {
                     )}
                     <span
                       className={
-                        section === "owedToMe"
-                          ? styles.amountPos
-                          : styles.amountNeg
+                        p.amount_piasters < 0
+                          ? styles.amountCredit
+                          : section === "owedToMe"
+                            ? styles.amountPos
+                            : styles.amountNeg
                       }
+                      data-testid={`person-balance-${p.id}`}
                     >
-                      {formatEgp(p.amount_piasters)}
+                      {p.amount_piasters < 0
+                        ? t(
+                            section === "owedToMe"
+                              ? "pages.people.creditCustomer"
+                              : "pages.people.creditPayable",
+                            { amount: formatEgp(p.credit_piasters ?? 0) },
+                          )
+                        : formatEgp(p.amount_piasters)}
                     </span>
                   </div>
                 )}
@@ -1259,6 +1297,17 @@ export function PeopleView() {
                       placeholder="0"
                     />
                   </div>
+                  {editingPerson && (
+                    <small className={styles.fieldHint}>
+                      {(editingPerson.credit_piasters ?? 0) > 0
+                        ? t("pages.people.editBalanceCreditHint", {
+                            amount: formatEgp(
+                              editingPerson.credit_piasters ?? 0,
+                            ),
+                          })
+                        : t("pages.people.editBalanceHint")}
+                    </small>
+                  )}
                 </div>
 
                 {/* Credit products selection for owedToMe */}
@@ -1504,7 +1553,18 @@ export function PeopleView() {
                 {t("pages.people.currentBalance")}
               </span>
               <span className={styles.currentBalanceValue}>
-                {formatEgp(paymentTarget.person.amount_piasters)}
+                {paymentTarget.person.amount_piasters < 0
+                  ? t(
+                      paymentTarget.isCollection
+                        ? "pages.people.creditCustomer"
+                        : "pages.people.creditPayable",
+                      {
+                        amount: formatEgp(
+                          paymentTarget.person.credit_piasters ?? 0,
+                        ),
+                      },
+                    )
+                  : formatEgp(paymentTarget.person.amount_piasters)}
               </span>
             </div>
 
@@ -1529,6 +1589,26 @@ export function PeopleView() {
                   autoFocus
                 />
               </div>
+              {(() => {
+                // Paying more than is owed is allowed and becomes a visible credit (ADR-0023).
+                const extra =
+                  (paymentAmount.trim()
+                    ? parseEgpToPiasters(paymentAmount)
+                    : 0) - Math.max(paymentTarget.person.amount_piasters, 0);
+                return paymentAmount.trim() && extra > 0 ? (
+                  <small
+                    className={styles.fieldHint}
+                    data-testid="overpay-hint"
+                  >
+                    {t(
+                      paymentTarget.isCollection
+                        ? "pages.people.overpayCustomerHint"
+                        : "pages.people.overpayPayableHint",
+                      { amount: formatEgp(extra) },
+                    )}
+                  </small>
+                ) : null;
+              })()}
             </div>
 
             {/* Date */}

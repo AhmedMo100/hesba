@@ -541,21 +541,12 @@ describe("QA-01 — atomic ordinary sale", () => {
     });
   });
 
-  // Undo is out of scope (audit QA-10): sales are append-only, so a hard delete is refused.
-  describe("undo (unchanged)", () => {
-    it("DELETE is refused by the append-only grants and the sale survives", async () => {
-      const p = await f.product(A, { name: "تراجع", sell: 100 });
-      await f.addStock(A, p.variantId, 2);
-      const sale = await f.sell(A, p.variantId, 1);
-      const id = (sale.json.data as { id: string }).id;
-      const res = await f.request(A, "DELETE", undefined, `?id=${id}`);
-      expect(res.status).toBe(500);
-      expect((await f.salesOf(A)).some((s) => s.id === id)).toBe(true);
-    });
-
-    it("DELETE without an id is a 400", async () => {
-      const res = await f.request(A, "DELETE");
-      expect(res.status).toBe(400);
+  // Undo is a reversing void (ADR-0022, QA-10), covered by `sales-void.spec.ts`. Sales are
+  // append-only: there is no hard delete to call.
+  describe("no hard delete", () => {
+    it("the sales route exports no DELETE handler", async () => {
+      const route = await import("@/app/api/sales/route");
+      expect("DELETE" in route).toBe(false);
     });
   });
 });

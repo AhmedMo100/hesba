@@ -63,27 +63,46 @@ export function HomeView() {
   const [showMoreTop, setShowMoreTop] = useState(false);
 
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
-  const [report, setReport] = useState<HomeReport | null>(null);
+  const [loadedReport, setReport] = useState<HomeReport | null>(null);
+  // Only the chosen period's report is shown; another period's is never shown meanwhile.
+  const report = loadedReport?.period === period ? loadedReport : null;
+  const [reportFailed, setReportFailed] = useState(false);
+  const [reportAttempt, setReportAttempt] = useState(0);
 
-  // The report of the chosen period, from the server (ADR-0021)
+  // The report of the chosen period, from the server (ADR-0021). A failed read (offline, or a
+  // request cut off by a page reload) is retried once and can be retried by hand; until a
+  // report arrives the figures show "—", never 0.
   useEffect(() => {
     const controller = new AbortController();
-    const load = () => {
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const load = (retriesLeft: number) => {
       fetchHomeReport(period, controller.signal)
-        .then(setReport)
+        .then((r) => {
+          setReport(r);
+          setReportFailed(false);
+        })
         .catch(() => {
-          if (!controller.signal.aborted) setReport(null);
+          if (controller.signal.aborted) return;
+          if (retriesLeft > 0) {
+            retry = setTimeout(() => load(retriesLeft - 1), 1500);
+          } else {
+            setReportFailed(true);
+          }
         });
     };
-    load();
-    window.addEventListener("hesba_stock_updated", load);
-    window.addEventListener("hesba_sales_config_updated", load);
+    const reload = () => load(1);
+    reload();
+    window.addEventListener("hesba_stock_updated", reload);
+    window.addEventListener("hesba_sales_config_updated", reload);
+    window.addEventListener("online", reload);
     return () => {
       controller.abort();
-      window.removeEventListener("hesba_stock_updated", load);
-      window.removeEventListener("hesba_sales_config_updated", load);
+      if (retry) clearTimeout(retry);
+      window.removeEventListener("hesba_stock_updated", reload);
+      window.removeEventListener("hesba_sales_config_updated", reload);
+      window.removeEventListener("online", reload);
     };
-  }, [period]);
+  }, [period, reportAttempt]);
 
   // Load Inventory
   useEffect(() => {
@@ -459,6 +478,21 @@ export function HomeView() {
               </button>
             ))}
           </div>
+
+          {reportFailed && (
+            <div className={styles.reportError} role="alert">
+              <span>{t("home.reportFailed")}</span>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportFailed(false);
+                  setReportAttempt((n) => n + 1);
+                }}
+              >
+                {t("home.reportRetry")}
+              </button>
+            </div>
+          )}
 
           {/* Report KPI Grid matching Image 4 */}
           <div className={styles.kpis}>

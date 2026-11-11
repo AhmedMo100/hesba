@@ -481,6 +481,22 @@
   margin-inline-start: auto;
 }
 
+/* A credit: paid beyond what was owed (ADR-0023). Shown in words, never as 0. */
+.amountCredit {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--yel, #b8841a);
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+.fieldHint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink2);
+}
+
 .amountDark {
   font-size: 18px;
   font-weight: 900;
