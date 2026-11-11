@@ -12,9 +12,36 @@
  * - src/client/features/{alerts,sales} (types only)
  *
  * @remarks Money is integer piasters; weighed quantities are grams and their price is per kg.
- * Day arithmetic uses the server's local calendar day, not Cairo time — see
- * {@link getDaysUntilExpiry}.
+ * Day arithmetic uses the Cairo calendar day (QA-52) — see {@link getDaysUntilExpiry}.
  */
+import { toCairoDateString } from "./time";
+
+/**
+ * Stock level of one variant (QA-52), the rule of the behavioural reference
+ * (`docs/demo/src/a_core.jsx` `stockLevel`):
+ * - nothing left → "out";
+ * - a weighed item (grams) below 3 kg → "low";
+ * - an item sold in packs (`packQty` > 1) below two packs → "low";
+ * - otherwise below 10 pieces → "low".
+ */
+export const LOW_STOCK_WEIGHT_GRAMS = 3000;
+export const LOW_STOCK_PACKS = 2;
+export const LOW_STOCK_PIECES = 10;
+
+export function stockLevel(
+  unitMode: string,
+  packQty: number,
+  quantityBase: number,
+): "out" | "low" | "ok" {
+  if (quantityBase <= 0) return "out";
+  if (unitMode === "weight") {
+    return quantityBase < LOW_STOCK_WEIGHT_GRAMS ? "low" : "ok";
+  }
+  if (packQty > 1) {
+    return quantityBase < LOW_STOCK_PACKS * packQty ? "low" : "ok";
+  }
+  return quantityBase < LOW_STOCK_PIECES ? "low" : "ok";
+}
 
 /** A batch expiring within this many days (and not yet expired) is "near expiry". */
 export const NEAR_EXPIRY_DAYS = 7;
@@ -126,22 +153,21 @@ export interface StoreAlerts {
 /**
  * Whole calendar days from `now` to the expiry date (negative once expired, 0 on the day).
  *
- * @remarks Uses the runtime's local timezone for the day boundary. On a UTC server this can
- * differ from the Cairo calendar day for a few hours around midnight.
+ * @remarks Both days are Cairo calendar days (QA-52), whatever the server's timezone. An
+ * expiry stored as a date (midnight UTC) is that calendar date.
  */
 export function getDaysUntilExpiry(
   dateStr: string,
   now: Date = new Date(),
 ): number {
-  const target = new Date(dateStr);
-  const dTarget = new Date(
-    target.getFullYear(),
-    target.getMonth(),
-    target.getDate(),
-  );
-  const dNow = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const diffMs = dTarget.getTime() - dNow.getTime();
-  return Math.round(diffMs / (1000 * 60 * 60 * 24));
+  // An expiry date is a calendar date: take its YYYY-MM-DD as written.
+  const target = /^\d{4}-\d{2}-\d{2}/.test(dateStr)
+    ? dateStr.slice(0, 10)
+    : toCairoDateString(dateStr);
+  const today = toCairoDateString(now);
+  const t = Date.parse(`${target}T00:00:00Z`);
+  const n = Date.parse(`${today}T00:00:00Z`);
+  return Math.round((t - n) / (24 * 60 * 60 * 1000));
 }
 
 /**

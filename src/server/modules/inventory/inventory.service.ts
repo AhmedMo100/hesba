@@ -1,3 +1,4 @@
+import { stockLevel } from "@/domain/alerts";
 import "server-only";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
@@ -514,12 +515,6 @@ function movementCostPiasters(m: {
   return milli === null ? null : Number(milliToWholePiasters(milli));
 }
 
-/**
- * A variant with at most this many base units in stock is reported as "low" (5 pieces, or
- * 5 grams for weighed items).
- */
-const FIVE = BigInt(5);
-
 export class InventoryService {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -979,8 +974,12 @@ export class InventoryService {
           }));
 
           const hasNearExpiry = batches.some((b) => b.isNearExpiry);
-          const status =
-            currentQty <= ZERO ? "out" : currentQty <= FIVE ? "low" : "ok";
+          // The documented stock-level rule (QA-52): 3 kg, two packs or 10 pieces.
+          const status = stockLevel(
+            v.storeProduct?.unit === "kg" ? "weight" : "piece",
+            v.packQty,
+            Number(currentQty),
+          );
 
           return {
             variantId: v.id,
