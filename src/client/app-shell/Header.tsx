@@ -56,7 +56,12 @@ export function Header({
               type="button"
               className={styles.iconBtn}
               onClick={() => onNavigate("alerts")}
-              aria-label="التنبيهات"
+              // Not the navigation's "التنبيهات": one name per control (QA-45).
+              aria-label={
+                alertCount > 0
+                  ? `جرس التنبيهات (${alertCount})`
+                  : "جرس التنبيهات"
+              }
               title="التنبيهات"
             >
               <Icon n="bell" s={20} />

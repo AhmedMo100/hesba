@@ -646,11 +646,16 @@ export function ProductsView() {
       const normCat = normalizeArabic(p.category || "");
       const normBrand = normalizeArabic(p.brand_name || "");
       const normBarcode = normalizeArabic(p.barcode || "");
+      // English catalog names (QA-48): "pepsi" finds بيبسي.
+      const normEn = normalizeArabic(
+        `${p.name_en || ""} ${p.brand_name_en || ""}`,
+      );
       return (
         normName.includes(normQ) ||
         normCat.includes(normQ) ||
         normBrand.includes(normQ) ||
-        normBarcode.includes(normQ)
+        normBarcode.includes(normQ) ||
+        normEn.includes(normQ)
       );
     });
   }, [physicalProducts, filterMode, activeCategory, query]);

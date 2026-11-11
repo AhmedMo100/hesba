@@ -50,6 +50,9 @@ export async function GET(req: Request) {
       buy_cost_piasters: Number(p.buy_cost_piasters),
       stock_quantity: Number(p.stock_quantity ?? 0),
       brand_name: p.brand_name || null,
+      // QA-48: the products screen also searches the English catalog names.
+      name_en: p.name_en,
+      brand_name_en: p.brand_name_en,
       is_custom: p.is_custom,
       added_by_this_store: p.added_by_this_store,
       is_hidden: p.is_hidden,

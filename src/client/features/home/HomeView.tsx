@@ -24,6 +24,7 @@ import {
 } from "@/client/shared/api/reports";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "./HomeView.module.css";
 
 type PeriodKey = ReportPeriod;
@@ -33,27 +34,29 @@ function moneyOrUnknown(piasters: number | null): string {
   return piasters === null ? "—" : formatMoney(piasters);
 }
 
-function formatQtyText(
+export function formatQtyText(
   unitMode: "piece" | "weight",
   qtyBase: number,
   packQty = 1,
-  unit = "قطعة",
+  unit = "piece",
   packName?: string,
 ): string {
   if (unitMode === "weight") {
     const kg = qtyBase / 1000;
     return `${kg.toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
   }
+  // Arabic words, never the stored codes (QA-43).
+  const word = unitWord(unit);
   if (packQty > 1 && qtyBase >= packQty) {
     const packs = Math.floor(qtyBase / packQty);
     const rem = qtyBase % packQty;
-    const pName = packName || "كرتونة";
+    const pName = packWord(packName, packQty);
     if (rem === 0) {
       return `${packs} ${pName}`;
     }
-    return `${packs} ${pName} و ${rem} ${unit}`;
+    return `${packs} ${pName} و ${rem} ${word}`;
   }
-  return `${qtyBase} ${unit}`;
+  return `${qtyBase} ${word}`;
 }
 
 export function HomeView() {

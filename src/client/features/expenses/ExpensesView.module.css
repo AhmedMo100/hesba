@@ -172,6 +172,7 @@
   padding: 0 8px;
   outline: none;
   width: 100%;
+  min-height: 44px; /* QA-46: the whole field is the touch target */
   text-align: start;
   font-family: inherit;
 }

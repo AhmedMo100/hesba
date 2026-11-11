@@ -810,15 +810,18 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Actual:** the Home "الجرد" table shows "19 **piece**", "carton 5", and for a 10-piece bread pack "1 **كرتونة** و 8 piece".
 - **Evidence:** [UI] journey home text, `qa-home-360.png`.
 - **Fix:** translate units through `t()`; use the product's own pack word.
+- **Status (2026-11-13):** fixed. Home words units and packs through `src/client/shared/unit-labels.ts` (`piece` → قطعة, `carton` → كرتونة). With no pack word it shows the neutral عبوة (دستة for 12), never a guessed كرتونة. Tests: `tests/unit/client/p3-ux.spec.ts`, e2e `p3-ux.spec.ts`.
 
 #### QA-44 · P3 · Home scrolls horizontally on phones when numbers are large
 - **Actual:** at 360 and 390 px, the page width is 411/415 px. The inventory table is wider than the screen with 13-digit values. Normal values fit (`qa-j-prod-5-home-0.png`).
 - **Fix:** wrap the table in its own scroll container; use compact number formatting.
+- **Status (2026-11-13):** fixed. The grid and flex items could not shrink, so `nowrap` figures widened the page. They can now shrink, and very large figures wrap inside their card. The table scrolls inside its own card. e2e: 1,000,000 pieces at 1,000,000 EGP, no sideways scroll at 360 px or on desktop.
 
 #### QA-45 · P3 · Every navigation label exists twice; the desktop e2e test fails on it
 - **Actual:** at all five widths, the accessibility tree has two buttons each for "الرئيسية", "البيع", "المنتجات", "المخزون" and "التنبيهات". People cards also repeat "تواصل واتساب <name>".
 - **Evidence:** [UI] survey; [T] e2e `shell-offline` desktop: strict-mode violation on `button[aria-label="التنبيهات"]`.
 - **Links:** UE-16.
+- **Status (2026-11-13):** fixed. Only one navigation shows at a width (the other is `display: none`). The real duplicate was the header bell: it is now named «جرس التنبيهات». People cards had two identical WhatsApp links; the duplicate small one is removed. The desktop `shell-offline` e2e passes. e2e `p3-ux.spec.ts` checks one control per name.
 
 #### QA-46 · P3 · Touch targets below 44 px
 - **Actual:**
@@ -835,20 +838,25 @@ Issues are ordered by severity. Each one lists, in this order:
 
 - **Evidence:** [UI] survey (360 px).
 - **Rule:** AGENTS.md §7 requires ≥ 44 px.
+- **Status (2026-11-13):** fixed. Every listed control is ≥ 44 px (offer edit and delete, People edit, delete, WhatsApp, phone and تحصيل, the expense amount field, Alerts «تم», Products chips). Measured in e2e `p3-ux.spec.ts` on both projects.
 
 #### QA-47 · P3 · Promotion card titles are nearly invisible
 - **Actual:** dark grey text on a near-black card on the Sales screen.
 - **Evidence:** `qa-sales-360.png`.
+- **Status (2026-11-13):** fixed. The card used an undefined `--bg-card` (always near-black) with the theme's ink text. It now uses the theme surface `--sf2`. e2e checks a contrast of at least 4.5:1.
 
 #### QA-48 · P3 · Searching products in English finds nothing
 - **Actual:** "pepsi" → 0 results, although catalog items have English names. Arabic variants work (بيبسي/بيبسى).
 - **Fix:** include `name_en` in the products search (the sandwich picker already does).
+- **Status (2026-11-13):** fixed. The server search and the Products screen filter both match the catalog's English product and brand names (`name_en`, `brand_name_en`, also returned by `GET /api/products`). Test: `tests/integration/p3-ux-runtime.spec.ts`.
 
 #### QA-49 · P3 · No web app manifest; the app can't be installed
 - **Actual:** `/manifest.webmanifest` → 404 on DEV and PROD.
+- **Status (2026-11-13):** fixed. `src/app/manifest.ts` with 192, 512 and maskable icons in `public/icons/`. On a production build, Chrome reports no installability errors (the service worker controls `/app`).
 
 #### QA-50 · P3 · Signup can leave an unusable account
 - **Status:** [C] only, not reproduced. The user is created before the store transaction (UE-12).
+- **Status (2026-11-13):** fixed. The user, store, owner membership and device are created in one transaction. Reproduced with an injected failure in the last step: nothing is left, the same phone can sign up again, and a duplicate gets 409. Test: `tests/integration/p3-ux-runtime.spec.ts`.
 
 #### QA-51 · P3 · Sessions never slide, and membership is not re-checked
 - **Status:** [C].

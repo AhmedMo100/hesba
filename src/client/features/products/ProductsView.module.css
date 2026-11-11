@@ -167,7 +167,7 @@
   white-space: nowrap;
   transition: all 0.15s ease;
   flex-shrink: 0;
-  min-height: 36px;
+  min-height: 44px; /* QA-46 */
   display: inline-flex;
   align-items: center;
   justify-content: center;
