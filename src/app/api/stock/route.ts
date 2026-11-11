@@ -150,18 +150,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ movements });
     }
 
-    const inventory = await inventoryService.getStoreInventory(
-      context.store.id,
-      context.user.id,
-    );
-
-    let movements = null;
-    if (view === "all") {
-      movements = await inventoryService.getStockMovements(
-        context.store.id,
-        context.user.id,
-      );
-    }
+    // `view=all` (the Stock screen) also needs the movement history: both are reads, so they
+    // run at the same time instead of one after the other (QA-32).
+    const [inventory, movements] = await Promise.all([
+      inventoryService.getStoreInventory(context.store.id, context.user.id),
+      view === "all"
+        ? inventoryService.getStockMovements(context.store.id, context.user.id)
+        : Promise.resolve(null),
+    ]);
 
     return NextResponse.json({ inventory, movements });
   } catch (err: unknown) {

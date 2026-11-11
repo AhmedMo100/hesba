@@ -684,7 +684,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** payables can drift from what was actually received, and AI answers about purchases are always "none".
 - **Fix:** a purchase flow (product decision).
 - **Regression risk:** n/a.
-- **Status (2026-11-12):** **blocked: product decision needed.** A purchase flow is a new feature, not a fix. The decisions needed are listed in the batch report (ADR-0026 §Not done). Not started.
+- **Status (2026-11-12):** fixed on branch `feat/qa-30-qa-32-purchases-sales` (ADR-0027, D35). Supplier purchases: stock and «عليك» move in one transaction, payments are linked to the invoice, cancellation is checked. Verified by `tests/integration/purchases-credit-returns.spec.ts`, `tests/e2e/invoices.spec.ts`.
 
 #### QA-31 · P2 · Core sales features are missing
 - **Category:** missing features · **Area:** Sales
@@ -692,7 +692,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** test flows 11, 15 and 16 are BLOCKED. Credit sales are tracked only through the separate People ledger, so a debt is never linked to a sale or to stock.
 - **Fix:** roadmap (V1.1).
 - **Regression risk:** n/a.
-- **Status (2026-11-12):** **blocked: roadmap decision needed (V1.1).** A cart, credit sale, discounts, payment methods and returns are new features (see D30). Not started.
+- **Status (2026-11-12):** fixed on branch `feat/qa-30-qa-32-purchases-sales` (ADR-0027, D35). Cart checkout, server-validated discount, stored payment method, credit sales with linked payments, and returns. Verified by `tests/integration/purchases-credit-returns.spec.ts`, `tests/e2e/invoices.spec.ts`.
 
 #### QA-32 · P2 · The development database is slow enough to cause 500s
 - **Category:** performance / environment · **Area:** All · **Env:** DEV + PROD on Neon
@@ -704,7 +704,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** real users on a far or cold database get random 500s. The UI shows nothing for many failures (QA-01 pattern).
 - **Fix:** region, pooling and warm-up review; fewer queries per request; surface failures in the UI.
 - **Regression risk:** n/a.
-- **Status (2026-11-12):** **blocked: infrastructure, needs authorization.** The causes are the database region, pooling and cold starts on Neon, which this task may not change. Mitigated in code: request mistakes are no longer 500s (QA-18/19), and an unreachable database is a 503 with an honest message (ADR-0026).
+- **Status (2026-11-12):** application part fixed on branch `feat/qa-30-qa-32-purchases-sales` (ADR-0027). Measured 63 ms per round trip to Neon; −2 to −3 round trips per request, hot-path indexes, and duplicate screen requests removed. Verified by `tests/integration/query-budget.spec.ts`, `tests/e2e/screen-requests.spec.ts`. **Remaining (infrastructure, needs authorization):** region, cold start, serverless pool settings.
 
 #### QA-33 · P2 · Ordinary sale lines store the total as the unit price, and trust the client's amount and timestamp
 - **Category:** financial (latent until QA-01 is fixed) · **Area:** Sales · **Env:** code

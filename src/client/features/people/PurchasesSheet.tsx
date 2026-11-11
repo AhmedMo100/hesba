@@ -88,7 +88,7 @@ export function PurchasesSheet({
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/stock?view=all")
+    fetch("/api/stock")
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (

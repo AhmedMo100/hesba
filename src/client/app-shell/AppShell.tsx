@@ -89,6 +89,7 @@ import {
 } from "../offline/outbox";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileModal } from "../features/auth/ProfileModal";
+import { dedupedGet } from "@/client/shared/api/dedupe";
 
 function AppShellInner() {
   const { session, isOfflineExpired } = useAuth();
@@ -100,7 +101,7 @@ function AppShellInner() {
   useEffect(() => {
     let isMounted = true;
     const fetchAlertsCount = () => {
-      fetch("/api/alerts")
+      dedupedGet("/api/alerts")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;

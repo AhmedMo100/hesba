@@ -294,11 +294,15 @@ export function ProductsView() {
   // Check online status listeners & fetch POS machines from DB
   useEffect(() => {
     let isMounted = true;
-    void fetchStoreMachines(storeId).then((remote) => {
-      if (isMounted && remote) {
-        setPosMachines(remote);
-      }
-    });
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (storeId) {
+      void fetchStoreMachines(storeId).then((remote) => {
+        if (isMounted && remote) {
+          setPosMachines(remote);
+        }
+      });
+    }
 
     if (typeof window !== "undefined") {
       const onOn = () => setIsOnline(true);

@@ -453,6 +453,8 @@ model StoreVariant {
   wasteRecords      WasteRecord[]
   usedInSandwiches  SandwichIngredient[]
 
+  @@index([storeProductId], map: "idx_store_variants_product")
+  @@index([storeId], map: "idx_store_variants_store")
   @@map("store_variants")
 }
 
@@ -801,6 +803,7 @@ model Sale {
 
   @@unique([storeId, opId])
   @@unique([storeId, id], map: "uq_sales_store_id_id")
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_sales_store_created")
   @@map("sales")
 }
 
@@ -850,6 +853,7 @@ model SaleLine {
   returnLines      SaleReturnLine[]
 
   @@unique([storeId, id], map: "uq_sale_lines_store_id_id")
+  @@index([saleId], map: "idx_sale_lines_sale")
   @@map("sale_lines")
 }
 
@@ -1079,6 +1083,9 @@ model StockMovement {
   storeStockBatch StoreStockBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
 
   @@index([storeId, storeVariantId, createdAt], map: "idx_stock_movements_store_variant")
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_stock_movements_store_created")
+  @@index([saleLineId], map: "idx_stock_movements_sale_line")
+  @@index([storeId, opId], map: "idx_stock_movements_store_op")
   @@map("stock_movements")
 }
 

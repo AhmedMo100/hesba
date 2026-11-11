@@ -5,7 +5,7 @@
  * @description The home dashboard: today's sales, stock and expense summaries and shortcuts.
  *
  * @remarks
- * - "الجرد" (inventory) reads `/api/stock?view=all`.
+ * - "الجرد" (inventory) reads `/api/stock` (inventory only; QA-32).
  * - "التقرير" (report) reads `/api/reports/home?period=…` (ADR-0021): every financial figure —
  *   revenue, cost of goods sold, gross profit, expenses, purchases, the chart, top products,
  *   categories, activity — is computed on the server from recorded data. This screen does no
@@ -15,7 +15,7 @@
  */
 
 import React, { useState, useEffect, useMemo } from "react";
-import { Seg, SearchBox, Icon, Empty } from "@/client/shared/ui";
+import { Seg, SearchBox, Icon, Empty, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import {
   fetchHomeReport,
@@ -68,6 +68,8 @@ export function HomeView() {
   const report = loadedReport?.period === period ? loadedReport : null;
   const [reportFailed, setReportFailed] = useState(false);
   const [reportAttempt, setReportAttempt] = useState(0);
+  // The chosen period's report is still on its way (never shown as "—", which means unknown).
+  const reportLoading = report === null && !reportFailed;
 
   // The report of the chosen period, from the server (ADR-0021). A failed read (offline, or a
   // request cut off by a page reload) is retried once and can be retried by hand; until a
@@ -109,7 +111,7 @@ export function HomeView() {
     let ignore = false;
     const fetchData = async () => {
       try {
-        const stockRes = await fetch("/api/stock?view=all").catch(() => null);
+        const stockRes = await fetch("/api/stock").catch(() => null);
         if (stockRes && stockRes.ok && !ignore) {
           const sData = await stockRes.json();
           if (sData?.inventory && Array.isArray(sData.inventory)) {
@@ -499,7 +501,11 @@ export function HomeView() {
             <div className={styles.kpi}>
               <small>المبيعات</small>
               <b data-testid="home-revenue">
-                {moneyOrUnknown(totalRevenuePiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalRevenuePiasters)
+                )}
               </b>
               <em>{saleCount} بيعة</em>
             </div>
@@ -507,7 +513,11 @@ export function HomeView() {
             <div className={styles.kpi}>
               <small>مجمل الربح</small>
               <b data-testid="home-profit">
-                {moneyOrUnknown(grossProfitPiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(grossProfitPiasters)
+                )}
               </b>
               <em>
                 {unknownCostCount > 0
@@ -518,13 +528,23 @@ export function HomeView() {
 
             <div className={styles.kpi}>
               <small>تكلفة البضاعة المباعة</small>
-              <b data-testid="home-cogs">{moneyOrUnknown(totalCogsPiasters)}</b>
+              <b data-testid="home-cogs">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalCogsPiasters)
+                )}
+              </b>
             </div>
 
             <div className={`${styles.kpi} ${styles.kpiNeg}`}>
               <small>المصروفات</small>
               <b data-testid="home-expenses">
-                {moneyOrUnknown(totalExpensesPiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalExpensesPiasters)
+                )}
               </b>
             </div>
 
@@ -534,7 +554,11 @@ export function HomeView() {
             >
               <small>مشتريات دخلت المخزن</small>
               <b data-testid="home-purchases">
-                {moneyOrUnknown(totalPurchasesPiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalPurchasesPiasters)
+                )}
               </b>
               <em>
                 مش بتتخصم من الربح

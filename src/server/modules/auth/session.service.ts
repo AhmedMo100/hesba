@@ -109,7 +109,7 @@ import { withTenant } from "@/server/infra/db/tenant";
 /**
  * Resolves a raw session token to the user and store it belongs to.
  *
- * Side effect: updates `lastSeenAt` on every successful validation.
+ * Side effect: refreshes `lastSeenAt` when it is older than {@link LAST_SEEN_REFRESH_MS}.
  *
  * @param rawToken - The token from the cookie or `Authorization: Bearer` header.
  * @returns The session context, or `null` when the token is missing, unknown, or its store
@@ -189,11 +189,18 @@ export async function validateSession(
     return null;
   }
 
-  // Touch session lastSeenAt
-  await prisma.session.update({
-    where: { idHash },
-    data: { lastSeenAt: now },
-  });
+  // Touch lastSeenAt at most every LAST_SEEN_REFRESH_MS: it is a "last active" hint, and a
+  // write on every request costs a database round trip (~63 ms on Neon, QA-32). Validity,
+  // expiry and revocation are still checked on every request above.
+  if (
+    !record.lastSeenAt ||
+    now.getTime() - record.lastSeenAt.getTime() >= LAST_SEEN_REFRESH_MS
+  ) {
+    await prisma.session.update({
+      where: { idHash },
+      data: { lastSeenAt: now },
+    });
+  }
 
   return {
     session: {
@@ -228,6 +235,9 @@ export async function validateSession(
  * already in flight when the client rotated still carry the old token.
  */
 export const ROTATION_GRACE_MS = 30_000;
+
+/** How stale `lastSeenAt` may get before a request refreshes it (QA-32). */
+export const LAST_SEEN_REFRESH_MS = 5 * 60_000;
 
 /** The sessions that replaced `startIdHash` by rotation, transitively (it included). */
 async function rotationDescendants(startIdHash: string): Promise<string[]> {

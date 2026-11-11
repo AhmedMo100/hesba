@@ -36,7 +36,7 @@ import React, {
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
-import { Button, Empty, SearchBox, Icon } from "@/client/shared/ui";
+import { Button, Empty, SearchBox, Icon, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
@@ -301,6 +301,8 @@ export function SalesView() {
   const [salesLoadFailed, setSalesLoadFailed] = useState(false);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   // QA-31: the cart (several items, one invoice) and the invoice details (returns, credit).
+  // The first load of the tiles is still on its way: show placeholders, never "no products".
+  const [tilesLoaded, setTilesLoaded] = useState(false);
   const [cartMode, setCartMode] = useState(false);
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
   const [detailsSaleId, setDetailsSaleId] = useState<string | null>(null);
@@ -327,9 +329,13 @@ export function SalesView() {
 
   useEffect(() => {
     let isMounted = true;
-    fetchStoreMachines(storeId).then((remote) => {
-      if (isMounted) setMachines(remote);
-    });
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (storeId) {
+      fetchStoreMachines(storeId).then((remote) => {
+        if (isMounted) setMachines(remote);
+      });
+    }
     // The event means the local machines cache was just updated (fetchStoreMachines saves
     // and dispatches it), so read the cache. Fetching again here re-dispatched the event and
     // looped forever (UE-20), starving the screen's other requests.
@@ -432,9 +438,12 @@ export function SalesView() {
 
   // Load Inventory, Products, and Sales from server asynchronously
   useEffect(() => {
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (!storeId) return;
     let isMounted = true;
     void Promise.all([
-      fetch("/api/stock?view=all")
+      fetch("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetch("/api/products?filter=all")
@@ -458,6 +467,7 @@ export function SalesView() {
       if (stockData?.inventory) {
         setInventory(stockData.inventory);
       }
+      setTilesLoaded(true);
       if (prodData?.products) {
         const allProds: StoreProductItem[] = prodData.products;
         setAllProducts(allProds);
@@ -535,6 +545,9 @@ export function SalesView() {
   }, []);
 
   useEffect(() => {
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (!storeId) return;
     let alive = true;
     const load = () => {
       fetchSalesOverview()
@@ -1067,7 +1080,7 @@ export function SalesView() {
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
         void Promise.all([
-          fetch("/api/stock?view=all")
+          fetch("/api/stock")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
@@ -1549,7 +1562,7 @@ export function SalesView() {
                   "success",
                 );
                 void reloadSales();
-                void fetch("/api/stock?view=all")
+                void fetch("/api/stock")
                   .then((r) => (r.ok ? r.json() : null))
                   .then((d) => d?.inventory && setInventory(d.inventory))
                   .catch(() => undefined);
@@ -1559,7 +1572,18 @@ export function SalesView() {
         )}
 
         {/* Product & Services Tiles Grid matching Image 1 */}
-        {filteredItems.length === 0 ? (
+        {!tilesLoaded && displayItems.length === 0 ? (
+          <div
+            className={styles.tgrid}
+            role="status"
+            aria-label={t("common.loading")}
+            data-testid="sales-tiles-loading"
+          >
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} height={96} radius={16} />
+            ))}
+          </div>
+        ) : filteredItems.length === 0 ? (
           <div className={viewStyles.card}>
             <Empty
               icon="search"
@@ -1852,7 +1876,7 @@ export function SalesView() {
           onChanged={(message) => {
             showToast(message, "success");
             void reloadSales();
-            void fetch("/api/stock?view=all")
+            void fetch("/api/stock")
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => d?.inventory && setInventory(d.inventory))
               .catch(() => undefined);

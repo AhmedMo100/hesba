@@ -26,6 +26,7 @@ import React, {
 } from "react";
 import type { SessionState, StoreProfile } from "../api";
 import { authApi } from "../api";
+import { clearInflightRequests } from "../api/dedupe";
 
 interface AuthContextValue {
   session: SessionState | null;
@@ -80,6 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(async () => {
     await authApi.logout();
+    clearInflightRequests();
     if (typeof window !== "undefined") {
       window.sessionStorage.removeItem("hesba_current_store_id");
     }
@@ -89,6 +91,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleSetSession = useCallback((newSession: SessionState | null) => {
+    clearInflightRequests();
     setSession(newSession);
     if (typeof window !== "undefined") {
       if (newSession?.store?.id) {

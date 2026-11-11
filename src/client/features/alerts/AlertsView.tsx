@@ -20,6 +20,7 @@ import {
 import { useAuth } from "@/client/shared/auth";
 import { MachineTopupModal } from "../stock/MachineTopupModal";
 import styles from "./AlertsView.module.css";
+import { dedupedGet } from "@/client/shared/api/dedupe";
 
 export function AlertsView() {
   const { session } = useAuth();
@@ -54,7 +55,7 @@ export function AlertsView() {
 
   const loadAlerts = useCallback(async () => {
     try {
-      const res = await fetch("/api/alerts");
+      const res = await dedupedGet("/api/alerts");
       if (res.ok) {
         const data = await res.json();
         setOutOfStock(data.outOfStock || []);
@@ -83,7 +84,7 @@ export function AlertsView() {
     const fetchAlerts = async () => {
       try {
         const [alertsRes, productsRes] = await Promise.all([
-          fetch("/api/alerts"),
+          dedupedGet("/api/alerts"),
           fetch("/api/products?filter=all"),
         ]);
 
@@ -127,7 +128,7 @@ export function AlertsView() {
 
   // Load published promotions
   const loadPromotions = useCallback(() => {
-    fetch("/api/promotions")
+    dedupedGet("/api/promotions")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.promotions && Array.isArray(data.promotions)) {
@@ -147,6 +148,9 @@ export function AlertsView() {
   }, [storeId]);
 
   useEffect(() => {
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (!storeId) return;
     loadPromotions();
     loadMachines();
 

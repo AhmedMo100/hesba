@@ -174,11 +174,15 @@ export function StockView() {
   // Listen for pos machine updates across tabs and views & fetch from DB
   useEffect(() => {
     let isMounted = true;
-    void fetchStoreMachines(storeId).then((remote) => {
-      if (isMounted && remote) {
-        setMachines(remote);
-      }
-    });
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (storeId) {
+      void fetchStoreMachines(storeId).then((remote) => {
+        if (isMounted && remote) {
+          setMachines(remote);
+        }
+      });
+    }
 
     const handleMachinesUpdate = () => {
       setMachines(getStoredMachines(storeId));

@@ -60,15 +60,23 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    datasources: {
-      db: {
-        url: databaseUrl,
-      },
-    },
-  });
+/**
+ * Opt-in query events (QA-32): with `HESBA_PRISMA_QUERY_EVENTS=1` every statement, including
+ * a transaction's BEGIN / COMMIT, is emitted as a `query` event, so a test can count the
+ * database round trips one request makes. Off by default; nothing is logged.
+ */
+const queryEvents = process.env["HESBA_PRISMA_QUERY_EVENTS"] === "1";
+
+function createAppClient(): PrismaClient {
+  return queryEvents
+    ? new PrismaClient({
+        datasources: { db: { url: databaseUrl } },
+        log: [{ emit: "event", level: "query" }],
+      })
+    : new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+}
+
+export const prisma = globalForPrisma.prisma ?? createAppClient();
 
 /**
  * The ONLY cross-store runtime connection: the catalog-promotion cron, as the least-privilege
