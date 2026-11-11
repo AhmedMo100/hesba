@@ -1,5 +1,7 @@
 "use client";
 
+import "@/client/shared/zod-csp";
+
 /**
  * @file AppShell.tsx
  * @description The single-route client application under `/app/*` (ADR-0013): header,

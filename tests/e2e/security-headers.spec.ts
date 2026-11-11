@@ -29,7 +29,7 @@ async function watchCsp(page: Page): Promise<string[]> {
   await page.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (e) => {
       console.error(
-        `Refused to load (CSP ${e.violatedDirective}) ${e.blockedURI}`,
+        `Refused to load (CSP ${e.violatedDirective}) ${e.blockedURI} ${e.sourceFile}:${e.lineNumber}:${e.columnNumber}`,
       );
     });
   });
