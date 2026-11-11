@@ -6,8 +6,10 @@ import { InventoryService } from "@/server/modules/inventory";
 import { CatalogService } from "@/server/modules/catalog";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";

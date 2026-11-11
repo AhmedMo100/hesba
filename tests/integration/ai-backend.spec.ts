@@ -12,8 +12,10 @@ import { AIQuotaService } from "@/server/modules/ai/quota.service";
 import { getCairoMidnightDate } from "@/server/modules/ai/cairo-date";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";
@@ -359,22 +361,34 @@ describe("AI Assistant Backend Integration Tests (Quota, Tenancy, Retention, API
     const oldDate = new Date(Date.now() - 12 * 24 * 60 * 60 * 1000); // 12 days ago
 
     // Insert old conversation directly via migrator
-    const oldConv = await migratorPrisma.aiConversation.create({
-      data: {
-        storeId: storeAId,
-        day: oldDate,
-        title: "محادثة قديمة منتهية الصلاحية",
-      },
-    });
+    const oldConv = await withTenant(
+      storeAId,
+      null,
+      (tx) =>
+        tx.aiConversation.create({
+          data: {
+            storeId: storeAId,
+            day: oldDate,
+            title: "محادثة قديمة منتهية الصلاحية",
+          },
+        }),
+      migratorPrisma,
+    );
 
-    await migratorPrisma.aiMessage.create({
-      data: {
-        storeId: storeAId,
-        conversationId: oldConv.id,
-        role: "user",
-        bodyText: "رسالة قديمة قبل 12 يوم",
-      },
-    });
+    await withTenant(
+      storeAId,
+      null,
+      (tx) =>
+        tx.aiMessage.create({
+          data: {
+            storeId: storeAId,
+            conversationId: oldConv.id,
+            role: "user",
+            bodyText: "رسالة قديمة قبل 12 يوم",
+          },
+        }),
+      migratorPrisma,
+    );
 
     // 1. Without valid cron secret: 401
     const unauthReq = new Request("http://localhost:3000/api/cron/ai-cleanup", {
@@ -399,26 +413,44 @@ describe("AI Assistant Backend Integration Tests (Quota, Tenancy, Retention, API
     expect(cronJson.deleted_count).toBeGreaterThanOrEqual(1);
 
     // Verify old conversation and its messages are gone
-    const checkOld = await migratorPrisma.aiConversation.findUnique({
-      where: { id: oldConv.id },
-    });
+    const checkOld = await withTenant(
+      storeAId,
+      null,
+      (tx) =>
+        tx.aiConversation.findUnique({
+          where: { id: oldConv.id },
+        }),
+      migratorPrisma,
+    );
     expect(checkOld).toBeNull();
 
     // Verify today's conversation is still intact
-    const checkToday = await migratorPrisma.aiConversation.findUnique({
-      where: { id: storeAConvId },
-    });
+    const checkToday = await withTenant(
+      storeAId,
+      null,
+      (tx) =>
+        tx.aiConversation.findUnique({
+          where: { id: storeAConvId },
+        }),
+      migratorPrisma,
+    );
     expect(checkToday).not.toBeNull();
 
     // Verify ai_usage is still intact (never deleted by retention cleanup)
-    const checkUsage = await migratorPrisma.aiUsage.findUnique({
-      where: {
-        storeId_day: {
-          storeId: storeAId,
-          day: getCairoMidnightDate(),
-        },
-      },
-    });
+    const checkUsage = await withTenant(
+      storeAId,
+      null,
+      (tx) =>
+        tx.aiUsage.findUnique({
+          where: {
+            storeId_day: {
+              storeId: storeAId,
+              day: getCairoMidnightDate(),
+            },
+          },
+        }),
+      migratorPrisma,
+    );
     expect(checkUsage).not.toBeNull();
     expect(checkUsage?.count).toBe(5);
   });

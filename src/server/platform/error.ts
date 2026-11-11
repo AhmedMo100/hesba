@@ -49,6 +49,8 @@ export class AppError extends Error {
   public readonly safeMessage: string;
   public readonly statusCode: number;
   public readonly details?: unknown;
+  /** Sent as `Retry-After` (seconds) when set — rate-limited responses (QA-24). */
+  public retryAfterSeconds?: number;
 
   constructor(
     code: ErrorCode,
@@ -90,8 +92,13 @@ export class AppError extends Error {
   static rateLimited(
     message = "تجاوزت الحد المسموح من المحاولات. يُرجى الانتظار والمحاولة لاحقاً.",
     details?: unknown,
+    retryAfterSeconds?: number,
   ): AppError {
-    return new AppError("RATE_LIMITED", message, 429, details);
+    const err = new AppError("RATE_LIMITED", message, 429, details);
+    if (retryAfterSeconds !== undefined) {
+      err.retryAfterSeconds = Math.max(1, Math.ceil(retryAfterSeconds));
+    }
+    return err;
   }
 
   static serviceUnavailable(
@@ -123,6 +130,9 @@ export class AppError extends Error {
       status: this.statusCode,
       headers: {
         "Content-Type": "application/json; charset=utf-8",
+        ...(this.retryAfterSeconds !== undefined
+          ? { "Retry-After": String(this.retryAfterSeconds) }
+          : {}),
       },
     });
   }

@@ -8,9 +8,9 @@ import "server-only";
  * - `prisma`: the application client on `HESBA_DATABASE_URL` (role `hesba_app`, no RLS
  *   bypass). Use it only through `withTenant` for store data, or directly for identity tables
  *   (`users`, `sessions`, ...).
- * - `systemPrisma`: a client on `HESBA_DIRECT_URL` (the migration role) for cross-tenant work
- *   such as the community catalog and cron jobs. When `HESBA_DIRECT_URL` is not set it is the
- *   same object as `prisma`.
+ * - `servicePrisma`: the catalog-promotion cron's client on `HESBA_SERVICE_DATABASE_URL`
+ *   (role `hesba_service`, narrow cross-store grants, ADR-0024); null when not configured.
+ *   The migration role (`HESBA_DIRECT_URL`) is never used at runtime.
  * - `createDb`: builds a standalone client for scripts.
  *
  * @remarks
@@ -70,16 +70,18 @@ export const prisma =
     },
   });
 
-const rawDirectUrl = process.env["HESBA_DIRECT_URL"];
-export const systemPrisma = rawDirectUrl
+/**
+ * The ONLY cross-store runtime connection: the catalog-promotion cron, as the least-privilege
+ * `hesba_service` role (ADR-0024, QA-34). It is never the migrator (`HESBA_DIRECT_URL` is for
+ * migrations only) and never used for a user's request. Null when not configured: the cron
+ * then refuses to run instead of falling back to a privileged connection.
+ */
+const rawServiceUrl = process.env["HESBA_SERVICE_DATABASE_URL"];
+export const servicePrisma: PrismaClient | null = rawServiceUrl
   ? new PrismaClient({
-      datasources: {
-        db: {
-          url: ensureConnectionTimeouts(rawDirectUrl),
-        },
-      },
+      datasources: { db: { url: ensureConnectionTimeouts(rawServiceUrl) } },
     })
-  : prisma;
+  : null;
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;

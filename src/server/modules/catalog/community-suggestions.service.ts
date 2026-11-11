@@ -15,7 +15,7 @@ import "server-only";
  *
  * @remarks
  * - The pool is cross-tenant by design, so this service works on the client it is given
- *   (the cron route passes `systemPrisma`) rather than inside one store's `withTenant`.
+ *   (the cron route passes `servicePrisma`, role `hesba_service`, ADR-0024) rather than inside one store's `withTenant`.
  * - Only product identity is shared (name, brand, category, size) — never prices, stock or
  *   the submitting store's identity (AGENTS.md rule 8).
  * - Thresholds (minimum adopting stores, minimum age, report limit) are in `./constants.ts`.

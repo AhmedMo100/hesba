@@ -37,6 +37,11 @@ CREATE POLICY tenant_isolation ON <t>
 ```
 The application user (`hesba_app`) is not the owner, not a superuser, and does not have `BYPASSRLS`. Migrations run as a different user (`hesba_migrator`). Admin roles/jobs that need to bypass RLS use a separate role, `hesba_service`, with a specific list of tables (section 9).
 
+**As built (ADR-0024, 2026-11-12).**
+- **Migrator:** `hesba_migrator` has no bypass policy on tenant tables. It sees a shop's rows only with `app.store_id` set, and it is never used at runtime.
+- **Service role:** `hesba_service` exists for the catalog-promotion cron only. Its grants are narrow (see ADR-0024), and it never touches sales, stock, money, people or identity.
+- **Identity tables** (`users`, `sessions`, …) are read by the server on `hesba_app`, before any shop is known.
+
 ### Enums
 ```sql
 CREATE TYPE product_kind    AS ENUM ('piece','weight');

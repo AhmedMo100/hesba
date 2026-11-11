@@ -3,8 +3,10 @@ import { PrismaClient } from "@prisma/client";
 import { GET } from "@/app/api/sync/catalog/route";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integration)", () => {
   let prisma: PrismaClient;

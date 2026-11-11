@@ -443,6 +443,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** apply reuse detection only to **rotated** tokens, with a short grace period. Logged-out and revoked tokens simply return 401.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/auth-security.spec.ts`.
+
 #### QA-15 · P2 · No upper bounds on quantities and money
 - **Category:** validation / financial · **Area:** Products, Stock, Expenses, Machines · **Env:** DEV
 - **Steps:** add stock `quantityBase: 10^12`; create a product priced 10¹⁵ piasters; create an expense of 10¹⁵ piasters.
@@ -593,6 +595,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** count failures only; return 429; consider IP + phone keys.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/auth-security.spec.ts`.
+
 #### QA-25 · P2 · Forgot-password reveals whether an email has an account
 - **Category:** security / enumeration · **Area:** Recovery · **Env:** DEV
 - **Steps:** `POST /api/auth/forgot-password/request` with an unknown email, then with a registered one.
@@ -604,6 +608,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** the email-send failure is surfaced only for existing users.
 - **Fix:** always return the same 200; log and alert on send failures.
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/auth-security.spec.ts`.
 
 #### QA-26 · P2 · No security headers
 - **Category:** security · **Area:** All pages · **Env:** DEV + PROD
@@ -618,6 +624,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** the app can be framed (clickjacking), and there is no XSS defense in depth.
 - **Fix:** a `headers()` block in `next.config.ts`.
 - **Regression risk:** low (CSP needs care with Next inline scripts).
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/unit/server/security-headers.spec.ts` and `tests/e2e/security-headers.spec.ts`.
 
 #### QA-27 · P2 · Most writes are not idempotent; retries and parallel submits duplicate records
 - **Category:** idempotency · **Area:** Expenses, People, ordinary Sales, Machines · **Env:** DEV
@@ -702,6 +710,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Regression risk:** low.
 
 ### P3
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/db-roles-security.spec.ts`. The cron stays off on Neon and production until `hesba_service` is created (an authorized step, ADR-0024).
 
 #### QA-35 · P3 · Operations that change nothing still report success
 - **Area:** API
