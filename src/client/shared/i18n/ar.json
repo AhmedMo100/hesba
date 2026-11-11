@@ -223,6 +223,7 @@
       "recordPayment": "تسجيل دفعة / سداد",
       "recordCollection": "تسجيل تحصيل",
       "collect": "تحصيل",
+      "recordDebt": "سجّل عليه (فلوس أو بضاعة)",
       "pay": "سداد",
       "collectFrom": "تحصيل من {name}",
       "payTo": "سداد لـ {name}",

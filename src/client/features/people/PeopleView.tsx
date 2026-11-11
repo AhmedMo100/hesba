@@ -14,6 +14,7 @@ import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import { PurchasesSheet } from "./PurchasesSheet";
+import { CustomerDebtSheet } from "./CustomerDebtSheet";
 
 interface SuppliedProduct {
   id: string;
@@ -271,6 +272,7 @@ export function PeopleView() {
   const [deleteTarget, setDeleteTarget] = useState<PersonItem | null>(null);
   const toast = useToast();
   // QA-30: the supplier whose purchase invoices are open.
+  const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
   const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
     null,
   );
@@ -906,6 +908,21 @@ export function PeopleView() {
                     );
                   })()}
 
+                {/* «ليك»: record what they took — an amount or products (optional). */}
+                {section === "owedToMe" && (
+                  <button
+                    type="button"
+                    className={styles.purchasesBtn}
+                    data-testid={`customer-debt-${p.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDebtTarget(p);
+                    }}
+                  >
+                    {t("pages.people.recordDebt")}
+                  </button>
+                )}
+
                 {/* Footer / Notes row */}
                 {section === "suppliers" ? (
                   (() => {
@@ -1467,6 +1484,18 @@ export function PeopleView() {
             )}
           </div>
         </Modal>
+      )}
+
+      {debtTarget && (
+        <CustomerDebtSheet
+          customer={{ id: debtTarget.id, name: debtTarget.name }}
+          onClose={() => setDebtTarget(null)}
+          onDone={(message) => {
+            setDebtTarget(null);
+            toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData("owedToMe");
+          }}
+        />
       )}
 
       {/* Delete Confirmation Modal */}

@@ -124,7 +124,7 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
     expect(html).toContain("إضافة ✓");
   });
 
-  it("renders auto-calculated expected cost hint based on registered buy price", () => {
+  it("prefills the purchase total from the registered buy price (restock and normal add)", () => {
     const html = renderToStaticMarkup(
       <AddStockModal
         targetProduct={{
@@ -149,7 +149,9 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
       />,
     );
 
-    expect(html).toContain("السعر المتوقع بناءً على سعر الشراء المسجل");
+    // 1 carton of 12 × 15.00 = 180.00, filled in and editable; no second price to define.
+    expect(html).toContain('value="180.00"');
+    expect(html).toContain("محسوب من سعر الشراء المسجل في المنتجات");
   });
 
   it("reads the selling unit from the product (bags in cartons of 20): no unit picker, no pack field", () => {

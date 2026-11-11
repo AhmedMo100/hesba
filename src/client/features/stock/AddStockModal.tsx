@@ -181,7 +181,14 @@ export function AddStockModal({
     targetProduct?.unit === "g" ? "g" : "kg",
   );
   const [weightInput, setWeightInput] = useState(isInitialWeight ? "1" : "");
-  const [costEgp, setCostEgp] = useState("");
+  // The purchase total starts from the product's registered buy price (Products screen) and
+  // follows the quantity until the owner types their own total.
+  const [costInput, setCostInput] = useState("");
+  const [costTouched, setCostTouched] = useState(false);
+  const setCostEgp = (v: string) => {
+    setCostTouched(true);
+    setCostInput(v);
+  };
   const [prodDate, setProdDate] = useState("");
   const [expiry, setExpiry] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
@@ -284,6 +291,8 @@ export function AddStockModal({
       return Math.round(totalBaseQty * regPieceCost * 100) / 100;
     }
   }, [sellingMethod, totalBaseQty, regPieceCost]);
+  const costFromProduct = !costTouched && expectedCostEgp > 0;
+  const costEgp = costFromProduct ? expectedCostEgp.toFixed(2) : costInput;
 
   // Compute effective unit cost entered
   const unitCostEgp = useMemo(() => {
@@ -1075,6 +1084,7 @@ export function AddStockModal({
                     value={costEgp}
                     onChange={(e) => setCostEgp(e.target.value)}
                     placeholder="مثال: 1000"
+                    data-testid="stock-cost-total"
                     style={{
                       width: "100%",
                       padding: "10px 12px",
@@ -1086,7 +1096,16 @@ export function AddStockModal({
                   />
                 </Field>
 
-                {expectedCostEgp > 0 && (
+                {costFromProduct && (
+                  <small
+                    data-testid="stock-cost-from-product"
+                    style={{ color: "var(--ink2)", fontSize: 12 }}
+                  >
+                    محسوب من سعر الشراء المسجل في المنتجات — لو دفعت مبلغ تاني
+                    اكتبه.
+                  </small>
+                )}
+                {expectedCostEgp > 0 && costTouched && (
                   <div
                     style={{
                       display: "flex",
