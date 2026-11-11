@@ -8,7 +8,7 @@
  * stock and records the invoice (`POST /api/sales/checkout`). Success is shown only from the
  * server's answer, and a retried tap reuses the same `opId` (no duplicate invoice).
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Button, Field, Input, Seg } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { parseEgpStrict } from "@/domain/money";
@@ -37,24 +37,53 @@ interface Customer {
 
 const isWeighed = (unit: string) => unit === "kg" || unit === "g";
 
+/** The invoice draft besides its lines; kept by the screen, so closing the sheet keeps it. */
+export interface CartDraft {
+  discount: string;
+  method: PaymentMethod;
+  customerId: string;
+  paidNow: string;
+}
+
+export const EMPTY_CART_DRAFT: CartDraft = {
+  discount: "",
+  method: "cash",
+  customerId: "",
+  paidNow: "",
+};
+
+/** The draft a checkout `opId` belongs to; the screen keeps it across sheet openings. */
+export interface CartOpId {
+  key: string;
+  id: string;
+}
+
 export function CartSheet({
   lines,
   onChange,
   onDone,
+  draft,
+  onDraftChange,
+  opIdRef,
 }: {
   lines: CartLine[];
   onChange: (lines: CartLine[]) => void;
   onDone: (invoice: SaleInvoice) => void;
+  draft: CartDraft;
+  onDraftChange: (draft: CartDraft) => void;
+  /** The same draft retried (after a lost answer) reuses its opId: no duplicate invoice. */
+  opIdRef: React.MutableRefObject<CartOpId | null>;
 }) {
-  const [discount, setDiscount] = useState("");
-  const [method, setMethod] = useState<PaymentMethod>("cash");
-  const [customerId, setCustomerId] = useState("");
-  const [paidNow, setPaidNow] = useState("");
+  const { discount, method, customerId, paidNow } = draft;
+  const set = (patch: Partial<CartDraft>) =>
+    onDraftChange({ ...draft, ...patch });
+  const setDiscount = (v: string) => set({ discount: v });
+  const setMethod = (v: PaymentMethod) => set({ method: v });
+  const setCustomerId = (v: string) => set({ customerId: v });
+  const setPaidNow = (v: string) => set({ paidNow: v });
   const [customers, setCustomers] = useState<Customer[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // One opId per draft: a retried tap after a lost answer is the same invoice.
-  const opId = useRef<string>(crypto.randomUUID());
 
   // The customers list is needed only for a credit sale, and loaded once.
   useEffect(() => {
@@ -74,7 +103,7 @@ export function CartSheet({
     };
   }, [method, customers]);
 
-  // Any change to the draft is a new invoice (a new opId).
+  // Any change to the draft is a new invoice (a new opId); the same draft keeps its opId.
   const draftKey = JSON.stringify([
     lines,
     discount,
@@ -82,9 +111,12 @@ export function CartSheet({
     customerId,
     paidNow,
   ]);
-  useEffect(() => {
-    opId.current = crypto.randomUUID();
-  }, [draftKey]);
+  const opIdFor = (key: string): string => {
+    if (opIdRef.current?.key !== key) {
+      opIdRef.current = { key, id: crypto.randomUUID() };
+    }
+    return opIdRef.current.id;
+  };
 
   const subtotal = useMemo(
     () =>
@@ -117,7 +149,7 @@ export function CartSheet({
     setBusy(true);
     try {
       const invoice = await checkout({
-        opId: opId.current,
+        opId: opIdFor(draftKey),
         lines: lines.map((l) => ({
           variantId: l.variantId,
           quantityBase: l.quantityBase,
@@ -127,9 +159,7 @@ export function CartSheet({
         customerId: method === "debt" ? customerId || null : null,
         paidNowPiasters: method === "debt" ? paidPiasters : 0,
       });
-      setDiscount("");
-      setPaidNow("");
-      opId.current = crypto.randomUUID();
+      opIdRef.current = null;
       onDone(invoice);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("invoice.loadFailed"));

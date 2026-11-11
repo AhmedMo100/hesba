@@ -167,19 +167,28 @@ test("cart: several items, a discount and a card payment, priced by the server",
   const chips = await product(api, `شيبسي سلة ${run}`, 500, 10);
 
   await open(page, "/app/sales", "page-sales");
-  await page.getByTestId("cart-toggle").click();
+  await page.getByTestId("page-sales").getByTestId("cart-toggle").click();
   await page.getByRole("button", { name: `بيع شاي سلة ${run}` }).click();
   await page.getByRole("button", { name: `بيع شاي سلة ${run}` }).click();
   await page.getByRole("button", { name: `بيع شيبسي سلة ${run}` }).click();
-  await expect(page.getByTestId("cart-line")).toHaveCount(2);
-  await page.getByTestId("cart-discount").fill("5");
+  // The invoice opens from its small summary (no big cart block on the screen).
+  await page.getByTestId("page-sales").getByTestId("cart-summary").click();
+  await expect(
+    page.getByTestId("page-sales").getByTestId("cart-line"),
+  ).toHaveCount(2);
+  await page.getByTestId("page-sales").getByTestId("cart-discount").fill("5");
   await page
+    .getByTestId("page-sales")
     .getByTestId("cart-sheet")
     .getByRole("tab", { name: "فيزا" })
     .click();
-  await expect(page.getByTestId("cart-total")).toHaveText("25 ج.م");
-  await page.getByTestId("cart-checkout").click();
-  await expect(page.getByTestId("cart-sheet")).toHaveCount(0, SERVER);
+  await expect(
+    page.getByTestId("page-sales").getByTestId("cart-total"),
+  ).toHaveText("25 ج.م");
+  await page.getByTestId("page-sales").getByTestId("cart-checkout").click();
+  await expect(
+    page.getByTestId("page-sales").getByTestId("cart-sheet"),
+  ).toHaveCount(0, SERVER);
   expect(await stockOf(api, tea)).toBe(8);
   expect(await stockOf(api, chips)).toBe(9);
   const sales = (await (await api.get("/api/sales")).json()).sales as Array<{
@@ -207,17 +216,24 @@ test("credit sale: invoice on the customer, collected from the invoice, then par
   const customer = await person(api, `زبون ${run}`, "owedToMe");
 
   await open(page, "/app/sales", "page-sales");
-  await page.getByTestId("cart-toggle").click();
+  await page.getByTestId("page-sales").getByTestId("cart-toggle").click();
   for (let i = 0; i < 3; i++)
     await page.getByRole("button", { name: `بيع رز آجل ${run}` }).click();
+  await page.getByTestId("page-sales").getByTestId("cart-summary").click();
   await page
+    .getByTestId("page-sales")
     .getByTestId("cart-sheet")
     .getByRole("tab", { name: "آجل" })
     .click();
-  await page.getByTestId("cart-customer").selectOption(customer);
-  await page.getByTestId("cart-paid-now").fill("10");
-  await page.getByTestId("cart-checkout").click();
-  await expect(page.getByTestId("cart-sheet")).toHaveCount(0, SERVER);
+  await page
+    .getByTestId("page-sales")
+    .getByTestId("cart-customer")
+    .selectOption(customer);
+  await page.getByTestId("page-sales").getByTestId("cart-paid-now").fill("10");
+  await page.getByTestId("page-sales").getByTestId("cart-checkout").click();
+  await expect(
+    page.getByTestId("page-sales").getByTestId("cart-sheet"),
+  ).toHaveCount(0, SERVER);
   expect(
     (await (await api.get(`/api/people/${customer}`)).json()).person
       .amount_piasters,

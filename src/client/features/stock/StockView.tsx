@@ -645,7 +645,18 @@ export function StockView() {
                   className={styles.stockItem}
                   key={item.variantId}
                   data-testid={`stock-row-${item.variantId}`}
+                  // The card opens its actions (edit, add stock, clear, remove); no separate
+                  // edit button.
+                  role="button"
+                  tabIndex={0}
+                  aria-label={item.productName}
                   onClick={() => setActiveItemAction(item)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setActiveItemAction(item);
+                    }
+                  }}
                 >
                   <div className={styles.stockItemRight}>
                     <div
@@ -679,17 +690,6 @@ export function StockView() {
                         {formatInventoryStock(item)}
                       </span>
                     )}
-                    <button
-                      type="button"
-                      className={styles.rowEditBtn}
-                      title="تعديل المخزون والجرد"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEditingStockItem(item);
-                      }}
-                    >
-                      <Icon n="edit" s={14} />
-                    </button>
                   </div>
                 </div>
               ))}
