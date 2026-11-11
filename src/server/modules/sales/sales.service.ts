@@ -234,7 +234,9 @@ export async function recordSale(
   userId: string,
   input: CreateSaleInput,
 ): Promise<RecordedSale> {
-  const saleId = isValidUuid(input.id) ? input.id : crypto.randomUUID();
+  // The server chooses the sale id (QA-56): a client id could collide with another shop's sale
+  // (a 500 that also reveals the id exists). Retries are matched by `opId`, per store.
+  const saleId = crypto.randomUUID();
   const opId = input.opId ?? crypto.randomUUID();
   const now = new Date();
 

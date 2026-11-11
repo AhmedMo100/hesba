@@ -29,6 +29,7 @@ export const INSTANT_PAYMENT_METHODS = ["cash", "wallet", "card"] as const;
 export type InstantPaymentMethod = (typeof INSTANT_PAYMENT_METHODS)[number];
 
 export const createSaleSchema = z.object({
+  /** Ignored: the server chooses the sale id (QA-56). Kept for older clients. */
   id: z.string().optional(),
   opId: z.string().uuid().optional(),
   productId: z.string().optional(),
