@@ -85,7 +85,7 @@ export function AlertsView() {
       try {
         const [alertsRes, productsRes] = await Promise.all([
           dedupedGet("/api/alerts"),
-          fetch("/api/products?filter=all"),
+          fetch("/api/products?filter=all&scope=store"),
         ]);
 
         if (alertsRes.ok && !ignore) {

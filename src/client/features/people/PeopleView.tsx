@@ -377,7 +377,7 @@ export function PeopleView() {
   // Load store products when opening supplier modal
   const loadStoreProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products");
+      const res = await fetch("/api/products?scope=store");
       if (res.ok) {
         const data = await res.json();
         const prods = (data.products || []).map(

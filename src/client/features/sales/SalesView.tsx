@@ -48,6 +48,7 @@ import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
 import { saleLineTotalPiasters } from "@/domain/sale-pricing";
+import { stockLevel } from "@/domain/alerts";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StockInventoryItem,
@@ -481,7 +482,7 @@ export function SalesView({
       fetch("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/products?filter=all")
+      fetch("/api/products?filter=all&scope=sale")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
@@ -702,7 +703,7 @@ export function SalesView({
         return {
           ...inv,
           currentStockBase: stock,
-          status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+          status: stockLevel(inv.unitMode, inv.packQty, stock),
         };
       }),
     );
@@ -902,7 +903,7 @@ export function SalesView({
           return {
             ...inv,
             currentStockBase: stock,
-            status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+            status: stockLevel(inv.unitMode, inv.packQty, stock),
           };
         }),
       );
