@@ -18,6 +18,16 @@ import { MAX_SALE_QUANTITY_BASE } from "@/domain/sale-pricing";
  * `opId` makes the request idempotent: sending the same `opId` again returns the first sale.
  * `timestamp` is accepted for older clients but ignored: the sale time is the server's.
  */
+/**
+ * How the customer paid (QA-31). `debt` (آجل) needs a customer and goes through checkout
+ * (`POST /api/sales/checkout`), which also writes the receivable.
+ */
+export const PAYMENT_METHODS = ["cash", "wallet", "card", "debt"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+/** Methods paid on the spot (no receivable). */
+export const INSTANT_PAYMENT_METHODS = ["cash", "wallet", "card"] as const;
+export type InstantPaymentMethod = (typeof INSTANT_PAYMENT_METHODS)[number];
+
 export const createSaleSchema = z.object({
   id: z.string().optional(),
   opId: z.string().uuid().optional(),
@@ -56,6 +66,10 @@ export const createSaleSchema = z.object({
     .nullable(),
   machineName: z.string().optional().nullable(),
   timestamp: z.number().optional(),
+  /** Paid on the spot by cash, e-wallet or card (default cash). Credit sales use checkout. */
+  paymentMethod: z
+    .enum(INSTANT_PAYMENT_METHODS, { message: "طريقة الدفع غير صحيحة" })
+    .optional(),
 });
 
 export type CreateSaleInput = z.infer<typeof createSaleSchema>;
@@ -105,4 +119,125 @@ export interface VoidedSale {
   stock: Array<{ variantId: string; stockAfterBase: number }>;
   /** A service sale paid through a POS machine: the machine's balance after the refund. */
   machine?: { machineId: string; balanceAfterPiasters: number };
+}
+
+const salePiasters = (message: string) =>
+  z
+    .number({ message })
+    .int("المبلغ لازم يكون بالقروش (رقم صحيح)")
+    .min(0, "المبلغ مينفعش يبقى سالب")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي");
+
+/**
+ * `POST /api/sales/checkout` (QA-31, ADR-0027): a cart of stocked products sold as ONE
+ * invoice. The server prices every line from the registered price, checks and takes the
+ * stock (FEFO), applies the discount, and — for a credit sale — writes the receivable, all in
+ * one transaction. The client sends no prices and no total.
+ */
+export const checkoutSchema = z
+  .object({
+    opId: z.string().uuid("رقم العملية غير صحيح"),
+    lines: z
+      .array(
+        z.object({
+          variantId: z.string().uuid("الصنف غير صحيح"),
+          quantityBase: z
+            .number()
+            .int("الكمية لازم تكون رقم صحيح")
+            .positive("الكمية لازم تكون أكبر من صفر")
+            .max(MAX_SALE_QUANTITY_BASE, "الكمية كبيرة قوي"),
+        }),
+      )
+      .min(1, "السلة فاضية")
+      .max(50, "أصناف السلة كتير قوي"),
+    /** A discount on the whole invoice, in piasters (below the subtotal). */
+    discountPiasters: salePiasters("الخصم غير صحيح").default(0),
+    paymentMethod: z.enum(PAYMENT_METHODS, {
+      message: "طريقة الدفع غير صحيحة",
+    }),
+    /** Required for a credit sale (آجل): the customer who owes the invoice. */
+    customerId: z.string().uuid("الزبون غير صحيح").optional().nullable(),
+    /** Credit sale only: what the customer paid now; the rest stays «ليك». */
+    paidNowPiasters: salePiasters("المدفوع غير صحيح").default(0),
+  })
+  .strict()
+  .refine((v) => v.paymentMethod !== "debt" || Boolean(v.customerId), {
+    message: "البيع الآجل لازم يكون لزبون",
+    path: ["customerId"],
+  })
+  .refine((v) => v.paymentMethod === "debt" || !v.customerId, {
+    message: "الزبون بيتسجل في البيع الآجل بس",
+    path: ["customerId"],
+  })
+  .refine((v) => v.paymentMethod === "debt" || v.paidNowPiasters === 0, {
+    message: "المدفوع مقدماً للبيع الآجل بس",
+    path: ["paidNowPiasters"],
+  });
+
+export type CheckoutInput = z.infer<typeof checkoutSchema>;
+
+/** `POST /api/sales/:id/payments`: the customer pays (part of) a credit invoice. */
+export const salePaymentSchema = z
+  .object({
+    opId: z.string().uuid("رقم العملية غير صحيح"),
+    amountPiasters: salePiasters("المبلغ غير صحيح").refine(
+      (v) => v > 0,
+      "المبلغ لازم يكون أكبر من صفر",
+    ),
+  })
+  .strict();
+
+export type SalePaymentInput = z.infer<typeof salePaymentSchema>;
+
+/** `POST /api/sales/:id/returns`: return some or all of a sale's lines. */
+export const saleReturnSchema = z
+  .object({
+    opId: z.string().uuid("رقم العملية غير صحيح"),
+    lines: z
+      .array(
+        z.object({
+          saleLineId: z.string().uuid("سطر البيعة غير صحيح"),
+          quantityBase: z
+            .number()
+            .int("الكمية لازم تكون رقم صحيح")
+            .positive("الكمية لازم تكون أكبر من صفر")
+            .max(MAX_SALE_QUANTITY_BASE, "الكمية كبيرة قوي"),
+        }),
+      )
+      .min(1, "اختار صنف ترجّعه")
+      .max(50),
+    reason: z.string().trim().max(200).optional().nullable(),
+  })
+  .strict();
+
+export type SaleReturnInput = z.infer<typeof saleReturnSchema>;
+
+/** A sale invoice with what can still be returned and what is still owed (QA-31). */
+export interface SaleInvoice {
+  id: string;
+  createdAt: string;
+  paymentMethod: PaymentMethod;
+  customerId: string | null;
+  customerName: string | null;
+  subtotalPiasters: number;
+  discountPiasters: number;
+  totalPiasters: number;
+  returnedPiasters: number;
+  /** Credit sale: what the customer still owes on this invoice (never < 0). */
+  outstandingPiasters: number;
+  voided: boolean;
+  duplicate?: boolean;
+  lines: Array<{
+    id: string;
+    variantId: string | null;
+    name: string;
+    unit: string;
+    quantityBase: number;
+    unitPricePiasters: number;
+    discountPiasters: number;
+    totalPiasters: number;
+    returnedQuantityBase: number;
+    /** False for lines that hold no stock (services, sandwiches): not returnable here. */
+    returnable: boolean;
+  }>;
 }

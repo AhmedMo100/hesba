@@ -987,3 +987,17 @@
   font-size: 14px;
   font-weight: 600;
 }
+
+/* QA-30: open the supplier's purchase invoices (touch target ≥ 44px). */
+.purchasesBtn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--br);
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
+}

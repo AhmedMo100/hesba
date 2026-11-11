@@ -112,7 +112,7 @@ export async function lockStockLevelInTx(
 }
 
 /** Writes the `stock_levels` cache: always the ledger balance computed under the lock. */
-async function writeLevelInTx(
+export async function writeLevelInTx(
   tx: TenantTx,
   storeId: string,
   storeVariantId: string,
@@ -378,6 +378,104 @@ export async function restoreSaleTakesInTx(
     await writeLevelInTx(tx, storeId, variantId, balance, now);
   }
   return changed;
+}
+
+/**
+ * Puts back `quantityBase` of ONE sold line (a return, QA-31 / ADR-0027) inside the caller's
+ * tenant transaction: into the batches the sale took from (the latest take first), never more
+ * per batch than was taken minus what earlier returns already put back, with append-only
+ * `sale_return` movements linked to the sale line and the new balance in `stock_levels`.
+ *
+ * The caller checks the returnable quantity; this refuses (409) only when the movements and the
+ * batches disagree, rather than inventing stock.
+ */
+export async function restoreReturnInTx(
+  tx: TenantTx,
+  storeId: string,
+  input: { saleLineId: string; quantityBase: bigint; opId: string; now: Date },
+): Promise<{ variantId: string; balance: bigint } | null> {
+  const { now } = input;
+  const moves = await tx.stockMovement.findMany({
+    where: {
+      storeId,
+      saleLineId: input.saleLineId,
+      type: { in: ["sale", "sale_return"] },
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  const takes = moves.filter((m) => m.type === "sale");
+  if (takes.length === 0) return null;
+  const variantId = takes[0]!.storeVariantId;
+  const balances = await lockStockLevelsInTx(tx, storeId, [variantId]);
+  let balance = balances.get(variantId) ?? ZERO;
+
+  // What each batch still "owes back" to this line: taken − already returned.
+  const key = (b: string | null) => b ?? "unbatched";
+  const open = new Map<string, bigint>();
+  for (const t of takes)
+    open.set(
+      key(t.batchId),
+      (open.get(key(t.batchId)) ?? ZERO) - t.quantityBase,
+    );
+  for (const r of moves.filter((m) => m.type === "sale_return")) {
+    open.set(
+      key(r.batchId),
+      (open.get(key(r.batchId)) ?? ZERO) - r.quantityBase,
+    );
+  }
+
+  let left = input.quantityBase;
+  const seen = new Set<string>();
+  for (const take of takes) {
+    if (left <= ZERO) break;
+    const k = key(take.batchId);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const room = open.get(k) ?? ZERO;
+    if (room <= ZERO) continue;
+    const qty = room < left ? room : left;
+    if (take.batchId) {
+      const batch = await tx.storeStockBatch.findFirst({
+        where: { id: take.batchId, storeId },
+        select: { remainingQuantityBase: true, receivedQuantityBase: true },
+      });
+      if (
+        !batch ||
+        batch.remainingQuantityBase + qty > batch.receivedQuantityBase
+      ) {
+        throw AppError.conflict(
+          "مقدرناش نرجّع الكمية دي للمخزن — راجع المخزون",
+        );
+      }
+      await tx.storeStockBatch.update({
+        where: { id: take.batchId },
+        data: { remainingQuantityBase: { increment: qty }, updatedAt: now },
+      });
+    }
+    balance += qty;
+    await tx.stockMovement.create({
+      data: {
+        storeId,
+        storeVariantId: variantId,
+        storeProductId: take.storeProductId,
+        batchId: take.batchId,
+        type: "sale_return",
+        quantityBase: qty,
+        costPriceMinor: take.costPriceMinor,
+        balanceAfterBase: balance,
+        negative: balance < ZERO,
+        saleLineId: input.saleLineId,
+        opId: input.opId,
+        createdAt: now,
+      },
+    });
+    left -= qty;
+  }
+  if (left > ZERO) {
+    throw AppError.conflict("مقدرناش نرجّع الكمية دي للمخزن — راجع المخزون");
+  }
+  await writeLevelInTx(tx, storeId, variantId, balance, now);
+  return { variantId, balance };
 }
 
 /**

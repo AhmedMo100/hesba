@@ -962,3 +962,15 @@
 .toastPending .toastMsg {
   color: #fde68a !important;
 }
+
+/* QA-31: the invoice details link on a recent sale (touch target ≥ 44px). */
+.rcDetails {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--br);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
+}

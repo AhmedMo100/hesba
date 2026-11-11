@@ -165,6 +165,9 @@ model Store {
   posMachineTopups     PosMachineTopup[]
   sandwichIngredients  SandwichIngredient[]
   saleVoids            SaleVoid[]
+  purchaseVoids        PurchaseVoid[]
+  saleReturns          SaleReturn[]
+  saleReturnLines      SaleReturnLine[]
 
   @@map("stores")
 }
@@ -191,6 +194,8 @@ model User {
   magicLinkTokens         MagicLinkToken[]
   sessions                Session[]
   saleVoids               SaleVoid[]
+  purchaseVoids           PurchaseVoid[]
+  saleReturns             SaleReturn[]
 
   @@map("users")
 }
@@ -700,6 +705,10 @@ model DebtEntry {
   opId           String        @map("op_id") @db.Uuid
   /// opening | transaction | adjustment (ADR-0023): an owner adjustment is never a debt/payment.
   entryKind      String        @default("transaction") @map("entry_kind") @db.Text
+  /// The supplier invoice this entry belongs to (its debt, a payment, or its reversal).
+  purchaseId     String?       @map("purchase_id") @db.Uuid
+  /// The credit-sale invoice this entry belongs to (its debt, a payment, or a return).
+  saleId         String?       @map("sale_id") @db.Uuid
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -709,8 +718,12 @@ model DebtEntry {
   supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
   settlesEntry DebtEntry?  @relation("DebtSettlement", fields: [settlesEntryId], references: [id], onDelete: SetNull)
   settlements  DebtEntry[] @relation("DebtSettlement")
+  purchase     Purchase?   @relation(fields: [storeId, purchaseId], references: [storeId, id], onDelete: Cascade, map: "debt_entries_purchase_fkey")
+  sale         Sale?       @relation(fields: [storeId, saleId], references: [storeId, id], onDelete: Cascade, map: "debt_entries_sale_fkey")
 
   @@unique([storeId, opId])
+  @@index([storeId, purchaseId], map: "idx_debt_entries_store_purchase")
+  @@index([storeId, saleId], map: "idx_debt_entries_store_sale")
   @@index([storeId, customerId])
   @@index([storeId, payableId])
   @@index([storeId, supplierId])
@@ -724,14 +737,20 @@ model Purchase {
   supplierId        String?  @map("supplier_id") @db.Uuid
   totalPiasters     BigInt   @map("total_piasters")
   opId              String   @map("op_id") @db.Uuid
+  note              String?  @db.Text
+  createdBy         String?  @map("created_by") @db.Uuid
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store           Store          @relation(fields: [storeId], references: [id], onDelete: Cascade)
   supplierContact Contact?       @relation(fields: [supplierContactId], references: [id], onDelete: SetNull)
   supplier        Supplier?      @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   purchaseLines   PurchaseLine[]
+  /// Set when the purchase was cancelled (ADR-0027): the purchase row itself never changes.
+  purchaseVoid    PurchaseVoid?
+  debtEntries     DebtEntry[]
 
   @@unique([storeId, opId])
+  @@unique([storeId, id], map: "uq_purchases_store_id_id")
   @@map("purchases")
 }
 
@@ -743,13 +762,18 @@ model PurchaseLine {
   storeVariantId    String?   @map("store_variant_id") @db.Uuid
   quantityBaseUnits Int       @map("quantity_base_units")
   unitCostPiasters  BigInt    @map("unit_cost_piasters")
+  /// What the whole line cost: the authority (ADR-0021, ADR-0027).
+  totalCostPiasters BigInt?   @map("total_cost_piasters")
+  /// The stock batch this line created.
+  batchId           String?   @map("batch_id") @db.Uuid
   expiresOn         DateTime? @map("expires_on") @db.Date
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  store        Store         @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  purchase     Purchase      @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
-  storeProduct StoreProduct? @relation(fields: [storeProductId], references: [id], onDelete: SetNull)
-  storeVariant StoreVariant? @relation(fields: [storeVariantId], references: [id], onDelete: SetNull)
+  store        Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  purchase     Purchase         @relation(fields: [purchaseId], references: [id], onDelete: Cascade)
+  batch        StoreStockBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  storeProduct StoreProduct?    @relation(fields: [storeProductId], references: [id], onDelete: SetNull)
+  storeVariant StoreVariant?    @relation(fields: [storeVariantId], references: [id], onDelete: SetNull)
 
   @@map("purchase_lines")
 }
@@ -761,15 +785,19 @@ model Sale {
   customerId        String?           @map("customer_id") @db.Uuid
   paymentMethod     SalePaymentMethod @map("payment_method")
   totalPiasters     BigInt            @map("total_piasters")
+  /// The invoice discount (ADR-0027); `totalPiasters` is after it.
+  discountPiasters  BigInt            @default(0) @map("discount_piasters")
   opId              String            @map("op_id") @db.Uuid
   createdAt         DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  store           Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  customerContact Contact?   @relation(fields: [customerContactId], references: [id], onDelete: SetNull)
-  customer        Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  store           Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  customerContact Contact?     @relation(fields: [customerContactId], references: [id], onDelete: SetNull)
+  customer        Customer?    @relation(fields: [customerId], references: [id], onDelete: SetNull)
   saleLines       SaleLine[]
   /// Set when the sale was undone (ADR-0022): the sale row itself is never changed or deleted.
   saleVoid        SaleVoid?
+  saleReturns     SaleReturn[]
+  debtEntries     DebtEntry[]
 
   @@unique([storeId, opId])
   @@unique([storeId, id], map: "uq_sales_store_id_id")
@@ -807,6 +835,8 @@ model SaleLine {
   quantityBaseUnits  Int      @map("quantity_base_units")
   unitPricePiasters  BigInt   @map("unit_price_piasters")
   totalPiasters      BigInt   @map("total_piasters")
+  /// This line's share of the invoice discount; `totalPiasters` is after it (ADR-0027).
+  discountPiasters   BigInt   @default(0) @map("discount_piasters")
   /// Cost of the whole line at the time of sale (set for sandwich lines, ADR-0018); null otherwise.
   costPiasters       BigInt?  @map("cost_piasters")
   createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -817,7 +847,9 @@ model SaleLine {
   storeVariant     StoreVariant?     @relation(fields: [storeVariantId], references: [id], onDelete: SetNull)
   cardSerial       CardSerial?       @relation(fields: [cardSerialId], references: [id], onDelete: SetNull)
   storeBillPayment StoreBillPayment? @relation(fields: [storeBillPaymentId], references: [id], onDelete: SetNull)
+  returnLines      SaleReturnLine[]
 
+  @@unique([storeId, id], map: "uq_sale_lines_store_id_id")
   @@map("sale_lines")
 }
 
@@ -1020,6 +1052,7 @@ model StoreStockBatch {
   store          Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeVariant   StoreVariant    @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
   stockMovements StockMovement[]
+  purchaseLines  PurchaseLine[]
 
   @@index([storeId, storeVariantId, expiryDate, receivedAt], map: "idx_store_stock_batches_fefo")
   @@map("store_stock_batches")
@@ -1137,4 +1170,66 @@ model PosMachineTopup {
   @@unique([storeId, opId], map: "uq_pos_machine_topups_store_op")
   @@index([storeId, machineId, createdAt(sort: Desc)], map: "idx_pos_machine_topups_store_machine")
   @@map("pos_machine_topups")
+}
+
+/// A cancelled supplier purchase (ADR-0027): immutable, one per purchase.
+model PurchaseVoid {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId    String   @map("store_id") @db.Uuid
+  purchaseId String   @map("purchase_id") @db.Uuid
+  opId       String   @map("op_id") @db.Uuid
+  reason     String?  @db.Text
+  voidedBy   String?  @map("voided_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store    Store    @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  purchase Purchase @relation(fields: [storeId, purchaseId], references: [storeId, id], onDelete: Cascade, map: "purchase_voids_purchase_fkey")
+  user     User?    @relation(fields: [voidedBy], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, purchaseId], map: "uq_purchase_voids_purchase")
+  @@unique([storeId, opId], map: "uq_purchase_voids_store_op")
+  @@map("purchase_voids")
+}
+
+/// A return of (part of) a sale (ADR-0027): immutable, references the original sale.
+model SaleReturn {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String   @map("store_id") @db.Uuid
+  saleId           String   @map("sale_id") @db.Uuid
+  opId             String   @map("op_id") @db.Uuid
+  amountPiasters   BigInt   @map("amount_piasters")
+  /// Taken off the credit invoice's open debt.
+  creditedPiasters BigInt   @default(0) @map("credited_piasters")
+  /// Paid back to the customer.
+  refundedPiasters BigInt   @default(0) @map("refunded_piasters")
+  reason           String?  @db.Text
+  createdBy        String?  @map("created_by") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  sale  Sale             @relation(fields: [storeId, saleId], references: [storeId, id], onDelete: Cascade, map: "sale_returns_sale_fkey")
+  user  User?            @relation(fields: [createdBy], references: [id], onDelete: SetNull)
+  lines SaleReturnLine[]
+
+  @@unique([storeId, id], map: "uq_sale_returns_store_id_id")
+  @@unique([storeId, opId], map: "uq_sale_returns_store_op")
+  @@index([storeId, saleId], map: "idx_sale_returns_store_sale")
+  @@map("sale_returns")
+}
+
+model SaleReturnLine {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @map("store_id") @db.Uuid
+  returnId       String   @map("return_id") @db.Uuid
+  saleLineId     String   @map("sale_line_id") @db.Uuid
+  quantityBase   Int      @map("quantity_base")
+  amountPiasters BigInt   @map("amount_piasters")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store    Store      @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  return   SaleReturn @relation(fields: [storeId, returnId], references: [storeId, id], onDelete: Cascade, map: "sale_return_lines_return_fkey")
+  saleLine SaleLine   @relation(fields: [storeId, saleLineId], references: [storeId, id], onDelete: Cascade, map: "sale_return_lines_sale_line_fkey")
+
+  @@index([storeId, saleLineId], map: "idx_sale_return_lines_store_line")
+  @@map("sale_return_lines")
 }

@@ -8,11 +8,12 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import { Icon, Seg, Empty, Modal } from "@/client/shared/ui";
+import { Icon, Seg, Empty, Modal, useToast } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
+import { PurchasesSheet } from "./PurchasesSheet";
 
 interface SuppliedProduct {
   id: string;
@@ -268,6 +269,11 @@ export function PeopleView() {
 
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<PersonItem | null>(null);
+  const toast = useToast();
+  // QA-30: the supplier whose purchase invoices are open.
+  const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
+    null,
+  );
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Payment / Collection Modal state
@@ -973,6 +979,17 @@ export function PeopleView() {
                             </span>
                           </div>
                         )}
+                        <button
+                          type="button"
+                          className={styles.purchasesBtn}
+                          data-testid={`supplier-purchases-${p.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPurchasesTarget(p);
+                          }}
+                        >
+                          {t("invoice.purchasesTitle")}
+                        </button>
                         {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
                           <div className={styles.cardFooter}>
                             <span className={styles.amountLabel}>
@@ -1480,6 +1497,18 @@ export function PeopleView() {
       )}
 
       {/* Delete Confirmation Modal */}
+      {purchasesTarget && (
+        <PurchasesSheet
+          supplierId={purchasesTarget.id}
+          supplierName={purchasesTarget.name}
+          onClose={() => setPurchasesTarget(null)}
+          onChanged={(message) => {
+            toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData("suppliers");
+          }}
+        />
+      )}
+
       {deleteTarget && (
         <Modal
           onClose={() => !isDeleting && setDeleteTarget(null)}

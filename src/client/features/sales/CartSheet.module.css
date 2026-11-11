@@ -1,0 +1,190 @@
+/* Cart, sale invoice and supplier purchase sheets (QA-30 / QA-31). Tokens from docs/05-ui.md. */
+.sheet {
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.link {
+  background: none;
+  border: 0;
+  color: var(--br);
+  font-weight: 700;
+  font-size: 14px;
+  min-height: 44px;
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.empty,
+.muted {
+  color: var(--ink2, var(--ink));
+  opacity: 0.75;
+  font-size: 14px;
+  margin: 0;
+}
+
+.lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.line:last-child {
+  border-bottom: 0;
+}
+
+.name {
+  font-weight: 700;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.qty {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.qty button {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--sf2, var(--sf));
+  color: var(--ink);
+  font-size: 20px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.qty button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.qty input {
+  width: 72px;
+  min-height: 44px;
+  text-align: center;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.amount {
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.select {
+  width: 100%;
+  min-height: 50px;
+  padding: 0 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.totals {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 15px;
+}
+
+.error {
+  margin: 0;
+  color: var(--bad, #c62828);
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.badge {
+  font-size: 12px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--soft);
+  color: var(--br);
+  margin-inline-start: 6px;
+}
+
+.card {
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Skeleton rows while a list loads (no spinner flash for fast answers). */
+.skeleton {
+  height: 56px;
+  border-radius: 14px;
+  background: linear-gradient(
+    90deg,
+    var(--line) 0%,
+    var(--sf2, var(--sf)) 50%,
+    var(--line) 100%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+  opacity: 0.6;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skeleton {
+    animation: none;
+  }
+}

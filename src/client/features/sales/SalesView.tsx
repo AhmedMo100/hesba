@@ -36,7 +36,7 @@ import React, {
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
-import { Empty, SearchBox, Icon } from "@/client/shared/ui";
+import { Button, Empty, SearchBox, Icon } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
@@ -85,6 +85,8 @@ import {
 } from "@/client/offline/outbox";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
+import { CartSheet, type CartLine } from "./CartSheet";
+import { SaleInvoiceModal } from "./SaleInvoiceModal";
 
 interface DisplaySaleItem {
   id: string;
@@ -298,6 +300,10 @@ export function SalesView() {
   );
   const [salesLoadFailed, setSalesLoadFailed] = useState(false);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
+  // QA-31: the cart (several items, one invoice) and the invoice details (returns, credit).
+  const [cartMode, setCartMode] = useState(false);
+  const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  const [detailsSaleId, setDetailsSaleId] = useState<string | null>(null);
   const [services, setServices] = useState<StoreProductItem[]>([]);
   const [enabledServiceIds, setEnabledServiceIds] = useState<string[]>(
     initial.initialEnabledServices,
@@ -1109,6 +1115,51 @@ export function SalesView() {
 
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
+    // QA-31: in cart mode a stocked product goes into the cart; the server prices it at checkout.
+    if (cartMode) {
+      if (item.isService || item.isSandwich || !item.variantId) {
+        showToast(
+          t("invoice.cartServiceNotAllowed", { name: item.name }),
+          "error",
+        );
+        return;
+      }
+      const variantId = item.variantId;
+      const weighed = item.unit === "kg" || item.unit === "g";
+      const step = weighed ? Math.min(1000, item.currentStockBase) : 1;
+      if (step <= 0) {
+        showToast(`«${item.name}» خلصان`, "error");
+        return;
+      }
+      setCartLines((prev) => {
+        const found = prev.find((l) => l.variantId === variantId);
+        if (found) {
+          return prev.map((l) =>
+            l.variantId === variantId
+              ? {
+                  ...l,
+                  quantityBase: Math.min(
+                    l.quantityBase + step,
+                    item.currentStockBase,
+                  ),
+                }
+              : l,
+          );
+        }
+        return [
+          ...prev,
+          {
+            variantId,
+            name: item.name,
+            unit: item.unit ?? "piece",
+            quantityBase: step,
+            sellPricePiasters: item.sellPricePiasters,
+            stockBase: item.currentStockBase,
+          },
+        ];
+      });
+      return;
+    }
     // 0. Sandwich: the server checks and deducts the ingredients
     if (item.isSandwich) {
       const outcome = await handleSellSandwich(item);
@@ -1463,6 +1514,50 @@ export function SalesView() {
           </div>
         )}
 
+        {/* QA-31: sell several items as one invoice (cart), with discount and payment method */}
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            margin: "0 0 10px",
+          }}
+        >
+          <Button
+            kind={cartMode ? "primary" : "ghost"}
+            size="sm"
+            icon="plus"
+            data-testid="cart-toggle"
+            aria-pressed={cartMode}
+            onClick={() => setCartMode((v) => !v)}
+          >
+            {t("invoice.cartToggle")}
+            {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+          </Button>
+        </div>
+        {cartMode && (
+          <div style={{ marginBottom: 12 }}>
+            <CartSheet
+              lines={cartLines}
+              onChange={setCartLines}
+              onDone={(invoice) => {
+                setCartLines([]);
+                setCartMode(false);
+                showToast(
+                  t("invoice.checkoutDone", {
+                    total: formatMoney(invoice.totalPiasters),
+                  }),
+                  "success",
+                );
+                void reloadSales();
+                void fetch("/api/stock?view=all")
+                  .then((r) => (r.ok ? r.json() : null))
+                  .then((d) => d?.inventory && setInventory(d.inventory))
+                  .catch(() => undefined);
+              }}
+            />
+          </div>
+        )}
+
         {/* Product & Services Tiles Grid matching Image 1 */}
         {filteredItems.length === 0 ? (
           <div className={viewStyles.card}>
@@ -1731,6 +1826,17 @@ export function SalesView() {
                     <b className={styles.rcAmount}>
                       {formatMoney(sale.amountPiasters)}
                     </b>
+                    {!sale.voided && (
+                      <button
+                        type="button"
+                        className={styles.rcDetails}
+                        data-testid="sale-details"
+                        aria-label={`${t("invoice.details")} ${sale.name}`}
+                        onClick={() => setDetailsSaleId(sale.id)}
+                      >
+                        {t("invoice.details")}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1738,6 +1844,21 @@ export function SalesView() {
           )}
         </div>
       </div>
+
+      {detailsSaleId && (
+        <SaleInvoiceModal
+          saleId={detailsSaleId}
+          onClose={() => setDetailsSaleId(null)}
+          onChanged={(message) => {
+            showToast(message, "success");
+            void reloadSales();
+            void fetch("/api/stock?view=all")
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => d?.inventory && setInventory(d.inventory))
+              .catch(() => undefined);
+          }}
+        />
+      )}
 
       {/* Weight Modal Popup matching Image 2 */}
       {weightModalItem && (

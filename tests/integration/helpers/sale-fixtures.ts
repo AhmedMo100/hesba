@@ -98,6 +98,8 @@ export class SaleFixtures {
       await sql`DELETE FROM "sale_lines" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sales" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sandwich_ingredients" WHERE store_id IN ${sql(ids)}`;
+      // Purchases first: their lines must keep a product/variant target (chk_purchase_lines_target).
+      await sql`DELETE FROM "purchases" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_variants" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_products" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sessions" WHERE store_id IN ${sql(ids)}`;
