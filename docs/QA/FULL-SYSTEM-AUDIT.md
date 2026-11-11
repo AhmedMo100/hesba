@@ -745,6 +745,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Evidence:** [API].
 - **Impact:** clients can't detect mistakes. No other shop's data changed (verified).
 - **Fix:** return 404 when no row matches.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. Unhiding or deleting an unknown or another shop's product or promotion gets 404. An adjustment with no delta or target gets 400. Verified by `tests/integration/p3-hardening.spec.ts`.
 
 #### QA-36 · P3 · Machine top-up and adjust mishandle numbers
 - **Actual:**
@@ -753,6 +754,7 @@ Issues are ordered by severity. Each one lists, in this order:
   - Adjust with `"abc"` → 500.
 - **Root cause:** hand-written `Number()` checks instead of a schema; `BigInt(NaN)` / `BigInt(0.5)` throw.
 - **Evidence:** [API], [LOG] "The number NaN cannot be converted to a BigInt".
+- **Status (2026-11-12):** already fixed by QA-03 (`machineTopupSchema` / `machineAdjustSchema`). Verified by `tests/integration/p3-hardening.spec.ts`: strings, fractions, 10²⁰ and 0 get 400.
 
 #### QA-37 · P3 · Dates are not validated
 - **Actual:**
@@ -762,21 +764,25 @@ Issues are ordered by severity. Each one lists, in this order:
   - An unknown `period` falls back silently.
 - **Evidence:** [API], [DB].
 - **Fix:** strict date parsing and a reasonable range.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`: strict real dates (`src/schemas/dates.ts`). Business dates run from 2000 to tomorrow, expiry up to 30 years ahead. An unknown expenses `period` gets 400. Verified by `tests/integration/p3-hardening.spec.ts` and `tests/unit/server/p3-hardening.spec.ts`.
 
 #### QA-38 · P3 · Login response time reveals whether a phone is registered
 - **Actual:** wrong password on an existing phone: 94–107 ms. Unknown phone: 74–81 ms. Measured over HTTP, 3 samples each.
 - **Root cause:** the malformed dummy Argon2 hash (UE-10).
 - **Fix:** a real dummy hash with the same parameters.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`: a real Argon2id dummy hash with the login parameters. The old one failed in ~0.1 ms versus ~13 ms for a real verify. Verified by `tests/unit/server/p3-hardening.spec.ts`.
 
 #### QA-39 · P3 · No server-side origin (CSRF) check
 - **Actual:** a POST with `Origin: https://evil.example`, and even `Content-Type: text/plain`, was accepted (201) on DEV and PROD when the cookie was present.
 - **Mitigation:** in browsers, the cookie is `SameSite=Lax`, so cross-site requests don't carry it today.
 - **Risk:** same-site subdomains, older browsers, and any future change of `SameSite`.
 - **Fix:** check `Origin`/`Sec-Fetch-Site` on writes; require `application/json`.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. `assertSameOriginWrite` runs in `requireSession` and on the auth writes: a foreign `Origin` or `Sec-Fetch-Site: cross-site` gets 403, a non-JSON body 415. Verified by `tests/integration/p3-hardening.spec.ts` and the unit tests.
 
 #### QA-40 · P3 · The session token is also returned in the JSON body
 - **Actual:** signup, login and rotate return `data.sessionToken`. The HttpOnly cookie is therefore not the only copy: any script (XSS) can read the token.
 - **Fix:** return the token only as the cookie.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. Signup, login and rotate return the token only as the HttpOnly cookie. Verified by `tests/integration/p3-hardening.spec.ts`.
 
 #### QA-41 · P3 · A sandwich still sells after one of its ingredient products is hidden
 - **Steps:**
@@ -787,6 +793,7 @@ Issues are ordered by severity. Each one lists, in this order:
   - The hidden product disappears from the ingredient picker, so editing the sandwich would show a missing product.
 - **Evidence:** [API] `SW hide ingredient`.
 - **Fix:** product decision. Either block hiding a product used in a sandwich (as delete already does), or warn.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. Hiding a sandwich ingredient gets 409, the same rule as delete. A sandwich with an already-hidden ingredient refuses to sell (400). Verified by `tests/integration/p3-hardening.spec.ts`.
 
 #### QA-42 · P3 · Cross-shop attempts return 500 instead of 404
 - **Actual:**
@@ -797,6 +804,7 @@ Issues are ordered by severity. Each one lists, in this order:
   - Shop B selling shop A's sandwich → 500.
   - **No data leaked and nothing changed** (verified via shop A's lists and the DB).
 - **Fix:** same as QA-19.
+- **Status (2026-11-12):** already fixed by QA-19 (error mapping, `AppError.notFound`). Verified by `tests/integration/p3-hardening.spec.ts`: every listed cross-shop attempt gets 404, and nothing of the other shop changed.
 
 #### QA-43 · P3 · English unit codes and wrong pack words on Home
 - **Actual:** the Home "الجرد" table shows "19 **piece**", "carton 5", and for a 10-piece bread pack "1 **كرتونة** و 8 piece".

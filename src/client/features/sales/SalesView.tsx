@@ -940,7 +940,8 @@ export function SalesView() {
           method: "DELETE",
         },
       );
-      if (res.ok) {
+      // 404: the offer is already gone (QA-35) — remove it from the list all the same.
+      if (res.ok || res.status === 404) {
         setActivePromotions((prev) => prev.filter((p) => p.id !== promoId));
         window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);

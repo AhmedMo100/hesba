@@ -105,6 +105,7 @@ export async function createSession(
 }
 
 import { withTenant } from "@/server/infra/db/tenant";
+import { assertSameOriginWrite } from "./request-guard";
 
 /**
  * Resolves a raw session token to the user and store it belongs to.
@@ -382,6 +383,8 @@ export async function getSessionFromRequest(
  * @throws AppError (401) when the request has no valid session.
  */
 export async function requireSession(req: Request): Promise<SessionContext> {
+  // Every cookie-authenticated write passes here: refuse cross-site writes (QA-39).
+  assertSameOriginWrite(req);
   const context = await getSessionFromRequest(req);
   if (!context) {
     throw AppError.unauthorized();

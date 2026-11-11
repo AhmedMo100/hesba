@@ -171,7 +171,14 @@ describe("QA-05 — one source of truth for stock quantities", () => {
     );
     const s = await f.stockState(A, p.variantId);
     const adj = s.movements.filter((m) => m.type === "adjustment");
-    expect(adj.map((m) => m.quantity)).toEqual([-3, -1]);
+    // Per batch (movements of one transaction share a timestamp, so their order is not fixed):
+    // 3 from the earliest-expiring batch, then 1 from the later one.
+    expect(Object.fromEntries(adj.map((m) => [m.batchId, m.quantity]))).toEqual(
+      {
+        [String(early.batchId)]: -3,
+        [String(late.batchId)]: -1,
+      },
+    );
     await expectReconciled(A, p.variantId, 4);
   });
 

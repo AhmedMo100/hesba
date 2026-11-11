@@ -86,9 +86,11 @@ describe("QA-01 — atomic ordinary sale", () => {
       expect(state.batches).toEqual([0, 4]);
       expect(state.level).toBe(4);
       const moves = state.movements.filter((m) => m.type === "sale");
-      // The second sale drew 1 from the early batch and 2 from the late one.
-      expect(moves.slice(-2).map((m) => m.quantity)).toEqual([-1, -2]);
-      expect(moves.slice(-1)[0]!.balanceAfter).toBe(4);
+      // The second sale drew 1 from the early batch and 2 from the late one (state.batches
+      // above proves the FEFO order; the two movements share a timestamp, so compare as a set).
+      const last = moves.slice(-2);
+      expect(last.map((m) => m.quantity).sort()).toEqual([-1, -2].sort());
+      expect(Math.min(...last.map((m) => m.balanceAfter))).toBe(4);
     });
 
     it("lists the sale in GET /api/sales with the server total", async () => {

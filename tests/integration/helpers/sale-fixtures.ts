@@ -269,6 +269,7 @@ export class SaleFixtures {
         movementsSum: movements.reduce((s, m) => s + Number(m.quantityBase), 0),
         movements: movements.map((m) => ({
           type: m.type,
+          batchId: m.batchId,
           quantity: Number(m.quantityBase),
           balanceAfter: Number(m.balanceAfterBase ?? 0),
           saleLineId: m.saleLineId,

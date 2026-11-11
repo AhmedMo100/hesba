@@ -171,18 +171,24 @@ export async function publishPromotion(
   return promotion;
 }
 
-/** Removes one offer. Removing an unknown id is a no-op. */
+/**
+ * Removes one offer.
+ *
+ * @throws AppError 404 when the shop has no offer with that id (QA-35): an id that matches
+ *   nothing — unknown, already removed, or another shop's — is not reported as a success.
+ */
 export async function removePromotion(
   storeId: string,
   userId: string,
   promotionId: string,
 ): Promise<void> {
-  await updateStoreSettings(storeId, userId, (settings) => ({
-    patch: {
-      activePromotions: promotionsIn(settings).filter(
-        (p) => p.id !== promotionId,
-      ),
-    },
-    result: undefined,
-  }));
+  const removed = await updateStoreSettings(storeId, userId, (settings) => {
+    const current = promotionsIn(settings);
+    const kept = current.filter((p) => p.id !== promotionId);
+    return {
+      patch: { activePromotions: kept },
+      result: kept.length !== current.length,
+    };
+  });
+  if (!removed) throw AppError.notFound("العرض ده مش موجود");
 }

@@ -518,6 +518,18 @@ export async function prepareSandwichSaleInTx(
   if (row.sandwichIngredients.length === 0) {
     throw AppError.badRequest("الساندوتش ده مالوش مكونات");
   }
+  // A hidden ingredient is never sold through a sandwich (QA-41; hiding one is refused now,
+  // this covers ingredients hidden before that rule).
+  const hidden = row.sandwichIngredients.find(
+    (l) =>
+      !l.ingredientVariant.isActive ||
+      l.ingredientVariant.storeProduct?.isActive === false,
+  );
+  if (hidden) {
+    throw AppError.badRequest(
+      `«${variantName(hidden.ingredientVariant)}» من مكونات الساندوتش مخفي، أظهره أو شيله من الساندوتش الأول`,
+    );
+  }
 
   const needs = scaleRecipe(
     row.sandwichIngredients.map((l) => ({

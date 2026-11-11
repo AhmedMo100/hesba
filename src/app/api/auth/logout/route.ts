@@ -4,6 +4,7 @@ import {
   revokeSession,
   getSessionCookieOptions,
   SESSION_COOKIE_NAME,
+  assertSameOriginWrite,
 } from "@/server/modules/auth";
 import { toSafeErrorResponse } from "@/server/platform/error";
 
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    assertSameOriginWrite(req); // QA-39
     const cookieHeader = req.headers.get("cookie");
     let rawToken: string | undefined;
 

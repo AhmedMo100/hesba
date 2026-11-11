@@ -235,7 +235,8 @@ describe("Promotions API (characterization) & Tenancy", () => {
   it("another store sees none of these and cannot delete them", async () => {
     expect(await listIds(userBId, storeBId)).toEqual([]);
     const res = await call("DELETE", userBId, storeBId, { query: "?id=a" });
-    expect(res.status).toBe(200);
+    // Store B has no offer "a": nothing matched, so 404 (QA-35) — and A's offers are untouched.
+    expect(res.status).toBe(404);
     expect(await listIds(userAId, storeAId)).toEqual(["a", "b"]);
   });
 

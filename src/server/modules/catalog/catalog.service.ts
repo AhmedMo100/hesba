@@ -83,6 +83,32 @@ function getDefaultTelecomPrice(
   return { sell: 0, buy: 0 };
 }
 
+/**
+ * A product used as a sandwich ingredient cannot be hidden (QA-41), the same rule as deleting it:
+ * hiding it would leave a sandwich that sells a hidden product and a recipe the ingredient picker
+ * no longer shows. Remove it from the sandwich first.
+ *
+ * @throws AppError 409 naming the sandwiches.
+ */
+async function assertNotSandwichIngredientInTx(
+  tx: TenantTx,
+  storeId: string,
+  storeProductId: string,
+): Promise<void> {
+  const usedIn = await tx.sandwichIngredient.findMany({
+    where: { storeId, ingredientVariant: { storeProductId } },
+    select: { sandwichProduct: { select: { nameAr: true } } },
+  });
+  if (usedIn.length > 0) {
+    const names = [
+      ...new Set(usedIn.map((u) => u.sandwichProduct.nameAr ?? "")),
+    ].join("، ");
+    throw AppError.conflict(
+      `المنتج ده داخل في ساندوتش (${names}). شيله من الساندوتش الأول`,
+    );
+  }
+}
+
 export class CatalogService {
   private readonly communityService: CommunitySuggestionsService;
 
@@ -667,6 +693,11 @@ export class CatalogService {
         }
 
         if (actualStoreProductId) {
+          await assertNotSandwichIngredientInTx(
+            tx,
+            storeId,
+            actualStoreProductId,
+          );
           await tx.storeProduct.update({
             where: { id: actualStoreProductId },
             data: { isActive: false, updatedAt: new Date() },
@@ -687,6 +718,7 @@ export class CatalogService {
           });
 
           if (existing) {
+            await assertNotSandwichIngredientInTx(tx, storeId, existing.id);
             await tx.storeProduct.update({
               where: { id: existing.id },
               data: {
@@ -752,10 +784,14 @@ export class CatalogService {
             data: { isActive: true, updatedAt: new Date() },
           });
         } else {
-          await tx.storeProduct.updateMany({
+          const { count } = await tx.storeProduct.updateMany({
             where: { globalProductId: actualId, storeId },
             data: { isActive: true, updatedAt: new Date() },
           });
+          // Nothing of this shop matched: not a success (QA-35).
+          if (count === 0) {
+            throw AppError.notFound("المنتج ده مش موجود في محلك");
+          }
         }
 
         return { success: true };

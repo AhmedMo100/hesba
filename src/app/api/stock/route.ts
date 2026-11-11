@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { businessDateSchema, expiryDateSchema } from "@/schemas/dates";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { InventoryService } from "@/server/modules/inventory";
@@ -38,8 +39,9 @@ const addStockSchema = z.object({
     .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
     .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional(),
-  productionDate: z.string().optional().nullable(),
-  expiryDate: z.string().optional().nullable(),
+  // Real dates in a sensible range (QA-37): "not-a-date" was a 500.
+  productionDate: businessDateSchema.optional().nullable(),
+  expiryDate: expiryDateSchema.optional().nullable(),
   batchCode: z.string().trim().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   opId: z.string().uuid().optional(),
@@ -219,6 +221,13 @@ export async function POST(req: Request) {
       );
       return NextResponse.json({ success: true, data: result });
     } else if (input.action === "adjust") {
+      // An adjustment that names no change records nothing: say so instead of "success" (QA-35).
+      if (input.mode === "delta" && !input.deltaQuantityBase) {
+        throw AppError.badRequest("اكتب الكمية اللي هتزود أو تنقص بيها");
+      }
+      if (input.mode === "set" && input.targetQuantityBase === undefined) {
+        throw AppError.badRequest("اكتب الرصيد الجديد");
+      }
       const result = await inventoryService.adjustStockQuantity(
         context.store.id,
         context.user.id,

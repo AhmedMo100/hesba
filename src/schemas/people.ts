@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { businessDateSchema, parseStrictDate } from "./dates";
 import { normalizeNumberString, parseEgpStrict } from "@/domain/money";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
@@ -159,9 +160,10 @@ export const recordDebtTransactionInputSchema = z
       .max(500, "الملاحظة طويلة جداً")
       .optional()
       .nullable(),
-    date: z.string().optional().nullable(),
-    createdAt: z.string().optional().nullable(),
-    created_at: z.string().optional().nullable(),
+    // A real date, not before 2000 and not in the future (QA-37).
+    date: businessDateSchema.optional().nullable(),
+    createdAt: businessDateSchema.optional().nullable(),
+    created_at: businessDateSchema.optional().nullable(),
     opId: z.string().uuid().optional(),
     op_id: z.string().uuid().optional(),
   })
@@ -175,13 +177,9 @@ export const recordDebtTransactionInputSchema = z
       return z.NEVER;
     }
     const rawDate = data.date || data.createdAt || data.created_at;
-    let parsedDate: Date | undefined;
-    if (rawDate) {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        parsedDate = d;
-      }
-    }
+    const parsedDate = rawDate
+      ? (parseStrictDate(rawDate) ?? undefined)
+      : undefined;
 
     return {
       type: data.type,

@@ -60,7 +60,7 @@ Each write already has, or now gets, a client `opId` stored on the business row,
 - Profile and sales-config are full or partial overwrites, so repeating them is harmless.
 - Stock void-batch and archive already refuse a second application.
 - **Overwrites, safe to repeat:** product edits (`PATCH /api/products`, and `POST` with a `globalProductId`, which updates the shop's one row), sandwich edits, person edits and expense edits. They set values, so a repeat gives the same state.
-- **Deletes and hides:** these are soft deletes, so a repeat never removes twice. Repeated expense and promotion deletes return success. Repeated person, machine and product deletes get a clear 404.
+- **Deletes and hides:** these are soft deletes, so a repeat never removes twice. A repeated expense delete returns success (the row still exists, marked deleted). Promotions keep no tombstone, so deleting one that is no longer there gets 404 (QA-35), and the screens treat that as already removed. Repeated person, machine and product deletes get a clear 404.
 - **Machine creation:** no operation id. A duplicate is visible and can be deleted.
 - **Auth, AI chat and crons are not business records:**
   - login and rotation are covered by the session rules (ADR-0024);
