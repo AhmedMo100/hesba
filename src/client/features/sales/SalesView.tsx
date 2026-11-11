@@ -99,7 +99,9 @@ import {
   type CartDraft,
   type CartLine,
   type CartOpId,
+  type CreditCustomer,
 } from "./CartSheet";
+import { CreditCustomerForm } from "./CreditCustomerForm";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
 
 interface DisplaySaleItem {
@@ -300,7 +302,12 @@ function loadInitialData(storeId?: string): {
   return { initialEnabledServices, stagedSaleItem };
 }
 
-export function SalesView() {
+export function SalesView({
+  onNavigate,
+}: {
+  /** After a credit sale the owner lands on People → «ليك» (the customer's balance). */
+  onNavigate?: (route: "people") => void;
+} = {}) {
   const { session } = useAuth();
   const storeId = session?.store?.id;
   // The shop that owns the sales queue: the signed-in shop, or — while the session is not
@@ -319,6 +326,14 @@ export function SalesView() {
   const [tilesLoaded, setTilesLoaded] = useState(false);
   const [cartMode, setCartMode] = useState(false);
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  // A credit sale (آجل): the customer is chosen once, then every item goes on one invoice.
+  const [creditCustomer, setCreditCustomer] = useState<CreditCustomer | null>(
+    null,
+  );
+  const [creditFormOpen, setCreditFormOpen] = useState(false);
+  // The card whose «آجل» opened the customer form: added once the customer is chosen.
+  const [pendingCreditItem, setPendingCreditItem] =
+    useState<DisplaySaleItem | null>(null);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
   const [cartOpen, setCartOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -1152,7 +1167,7 @@ export function SalesView() {
    * Services and sandwiches are sold on their own. The server prices and checks the stock at
    * checkout; here the quantity is only capped at the shown stock.
    */
-  const addToCart = (item: DisplaySaleItem): boolean => {
+  const addToCart = (item: DisplaySaleItem, units?: number): boolean => {
     if (item.isService || item.isSandwich || !item.variantId) {
       showToast(
         t("invoice.cartServiceNotAllowed", { name: item.name }),
@@ -1162,10 +1177,16 @@ export function SalesView() {
     }
     const variantId = item.variantId;
     const weighed = item.unit === "kg" || item.unit === "g";
-    const step = weighed ? Math.min(1000, item.currentStockBase) : 1;
+    const step = units ?? (weighed ? Math.min(1000, item.currentStockBase) : 1);
     if (step <= 0) {
       showToast(`«${item.name}» خلصان`, "error");
       return false;
+    }
+    if (creditCustomer) {
+      showToast(
+        t("credit.added", { customer: creditCustomer.name, name: item.name }),
+        "success",
+      );
     }
     setCartLines((prev) => {
       const found = prev.find((l) => l.variantId === variantId);
@@ -1198,17 +1219,48 @@ export function SalesView() {
   };
 
   /**
-   * A card's «آجل»: the item goes into the invoice, set to a credit sale, and the invoice
-   * opens to pick the customer. It is the existing invoice-level credit flow (one payment
-   * method per invoice, the customer on the invoice); nothing is recorded until checkout.
+   * A card's «آجل»: within a credit sale the item joins its invoice; otherwise the customer
+   * form opens first and the item is added once the customer is chosen. It is the existing
+   * invoice-level credit flow; nothing is recorded until «تسجيل الآجل».
    */
   const handleSellOnCredit = (e: React.MouseEvent, item: DisplaySaleItem) => {
     e.stopPropagation();
-    if (!addToCart(item)) return;
-    setCartMode(true);
-    setCartDraft((d) => ({ ...d, method: "debt" }));
-    setCartOpen(true);
+    if (creditCustomer) {
+      addToCart(item);
+      return;
+    }
+    setPendingCreditItem(item);
+    setCreditFormOpen(true);
   };
+
+  /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
+  const startCreditSale = (customer: CreditCustomer) => {
+    setCreditCustomer(customer);
+    setCreditFormOpen(false);
+    setCartMode(true);
+    setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
+    showToast(t("credit.started", { name: customer.name }), "success");
+    if (pendingCreditItem) {
+      const item = pendingCreditItem;
+      setPendingCreditItem(null);
+      // added after the session state is set, so the toast names the customer
+      setTimeout(() => addToCartRef.current?.(item), 0);
+    }
+  };
+
+  /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
+  const cancelCreditSale = () => {
+    setCreditCustomer(null);
+    setCartLines([]);
+    setCartMode(false);
+    setCartOpen(false);
+    setCartDraft(EMPTY_CART_DRAFT);
+  };
+
+  const addToCartRef = useRef(addToCart);
+  useEffect(() => {
+    addToCartRef.current = addToCart;
+  });
 
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
@@ -1331,6 +1383,18 @@ export function SalesView() {
     e.stopPropagation();
     const packQty = item.packQty || 1;
     const packLabel = getPackLabel(item.packName, item.packQty);
+    // In an invoice (credit or not) a whole pack joins the draft as its pieces.
+    if (cartMode) {
+      if (item.currentStockBase < packQty) {
+        showToast(
+          `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
+          "error",
+        );
+        return;
+      }
+      addToCart(item, packQty);
+      return;
+    }
 
     if (item.currentStockBase < packQty) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1511,16 +1575,33 @@ export function SalesView() {
               {t("invoice.promos")} ({activePromotions.length})
             </Button>
           )}
+          {!creditCustomer && (
+            <Button
+              kind={cartMode ? "primary" : "ghost"}
+              size="sm"
+              icon="plus"
+              data-testid="cart-toggle"
+              aria-pressed={cartMode}
+              onClick={() => setCartMode((v) => !v)}
+            >
+              {t("invoice.cartToggle")}
+              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            </Button>
+          )}
+          {/* The credit-sale entry point: the customer first, then the items */}
           <Button
-            kind={cartMode ? "primary" : "ghost"}
+            kind={creditCustomer ? "primary" : "ghost"}
             size="sm"
-            icon="plus"
-            data-testid="cart-toggle"
-            aria-pressed={cartMode}
-            onClick={() => setCartMode((v) => !v)}
+            icon="users"
+            data-testid="credit-start"
+            aria-pressed={!!creditCustomer}
+            onClick={() =>
+              creditCustomer ? setCartOpen(true) : setCreditFormOpen(true)
+            }
           >
-            {t("invoice.cartToggle")}
-            {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            {creditCustomer
+              ? t("credit.sessionLabel", { name: creditCustomer.name })
+              : t("credit.start")}
           </Button>
         </div>
 
@@ -1662,6 +1743,7 @@ export function SalesView() {
           >
             <Icon n="list" s={16} />
             <span>
+              {creditCustomer ? `${t("credit.start")} · ` : ""}
               {t("invoice.cartSummary", {
                 count: cartLines.length,
                 total: formatMoney(
@@ -2212,6 +2294,17 @@ export function SalesView() {
         </>
       )}
 
+      {/* Credit sale: who is the customer? */}
+      {creditFormOpen && (
+        <CreditCustomerForm
+          onClose={() => {
+            setCreditFormOpen(false);
+            setPendingCreditItem(null);
+          }}
+          onChosen={startCreditSale}
+        />
+      )}
+
       {/* The invoice (cart) sheet */}
       {cartOpen && (
         <Modal
@@ -2224,17 +2317,31 @@ export function SalesView() {
             draft={cartDraft}
             onDraftChange={setCartDraft}
             opIdRef={cartOpIdRef}
+            creditCustomer={creditCustomer}
+            onCancelCredit={cancelCreditSale}
             onDone={(invoice) => {
+              const credited = creditCustomer;
               setCartLines([]);
               setCartMode(false);
               setCartOpen(false);
               setCartDraft(EMPTY_CART_DRAFT);
+              setCreditCustomer(null);
               showToast(
-                t("invoice.checkoutDone", {
-                  total: formatMoney(invoice.totalPiasters),
-                }),
+                credited
+                  ? t("credit.done", {
+                      name: credited.name,
+                      total: formatMoney(invoice.totalPiasters),
+                    })
+                  : t("invoice.checkoutDone", {
+                      total: formatMoney(invoice.totalPiasters),
+                    }),
                 "success",
               );
+              // A credit sale: straight to People → «ليك», where the new balance shows.
+              if (credited && onNavigate) {
+                onNavigate("people");
+                return;
+              }
               void reloadSales();
               void fetch("/api/stock")
                 .then((r) => (r.ok ? r.json() : null))

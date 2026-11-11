@@ -227,7 +227,7 @@ function AppShellInner() {
       case "products":
         return <ProductsView />;
       case "sales":
-        return <SalesView />;
+        return <SalesView onNavigate={navigate} />;
       case "stock":
         return <StockView />;
       case "expenses":

@@ -281,17 +281,25 @@ test("sales: a card's «آجل» opens the invoice as a credit sale on the chose
   await page
     .getByRole("button", { name: `بيع آجل: رز آجل كارت ${run}` })
     .click();
+  // The customer is asked first; the card's item joins the credit invoice.
+  await page
+    .getByTestId("page-sales")
+    .getByTestId("credit-name")
+    .fill(`زبون آجل ${run}`);
+  await page
+    .getByTestId("page-sales")
+    .getByTestId("credit-match")
+    .first()
+    .click();
+  await expect(screen.getByTestId("cart-summary")).toContainText("1 صنف");
+  await screen.getByTestId("cart-summary").click();
   const sheet = screen.getByTestId("cart-sheet");
-  await expect(sheet).toBeVisible();
-  await expect(sheet.getByRole("tab", { name: "آجل" })).toHaveAttribute(
-    "aria-selected",
-    "true",
+  await expect(sheet.getByTestId("credit-customer")).toContainText(
+    `زبون آجل ${run}`,
   );
-  // Without a customer the invoice can't be recorded.
-  await expect(screen.getByTestId("cart-checkout")).toBeDisabled();
-  await screen.getByTestId("cart-customer").selectOption(buyer, SERVER);
+  expect(buyer).toBeTruthy();
   await screen.getByTestId("cart-checkout").click();
-  await expect(sheet).toHaveCount(0, SERVER);
+  await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
   expect(
     (await (await api.get(`/api/people/${buyer}`)).json()).person
       .amount_piasters,

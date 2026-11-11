@@ -577,8 +577,26 @@
     "reportFailed": "مقدرناش نجيب التقرير من السيرفر",
     "reportRetry": "جرّب تاني"
   },
+  "credit": {
+    "start": "آجل",
+    "sessionLabel": "آجل: {name}",
+    "title": "بيع آجل — مين الزبون؟",
+    "name": "اسم الزبون",
+    "phone": "رقم الموبايل",
+    "matches": "زباين بنفس الاسم أو الرقم",
+    "phoneBelongsTo": "الرقم ده بتاع «{name}» — هنكمّل على حسابه",
+    "useExisting": "كمّل على حسابه",
+    "continue": "ابدأ الآجل",
+    "nameRequired": "اكتب اسم الزبون",
+    "customerLabel": "الزبون",
+    "cancel": "إلغاء الآجل",
+    "submit": "تسجيل الآجل",
+    "added": "اتضاف لآجل {customer}: {name}",
+    "started": "آجل على {name} — اضغط على الأصناف عشان تضيفها",
+    "done": "اتسجل الآجل على {name}: {total}"
+  },
   "invoice": {
-    "cartToggle": "سلة",
+    "cartToggle": "فاتورة",
     "cartSummary": "الفاتورة: {count} صنف · {total}",
     "cartOpen": "افتح الفاتورة",
     "creditAction": "آجل",
