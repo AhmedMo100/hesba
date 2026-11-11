@@ -35,7 +35,9 @@ import {
   MockAIProvider,
   BraveSearchProvider,
   MockSearchProvider,
+  providerBusy,
 } from "@/server/infra/ai";
+import { AI_REPLY_TIMEOUT_MS } from "./constants";
 import { BusinessToolsService } from "./tools/business-tools";
 import { ChatMessage, SearchCitation, AIQuotaStatus } from "./types";
 import { withTenant } from "@/server/infra/db/tenant";
@@ -223,11 +225,16 @@ export class AIService {
         content: h.bodyText,
       }));
 
+      // One deadline for the whole reply, every model call included (QA-29): the user never
+      // waits more than AI_REPLY_TIMEOUT_MS; past it the provider throws a 503.
+      const signal = AbortSignal.timeout(AI_REPLY_TIMEOUT_MS);
+
       // Initial completion call to AI provider
       const response = await this.aiProvider.generateChatCompletion(
         messages,
         systemInstruction,
         toolDefinitions,
+        { signal },
       );
 
       let finalAnswer = response.text;
@@ -264,9 +271,12 @@ export class AIService {
         }
 
         // Second completion call to synthesize final answer with tool results
+        if (signal.aborted) throw providerBusy();
         const finalResponse = await this.aiProvider.generateChatCompletion(
           toolMessages,
           systemInstruction,
+          undefined,
+          { signal },
         );
 
         finalAnswer = finalResponse.text || "تم جلب البيانات بنجاح.";

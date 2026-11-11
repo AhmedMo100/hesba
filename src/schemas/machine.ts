@@ -58,3 +58,18 @@ export const machineAdjustSchema = z.object({
 export type MachineTopupInput = z.infer<typeof machineTopupSchema>;
 export type MachineDeductInput = z.infer<typeof machineDeductSchema>;
 export type MachineAdjustInput = z.infer<typeof machineAdjustSchema>;
+
+/**
+ * Body of `POST /api/machines` (create, or update with `id`). A wrong type or a missing name
+ * is a 400, never a 500 (QA-18/QA-19).
+ */
+export const upsertMachineSchema = z.object({
+  id: z.string().uuid("معرف الماكينة غير صحيح").optional(),
+  name: z.string().trim().min(1, "اكتب اسم الماكينة").max(200),
+  provider: z.string().trim().min(1, "اختار نوع الماكينة").max(100),
+  terminalId: z.string().trim().max(100).optional().nullable(),
+  status: z.enum(["active", "inactive", "maintenance"]).optional(),
+  notes: text,
+});
+
+export type UpsertMachineInput = z.infer<typeof upsertMachineSchema>;

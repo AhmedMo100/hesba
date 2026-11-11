@@ -484,6 +484,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** `pendingCount` is never computed, and the state follows `navigator.onLine` only.
 - **Fix:** reflect real queue and failure state, or remove the counter until an outbox exists.
 - **Regression risk:** low.
+- **Status (2026-11-12):** the count and the false "synced" were fixed by QA-04 (`fix/qa-03-qa-04-money-offline`, the outbox). Completed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026): a queued sale's last answer now shows as "log in" (401) or "server updating" (503). Verified by `tests/unit/client/sync-bar-state.spec.ts` and `tests/e2e/offline-sales.spec.ts`.
 
 #### QA-18 · P2 · Malformed JSON returns 500 with "شغلك محفوظ" on 20 endpoints
 - **Category:** API errors / misleading message · **Area:** API · **Env:** DEV + PROD
@@ -506,6 +507,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** routes call `await req.json()` directly, and `toSafeErrorResponse` maps `SyntaxError` to 500.
 - **Fix:** use `readJsonBody` everywhere; map `SyntaxError` → 400; reword the 500/503 messages.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026). Verified by `tests/integration/api-errors.spec.ts` (all 21 endpoints), `tests/unit/server/error.spec.ts`, and requests against the real app.
 
 #### QA-19 · P2 · Invalid or non-existent ids return 500 instead of 400/404
 - **Category:** API errors · **Area:** People, Expenses, Products, Machines, Stock, AI, Sales · **Env:** DEV + PROD
@@ -530,6 +532,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** every 500 is logged as an internal error, which hides real incidents. Users see "server error" for a deleted record.
 - **Fix:** validate ids; typed `AppError`s; map P2025 → 404 and P2002 → 409.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026). Verified by `tests/integration/api-errors.spec.ts` and requests against the real app (each request in the table: 400 or 404). `DELETE /api/sales` was removed by QA-10 (405).
 
 #### QA-20 · P2 · Promotions accept invalid offers, which are shown to the cashier
 - **Category:** validation / financial · **Area:** Promotions, Sales · **Env:** DEV
@@ -549,6 +552,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** a cashier can sell a "discount" that costs more, or a bundle with no stock behind it.
 - **Fix:** server-side validation against the store's variants and prices.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026). Verified by `tests/integration/promotions-api.spec.ts`, `tests/unit/domain/alerts.spec.ts`.
 
 #### QA-21 · P2 · Any body sent to `POST /api/sales/config` silently resets the shop's sales screen config
 - **Category:** validation / data loss · **Area:** Sales config · **Env:** DEV
@@ -659,6 +663,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** `AlertsView.loadMachines` re-fetches on `hesba_machines_updated`, which the fetch itself dispatches.
 - **Fix:** same fix as was applied to SalesView.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui`. Verified by `tests/e2e/alerts-requests.spec.ts` (0 repeated requests in 12 idle seconds; the previous code fails it).
 
 #### QA-29 · P2 · AI chat waits 72 s, then returns 500 when the provider is busy
 - **Category:** external dependency / error mapping · **Area:** AI · **Env:** DEV
@@ -666,6 +671,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Evidence:** [API], [LOG].
 - **Fix:** client-visible timeout (~20 s), map to 503 with a retry hint, and a progress state in the UI.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026, D34). Verified by `tests/unit/server/ai-provider-timeout.spec.ts`, `tests/integration/ai-backend.spec.ts`, `tests/e2e/ai-busy.spec.ts`.
 
 #### QA-30 · P2 · Purchases from suppliers are never recorded
 - **Category:** missing flow / reporting · **Area:** Suppliers, AI · **Env:** code + DB
@@ -678,6 +684,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** payables can drift from what was actually received, and AI answers about purchases are always "none".
 - **Fix:** a purchase flow (product decision).
 - **Regression risk:** n/a.
+- **Status (2026-11-12):** **blocked: product decision needed.** A purchase flow is a new feature, not a fix. The decisions needed are listed in the batch report (ADR-0026 §Not done). Not started.
 
 #### QA-31 · P2 · Core sales features are missing
 - **Category:** missing features · **Area:** Sales
@@ -685,6 +692,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** test flows 11, 15 and 16 are BLOCKED. Credit sales are tracked only through the separate People ledger, so a debt is never linked to a sale or to stock.
 - **Fix:** roadmap (V1.1).
 - **Regression risk:** n/a.
+- **Status (2026-11-12):** **blocked: roadmap decision needed (V1.1).** A cart, credit sale, discounts, payment methods and returns are new features (see D30). Not started.
 
 #### QA-32 · P2 · The development database is slow enough to cause 500s
 - **Category:** performance / environment · **Area:** All · **Env:** DEV + PROD on Neon
@@ -696,6 +704,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** real users on a far or cold database get random 500s. The UI shows nothing for many failures (QA-01 pattern).
 - **Fix:** region, pooling and warm-up review; fewer queries per request; surface failures in the UI.
 - **Regression risk:** n/a.
+- **Status (2026-11-12):** **blocked: infrastructure, needs authorization.** The causes are the database region, pooling and cold starts on Neon, which this task may not change. Mitigated in code: request mistakes are no longer 500s (QA-18/19), and an unreachable database is a 503 with an honest message (ADR-0026).
 
 #### QA-33 · P2 · Ordinary sale lines store the total as the unit price, and trust the client's amount and timestamp
 - **Category:** financial (latent until QA-01 is fixed) · **Area:** Sales · **Env:** code

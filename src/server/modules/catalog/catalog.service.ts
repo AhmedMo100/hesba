@@ -680,7 +680,7 @@ export class CatalogService {
             where: { id: actualGlobalId },
             include: { globalVariants: true },
           });
-          if (!gp) throw new Error("Global product not found");
+          if (!gp) throw AppError.notFound("المنتج ده مش موجود");
 
           const existing = await tx.storeProduct.findFirst({
             where: { storeId, globalProductId: actualGlobalId },
@@ -836,7 +836,7 @@ export class CatalogService {
             where: { id: storeProductId, storeId },
           });
           if (!existing) {
-            throw new Error("Product not found or unauthorized");
+            throw AppError.notFound("المنتج ده مش موجود في محلك");
           }
           if (existing.kind === "sandwich") {
             // Sandwiches are edited through the sandwiches module (ADR-0018); this path would

@@ -957,16 +957,22 @@ export function SalesView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(promo),
         });
-        if (res.ok) {
+        const json = (await res.json().catch(() => null)) as {
+          promotion?: PublishedPromotion;
+          error?: { message?: string };
+        } | null;
+        if (res.ok && json?.promotion) {
+          // Keep the offer as the server priced it, not the client's copy (QA-20).
+          const saved = json.promotion;
           setEditingPromo(null);
           setActivePromotions((prev) => {
-            const idx = prev.findIndex((p) => p.id === promo.id);
+            const idx = prev.findIndex((p) => p.id === saved.id);
             if (idx >= 0) {
               const updated = [...prev];
-              updated[idx] = promo as PublishedPromotion;
+              updated[idx] = saved;
               return updated;
             }
-            return [...prev, promo as PublishedPromotion];
+            return [...prev, saved];
           });
           window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -978,7 +984,8 @@ export function SalesView() {
         } else {
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           setActiveToast({
-            msg: "تعذر حفظ التعديلات، حاول مرة أخرى",
+            // The server's reason (e.g. the price is not below the original), QA-20.
+            msg: json?.error?.message || "تعذر حفظ التعديلات، حاول مرة أخرى",
             type: "error",
           });
           toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);

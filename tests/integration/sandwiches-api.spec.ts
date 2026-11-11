@@ -849,7 +849,8 @@ describe("Sandwiches (composite products) — API, sale, stock & tenancy", () =>
           opId: crypto.randomUUID(),
         },
       );
-      expect(res.status).toBe(500);
+      // The duplicate id is a unique violation: a clear 409 since QA-19 (it was a 500).
+      expect(res.status).toBe(409);
       expect(await levelOf(bread)).toBe(breadBefore);
       expect(
         await asStoreA((tx) =>

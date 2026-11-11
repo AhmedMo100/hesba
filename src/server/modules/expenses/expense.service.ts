@@ -104,6 +104,13 @@ export function computePeriodDateRange(
       return { gte: yearStart, lte: todayEnd };
     }
     case "custom": {
+      // A date that is not YYYY-MM-DD is the client's mistake: 400, never a 500 from an
+      // Invalid Date and never a silent fallback to another period (QA-19).
+      for (const d of [custom?.from, custom?.to]) {
+        if (d !== undefined && !isValidDateOnly(d)) {
+          throw AppError.badRequest("التاريخ غير صحيح");
+        }
+      }
       if (custom?.from && custom?.to) {
         let f = custom.from;
         let t = custom.to;
@@ -120,6 +127,13 @@ export function computePeriodDateRange(
     default:
       return { gte: todayStart, lte: todayEnd };
   }
+}
+
+/** True for a real calendar date written as YYYY-MM-DD. */
+function isValidDateOnly(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === value;
 }
 
 export class ExpenseService {
@@ -300,7 +314,7 @@ export class ExpenseService {
         });
 
         if (!existing) {
-          throw new Error("المصروف غير موجود أو لا تملك صلاحية تعديله");
+          throw AppError.notFound("المصروف غير موجود");
         }
 
         const data: Prisma.ExpenseUpdateInput = {};

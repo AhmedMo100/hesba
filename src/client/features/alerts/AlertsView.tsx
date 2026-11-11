@@ -14,6 +14,7 @@ import type {
 import type { PublishedPromotion } from "@/schemas/promotion";
 import {
   fetchStoreMachines,
+  getStoredMachines,
   type PosMachine,
 } from "@/client/shared/api/machines";
 import { useAuth } from "@/client/shared/auth";
@@ -62,7 +63,12 @@ export function AlertsView() {
         setNearExpiry(data.nearExpiry || []);
         setSuggestedPromos(data.suggestedPromotions || []);
         if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("hesba_alerts_updated"));
+          // Carries the count, so the shell's badge needs no second request (QA-28).
+          window.dispatchEvent(
+            new CustomEvent("hesba_alerts_updated", {
+              detail: { totalAlerts: data.totalAlerts },
+            }),
+          );
         }
       }
     } catch {
@@ -89,7 +95,12 @@ export function AlertsView() {
           setNearExpiry(data.nearExpiry || []);
           setSuggestedPromos(data.suggestedPromotions || []);
           if (typeof window !== "undefined") {
-            window.dispatchEvent(new Event("hesba_alerts_updated"));
+            // Carries the count, so the shell's badge needs no second request (QA-28).
+            window.dispatchEvent(
+              new CustomEvent("hesba_alerts_updated", {
+                detail: { totalAlerts: data.totalAlerts },
+              }),
+            );
           }
         }
 
@@ -139,13 +150,17 @@ export function AlertsView() {
     loadPromotions();
     loadMachines();
 
+    // The event means the machines cache was just updated (fetchStoreMachines saves it and
+    // dispatches the event), so read the cache. Fetching again here re-dispatched the event
+    // and looped forever (QA-28, the same fix as SalesView's UE-20).
+    const onMachinesUpdated = () => setMachines(getStoredMachines(storeId));
     window.addEventListener("hesba_promotions_updated", loadPromotions);
-    window.addEventListener("hesba_machines_updated", loadMachines);
+    window.addEventListener("hesba_machines_updated", onMachinesUpdated);
     return () => {
       window.removeEventListener("hesba_promotions_updated", loadPromotions);
-      window.removeEventListener("hesba_machines_updated", loadMachines);
+      window.removeEventListener("hesba_machines_updated", onMachinesUpdated);
     };
-  }, [loadPromotions, loadMachines]);
+  }, [loadPromotions, loadMachines, storeId]);
 
   // Machines with balance less than 200 EGP (20,000 piasters)
   const lowMachines = useMemo(() => {
@@ -302,18 +317,25 @@ export function AlertsView() {
         body: JSON.stringify(promo),
       });
 
-      if (!res.ok) {
-        throw new Error("تعذر نشر العرض");
+      const json = (await res.json().catch(() => null)) as {
+        promotion?: PublishedPromotion;
+        error?: { message?: string };
+      } | null;
+      if (!res.ok || !json?.promotion) {
+        // The server's reason (e.g. the price is not below the original), QA-20.
+        throw new Error(json?.error?.message || "تعذر نشر العرض");
       }
+      // Keep the offer as the server priced it, not the client's copy.
+      const saved = json.promotion;
 
       setPublishedPromotions((prev) => {
-        const idx = prev.findIndex((p) => p.id === promo.id);
+        const idx = prev.findIndex((p) => p.id === saved.id);
         if (idx >= 0) {
           const u = [...prev];
-          u[idx] = promo as PublishedPromotion;
+          u[idx] = saved;
           return u;
         }
-        return [...prev, promo as PublishedPromotion];
+        return [...prev, saved];
       });
       toast.show({
         msg: `تمت الموافقة ونشر «${promo.title}» في واجهة البيع ✓`,

@@ -2,7 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { getCustomTaxonomy, addCustomTaxonomy } from "@/server/modules/catalog";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 import { customTaxonomyInputSchema } from "@/schemas/product";
 
 export const dynamic = "force-dynamic";
@@ -29,7 +29,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const input = customTaxonomyInputSchema.parse(await req.json());
+    const input = customTaxonomyInputSchema.parse(await readJsonBody(req));
     const result = await addCustomTaxonomy(
       context.store.id,
       context.user.id,

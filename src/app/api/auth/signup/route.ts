@@ -4,13 +4,16 @@ import {
   registerUserWithPassword,
   getSessionCookieOptions,
 } from "@/server/modules/auth";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const body = await req.json();
+    // The service validates the body with its zod schema.
+    const body = (await readJsonBody(req)) as Parameters<
+      typeof registerUserWithPassword
+    >[0];
     const result = await registerUserWithPassword(body);
 
     const res = NextResponse.json({

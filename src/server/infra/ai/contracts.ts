@@ -63,11 +63,15 @@ export interface AIProvider {
 
   /**
    * Generates a completion from the model given the conversation history and available tools.
+   *
+   * `options.signal` is the reply's deadline (QA-29): an adapter stops waiting when it aborts
+   * and throws a 503 `AppError`. A busy provider (429/5xx) is also a 503, never a 500.
    */
   generateChatCompletion(
     messages: ChatMessage[],
     systemInstruction: string,
     tools?: ToolDefinition[],
+    options?: { signal?: AbortSignal },
   ): Promise<ProviderResponse>;
 }
 

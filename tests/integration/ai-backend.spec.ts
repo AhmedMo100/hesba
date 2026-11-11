@@ -9,6 +9,8 @@ import { GET as getConversationsRoute } from "@/app/api/ai/conversations/route";
 import { GET as getConversationDetailsRoute } from "@/app/api/ai/conversations/[id]/route";
 import { POST as postCronCleanupRoute } from "@/app/api/cron/ai-cleanup/route";
 import { AIQuotaService } from "@/server/modules/ai/quota.service";
+import { AIService } from "@/server/modules/ai/ai.service";
+import { providerBusy, type AIProvider } from "@/server/infra/ai";
 import { getCairoMidnightDate } from "@/server/modules/ai/cairo-date";
 
 const directUrl =
@@ -309,6 +311,34 @@ describe("AI Assistant Backend Integration Tests (Quota, Tenancy, Retention, API
     const afterStatus = await quotaService.getQuotaStatus(storeBId, dayDate);
     expect(afterStatus.used).toBe(0);
     expect(afterStatus.remaining).toBe(5);
+  });
+
+  it("QA-29: a busy or slow provider is a 503 the user can retry, and the credit comes back", async () => {
+    const quotaService = new AIQuotaService(appPrisma);
+    const before = await quotaService.getQuotaStatus(storeBId);
+    let receivedSignal: AbortSignal | undefined;
+    const busy: AIProvider = {
+      name: "busy",
+      async generateChatCompletion(_m, _s, _t, options) {
+        receivedSignal = options?.signal;
+        throw providerBusy();
+      },
+    };
+    const service = new AIService(appPrisma, busy);
+    const err = await service
+      .processUserMessage({
+        storeId: storeBId,
+        userId: userBId,
+        bodyText: "مبيعات النهارده كام؟",
+        clientMessageId: crypto.randomUUID(),
+      })
+      .catch((e: unknown) => e);
+    expect((err as { statusCode?: number }).statusCode).toBe(503);
+    expect((err as { retryAfterSeconds?: number }).retryAfterSeconds).toBe(30);
+    // The reply runs under one deadline signal (AI_REPLY_TIMEOUT_MS).
+    expect(receivedSignal).toBeInstanceOf(AbortSignal);
+    const after = await quotaService.getQuotaStatus(storeBId);
+    expect(after.used).toBe(before.used);
   });
 
   it("Concurrency: Atomic quota reservation allows exactly 5 successes across parallel requests", async () => {

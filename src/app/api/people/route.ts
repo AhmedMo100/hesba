@@ -4,7 +4,7 @@ import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { getPeopleBySection, createPerson } from "@/server/modules/people";
 import { createPersonInputSchema, type PeopleSection } from "@/schemas/people";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const validated = createPersonInputSchema.parse(body);
 

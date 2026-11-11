@@ -4,7 +4,11 @@ import { z } from "zod";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { InventoryService } from "@/server/modules/inventory";
-import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import {
+  AppError,
+  toSafeErrorResponse,
+  readJsonBody,
+} from "@/server/platform/error";
 import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 export const dynamic = "force-dynamic";
@@ -172,7 +176,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const input = stockActionSchema.parse(body);
 
     const inventoryService = new InventoryService(prisma);

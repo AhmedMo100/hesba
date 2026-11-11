@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { ExpenseService } from "@/server/modules/expenses";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -45,7 +45,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const expenseService = new ExpenseService(prisma);
     const expense = await expenseService.createExpense(
@@ -67,7 +67,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    // The service validates the body with its zod schema.
+    const body = (await readJsonBody(req)) as { id?: string } | null;
     const { searchParams } = new URL(req.url);
     const id = body?.id || searchParams.get("id");
 
@@ -104,8 +105,8 @@ export async function DELETE(req: Request) {
 
     if (!id) {
       try {
-        const body = await req.json();
-        id = body?.id;
+        const body = (await readJsonBody(req)) as { id?: unknown } | null;
+        id = typeof body?.id === "string" ? body.id : null;
       } catch {
         // body not present
       }

@@ -2,6 +2,8 @@
  * Characterization tests for /api/promotions (published offers stored in
  * `stores.settings.activePromotions`). Pins behavior before the logic moved into
  * `src/server/modules/promotions`.
+ *
+ * QA-20: offers are checked against the shop's own products and priced by the server.
  */
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
@@ -28,14 +30,22 @@ describe("Promotions API (characterization) & Tenancy", () => {
   const userBId = crypto.randomUUID();
   const storeAId = crypto.randomUUID();
   const storeBId = crypto.randomUUID();
+  // Real products of each shop (QA-20: an offer's items must be the shop's own).
+  const ref = {
+    tea: { productId: "", variantId: "" }, // store A, 25.00 per piece
+    cheese: { productId: "", variantId: "" }, // store A, 200.00 per kg
+    hidden: { productId: "", variantId: "" }, // store A, hidden
+    unpriced: { productId: "", variantId: "" }, // store A, no price
+    otherShop: { productId: "", variantId: "" }, // store B
+  };
 
   const promo = (id: string, title = "عرض الشاي") => ({
     id,
     title,
     items: [
       {
-        productId: "p1",
-        variantId: "v1",
+        productId: ref.tea.productId,
+        variantId: ref.tea.variantId,
         productName: "شاي",
         quantityBase: 2,
         regularPricePiasters: 2500,
@@ -128,10 +138,53 @@ describe("Promotions API (characterization) & Tenancy", () => {
         migratorPrisma,
       );
     }
+    const product = async (
+      storeId: string,
+      userId: string,
+      name: string,
+      unit: string,
+      price: number,
+      isActive = true,
+    ) =>
+      withTenant(
+        storeId,
+        userId,
+        async (tx) => {
+          const p = await tx.storeProduct.create({
+            data: {
+              storeId,
+              nameAr: `${name} ${runId}`,
+              nameNorm: `${name} ${runId}`,
+              category: "مشروبات",
+              unit,
+              sellPricePiasters: BigInt(price),
+              isCustom: true,
+              isActive,
+              storeVariants: {
+                create: {
+                  storeId,
+                  packQty: 1,
+                  sellPricePiasters: BigInt(price),
+                },
+              },
+            },
+            include: { storeVariants: true },
+          });
+          return { productId: p.id, variantId: p.storeVariants[0]!.id };
+        },
+        migratorPrisma,
+      );
+    ref.tea = await product(storeAId, userAId, "شاي", "piece", 2500);
+    ref.cheese = await product(storeAId, userAId, "جبنة", "kg", 20000);
+    ref.hidden = await product(storeAId, userAId, "مخفي", "piece", 1000, false);
+    ref.unpriced = await product(storeAId, userAId, "بدون سعر", "piece", 0);
+    ref.otherShop = await product(storeBId, userBId, "محل تاني", "piece", 2500);
   });
 
   afterAll(async () => {
     try {
+      await migratorClient`DELETE FROM "store_variants" WHERE store_id IN (${storeAId}, ${storeBId})`;
+      await migratorClient`DELETE FROM "store_products" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "sessions" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "store_members" WHERE store_id IN (${storeAId}, ${storeBId})`;
       await migratorClient`DELETE FROM "stores" WHERE id IN (${storeAId}, ${storeBId})`;
@@ -191,5 +244,105 @@ describe("Promotions API (characterization) & Tenancy", () => {
     expect(await listIds(userAId, storeAId)).toEqual(["b"]);
     const res = await call("DELETE", userAId, storeAId);
     expect(res.status).toBe(400);
+  });
+
+  describe("QA-20 — invalid offers are refused; prices come from the shop", () => {
+    const post = (body: unknown) =>
+      call("POST", userAId, storeAId, { body }).then(async (r) => ({
+        status: r.status,
+        json: (await r.json()) as {
+          promotion?: Record<string, unknown> & {
+            items: Array<Record<string, unknown>>;
+          };
+          error?: { message: string };
+        },
+      }));
+
+    it("a promo price at or above the original is a 400", async () => {
+      for (const promoPricePiasters of [5000, 5001, 999999]) {
+        const r = await post({ ...promo("expensive"), promoPricePiasters });
+        expect(r.status).toBe(400);
+      }
+      // The client claims a high original, but the shop's price makes 2 teas 50.00.
+      const lied = await post({
+        ...promo("lied"),
+        originalPricePiasters: 999999,
+        promoPricePiasters: 6000,
+      });
+      expect(lied.status).toBe(400);
+      expect(await listIds(userAId, storeAId)).not.toContain("lied");
+    });
+
+    it("no items, an unknown, hidden, unpriced or another shop's product is a 400", async () => {
+      const withItem = (variantId: string, productId = "x") => ({
+        ...promo("bad-item"),
+        items: [{ ...promo("x").items[0]!, variantId, productId }],
+      });
+      const bodies = [
+        { ...promo("empty"), items: [] },
+        withItem("not-a-uuid"),
+        withItem(crypto.randomUUID()),
+        withItem(ref.hidden.variantId, ref.hidden.productId),
+        withItem(ref.unpriced.variantId, ref.unpriced.productId),
+        withItem(ref.otherShop.variantId, ref.otherShop.productId),
+      ];
+      for (const body of bodies) {
+        expect((await post(body)).status).toBe(400);
+      }
+      const ids = await listIds(userAId, storeAId);
+      expect(ids).not.toContain("bad-item");
+      expect(ids).not.toContain("empty");
+    });
+
+    it("a single discount has exactly one item", async () => {
+      const r = await post({
+        ...promo("two-singles"),
+        type: "single_discount",
+        items: [promo("x").items[0]!, promo("x").items[0]!],
+        originalPricePiasters: 10000,
+        promoPricePiasters: 8000,
+      });
+      expect(r.status).toBe(400);
+    });
+
+    it("the server sets the item prices, names, original and savings from the shop's data", async () => {
+      const r = await post({
+        id: "server-priced",
+        title: "شاي وجبنة",
+        type: "bundle",
+        items: [
+          {
+            productId: "anything",
+            variantId: ref.tea.variantId,
+            productName: "اسم من العميل",
+            quantityBase: 2,
+            regularPricePiasters: 1,
+          },
+          {
+            productId: ref.cheese.productId,
+            variantId: ref.cheese.variantId,
+            productName: "جبنة",
+            quantityBase: 500, // grams of a per-kg product
+            unit: "kg",
+            regularPricePiasters: 1,
+          },
+        ],
+        originalPricePiasters: 20000,
+        promoPricePiasters: 12000,
+        savingsPiasters: 8000,
+      });
+      expect(r.status).toBe(200);
+      const p = r.json.promotion!;
+      // 2 × 25.00 + 500 g × 200.00/kg = 50.00 + 100.00
+      expect(p.items.map((i) => i["regularPricePiasters"])).toEqual([
+        5000, 10000,
+      ]);
+      expect(p["originalPricePiasters"]).toBe(15000);
+      expect(p["promoPricePiasters"]).toBe(12000);
+      expect(p["savingsPiasters"]).toBe(3000);
+      expect(p.items[0]!["productId"]).toBe(ref.tea.productId);
+      expect(p.items[0]!["productName"]).toBe(`شاي ${runId}`);
+      expect(p.items[1]!["unit"]).toBe("kg");
+    });
   });
 });

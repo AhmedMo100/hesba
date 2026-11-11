@@ -22,7 +22,7 @@ import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import { BottomNav, type NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
-import { SyncBar, type SyncState } from "./SyncBar";
+import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
 
@@ -111,11 +111,20 @@ function AppShellInner() {
         .catch(() => {});
     };
 
+    // The Alerts screen announces fresh alerts with their count: use it instead of asking the
+    // server again (QA-28). An event without a count still triggers one fetch.
+    const onAlertsUpdated = (e: Event) => {
+      const total = (e as CustomEvent<{ totalAlerts?: unknown }>).detail
+        ?.totalAlerts;
+      if (typeof total === "number") setAlertCount(total);
+      else fetchAlertsCount();
+    };
+
     void fetchAlertsCount();
-    window.addEventListener("hesba_alerts_updated", fetchAlertsCount);
+    window.addEventListener("hesba_alerts_updated", onAlertsUpdated);
     return () => {
       isMounted = false;
-      window.removeEventListener("hesba_alerts_updated", fetchAlertsCount);
+      window.removeEventListener("hesba_alerts_updated", onAlertsUpdated);
     };
   }, []);
 
@@ -274,24 +283,13 @@ function AppShellInner() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [storeId]);
-  const queueKnown = queuedSales !== undefined;
-  const waitingCount = (queuedSales ?? []).filter(
-    (o) => o.status === "pending" || o.status === "sending",
-  ).length;
-  const reviewCount = (queuedSales ?? []).filter(
-    (o) => o.status === "rejected" || o.status === "quarantined",
-  ).length;
-
-  // Honest status: "synced" only when nothing is waiting or needs review.
-  const effectiveSyncState: SyncState = isOfflineExpired
-    ? "login"
-    : syncState === "offline"
-      ? "offline"
-      : reviewCount > 0
-        ? "needsReview"
-        : waitingCount > 0 || !queueKnown
-          ? "syncing"
-          : "synced";
+  // Honest status (QA-17): from the connection and the real queue, including each queued
+  // sale's last answer (401 → log in, 503 → server updating).
+  const { state: effectiveSyncState, pendingCount } = deriveSyncState({
+    online: syncState !== "offline",
+    sessionExpired: isOfflineExpired,
+    queue: queuedSales,
+  });
 
   return (
     <div className={styles.app} dir="rtl">
@@ -305,14 +303,14 @@ function AppShellInner() {
         />
         <SyncBar
           state={effectiveSyncState}
-          pendingCount={waitingCount + reviewCount}
+          pendingCount={pendingCount}
           onClick={() => {
-            if (isOfflineExpired) {
+            if (effectiveSyncState === "login") {
               setShowAuthModal(true);
               return;
             }
             scheduleSaleSync(storeId, { now: true });
-            if (reviewCount > 0) navigate("sales");
+            if (effectiveSyncState === "needsReview") navigate("sales");
           }}
         />
         <main

@@ -267,6 +267,9 @@ export function buildStoreAlerts(
       );
       const savings = origTotal - promoPrice;
       const minDays = Math.min(item1.daysUntilExpiry, item2.daysUntilExpiry);
+      // The minimum price can reach the original for cheap items: that is no discount, so no
+      // suggestion (QA-20; the server rejects such an offer too).
+      if (savings <= 0) continue;
 
       suggestedPromotions.push({
         id: `promo_bundle_${item1.variantId}_${item2.variantId}`,
@@ -308,6 +311,7 @@ export function buildStoreAlerts(
       Math.round(orig * SINGLE_PRICE_FACTOR),
     );
     const savings = orig - promoPrice;
+    if (savings <= 0) continue; // not a discount (QA-20)
 
     suggestedPromotions.push({
       id: `promo_single_${expItem.variantId}_${expItem.batchId}`,

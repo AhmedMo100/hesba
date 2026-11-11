@@ -9,6 +9,18 @@ import type {
 import { logger } from "@/server/platform/logger";
 import { AppError } from "@/server/platform/error";
 
+/** Seconds suggested in `Retry-After` when the provider is busy or too slow (QA-29). */
+const PROVIDER_RETRY_AFTER_SECONDS = 30;
+
+/** The provider is busy or too slow: a 503 the user can retry, with a retry hint. */
+export function providerBusy(): AppError {
+  const err = AppError.serviceUnavailable(
+    "المساعد مشغول دلوقتي ومردّش في الوقت. جرّب تاني بعد شوية، ورصيد رسالتك رجعلك.",
+  );
+  err.retryAfterSeconds = PROVIDER_RETRY_AFTER_SECONDS;
+  return err;
+}
+
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
 const GEMINI_API_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
@@ -40,6 +52,7 @@ export class GeminiProvider implements AIProvider {
     messages: ChatMessage[],
     systemInstruction: string,
     tools?: ToolDefinition[],
+    options?: { signal?: AbortSignal },
   ): Promise<ProviderResponse> {
     if (!this.apiKey) {
       throw AppError.internal(
@@ -136,6 +149,7 @@ export class GeminiProvider implements AIProvider {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(requestPayload),
+        signal: options?.signal,
       });
 
       if (!response.ok) {
@@ -148,6 +162,11 @@ export class GeminiProvider implements AIProvider {
           },
           "Gemini API returned non-200 response",
         );
+        // Busy or down (429, 5xx — e.g. 503 "high demand"): a temporary 503 with a retry hint,
+        // not a 500 (QA-29). Other statuses (bad key, bad request) are our fault: 500.
+        if (response.status === 429 || response.status >= 500) {
+          throw providerBusy();
+        }
         throw AppError.internal("تعذر الحصول على رد من مزود الذكاء الاصطناعي");
       }
 
@@ -155,6 +174,14 @@ export class GeminiProvider implements AIProvider {
       return this.parseGeminiResponse(data);
     } catch (err: unknown) {
       if (err instanceof AppError) throw err;
+      // The reply's deadline passed (AbortSignal.timeout) or the request was aborted.
+      if (
+        err instanceof Error &&
+        (err.name === "TimeoutError" || err.name === "AbortError")
+      ) {
+        logger.warn({ model: this.modelName }, "Gemini API request timed out");
+        throw providerBusy();
+      }
       logger.error({ err, model: this.modelName }, "Gemini API request failed");
       throw AppError.internal(
         "حدث خطأ أثناء الاتصال بمزود الذكاء الاصطناعي، تم استرجاع رصيد الرسالة بأمان",

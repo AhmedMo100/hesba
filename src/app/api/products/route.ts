@@ -5,7 +5,7 @@ import { prisma } from "@/server/infra/db/client";
 import { CatalogService } from "@/server/modules/catalog";
 import { upsertProductInputSchema } from "@/schemas/product";
 import { normalizeArabic } from "@/domain/normalize";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -88,7 +88,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const input = upsertProductInputSchema.parse(body);
 
     const catalogService = new CatalogService(prisma);

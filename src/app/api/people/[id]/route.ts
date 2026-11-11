@@ -8,7 +8,7 @@ import {
   deletePerson,
 } from "@/server/modules/people";
 import { updatePersonInputSchema } from "@/schemas/people";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +46,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   try {
     const context = await requireSession(req);
     const { id } = await params;
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const validated = updatePersonInputSchema.parse(body);
 
