@@ -8,6 +8,7 @@
  * a new name with a new phone creates a customer, with no opening balance — the receivable
  * comes from the invoice itself at checkout.
  */
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useEffect, useMemo, useState } from "react";
 import { Button, Field, Input, Modal } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
@@ -38,7 +39,7 @@ export function CreditCustomerForm({
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/people?section=owedToMe")
+    apiGet("/api/people?section=owedToMe")
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (

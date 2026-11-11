@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Chip,
@@ -9,6 +10,7 @@ import {
   Button,
   Icon,
   Modal,
+  ListSkeleton,
 } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
@@ -359,7 +361,7 @@ export function ProductsView() {
 
   const loadProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products?filter=all");
+      const res = await apiGet("/api/products?filter=all");
       if (!res.ok) {
         throw new Error("فشل تحميل قائمة المنتجات");
       }
@@ -385,7 +387,7 @@ export function ProductsView() {
 
   useEffect(() => {
     let ignore = false;
-    fetch("/api/products?filter=all")
+    apiGet("/api/products?filter=all")
       .then((res) => {
         if (!res.ok) throw new Error("فشل تحميل قائمة المنتجات");
         return res.json();
@@ -1022,15 +1024,7 @@ export function ProductsView() {
 
           {/* Physical Products Grid */}
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل المنتجات...
-            </div>
+            <ListSkeleton label="بيحمّل المنتجات…" />
           ) : filteredPhysicalProducts.length === 0 ? (
             <div className={styles.pcard}>
               <Empty
@@ -1464,15 +1458,7 @@ export function ProductsView() {
 
           {/* Services Grid */}
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل الخدمات وكروت الشحن...
-            </div>
+            <ListSkeleton label="بيحمّل الخدمات…" />
           ) : filteredServiceProducts.length === 0 ? (
             <div className={styles.pcard}>
               <Empty

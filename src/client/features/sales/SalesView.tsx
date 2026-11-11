@@ -27,6 +27,7 @@
  * - Money is integer piasters; quantities are base units (pieces or grams).
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -479,10 +480,10 @@ export function SalesView({
     if (!storeId) return;
     let isMounted = true;
     void Promise.all([
-      fetch("/api/stock")
+      apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/products?filter=all&scope=sale")
+      apiGet("/api/products?filter=all&scope=sale")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
@@ -512,7 +513,7 @@ export function SalesView({
     });
 
     const syncRemoteSalesConfig = () => {
-      fetch("/api/sales/config")
+      apiGet("/api/sales/config")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -537,7 +538,7 @@ export function SalesView({
     };
 
     const loadPromotions = () => {
-      fetch("/api/promotions")
+      apiGet("/api/promotions")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -1117,7 +1118,7 @@ export function SalesView({
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
         void Promise.all([
-          fetch("/api/stock")
+          apiGet("/api/stock")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
@@ -1971,7 +1972,7 @@ export function SalesView({
           onChanged={(message) => {
             showToast(message, "success");
             void reloadSales();
-            void fetch("/api/stock")
+            void apiGet("/api/stock")
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => d?.inventory && setInventory(d.inventory))
               .catch(() => undefined);
@@ -2344,7 +2345,7 @@ export function SalesView({
                 return;
               }
               void reloadSales();
-              void fetch("/api/stock")
+              void apiGet("/api/stock")
                 .then((r) => (r.ok ? r.json() : null))
                 .then((d) => d?.inventory && setInventory(d.inventory))
                 .catch(() => undefined);

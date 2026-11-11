@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import {
   Chip,
@@ -9,6 +10,7 @@ import {
   Modal,
   Icon,
   PeriodFilter,
+  ListSkeleton,
 } from "@/client/shared/ui";
 import {
   cairoDateRange,
@@ -219,8 +221,8 @@ export function StockView() {
   const loadData = useCallback(async () => {
     try {
       const [stockRes, prodRes] = await Promise.all([
-        fetch("/api/stock?view=all"),
-        fetch("/api/products?filter=all").catch(() => null),
+        apiGet("/api/stock?view=all"),
+        apiGet("/api/products?filter=all").catch(() => null),
       ]);
       if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
       const data = await stockRes.json();
@@ -244,8 +246,8 @@ export function StockView() {
     const fetchStock = async () => {
       try {
         const [stockRes, prodRes] = await Promise.all([
-          fetch("/api/stock?view=all"),
-          fetch("/api/products?filter=all").catch(() => null),
+          apiGet("/api/stock?view=all"),
+          apiGet("/api/products?filter=all").catch(() => null),
         ]);
         if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
         const data = await stockRes.json();
@@ -591,15 +593,7 @@ export function StockView() {
           </Chips>
 
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل المخزون...
-            </div>
+            <ListSkeleton label="بيحمّل المخزون…" />
           ) : filteredInventory.length === 0 ? (
             <div style={{ padding: "30px 10px" }}>
               <Empty
@@ -812,15 +806,7 @@ export function StockView() {
           </div>
 
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل سجل الإضافات...
-            </div>
+            <ListSkeleton label="بيحمّل سجل الإضافات…" />
           ) : groupedMovements.length === 0 ? (
             <div style={{ padding: "30px 10px" }}>
               <Empty

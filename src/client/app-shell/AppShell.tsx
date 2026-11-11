@@ -24,7 +24,7 @@ import { Header } from "./Header";
 import { BottomNav, type NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
-import { ToastProvider } from "../shared/ui";
+import { ListSkeleton, ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
 
 // Eagerly loaded default view
@@ -70,10 +70,11 @@ function getRouteFromPathname(pathname: string): NavRoute {
   return "home";
 }
 
+/** A screen's code is loading (first visit only; chunks are preloaded): its list's shape. */
 function ViewLoading() {
   return (
-    <div className={styles.viewLoading} role="status" aria-live="polite">
-      <span>{t("common.loading")}</span>
+    <div className={styles.viewLoading}>
+      <ListSkeleton rows={5} label={t("common.loading")} />
     </div>
   );
 }
@@ -97,7 +98,19 @@ import {
 } from "../offline/outbox";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileModal } from "../features/auth/ProfileModal";
-import { dedupedGet } from "@/client/shared/api/dedupe";
+import {
+  apiGet,
+  clearReadCache,
+  installWriteInvalidation,
+  setOfflineCopyStore,
+} from "@/client/shared/api/read-cache";
+import { offlineCopyStore } from "@/client/offline/read-cache";
+
+// The screens' read cache (fast navigation, offline copies per shop): installed once.
+if (typeof window !== "undefined") {
+  setOfflineCopyStore(offlineCopyStore());
+  installWriteInvalidation();
+}
 
 function AppShellInner() {
   const { session, isOfflineExpired, isSessionRefused, logout } = useAuth();
@@ -117,7 +130,7 @@ function AppShellInner() {
   useEffect(() => {
     let isMounted = true;
     const fetchAlertsCount = () => {
-      dedupedGet("/api/alerts")
+      apiGet("/api/alerts")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -276,6 +289,7 @@ function AppShellInner() {
     ) {
       rememberOutboxStore(null); // online and signed out: forget it
       void forgetShopIdentities(db).catch(() => {});
+      void clearReadCache();
     }
   }, [session, authLoading]);
   // While the session is not (re)loaded — offline, or just back online — keep showing the
@@ -348,6 +362,7 @@ function AppShellInner() {
           onLogout={async () => {
             await logout();
             await forgetShopIdentities(db).catch(() => {});
+            await clearReadCache();
             router.push("/");
           }}
           signedIn={Boolean(session)}

@@ -1,11 +1,12 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { parseEgpStrict } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./ExpensesView.module.css";
-import { Empty, Icon, PeriodFilter } from "@/client/shared/ui";
+import { Empty, Icon, PeriodFilter, ListSkeleton } from "@/client/shared/ui";
 import { t, formatMoney, normDigits } from "@/client/shared/i18n";
 import {
   EXPENSE_CATEGORIES,
@@ -148,7 +149,7 @@ export function ExpensesView() {
         url += `&from=${customFrom}&to=${customTo}`;
       }
 
-      const res = await fetch(url);
+      const res = await apiGet(url);
       if (!res.ok) {
         throw new Error(
           t("pages.expenses.loadError") ||
@@ -178,7 +179,7 @@ export function ExpensesView() {
       url += `&from=${customFrom}&to=${customTo}`;
     }
 
-    fetch(url)
+    apiGet(url)
       .then((res) => {
         if (!res.ok) {
           throw new Error(
@@ -460,9 +461,7 @@ export function ExpensesView() {
             </button>
           </div>
         ) : loading && expenses.length === 0 ? (
-          <div className={styles.emptyCard}>
-            <p>جاري التحميل...</p>
-          </div>
+          <ListSkeleton rows={3} label="بيحمّل المصاريف…" />
         ) : expenses.length === 0 ? (
           <div className={styles.emptyCard}>
             <Empty icon="wallet" title={t("pages.expenses.empty")} />

@@ -13,6 +13,7 @@
  * A retried tap reuses its `opId`, so a lost answer never records twice.
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useEffect, useMemo, useState } from "react";
 import { Button, Field, Icon, Modal } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
@@ -50,7 +51,7 @@ export function CustomerDebtSheet({
   useEffect(() => {
     if (!withProducts || inventory) return;
     let live = true;
-    fetch("/api/stock")
+    apiGet("/api/stock")
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("load"))))
       .then((d: { inventory?: StockInventoryItem[] }) => {
         if (live) setInventory(d.inventory ?? []);

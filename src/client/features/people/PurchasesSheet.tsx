@@ -7,6 +7,7 @@
  * or in full, or cancel it. Every figure is the server's answer; a retried tap reuses its
  * `opId`, so a lost answer never records an invoice or a payment twice.
  */
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Field, Input, Modal } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
@@ -94,7 +95,7 @@ export function PurchasesSheet({
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/stock")
+    apiGet("/api/stock")
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (

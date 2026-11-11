@@ -14,6 +14,7 @@
  * A failed request leaves that section empty.
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useMemo } from "react";
 import {
   Seg,
@@ -129,7 +130,7 @@ export function HomeView() {
     let ignore = false;
     const fetchData = async () => {
       try {
-        const stockRes = await fetch("/api/stock").catch(() => null);
+        const stockRes = await apiGet("/api/stock").catch(() => null);
         if (stockRes && stockRes.ok && !ignore) {
           const sData = await stockRes.json();
           if (sData?.inventory && Array.isArray(sData.inventory)) {

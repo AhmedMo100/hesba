@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -8,7 +9,14 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import { Icon, Seg, Empty, Modal, useToast } from "@/client/shared/ui";
+import {
+  Icon,
+  Seg,
+  Empty,
+  Modal,
+  useToast,
+  ListSkeleton,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
@@ -332,7 +340,7 @@ export function PeopleView() {
     }));
 
     try {
-      const res = await fetch(`/api/people?section=${targetSection}`);
+      const res = await apiGet(`/api/people?section=${targetSection}`);
       if (!res.ok) {
         throw new Error(t("pages.people.loadError") || "تعذر تحميل البيانات");
       }
@@ -379,7 +387,7 @@ export function PeopleView() {
   // Load store products when opening supplier modal
   const loadStoreProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products?scope=store");
+      const res = await apiGet("/api/products?scope=store");
       if (res.ok) {
         const data = await res.json();
         const prods = (data.products || []).map(
@@ -738,9 +746,7 @@ export function PeopleView() {
           </button>
         </div>
       ) : loading && !currentSectionData.loaded ? (
-        <div className={styles.loadingCard}>
-          <p>{t("common.loading")}</p>
-        </div>
+        <ListSkeleton label={t("common.loading")} />
       ) : people.length === 0 ? (
         <Empty
           icon="users"

@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Modal, Button, Field, Seg, Icon } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
@@ -85,7 +86,7 @@ export function AddStockModal({
   // Automatically fetch all products from the Products page so the dropdown has 100% of store items
   useEffect(() => {
     let ignore = false;
-    fetch("/api/products?filter=all")
+    apiGet("/api/products?filter=all")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!ignore && data?.products) {
