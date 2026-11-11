@@ -218,54 +218,19 @@ export async function recordSale(
       storeId,
       userId,
       async (tx) => {
-        if (input.promotionId) {
-          return recordPromotionSaleInTx(tx, storeId, {
-            saleId,
-            opId,
-            promotionId: input.promotionId,
-            now,
-          });
+        const sale = await recordSaleKindInTx(tx);
+        // A replayed opId must be the SAME sale; checked in this transaction (QA-27).
+        if (sale.duplicate) {
+          assertSameSaleRequest(
+            sale,
+            input,
+            await isServiceSaleInTx(tx, storeId, sale.id),
+          );
         }
-
-        if (
-          input.productId &&
-          isValidUuid(input.productId) &&
-          (await isSandwichProductInTx(tx, storeId, input.productId))
-        ) {
-          const sale = await recordSandwichSaleInTx(tx, storeId, {
-            saleId,
-            opId,
-            sandwichId: input.productId,
-            count: input.quantityBase,
-            createdAt: now,
-          });
-          return loadSaleSummaryInTx(tx, storeId, sale.id, sale.duplicate);
-        }
-
-        const target = await resolveSaleTargetInTx(tx, storeId, input);
-        if (target.isService) {
-          return recordServiceSaleInTx(tx, storeId, {
-            saleId,
-            opId,
-            target,
-            quantityBase: input.quantityBase,
-            amountPiasters: input.amountPiasters,
-            machineId: input.machineId,
-            machineDeductPiasters: input.machineDeductPiasters,
-            now,
-          });
-        }
-        return recordProductSaleInTx(tx, storeId, {
-          saleId,
-          opId,
-          target,
-          quantityBase: input.quantityBase,
-          now,
-        });
+        return sale;
       },
       prisma,
     );
-    if (recorded.duplicate) assertSameSaleRequest(recorded, input);
     return recorded;
   } catch (err) {
     // A concurrent request with the same opId committed first: (store_id, op_id) is unique,
@@ -275,13 +240,60 @@ export async function recordSale(
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      const existing = await findSaleSummaryByOpId(storeId, userId, input.opId);
-      if (existing) {
-        assertSameSaleRequest(existing, input);
-        return existing;
-      }
+      const existing = await findSaleSummaryByOpId(storeId, userId, {
+        ...input,
+        opId: input.opId,
+      });
+      if (existing) return existing;
     }
     throw err;
+  }
+
+  async function recordSaleKindInTx(tx: TenantTx): Promise<RecordedSale> {
+    if (input.promotionId) {
+      return recordPromotionSaleInTx(tx, storeId, {
+        saleId,
+        opId,
+        promotionId: input.promotionId,
+        now,
+      });
+    }
+
+    if (
+      input.productId &&
+      isValidUuid(input.productId) &&
+      (await isSandwichProductInTx(tx, storeId, input.productId))
+    ) {
+      const sale = await recordSandwichSaleInTx(tx, storeId, {
+        saleId,
+        opId,
+        sandwichId: input.productId,
+        count: input.quantityBase,
+        createdAt: now,
+      });
+      return loadSaleSummaryInTx(tx, storeId, sale.id, sale.duplicate);
+    }
+
+    const target = await resolveSaleTargetInTx(tx, storeId, input);
+    if (target.isService) {
+      return recordServiceSaleInTx(tx, storeId, {
+        saleId,
+        opId,
+        target,
+        quantityBase: input.quantityBase,
+        amountPiasters: input.amountPiasters,
+        machineId: input.machineId,
+        machineDeductPiasters: input.machineDeductPiasters,
+        now,
+      });
+    }
+    return recordProductSaleInTx(tx, storeId, {
+      saleId,
+      opId,
+      target,
+      quantityBase: input.quantityBase,
+      now,
+    });
   }
 }
 
@@ -289,10 +301,14 @@ export async function recordSale(
  * A replayed `opId` must be a retry of the SAME sale (QA-27): the same item and quantity (or
  * the same offer, or the same service amount). Otherwise the client reused an id for another
  * sale: 409, and the recorded sale is neither repeated nor reported as this one.
+ *
+ * Only a service sale's amount comes from the client, so only there is a different
+ * `amountPiasters` a different sale; for goods, sandwiches and offers it is ignored.
  */
 function assertSameSaleRequest(
   recorded: RecordedSale,
   input: CreateSaleInput,
+  isServiceSale: boolean,
 ): void {
   const mismatch = () =>
     AppError.conflict("رقم العملية ده اتسجل قبل كده لبيعة مختلفة");
@@ -312,14 +328,36 @@ function assertSameSaleRequest(
   if (wanted !== null && !line) throw mismatch();
   if (line && line.quantityBase !== input.quantityBase) throw mismatch();
   if (
+    isServiceSale &&
     input.amountPiasters !== undefined &&
-    line &&
-    line.stockAfterBase === null &&
-    recorded.totalPiasters !== input.amountPiasters &&
-    input.machineId
+    recorded.totalPiasters !== input.amountPiasters
   ) {
     throw mismatch(); // a service sale retried with another amount
   }
+}
+
+/** True when the sale's lines are services (their amount was entered by the cashier). */
+async function isServiceSaleInTx(
+  tx: TenantTx,
+  storeId: string,
+  saleId: string,
+): Promise<boolean> {
+  const lines = await tx.saleLine.findMany({
+    where: { storeId, saleId },
+    select: {
+      storeProduct: { select: { category: true, unit: true } },
+      storeVariant: {
+        select: { storeProduct: { select: { category: true, unit: true } } },
+      },
+    },
+  });
+  return (
+    lines.length > 0 &&
+    lines.every((l) => {
+      const product = l.storeVariant?.storeProduct ?? l.storeProduct;
+      return product !== null && isServiceProduct(product);
+    })
+  );
 }
 
 /** The product a sale line points at, resolved inside the sale transaction. */
@@ -945,17 +983,25 @@ async function loadSaleSummaryInTx(
   };
 }
 
+/** The sale that won a concurrent same-`opId` race, after checking it is the same request. */
 async function findSaleSummaryByOpId(
   storeId: string,
   userId: string,
-  opId: string,
+  input: CreateSaleInput & { opId: string },
 ): Promise<RecordedSale | null> {
   return withTenant(
     storeId,
     userId,
     async (tx) => {
-      const id = await findSaleIdByOpIdInTx(tx, storeId, opId);
-      return id ? loadSaleSummaryInTx(tx, storeId, id, true) : null;
+      const id = await findSaleIdByOpIdInTx(tx, storeId, input.opId);
+      if (!id) return null;
+      const sale = await loadSaleSummaryInTx(tx, storeId, id, true);
+      assertSameSaleRequest(
+        sale,
+        input,
+        await isServiceSaleInTx(tx, storeId, id),
+      );
+      return sale;
     },
     prisma,
   );

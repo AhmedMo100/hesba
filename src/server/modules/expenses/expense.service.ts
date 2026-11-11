@@ -355,11 +355,17 @@ export class ExpenseService {
       userId,
       async (tx) => {
         const existing = await tx.expense.findFirst({
-          where: { id, storeId, deletedAt: null },
+          where: { id, storeId },
+          select: { deletedAt: true },
         });
 
         if (!existing) {
-          throw new Error("المصروف غير موجود أو تم حذفه بالفعل");
+          throw AppError.notFound("المصروف غير موجود");
+        }
+        // A retried delete (the first response was lost) is the same delete: done once, and
+        // the retry gets the same answer instead of an error (QA-27).
+        if (existing.deletedAt !== null) {
+          return { success: true };
         }
 
         await tx.expense.update({

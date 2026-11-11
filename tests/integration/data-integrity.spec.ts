@@ -5,12 +5,15 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createSession } from "@/server/modules/auth";
 import { withTenant } from "@/server/infra/db/tenant";
+import { CatalogService } from "@/server/modules/catalog";
 import { POST as productsRoute } from "@/app/api/products/route";
 import { POST as stockRoute } from "@/app/api/stock/route";
 import { POST as expensesRoute } from "@/app/api/expenses/route";
 import { POST as peopleRoute } from "@/app/api/people/route";
 import { GET as personRoute } from "@/app/api/people/[id]/route";
 import { POST as txRoute } from "@/app/api/people/[id]/transactions/route";
+import { DELETE as deleteExpenseRoute } from "@/app/api/expenses/[id]/route";
+import { POST as sandwichRoute } from "@/app/api/sandwiches/route";
 import {
   MAX_AMOUNT_PIASTERS,
   MAX_QUANTITY_BASE,
@@ -586,5 +589,347 @@ describe("QA-33 — the server prices and dates every sale", () => {
       expect((await f.sell(A, own.variantId, q)).status).toBe(400);
     }
     expect((await f.stockState(B, p.variantId)).level).toBe(5);
+  });
+});
+
+/*
+ * Coverage added on review (ADR-0025): the remaining bounds, the global catalog, the other
+ * retried writes and the other kinds of sale line.
+ */
+describe("QA-15 — bounds on the People API and on service amounts", () => {
+  it("a person's debt or payment: the maximum is accepted, one piaster more is a 400", async () => {
+    const p = await person(A, {
+      name: `حد أقصى ${f.runId}`,
+      section: "owedToMe",
+      amountEgp: "0",
+    });
+    expect(p.status).toBe(201);
+    const id = (p.json.person as { id: string }).id;
+    const over = await personTx(A, id, {
+      type: "debt",
+      amountPiasters: MAX_AMOUNT_PIASTERS + 1,
+    });
+    expect(over.status).toBe(400);
+    const overEgp = await personTx(A, id, {
+      type: "debt",
+      amountEgp: "10000000.01",
+    });
+    expect(overEgp.status).toBe(400);
+    const max = await personTx(A, id, {
+      type: "debt",
+      amountPiasters: MAX_AMOUNT_PIASTERS,
+    });
+    expect(max.status).toBe(201);
+    const entries = await f.as(A, (tx) =>
+      tx.debtEntry.findMany({
+        where: {
+          storeId: A.storeId,
+          OR: [{ customerId: id }, { contactId: id }],
+        },
+      }),
+    );
+    expect(entries.map((e) => Number(e.amountPiasters))).toContain(
+      MAX_AMOUNT_PIASTERS,
+    );
+    expect(
+      entries.some((e) => Number(e.amountPiasters) > MAX_AMOUNT_PIASTERS),
+    ).toBe(false);
+  });
+
+  it("a new person's opening balance above the maximum is a 400 and creates nobody", async () => {
+    const name = `رصيد كبير ${f.runId}`;
+    const r = await person(A, {
+      name,
+      section: "suppliers",
+      amountPiasters: MAX_AMOUNT_PIASTERS + 1,
+    });
+    expect(r.status).toBe(400);
+    const created = await f.as(A, (tx) =>
+      tx.supplier.findMany({ where: { storeId: A.storeId, nameAr: name } }),
+    );
+    expect(created).toHaveLength(0);
+  });
+
+  it("a service sale above the maximum, zero or negative is a 400 and records nothing", async () => {
+    const svc = await f.product(A, {
+      name: "شحن حد",
+      sell: 0,
+      category: "شحن رصيد",
+    });
+    const before = (await f.salesOf(A)).length;
+    for (const amountPiasters of [MAX_AMOUNT_PIASTERS + 1, 0, -100]) {
+      const r = await f.sell(A, svc.variantId, 1, { amountPiasters });
+      expect(r.status).toBe(400);
+    }
+    expect((await f.salesOf(A)).length).toBe(before);
+  });
+});
+
+describe("QA-23 — the global catalog is untouched by same-name shop products", () => {
+  it("same-name products never create, rename or link a global product; each shop keeps one row per catalog item", async () => {
+    const name = `منتج كتالوج ${f.runId}`;
+    const [g] = await f.sql<Array<{ id: string }>>`
+      INSERT INTO global_products (id, name_ar, name_norm, category, type, status, updated_at)
+      VALUES (gen_random_uuid(), ${name}, ${name}, 'مشروبات', 'stock', 'approved', now())
+      RETURNING id::text`;
+    await f.sql`INSERT INTO global_variants (id, global_product_id, pack_qty, name_norm, updated_at)
+      VALUES (gen_random_uuid(), ${g!.id}::uuid, 1, ${name}, now())`;
+    const globals = () =>
+      f.sql`SELECT id, name_ar, name_norm, status FROM global_products ORDER BY id`;
+    const globalsBefore = await globals();
+    const linkedTo = (storeId: string) =>
+      f.sql`SELECT id FROM store_products
+             WHERE global_product_id = ${g!.id}::uuid AND store_id = ${storeId}::uuid`;
+    try {
+      // Same-name CUSTOM products (the catalog item's name): allowed, and never linked to it.
+      for (let i = 0; i < 2; i++) {
+        expect((await product(A, name)).status).toBe(200);
+      }
+      expect(await linkedTo(A.storeId)).toHaveLength(0);
+
+      // Adding the catalog item itself twice (a retried form save): one shop row, updated.
+      const asCatalog = (shop: Shop, sell: number) =>
+        product(shop, name, {
+          isCustom: false,
+          globalProductId: g!.id,
+          sellPricePiasters: sell,
+          variants: [{ packQty: 1, sellPricePiasters: sell }],
+        });
+      expect((await asCatalog(A, 1100)).status).toBe(200);
+      expect((await asCatalog(A, 1200)).status).toBe(200);
+      const rowsA = await linkedTo(A.storeId);
+      expect(rowsA).toHaveLength(1);
+      // Another shop has its own row and price; shop A's price stays shop A's.
+      expect((await asCatalog(B, 900)).status).toBe(200);
+      expect(await linkedTo(B.storeId)).toHaveLength(1);
+      const [priceA] = await f.sql<Array<{ p: string }>>`
+        SELECT sell_price_piasters::text AS p FROM store_products WHERE id = ${rowsA[0]!["id"]}`;
+      expect(Number(priceA!.p)).toBe(1200);
+
+      // The catalog-matching path (the community flow) refuses a second copy with a 409.
+      const catalog = new CatalogService(f.migratorPrisma);
+      const add = () =>
+        catalog.addStoreProduct({
+          storeId: B.storeId,
+          userId: B.userId,
+          nameAr: name,
+          category: "مشروبات",
+          unit: "piece",
+          sellPricePiasters: BigInt(900),
+        });
+      await expect(add()).rejects.toMatchObject({ statusCode: 409 });
+      expect(await linkedTo(B.storeId)).toHaveLength(1);
+
+      // The global catalog itself is unchanged: no row added, renamed or removed.
+      expect(await globals()).toEqual(globalsBefore);
+    } finally {
+      await f.sql`DELETE FROM store_variants WHERE store_product_id IN (
+        SELECT id FROM store_products WHERE global_product_id = ${g!.id}::uuid)`;
+      await f.sql`DELETE FROM store_products WHERE global_product_id = ${g!.id}::uuid`;
+      await f.sql`DELETE FROM global_variants WHERE global_product_id = ${g!.id}::uuid`;
+      await f.sql`DELETE FROM global_products WHERE id = ${g!.id}::uuid`;
+    }
+  });
+});
+
+describe("QA-27 — the other retried writes", () => {
+  it("expense delete: a retry gets the same success, the row is deleted once; unknown id is a 404", async () => {
+    const created = await expense(A, {
+      category: "إيجار",
+      amountPiasters: 4200,
+      opId: crypto.randomUUID(),
+    });
+    expect(created.status).toBe(201);
+    const id =
+      (created.json.expense as { id: string } | undefined)?.id ??
+      (created.json.id as string);
+    const del = async (expenseId: string) => {
+      const token = (await createSession(A.userId, A.storeId)).rawToken;
+      const res = await deleteExpenseRoute(
+        new Request(`http://localhost:3000/api/expenses/${expenseId}`, {
+          method: "DELETE",
+          headers: { cookie: `hesba_session=${token}` },
+        }),
+        { params: Promise.resolve({ id: expenseId }) },
+      );
+      return res.status;
+    };
+    expect(await del(id)).toBe(200);
+    const deletedAt = (await expensesOf(A, { id }))[0]!.deletedAt;
+    expect(deletedAt).not.toBeNull();
+    expect(await del(id)).toBe(200); // the first response was "lost"
+    expect((await expensesOf(A, { id }))[0]!.deletedAt).toEqual(deletedAt);
+    expect(await del(crypto.randomUUID())).toBe(404);
+  });
+
+  it("service sale: a retry returns the same sale; another amount with the same opId is a 409", async () => {
+    const svc = await f.product(A, {
+      name: "شحن مكرر",
+      sell: 0,
+      category: "شحن رصيد",
+    });
+    const opId = crypto.randomUUID();
+    const first = await f.sell(A, svc.variantId, 1, {
+      amountPiasters: 5000,
+      opId,
+    });
+    expect(first.status).toBe(200);
+    const retry = await f.sell(A, svc.variantId, 1, {
+      amountPiasters: 5000,
+      opId,
+    });
+    expect(retry.status).toBe(200);
+    expect((retry.json.data as { duplicate: boolean }).duplicate).toBe(true);
+    const other = await f.sell(A, svc.variantId, 1, {
+      amountPiasters: 6000,
+      opId,
+    });
+    expect(other.status).toBe(409);
+    const recorded = await f.as(A, (tx) =>
+      tx.sale.findMany({ where: { storeId: A.storeId, opId } }),
+    );
+    expect(recorded).toHaveLength(1);
+    expect(Number(recorded[0]!.totalPiasters)).toBe(5000);
+  });
+
+  it("an ordinary-product retry that also sends a (ignored) client amount is still the same sale", async () => {
+    const p = await f.product(A, { name: "مبلغ مهمل", sell: 1000 });
+    await f.addStock(A, p.variantId, 5);
+    const opId = crypto.randomUUID();
+    expect(
+      (await f.sell(A, p.variantId, 1, { opId, amountPiasters: 1 })).status,
+    ).toBe(200);
+    const retry = await f.sell(A, p.variantId, 1, {
+      opId,
+      amountPiasters: 999,
+    });
+    expect(retry.status).toBe(200);
+    expect((retry.json.data as { duplicate: boolean }).duplicate).toBe(true);
+    expect((await f.stockState(A, p.variantId)).level).toBe(4);
+  });
+});
+
+describe("QA-33 — sandwich, offer and service lines are priced and dated by the server", () => {
+  const clientLies = { amountPiasters: 1, timestamp: Date.UTC(2100, 0, 1) };
+  const saleById = async (id: string) =>
+    (await f.salesOf(A)).find((s) => s.id === id)!;
+  const expectServerTime = (d: Date) =>
+    expect(Math.abs(d.getTime() - Date.now())).toBeLessThan(60_000);
+
+  it("sandwich: the sandwich's price × count; the client amount and time are ignored", async () => {
+    const bread = await f.product(A, { name: "عيش سعر", sell: 400 });
+    await f.addStock(A, bread.variantId, 10);
+    const sw = await call(sandwichRoute as never, A, "/api/sandwiches", {
+      name: `ساندوتش سعر ${f.runId}`,
+      sellPricePiasters: 1500,
+      ingredients: [{ variantId: bread.variantId, quantity: 1, unit: "piece" }],
+    });
+    expect(sw.status).toBe(201);
+    const swId = (sw.json.sandwich as { id: string }).id;
+    const res = await f.request(A, "POST", {
+      productId: swId,
+      quantityBase: 2,
+      opId: crypto.randomUUID(),
+      ...clientLies,
+    });
+    expect(res.status).toBe(200);
+    const sale = await saleById((res.json.data as { id: string }).id);
+    expect(Number(sale.totalPiasters)).toBe(3000);
+    const line = sale.saleLines[0]!;
+    expect(Number(line.unitPricePiasters)).toBe(1500);
+    expect(line.quantityBaseUnits).toBe(2);
+    expect(Number(line.totalPiasters)).toBe(3000);
+    expectServerTime(sale.createdAt);
+  });
+
+  it("offer: the saved offer price, split over its lines; the client amount and time are ignored", async () => {
+    const chips = await f.product(A, { name: "شيبسي عرض", sell: 500 });
+    const pepsi = await f.product(A, { name: "بيبسي عرض", sell: 1000 });
+    await f.addStock(A, chips.variantId, 5);
+    await f.addStock(A, pepsi.variantId, 5);
+    const promoId = `promo-${crypto.randomUUID()}`;
+    await f.as(A, (tx) =>
+      tx.store.update({
+        where: { id: A.storeId },
+        data: {
+          settings: {
+            activePromotions: [
+              {
+                id: promoId,
+                title: "كومبو سعر",
+                type: "bundle",
+                items: [
+                  {
+                    productId: chips.productId,
+                    variantId: chips.variantId,
+                    productName: "شيبسي",
+                    quantityBase: 2,
+                    unit: "piece",
+                    regularPricePiasters: 500,
+                  },
+                  {
+                    productId: pepsi.productId,
+                    variantId: pepsi.variantId,
+                    productName: "بيبسي",
+                    quantityBase: 1,
+                    unit: "piece",
+                    regularPricePiasters: 1000,
+                  },
+                ],
+                originalPricePiasters: 2000,
+                promoPricePiasters: 1500,
+                savingsPiasters: 500,
+                createdAt: Date.now(),
+              },
+            ],
+          },
+        },
+      }),
+    );
+    const res = await f.request(A, "POST", {
+      promotionId: promoId,
+      opId: crypto.randomUUID(),
+      ...clientLies,
+    });
+    expect(res.status).toBe(200);
+    const sale = await saleById((res.json.data as { id: string }).id);
+    expect(Number(sale.totalPiasters)).toBe(1500);
+    expect(
+      sale.saleLines.reduce((s, l) => s + Number(l.totalPiasters), 0),
+    ).toBe(1500);
+    expect(
+      sale.saleLines
+        .map((l) => [Number(l.unitPricePiasters), l.quantityBaseUnits])
+        .sort(),
+    ).toEqual(
+      [
+        [500, 2],
+        [1000, 1],
+      ].sort(),
+    );
+    expectServerTime(sale.createdAt);
+  });
+
+  it("service: the amount the customer paid (by design), one line, server time", async () => {
+    const svc = await f.product(A, {
+      name: "فاتورة سعر",
+      sell: 0,
+      category: "شحن رصيد",
+    });
+    const res = await f.sell(A, svc.variantId, 1, {
+      amountPiasters: 2500,
+      timestamp: Date.UTC(2100, 0, 1),
+    });
+    expect(res.status).toBe(200);
+    const sale = await saleById((res.json.data as { id: string }).id);
+    expect(Number(sale.totalPiasters)).toBe(2500);
+    expect(sale.saleLines).toHaveLength(1);
+    expect(Number(sale.saleLines[0]!.unitPricePiasters)).toBe(2500);
+    expect(Number(sale.saleLines[0]!.totalPiasters)).toBe(2500);
+    expectServerTime(sale.createdAt);
+    // A service is sold one at a time: a quantity is a 400, not a multiplied amount.
+    expect(
+      (await f.sell(A, svc.variantId, 3, { amountPiasters: 2500 })).status,
+    ).toBe(400);
   });
 });

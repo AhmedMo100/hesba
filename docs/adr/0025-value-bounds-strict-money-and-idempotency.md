@@ -45,7 +45,8 @@ Each write already has, or now gets, a client `opId` stored on the business row,
 
 | Write | Before | Now |
 |---|---|---|
-| Sales (ordinary, sandwich, promotion, service), `POST /api/sales` | `opId` (QA-01/03) | + payload check (another item or quantity gets 409) |
+| Sales (ordinary, sandwich, promotion, service), `POST /api/sales` | `opId` (QA-01/03) | + payload check in the sale transaction (another item or quantity gets 409; for a service, another amount too, since only a service's amount comes from the client) |
+| Expense delete, `DELETE /api/expenses/:id` | a retry got a 500 (plain `Error`) | a retry of a delete returns the same success and changes nothing; an unknown id gets 404 |
 | Sale void, `POST /api/sales/void` | `opId` (QA-10) | unchanged |
 | Expenses, `POST /api/expenses` | **none** | `expenses.op_id` + unique; replay and payload check; P2002 race returns the first expense |
 | People debt/payment, `POST /api/people/:id/transactions` | `opId` + person row lock (QA-12) | + payload check (another amount or direction gets 409) |
@@ -58,6 +59,13 @@ Each write already has, or now gets, a client `opId` stored on the business row,
 - People creation, product creation, promotions and taxonomy have no operation id on their rows. Their duplicates are harmless or visible (a second person or product), and adding keys there means schema changes beyond this batch.
 - Profile and sales-config are full or partial overwrites, so repeating them is harmless.
 - Stock void-batch and archive already refuse a second application.
+- **Overwrites, safe to repeat:** product edits (`PATCH /api/products`, and `POST` with a `globalProductId`, which updates the shop's one row), sandwich edits, person edits and expense edits. They set values, so a repeat gives the same state.
+- **Deletes and hides:** these are soft deletes, so a repeat never removes twice. Repeated expense and promotion deletes return success. Repeated person, machine and product deletes get a clear 404.
+- **Machine creation:** no operation id. A duplicate is visible and can be deleted.
+- **Auth, AI chat and crons are not business records:**
+  - login and rotation are covered by the session rules (ADR-0024);
+  - each AI chat message is its own request, and the quota counts it;
+  - cron jobs are idempotent by design.
 - `opId` stays **optional** for compatibility; requests without it are not deduplicated.
 
 ### QA-33: sale lines
