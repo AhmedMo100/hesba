@@ -51,7 +51,8 @@ export interface AlertInventoryRow {
   batches: Array<{
     id: string;
     remainingQty: number;
-    costPricePiasters: number;
+    /** Unit cost per selling unit; null = unknown (ADR-0021). */
+    costPricePiasters: number | null;
     expiryDate: string | null;
   }>;
 }
@@ -84,7 +85,8 @@ export interface ExpiryAlertItem {
   packQty: number;
   packName?: string | null;
   remainingQtyBase: number;
-  costPricePiasters: number;
+  /** Unit cost per selling unit; null = unknown (ADR-0021). */
+  costPricePiasters: number | null;
   sellPricePiasters: number;
   expiryDate: string;
   daysUntilExpiry: number;

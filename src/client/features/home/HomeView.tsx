@@ -5,44 +5,33 @@
  * @description The home dashboard: today's sales, stock and expense summaries and shortcuts.
  *
  * @remarks
- * Data comes from the server only (`/api/stock?view=all`, `/api/sales`,
- * `/api/expenses?period=all`); it does not read the sales kept in `localStorage` by the sales
- * screen. A failed request leaves that section empty.
+ * - "الجرد" (inventory) reads `/api/stock?view=all`.
+ * - "التقرير" (report) reads `/api/reports/home?period=…` (ADR-0021): every financial figure —
+ *   revenue, cost of goods sold, gross profit, expenses, purchases, the chart, top products,
+ *   categories, activity — is computed on the server from recorded data. This screen does no
+ *   financial arithmetic; a cost or profit the server reports as unknown is shown as "—",
+ *   never estimated (audit QA-06 / QA-07).
+ * A failed request leaves that section empty.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Seg, SearchBox, Icon, Empty } from "@/client/shared/ui";
-import { formatMoney } from "@/client/shared/i18n";
+import { formatMoney, t } from "@/client/shared/i18n";
+import {
+  fetchHomeReport,
+  type HomeReport,
+  type ReportPeriod,
+} from "@/client/shared/api/reports";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import styles from "./HomeView.module.css";
 
-interface SaleTransactionItem {
-  productName: string;
-  categoryName?: string;
-  quantityBase: number;
-  unitMode: string;
-  unitPriceMinor: number;
-  totalMinor: number;
-}
+type PeriodKey = ReportPeriod;
 
-interface SaleRecord {
-  id: string;
-  totalPiasters: number;
-  paymentMethod: string;
-  createdAt: string;
-  items: SaleTransactionItem[];
+/** Money, or "—" when the server could not determine it from recorded data. */
+function moneyOrUnknown(piasters: number | null): string {
+  return piasters === null ? "—" : formatMoney(piasters);
 }
-
-interface ExpenseRecord {
-  id: string;
-  amountPiasters: number;
-  category: string;
-  notes?: string;
-  createdAt: string;
-}
-
-type PeriodKey = "today" | "yesterday" | "week" | "month" | "all";
 
 function formatQtyText(
   unitMode: "piece" | "weight",
@@ -74,38 +63,38 @@ export function HomeView() {
   const [showMoreTop, setShowMoreTop] = useState(false);
 
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
-  const [sales, setSales] = useState<SaleRecord[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [report, setReport] = useState<HomeReport | null>(null);
 
-  // Load Inventory, Sales and Expenses
+  // The report of the chosen period, from the server (ADR-0021)
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = () => {
+      fetchHomeReport(period, controller.signal)
+        .then(setReport)
+        .catch(() => {
+          if (!controller.signal.aborted) setReport(null);
+        });
+    };
+    load();
+    window.addEventListener("hesba_stock_updated", load);
+    window.addEventListener("hesba_sales_config_updated", load);
+    return () => {
+      controller.abort();
+      window.removeEventListener("hesba_stock_updated", load);
+      window.removeEventListener("hesba_sales_config_updated", load);
+    };
+  }, [period]);
+
+  // Load Inventory
   useEffect(() => {
     let ignore = false;
     const fetchData = async () => {
       try {
-        const [stockRes, salesRes, expRes] = await Promise.all([
-          fetch("/api/stock?view=all").catch(() => null),
-          fetch("/api/sales").catch(() => null),
-          fetch("/api/expenses?period=all").catch(() => null),
-        ]);
-
+        const stockRes = await fetch("/api/stock?view=all").catch(() => null);
         if (stockRes && stockRes.ok && !ignore) {
           const sData = await stockRes.json();
           if (sData?.inventory && Array.isArray(sData.inventory)) {
             setInventory(sData.inventory);
-          }
-        }
-
-        if (salesRes && salesRes.ok && !ignore) {
-          const slData = await salesRes.json();
-          if (slData?.sales && Array.isArray(slData.sales)) {
-            setSales(slData.sales);
-          }
-        }
-
-        if (expRes && expRes.ok && !ignore) {
-          const eData = await expRes.json();
-          if (eData?.expenses && Array.isArray(eData.expenses)) {
-            setExpenses(eData.expenses);
           }
         }
       } catch {}
@@ -170,223 +159,67 @@ export function HomeView() {
     [inventory],
   );
 
-  // Period Date Range Helper
-  const isDateInPeriod = useCallback((dateStr: string, p: PeriodKey) => {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    ).getTime();
-    const t = d.getTime();
+  // Report values — all computed by the server (ADR-0021); only labels are built here.
+  // No report yet (loading, offline or failed) → "—", never a misleading 0 (QA-06).
+  const totalRevenuePiasters = report?.sales.revenuePiasters ?? null;
+  const saleCount = report?.sales.count ?? 0;
+  const totalCogsPiasters = report?.sales.cogsPiasters ?? null;
+  const grossProfitPiasters = report?.sales.grossProfitPiasters ?? null;
+  const unknownCostCount = report?.sales.unknownCostCount ?? 0;
+  const totalExpensesPiasters = report?.expenses.totalPiasters ?? null;
+  const totalPurchasesPiasters = report?.purchases.totalPiasters ?? null;
+  const purchasesUnknownCount = report?.purchases.unknownCostCount ?? 0;
 
-    if (p === "today") {
-      return t >= todayStart;
-    }
-    if (p === "yesterday") {
-      const yStart = todayStart - 86400000;
-      return t >= yStart && t < todayStart;
-    }
-    if (p === "week") {
-      return t >= todayStart - 7 * 86400000;
-    }
-    if (p === "month") {
-      return t >= todayStart - 30 * 86400000;
-    }
-    return true; // "all"
-  }, []);
-
-  // Filtered Sales & Expenses for "التقرير" Tab
-  const periodSales = useMemo(() => {
-    return sales.filter((s) => isDateInPeriod(s.createdAt, period));
-  }, [sales, period, isDateInPeriod]);
-
-  const periodExpenses = useMemo(() => {
-    return expenses.filter((e) => isDateInPeriod(e.createdAt, period));
-  }, [expenses, period, isDateInPeriod]);
-
-  // Report Metrics
-  const totalRevenuePiasters = useMemo(() => {
-    return periodSales.reduce((sum, s) => sum + (s.totalPiasters || 0), 0);
-  }, [periodSales]);
-
-  // COGS estimate: calculate cost from items or default ~75%
-  const totalCogsPiasters = useMemo(() => {
-    let cogs = 0;
-    for (const s of periodSales) {
-      if (s.items && s.items.length > 0) {
-        for (const it of s.items) {
-          const invMatch = inventory.find(
-            (inv) => inv.productName === it.productName,
-          );
-          if (invMatch && invMatch.buyPricePiasters) {
-            const factor = it.unitMode === "weight" ? 1000 : 1;
-            cogs += Math.round(
-              (it.quantityBase / factor) * invMatch.buyPricePiasters,
-            );
-          } else {
-            cogs += Math.round((it.totalMinor || 0) * 0.75);
-          }
-        }
-      } else {
-        cogs += Math.round((s.totalPiasters || 0) * 0.75);
-      }
-    }
-    return cogs;
-  }, [periodSales, inventory]);
-
-  const grossProfitPiasters = totalRevenuePiasters - totalCogsPiasters;
-
-  const totalExpensesPiasters = useMemo(() => {
-    return periodExpenses.reduce((sum, e) => sum + (e.amountPiasters || 0), 0);
-  }, [periodExpenses]);
-
-  // Purchases added to warehouse during period (from batch creations)
-  const totalPurchasesPiasters = useMemo(() => {
-    let total = 0;
-    for (const inv of inventory) {
-      if (inv.batches) {
-        for (const b of inv.batches) {
-          const bDate = b.receivedAt || new Date().toISOString();
-          if (isDateInPeriod(bDate, period)) {
-            const factor = inv.unitMode === "weight" ? 1000 : 1;
-            total += Math.round(
-              (b.remainingQty / factor) * (b.costPricePiasters || 0),
-            );
-          }
-        }
-      }
-    }
-    return total;
-  }, [inventory, period, isDateInPeriod]);
-
-  // Hourly or Daily Bar Series for Chart
   const chartSeries = useMemo(() => {
-    if (periodSales.length === 0) return [];
-
-    if (period === "today" || period === "yesterday") {
-      // 24 Hours series
-      const hoursMap: Record<number, { rev: number; gross: number }> = {};
-      for (let h = 8; h <= 23; h++) {
-        hoursMap[h] = { rev: 0, gross: 0 };
+    if (!report || report.sales.count === 0) return [];
+    return report.series.points.map((p) => {
+      let label = p.key;
+      if (report.series.granularity === "hour") {
+        const h = Number(p.key);
+        label = `${h % 12 || 12} ${h >= 12 ? "م" : "ص"}`;
+      } else {
+        const [, m, d] = p.key.split("-");
+        label = `${Number(d)}/${Number(m)}`;
       }
+      return { k: p.key, label, rev: p.revenuePiasters };
+    });
+  }, [report]);
 
-      for (const s of periodSales) {
-        const h = new Date(s.createdAt).getHours();
-        if (!hoursMap[h]) hoursMap[h] = { rev: 0, gross: 0 };
-        hoursMap[h].rev += s.totalPiasters;
-        hoursMap[h].gross += Math.round(s.totalPiasters * 0.25);
-      }
+  const topProducts = useMemo(
+    () =>
+      (report?.topProducts ?? []).map((p) => ({
+        key: p.productId ?? p.name,
+        name: p.name,
+        rev: p.revenuePiasters,
+        profit: p.grossProfitPiasters,
+      })),
+    [report],
+  );
 
-      return Object.entries(hoursMap).map(([hStr, data]) => {
-        const h = parseInt(hStr, 10);
-        const label = `${h % 12 || 12} ${h >= 12 ? "م" : "ص"}`;
-        return {
-          k: hStr,
-          label,
-          rev: data.rev,
-          gross: data.gross,
-        };
-      });
-    }
+  const salesByCat = useMemo(
+    () =>
+      (report?.byCategory ?? []).map((c) => ({
+        cat: c.category,
+        rev: c.revenuePiasters,
+        profit: c.grossProfitPiasters,
+      })),
+    [report],
+  );
 
-    // Days series for week / month
-    const daysMap: Record<
-      string,
-      { rev: number; gross: number; label: string }
-    > = {};
-    for (const s of periodSales) {
-      const d = new Date(s.createdAt);
-      const key = d.toLocaleDateString("en-CA");
-      const label = `${d.getDate()}/${d.getMonth() + 1}`;
-      if (!daysMap[key]) daysMap[key] = { rev: 0, gross: 0, label };
-      daysMap[key].rev += s.totalPiasters;
-      daysMap[key].gross += Math.round(s.totalPiasters * 0.25);
-    }
-
-    return Object.entries(daysMap).map(([k, d]) => ({
-      k,
-      label: d.label,
-      rev: d.rev,
-      gross: d.gross,
-    }));
-  }, [periodSales, period]);
-
-  // Top Selling Products
-  const topProducts = useMemo(() => {
-    const map: Record<
-      string,
-      { name: string; rev: number; profit: number; qty: number }
-    > = {};
-
-    for (const s of periodSales) {
-      if (s.items && s.items.length > 0) {
-        for (const it of s.items) {
-          const key = it.productName;
-          if (!map[key]) {
-            map[key] = { name: key, rev: 0, profit: 0, qty: 0 };
-          }
-          map[key].rev += it.totalMinor;
-          map[key].qty += it.quantityBase;
-          map[key].profit += Math.round(it.totalMinor * 0.25);
-        }
-      }
-    }
-
-    return Object.values(map).sort((a, b) => b.rev - a.rev);
-  }, [periodSales]);
-
-  // Sales by Category
-  const salesByCat = useMemo(() => {
-    const map: Record<string, { rev: number; profit: number }> = {};
-    for (const s of periodSales) {
-      if (s.items && s.items.length > 0) {
-        for (const it of s.items) {
-          const cat = it.categoryName || "متفرقات";
-          if (!map[cat]) map[cat] = { rev: 0, profit: 0 };
-          map[cat].rev += it.totalMinor;
-          map[cat].profit += Math.round(it.totalMinor * 0.25);
-        }
-      }
-    }
-    return Object.entries(map)
-      .map(([cat, val]) => ({ cat, ...val }))
-      .sort((a, b) => b.rev - a.rev);
-  }, [periodSales]);
-
-  // Activity Timeline (مبيعات ومصروفات)
-  const timelineEvents = useMemo(() => {
-    const list: Array<{
-      ts: number;
-      type: "sale" | "exp";
-      title: string;
-      meta?: string;
-      amountPiasters: number;
-    }> = [];
-
-    for (const s of periodSales) {
-      list.push({
-        ts: new Date(s.createdAt).getTime(),
-        type: "sale",
-        title: `عملية بيع #${s.id.slice(0, 5)}`,
-        meta: s.items?.map((it) => it.productName).join(" · "),
-        amountPiasters: s.totalPiasters,
-      });
-    }
-
-    for (const e of periodExpenses) {
-      list.push({
-        ts: new Date(e.createdAt).getTime(),
-        type: "exp",
-        title: `مصروف: ${e.category}`,
-        meta: e.notes || undefined,
-        amountPiasters: -e.amountPiasters,
-      });
-    }
-
-    return list.sort((a, b) => b.ts - a.ts);
-  }, [periodSales, periodExpenses]);
+  const timelineEvents = useMemo(
+    () =>
+      (report?.activity ?? []).map((a) => ({
+        ts: Date.parse(a.at),
+        type: a.kind === "sale" ? ("sale" as const) : ("exp" as const),
+        title:
+          a.kind === "sale"
+            ? t("home.activitySale", { id: a.id.slice(0, 5) })
+            : t("home.activityExpense", { category: a.label }),
+        meta: a.kind === "sale" ? a.label : a.note || undefined,
+        amountPiasters: a.amountPiasters,
+      })),
+    [report],
+  );
 
   // Export Inventory CSV matching Image 1
   const exportToExcel = () => {
@@ -631,24 +464,34 @@ export function HomeView() {
           <div className={styles.kpis}>
             <div className={styles.kpi}>
               <small>المبيعات</small>
-              <b>{formatMoney(totalRevenuePiasters)}</b>
-              <em>{periodSales.length} بيعة</em>
+              <b data-testid="home-revenue">
+                {moneyOrUnknown(totalRevenuePiasters)}
+              </b>
+              <em>{saleCount} بيعة</em>
             </div>
 
             <div className={styles.kpi}>
               <small>مجمل الربح</small>
-              <b>{formatMoney(grossProfitPiasters)}</b>
-              <em>المبيعات − تكلفة البضاعة</em>
+              <b data-testid="home-profit">
+                {moneyOrUnknown(grossProfitPiasters)}
+              </b>
+              <em>
+                {unknownCostCount > 0
+                  ? t("home.unknownCost", { count: unknownCostCount })
+                  : "المبيعات − تكلفة البضاعة"}
+              </em>
             </div>
 
             <div className={styles.kpi}>
               <small>تكلفة البضاعة المباعة</small>
-              <b>{formatMoney(totalCogsPiasters)}</b>
+              <b data-testid="home-cogs">{moneyOrUnknown(totalCogsPiasters)}</b>
             </div>
 
             <div className={`${styles.kpi} ${styles.kpiNeg}`}>
               <small>المصروفات</small>
-              <b>{formatMoney(totalExpensesPiasters)}</b>
+              <b data-testid="home-expenses">
+                {moneyOrUnknown(totalExpensesPiasters)}
+              </b>
             </div>
 
             <div
@@ -656,15 +499,21 @@ export function HomeView() {
               style={{ gridColumn: "1 / -1", width: "100%" }}
             >
               <small>مشتريات دخلت المخزن</small>
-              <b>{formatMoney(totalPurchasesPiasters)}</b>
-              <em>مش بتتخصم من الربح</em>
+              <b data-testid="home-purchases">
+                {moneyOrUnknown(totalPurchasesPiasters)}
+              </b>
+              <em>
+                مش بتتخصم من الربح
+                {purchasesUnknownCount > 0 &&
+                  ` · ${t("home.purchasesUnknown", { count: purchasesUnknownCount })}`}
+              </em>
             </div>
           </div>
 
           {/* Sales Chart Section */}
           <section className={styles.sectionCard}>
             <h2 className={styles.secTitle}>المبيعات</h2>
-            {totalRevenuePiasters > 0 ? (
+            {(totalRevenuePiasters ?? 0) > 0 ? (
               <div className={styles.chartContainer}>
                 <svg
                   viewBox="0 0 600 180"
@@ -734,7 +583,7 @@ export function HomeView() {
                       const maxRev = topProducts[0]?.rev || 1;
                       const pct = Math.round((item.rev / maxRev) * 100);
                       return (
-                        <div key={item.name} className={styles.topItem}>
+                        <div key={item.key} className={styles.topItem}>
                           <span className={styles.topRank}>{idx + 1}</span>
                           <div className={styles.topNameGroup}>
                             <b>{item.name}</b>
@@ -745,7 +594,7 @@ export function HomeView() {
                           </div>
                           <div className={styles.topValues}>
                             <b>{formatMoney(item.rev)}</b>
-                            <small>ربح {formatMoney(item.profit)}</small>
+                            <small>ربح {moneyOrUnknown(item.profit)}</small>
                           </div>
                         </div>
                       );
@@ -775,7 +624,7 @@ export function HomeView() {
                       <span>{cat.cat}</span>
                       <div className={styles.catValues}>
                         <b>{formatMoney(cat.rev)}</b>
-                        <small>ربح {formatMoney(cat.profit)}</small>
+                        <small>ربح {moneyOrUnknown(cat.profit)}</small>
                       </div>
                     </div>
                   ))}

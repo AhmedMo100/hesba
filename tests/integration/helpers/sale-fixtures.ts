@@ -159,12 +159,15 @@ export class SaleFixtures {
     shop: Shop,
     variantId: string,
     qty: number,
-    opts: { expiry?: string; cost?: number } = {},
+    opts: {
+      expiry?: string;
+      /** Total paid for the batch (default 1.00 per unit). */ cost?: number;
+    } = {},
   ) {
     return this.inventory.addStockBatch(shop.storeId, shop.userId, {
       storeVariantId: variantId,
       receivedQuantityBase: qty,
-      costPriceMinor: opts.cost ?? 100,
+      costTotalMinor: opts.cost ?? 100 * qty, // total paid (ADR-0021)
       expiryDate: opts.expiry ?? null,
     });
   }

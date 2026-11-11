@@ -127,7 +127,7 @@ describe("Sandwiches (composite products) — API, sale, stock & tenancy", () =>
     await new InventoryService(appPrisma).addStockBatch(storeAId, userAId, {
       storeVariantId: variantId,
       receivedQuantityBase: qty,
-      costPriceMinor: costPerUnit,
+      costTotalMinor: costPerUnit * qty, // the batch stores the total (ADR-0021)
     });
   }
 

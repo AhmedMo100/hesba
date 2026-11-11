@@ -778,15 +778,16 @@ export function AlertsView() {
                 wasteTarget.packQty,
                 wasteTarget.unit,
               )}{" "}
-              من &quot;{wasteTarget.name}&quot; من المخزون ونسجلها كفاقد (
-              {formatMoney(
-                Math.round(
-                  (wasteTarget.remainingQtyBase /
-                    (wasteTarget.unitMode === "weight" ? 1000 : 1)) *
-                    wasteTarget.costPricePiasters,
-                ),
-              )}
-              ). لو لسه هتبيعها سيب التنبيه.
+              من &quot;{wasteTarget.name}&quot; من المخزون ونسجلها كفاقد
+              {wasteTarget.costPricePiasters !== null &&
+                ` (${formatMoney(
+                  Math.round(
+                    (wasteTarget.remainingQtyBase /
+                      (wasteTarget.unitMode === "weight" ? 1000 : 1)) *
+                      wasteTarget.costPricePiasters,
+                  ),
+                )})`}
+              . لو لسه هتبيعها سيب التنبيه.
             </div>
 
             <div className={styles.sheetFooter}>

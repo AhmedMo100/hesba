@@ -1,5 +1,5 @@
 import "server-only";
-import { PrismaClient } from "@prisma/client";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
@@ -7,6 +7,13 @@ import {
   isNearExpiry,
   type StockBatchCandidate,
 } from "@/domain/stock/stock-engine";
+import {
+  milliToWholePiasters,
+  sumTakeCosts,
+  takeCostMilli,
+  totalFromUnitCost,
+  unitCostFromTotal,
+} from "@/domain/stock/batch-cost";
 
 /**
  * @file inventory.service.ts
@@ -46,13 +53,18 @@ const ZERO = BigInt(0);
 
 /**
  * Locks the `stock_levels` rows of the given variants for the rest of the caller's tenant
- * transaction and returns their balances (ADR-0019).
+ * transaction and returns their balances (ADR-0019, ADR-0021).
  *
  * Every write to a variant's stock — its level, its batches and its movements — goes through
  * this lock first, so concurrent operations on the same variant run one after the other:
  * each one reads the balance left by the previous commit instead of overwriting it (no lost
  * updates). Under READ COMMITTED, statements after the lock see everything committed before
  * it, which is why callers check their `opId` after locking.
+ *
+ * The balance returned is the LEDGER's (Σ `stock_movements.quantity_base`), read under the
+ * lock — the ledger is the source of truth (QA-05). Every writer then stores the new ledger
+ * balance into `stock_levels`, so a stale cache is corrected by the next write instead of
+ * being carried forward.
  *
  * A variant without a level row gets one at 0 first, because only an existing row can be
  * locked. Rows are locked in id order, so multi-variant callers (sandwiches, promotions)
@@ -70,17 +82,23 @@ export async function lockStockLevelsInTx(
     SELECT ${storeId}::uuid, v.id, 0, now()
       FROM unnest(${ids}::uuid[]) AS v(id)
     ON CONFLICT (store_id, store_variant_id) DO NOTHING`;
-  const rows = await tx.$queryRaw<
-    Array<{ store_variant_id: string; quantity_base: bigint }>
-  >`SELECT store_variant_id::text AS store_variant_id, quantity_base
+  await tx.$queryRaw`SELECT store_variant_id
       FROM stock_levels
      WHERE store_id = ${storeId}::uuid
        AND store_variant_id = ANY(${ids}::uuid[])
      ORDER BY store_variant_id
        FOR UPDATE`;
-  return new Map(
-    rows.map((r) => [r.store_variant_id, BigInt(r.quantity_base)]),
-  );
+  const ledger = await tx.$queryRaw<
+    Array<{ store_variant_id: string; qty: bigint }>
+  >`SELECT store_variant_id::text AS store_variant_id,
+           COALESCE(SUM(quantity_base), 0)::bigint AS qty
+      FROM stock_movements
+     WHERE store_id = ${storeId}::uuid
+       AND store_variant_id = ANY(${ids}::uuid[])
+     GROUP BY store_variant_id`;
+  const balances = new Map<string, bigint>(ids.map((id) => [id, ZERO]));
+  for (const r of ledger) balances.set(r.store_variant_id, BigInt(r.qty));
+  return balances;
 }
 
 /** Locks one variant's level (see {@link lockStockLevelsInTx}) and returns its balance. */
@@ -93,17 +111,148 @@ export async function lockStockLevelInTx(
   return levels.get(variantId) ?? ZERO;
 }
 
+/** Writes the `stock_levels` cache: always the ledger balance computed under the lock. */
+async function writeLevelInTx(
+  tx: TenantTx,
+  storeId: string,
+  storeVariantId: string,
+  balance: bigint,
+  now: Date,
+): Promise<void> {
+  await tx.stockLevel.upsert({
+    where: { storeId_storeVariantId: { storeId, storeVariantId } },
+    update: { quantityBase: balance, updatedAt: now },
+    create: { storeId, storeVariantId, quantityBase: balance, updatedAt: now },
+  });
+}
+
+/** One part of a take: which batch, how much, and its cost (proportional to the batch total). */
+export interface StockTake {
+  batchId: string | null;
+  quantityBase: bigint;
+  /** The batch's unit cost per selling unit; null when unknown or unbatched. */
+  unitCostPiasters: bigint | null;
+  /** Exact cost of this part in milli-piasters; null when unknown or unbatched. */
+  costMilli: bigint | null;
+}
+
 /**
- * FEFO-depletes `quantityBase` of one variant inside the caller's tenant transaction: updates
- * the batches it draws from, appends one `type: "sale"` movement per allocation (linked to
- * `saleLineId`), and writes the new `stock_levels` balance.
+ * Takes `quantityBase` of one variant out of stock inside the caller's tenant transaction
+ * (ADR-0021): the batch quantities, the ledger and the cache change together.
+ * - Draws FEFO from the variant's batches — or only from `batchId` when given.
+ * - Appends one movement of `type` per batch part (linked to the sale line / waste), with
+ *   the batch's unit cost and the running ledger balance.
+ * - Writes the new ledger balance into `stock_levels`.
  *
- * Shared by {@link InventoryService.depleteStockForSale}, the ordinary sale and the sandwich
- * sale, so a sale and its stock movements commit or roll back together. It locks the
- * variant's level first (a no-op when the caller already holds the lock), so the balance and
- * the batches it reads cannot change under it. It performs no availability check: callers
- * that must not go below zero check after locking. Quantity not covered by batches becomes an
- * unbatched allocation flagged `negative` (stock-engine rule 6).
+ * Locks the variant first (a no-op when the caller already holds the lock). It performs no
+ * availability check: callers that must not go below zero check after locking. Quantity not
+ * covered by batches (only possible with data that predates the QA-05 repair) becomes an
+ * unbatched part flagged `negative`, with unknown cost.
+ */
+export async function takeStockInTx(
+  tx: TenantTx,
+  storeId: string,
+  input: {
+    storeVariantId: string;
+    storeProductId: string | null;
+    quantityBase: bigint;
+    type: "sale" | "waste" | "adjustment";
+    batchId?: string | null;
+    saleLineId?: string | null;
+    wasteId?: string | null;
+    opId?: string | null;
+    now: Date;
+  },
+): Promise<{
+  takes: StockTake[];
+  costPiasters: bigint | null;
+  newBalance: bigint;
+}> {
+  const { now } = input;
+  const balance = await lockStockLevelInTx(tx, storeId, input.storeVariantId);
+  const batches = await tx.storeStockBatch.findMany({
+    where: {
+      storeId,
+      storeVariantId: input.storeVariantId,
+      remainingQuantityBase: { gt: ZERO },
+      ...(input.batchId ? { id: input.batchId } : {}),
+    },
+  });
+  const byId = new Map(batches.map((b) => [b.id, b]));
+
+  const candidates: StockBatchCandidate[] = batches.map((b) => ({
+    id: b.id,
+    storeVariantId: b.storeVariantId,
+    batchCode: b.batchCode,
+    remainingQuantityBase: b.remainingQuantityBase,
+    costPriceMinor: b.costPriceMinor ?? ZERO,
+    expiryDate: b.expiryDate,
+    receivedAt: b.receivedAt,
+  }));
+  const depletion = depleteStockFEFO(candidates, input.quantityBase);
+
+  for (const updated of depletion.updatedBatches) {
+    await tx.storeStockBatch.update({
+      where: { id: updated.id },
+      data: {
+        remainingQuantityBase: updated.remainingQuantityBase,
+        updatedAt: now,
+      },
+    });
+  }
+
+  let running = balance;
+  const takes: StockTake[] = [];
+  for (const allocation of depletion.allocations) {
+    const batch = allocation.batchId ? byId.get(allocation.batchId) : undefined;
+    const unitCost = batch?.costPriceMinor ?? null;
+    const costMilli = batch
+      ? takeCostMilli(
+          batch.costTotalMinor,
+          batch.receivedQuantityBase,
+          allocation.quantityBase,
+        )
+      : null;
+    running -= allocation.quantityBase;
+    await tx.stockMovement.create({
+      data: {
+        storeId,
+        storeVariantId: input.storeVariantId,
+        storeProductId: input.storeProductId,
+        batchId: allocation.batchId,
+        type: input.type,
+        quantityBase: -allocation.quantityBase,
+        costPriceMinor: unitCost,
+        balanceAfterBase: running,
+        negative: allocation.isNegative || running < ZERO,
+        saleLineId: input.saleLineId ?? null,
+        wasteId: input.wasteId ?? null,
+        opId: input.opId ?? null,
+        createdAt: now,
+      },
+    });
+    takes.push({
+      batchId: allocation.batchId,
+      quantityBase: allocation.quantityBase,
+      unitCostPiasters: unitCost,
+      costMilli,
+    });
+  }
+
+  await writeLevelInTx(tx, storeId, input.storeVariantId, running, now);
+  return {
+    takes,
+    costPiasters: sumTakeCosts(takes.map((t) => t.costMilli)),
+    newBalance: running,
+  };
+}
+
+/**
+ * FEFO-depletes `quantityBase` of one variant for a sale (`type: "sale"` movements linked to
+ * `saleLineId`). Shared by the ordinary, promotion and sandwich sales, so a sale and its stock
+ * movements commit or roll back together. `costPiasters` is the cost of what was taken, from
+ * the batches' recorded totals (null when any part's cost is unknown) — the cost a sale line
+ * records (QA-07).
  */
 export async function depleteVariantFefoInTx(
   tx: TenantTx,
@@ -117,93 +266,41 @@ export async function depleteVariantFefoInTx(
     now: Date;
   },
 ) {
-  const { now } = input;
-  const lockedBalance = await lockStockLevelInTx(
-    tx,
-    storeId,
-    input.storeVariantId,
-  );
-  const batches = await tx.storeStockBatch.findMany({
-    where: {
-      storeId,
-      storeVariantId: input.storeVariantId,
-      remainingQuantityBase: { gt: ZERO },
-    },
-  });
-
-  const candidates: StockBatchCandidate[] = batches.map((b) => ({
-    id: b.id,
-    storeVariantId: b.storeVariantId,
-    batchCode: b.batchCode,
-    remainingQuantityBase: b.remainingQuantityBase,
-    costPriceMinor: b.costPriceMinor,
-    expiryDate: b.expiryDate,
-    receivedAt: b.receivedAt,
-  }));
-
-  const depletion = depleteStockFEFO(candidates, input.quantityBase);
-
-  for (const updated of depletion.updatedBatches) {
-    await tx.storeStockBatch.update({
-      where: { id: updated.id },
-      data: {
-        remainingQuantityBase: updated.remainingQuantityBase,
-        updatedAt: now,
-      },
-    });
-  }
-
-  let runningBalance = lockedBalance;
-
-  for (const allocation of depletion.allocations) {
-    runningBalance -= allocation.quantityBase;
-    await tx.stockMovement.create({
-      data: {
-        storeId,
-        storeVariantId: input.storeVariantId,
-        storeProductId: input.storeProductId,
-        batchId: allocation.batchId,
-        type: "sale",
-        quantityBase: -allocation.quantityBase,
-        costPriceMinor: allocation.costPriceMinor,
-        balanceAfterBase: runningBalance,
-        negative: allocation.isNegative,
-        saleLineId: input.saleLineId,
-        opId: input.opId,
-        createdAt: now,
-      },
-    });
-  }
-
-  await tx.stockLevel.upsert({
-    where: {
-      storeId_storeVariantId: {
-        storeId,
-        storeVariantId: input.storeVariantId,
-      },
-    },
-    update: {
-      quantityBase: runningBalance,
-      updatedAt: now,
-    },
-    create: {
-      storeId,
-      storeVariantId: input.storeVariantId,
-      quantityBase: runningBalance,
-      updatedAt: now,
-    },
-  });
-
+  const result = await takeStockInTx(tx, storeId, { ...input, type: "sale" });
   return {
-    allocations: depletion.allocations.map((a) => ({
-      batchId: a.batchId,
-      quantityBase: Number(a.quantityBase),
-      costPriceMinor: Number(a.costPriceMinor),
-      isNegative: a.isNegative,
+    allocations: result.takes.map((t) => ({
+      batchId: t.batchId,
+      quantityBase: Number(t.quantityBase),
+      costPriceMinor:
+        t.unitCostPiasters === null ? null : Number(t.unitCostPiasters),
+      isNegative: t.batchId === null,
     })),
-    shortfallBase: Number(depletion.shortfallBase),
-    newBalance: Number(runningBalance),
+    shortfallBase: result.takes
+      .filter((t) => t.batchId === null)
+      .reduce((s, t) => s + Number(t.quantityBase), 0),
+    newBalance: Number(result.newBalance),
+    costPiasters:
+      result.costPiasters === null ? null : Number(result.costPiasters),
   };
+}
+
+/** Cost of one movement's quantity from its batch's recorded total (ADR-0021); null = unknown. */
+function movementCostPiasters(m: {
+  quantityBase: bigint;
+  storeStockBatch: {
+    costTotalMinor: bigint | null;
+    receivedQuantityBase: bigint;
+  } | null;
+}): number | null {
+  const batch = m.storeStockBatch;
+  if (!batch) return null;
+  const qty = m.quantityBase < ZERO ? -m.quantityBase : m.quantityBase;
+  const milli = takeCostMilli(
+    batch.costTotalMinor,
+    batch.receivedQuantityBase,
+    qty,
+  );
+  return milli === null ? null : Number(milliToWholePiasters(milli));
 }
 
 /**
@@ -218,6 +315,10 @@ export class InventoryService {
   /**
    * Adds a new inventory batch and records a "purchase" stock movement.
    * Transactional & Tenant-isolated.
+   *
+   * Cost (ADR-0021, QA-08): `costTotalMinor` is what was paid for the whole received quantity
+   * (the Add-Stock screen asks for the total). The batch stores that total and the unit cost
+   * per selling unit derived from it (per kg for `kg` products). `null` = cost unknown.
    */
   async addStockBatch(
     storeId: string,
@@ -225,7 +326,7 @@ export class InventoryService {
     input: {
       storeVariantId: string;
       receivedQuantityBase: bigint | number;
-      costPriceMinor: bigint | number;
+      costTotalMinor: bigint | number | null;
       productionDate?: Date | string | null;
       expiryDate?: Date | string | null;
       batchCode?: string | null;
@@ -234,7 +335,13 @@ export class InventoryService {
     },
   ) {
     const qtyBase = BigInt(input.receivedQuantityBase);
-    const costMinor = BigInt(input.costPriceMinor);
+    const costTotal =
+      input.costTotalMinor === null || input.costTotalMinor === undefined
+        ? null
+        : BigInt(input.costTotalMinor);
+    if (costTotal !== null && costTotal < ZERO) {
+      throw AppError.badRequest("سعر التكلفة يجب ألا يقل عن صفر");
+    }
     if (qtyBase <= ZERO) {
       throw AppError.badRequest("كمية البضاعة المضافة يجب أن تكون أكبر من صفر");
     }
@@ -293,6 +400,15 @@ export class InventoryService {
             });
 
             const nowTs = new Date();
+            const newUnit =
+              globalVariant.sizeUnit === "kg" || globalVariant.sizeUnit === "g"
+                ? "kg"
+                : "piece";
+            // A catalog item added straight from stock intake: until the owner sets a price,
+            // it starts at its unit cost (per selling unit), or 10 EGP when the cost is unknown.
+            const unitCost = unitCostFromTotal(costTotal, qtyBase, newUnit);
+            const startPrice =
+              unitCost !== null && unitCost > ZERO ? unitCost : BigInt(1000);
             if (!storeProduct) {
               storeProduct = await tx.storeProduct.create({
                 data: {
@@ -301,13 +417,8 @@ export class InventoryService {
                   nameAr: globalVariant.globalProduct.nameAr,
                   nameNorm: globalVariant.globalProduct.nameNorm,
                   category: globalVariant.globalProduct.category,
-                  unit:
-                    globalVariant.sizeUnit === "kg" ||
-                    globalVariant.sizeUnit === "g"
-                      ? "kg"
-                      : "piece",
-                  sellPricePiasters:
-                    costMinor > ZERO ? costMinor : BigInt(1000),
+                  unit: newUnit,
+                  sellPricePiasters: startPrice,
                   isCustom: false,
                   isActive: true,
                   createdAt: nowTs,
@@ -327,7 +438,7 @@ export class InventoryService {
                 sizeValue: globalVariant.sizeValue,
                 sizeUnit: globalVariant.sizeUnit,
                 packQty: globalVariant.packQty,
-                sellPricePiasters: costMinor > ZERO ? costMinor : BigInt(1000),
+                sellPricePiasters: startPrice,
                 isActive: true,
                 createdAt: nowTs,
                 updatedAt: nowTs,
@@ -363,7 +474,14 @@ export class InventoryService {
           }
         }
 
-        // 3. Create StoreStockBatch
+        // 3. Create StoreStockBatch: the total paid, and the unit cost per selling unit
+        const product = variant.storeProductId
+          ? await tx.storeProduct.findFirst({
+              where: { id: variant.storeProductId, storeId },
+              select: { unit: true },
+            })
+          : null;
+        const unitCost = unitCostFromTotal(costTotal, qtyBase, product?.unit);
         const batch = await tx.storeStockBatch.create({
           data: {
             storeId,
@@ -372,8 +490,8 @@ export class InventoryService {
             batchCode: input.batchCode ?? null,
             receivedQuantityBase: qtyBase,
             remainingQuantityBase: qtyBase,
-            costPriceMinor: costMinor,
-            costTotalMinor: costMinor * qtyBase,
+            costPriceMinor: unitCost,
+            costTotalMinor: costTotal,
             productionDate: prodDate,
             expiryDate: expiry,
             supplierId: input.supplierId ?? null,
@@ -384,27 +502,9 @@ export class InventoryService {
           },
         });
 
-        // 4. Update the stock level cache from the locked balance
+        // 4. The new ledger balance, written to the stock level cache
         const newBalance = currentQty + qtyBase;
-
-        await tx.stockLevel.upsert({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: resolvedVariantId,
-            },
-          },
-          update: {
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
-          create: {
-            storeId,
-            storeVariantId: resolvedVariantId,
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
-        });
+        await writeLevelInTx(tx, storeId, resolvedVariantId, newBalance, now);
 
         // 5. Create append-only StockMovement
         const movement = await tx.stockMovement.create({
@@ -415,7 +515,7 @@ export class InventoryService {
             batchId: batch.id,
             type: "purchase",
             quantityBase: qtyBase,
-            costPriceMinor: costMinor,
+            costPriceMinor: unitCost,
             balanceAfterBase: newBalance,
             negative: false,
             opId: input.opId ?? null,
@@ -435,8 +535,15 @@ export class InventoryService {
   }
 
   /**
-   * Records a waste / expired / damaged stock event and creates a "waste" movement.
-   * Transactional & Tenant-isolated.
+   * Records waste (expired / damaged): a `waste_records` row and `type: "waste"` movements
+   * that take the quantity out of the batches — FEFO, or only from `batchId` when the cashier
+   * picked a batch (ADR-0021, QA-05). Batches, ledger and cache change together.
+   *
+   * The waste cost is the cost of what was taken, proportional to the batches' recorded totals
+   * (0 when unknown — the column is required).
+   *
+   * @throws AppError 409 when the quantity is more than the stock (or than the chosen batch
+   *   holds): batches cannot go negative, so recording it would break the stock invariant.
    */
   async recordWaste(
     storeId: string,
@@ -482,91 +589,65 @@ export class InventoryService {
           }
         }
 
-        let costMinor = ZERO;
-
-        // 3. If batchId provided, verify and deplete batch
+        // 3. Availability: the stock, or the chosen batch
+        if (qtyBase > currentQty) {
+          throw AppError.conflict(
+            `الكمية أكبر من المخزون (الموجود ${Number(currentQty < ZERO ? ZERO : currentQty)})`,
+          );
+        }
         if (input.batchId) {
           const batch = await tx.storeStockBatch.findFirst({
-            where: {
-              id: input.batchId,
-              storeId,
-              storeVariantId: variant.id,
-            },
+            where: { id: input.batchId, storeId, storeVariantId: variant.id },
+            select: { remainingQuantityBase: true },
           });
-          if (batch) {
-            costMinor = batch.costPriceMinor;
-            const updatedRemaining =
-              batch.remainingQuantityBase > qtyBase
-                ? batch.remainingQuantityBase - qtyBase
-                : ZERO;
-
-            await tx.storeStockBatch.update({
-              where: { id: batch.id },
-              data: {
-                remainingQuantityBase: updatedRemaining,
-                updatedAt: now,
-              },
-            });
+          if (!batch) {
+            throw AppError.notFound("التشغيلة أو الإضافة غير موجودة");
+          }
+          if (qtyBase > batch.remainingQuantityBase) {
+            throw AppError.conflict(
+              `التشغيلة دي فيها ${Number(batch.remainingQuantityBase)} بس`,
+            );
           }
         }
 
-        // 4. Create WasteRecord
+        // 4. The waste record, then the take from the batches (movements link to it)
         const waste = await tx.wasteRecord.create({
           data: {
             storeId,
-            storeVariantId: input.storeVariantId,
+            storeVariantId: variant.id,
             batchId: input.batchId ?? null,
             quantityBase: qtyBase,
-            costMinor: costMinor * qtyBase,
+            costMinor: ZERO,
             reason: input.reason ?? "expired",
             createdAt: now,
           },
         });
-
-        // 5. Update stock_levels from the locked balance
-        const newBalance = currentQty - qtyBase;
-
-        await tx.stockLevel.upsert({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: input.storeVariantId,
-            },
-          },
-          update: {
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
-          create: {
-            storeId,
-            storeVariantId: input.storeVariantId,
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
+        const taken = await takeStockInTx(tx, storeId, {
+          storeVariantId: variant.id,
+          storeProductId: variant.storeProductId,
+          quantityBase: qtyBase,
+          type: "waste",
+          batchId: input.batchId ?? null,
+          wasteId: waste.id,
+          opId: input.opId ?? null,
+          now,
         });
+        if (taken.costPiasters !== null) {
+          await tx.wasteRecord.update({
+            where: { id: waste.id },
+            data: { costMinor: taken.costPiasters },
+          });
+        }
 
-        // 6. Append-only StockMovement
-        const movement = await tx.stockMovement.create({
-          data: {
-            storeId,
-            storeVariantId: input.storeVariantId,
-            storeProductId: variant.storeProductId,
-            batchId: input.batchId ?? null,
-            type: "waste",
-            quantityBase: -qtyBase,
-            costPriceMinor: costMinor,
-            balanceAfterBase: newBalance,
-            negative: newBalance < ZERO,
-            wasteId: waste.id,
-            opId: input.opId ?? null,
-            createdAt: now,
-          },
+        const firstMovement = await tx.stockMovement.findFirst({
+          where: { storeId, wasteId: waste.id },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
         });
-
         return {
           wasteId: waste.id,
-          movementId: movement.id,
-          newBalance: Number(newBalance),
+          movementId: firstMovement?.id ?? null,
+          newBalance: Number(taken.newBalance),
           duplicate: false,
         };
       },
@@ -668,7 +749,11 @@ export class InventoryService {
             batchCode: b.batchCode,
             receivedQty: Number(b.receivedQuantityBase),
             remainingQty: Number(b.remainingQuantityBase),
-            costPricePiasters: Number(b.costPriceMinor),
+            // Unit cost per selling unit and the batch total; null = unknown (ADR-0021)
+            costPricePiasters:
+              b.costPriceMinor === null ? null : Number(b.costPriceMinor),
+            costTotalPiasters:
+              b.costTotalMinor === null ? null : Number(b.costTotalMinor),
             expiryDate: b.expiryDate ? b.expiryDate.toISOString() : null,
             isNearExpiry: isNearExpiry(b.expiryDate, now, 7),
             receivedAt: b.receivedAt.toISOString(),
@@ -771,27 +856,15 @@ export class InventoryService {
           },
         });
 
-        // 4. Update stock_levels from the locked balance
+        // 4. The new ledger balance, written to the stock level cache
         const newBalance = currentQty - voidQty;
-
-        await tx.stockLevel.upsert({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: batch.storeVariantId,
-            },
-          },
-          update: {
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
-          create: {
-            storeId,
-            storeVariantId: batch.storeVariantId,
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
-        });
+        await writeLevelInTx(
+          tx,
+          storeId,
+          batch.storeVariantId,
+          newBalance,
+          now,
+        );
 
         // 5. Append-only reversing StockMovement
         const movement = await tx.stockMovement.create({
@@ -828,11 +901,12 @@ export class InventoryService {
    *    rejected with 400).
    * 2) mode === "delta": Increments or decrements balance by `deltaQuantityBase`. A decrement
    *    larger than the current stock is floored: the balance becomes 0 and the recorded delta
-   *    is reduced to `-current`, so the cashier can keep selling when stock intake was never
-   *    recorded.
+   *    is reduced to `-current` (existing rule; audit QA-16 is about this clamp).
    * Enforces tenant isolation and append-only audit trail; `opId` makes a retry a no-op.
    *
-   * @remarks The sales screen uses delta mode to deduct sold quantities.
+   * Batches (ADR-0021, QA-05): an increase adds an adjustment batch costed at the registered
+   * buy price (unknown when none); a decrease takes the quantity out of the batches FEFO with
+   * one `type: "adjustment"` movement per batch part — so batches, ledger and cache agree.
    */
   async adjustStockQuantity(
     storeId: string,
@@ -867,8 +941,8 @@ export class InventoryService {
           throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
         }
 
-        // 2. Lock the variant's stock (ADR-0019): the current balance below is the latest
-        // committed one, and no other operation can change it until this one commits.
+        // 2. Lock the variant's stock (ADR-0019): the current (ledger) balance below is the
+        // latest committed one, and no other operation can change it until this one commits.
         const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
 
         // 3. Check opId idempotency (after the lock, so a concurrent retry sees the first)
@@ -887,22 +961,17 @@ export class InventoryService {
         }
 
         let delta: bigint;
-        let newBalance: bigint;
-
         if (input.mode === "set") {
           const target = BigInt(input.targetQuantityBase ?? 0);
           if (target < ZERO) {
             throw AppError.badRequest("الرصيد الفعلي لا يمكن أن يكون سالباً");
           }
-          newBalance = target;
           delta = target - currentQty;
         } else {
           delta = BigInt(input.deltaQuantityBase ?? 0);
-          newBalance = currentQty + delta;
-          if (newBalance < ZERO) {
-            // Floor balance to ZERO so cashiers can still sell even if stock intake wasn't recorded yet
-            newBalance = ZERO;
-            delta = -currentQty;
+          if (currentQty + delta < ZERO) {
+            // Floor at zero (existing rule, see QA-16): take only what is there.
+            delta = currentQty > ZERO ? -currentQty : ZERO;
           }
         }
 
@@ -911,16 +980,26 @@ export class InventoryService {
             variantId: variant.id,
             movementId: null,
             adjustedDelta: 0,
-            newBalance: Number(newBalance),
+            newBalance: Number(currentQty),
             duplicate: false,
           };
         }
 
-        let createdBatchId: string | null = null;
-        const buyCost = variant.buyPricePiasters ?? ZERO;
-
         if (delta > ZERO) {
-          // Increase stock: create an adjustment batch
+          // Increase: an adjustment batch, costed at the registered buy price per selling
+          // unit (variant, else product); unknown (null) when there is none.
+          const unitPrice =
+            variant.buyPricePiasters && variant.buyPricePiasters > ZERO
+              ? variant.buyPricePiasters
+              : variant.storeProduct?.buyPricePiasters &&
+                  variant.storeProduct.buyPricePiasters > ZERO
+                ? variant.storeProduct.buyPricePiasters
+                : null;
+          const total = totalFromUnitCost(
+            unitPrice,
+            delta,
+            variant.storeProduct?.unit,
+          );
           const batch = await tx.storeStockBatch.create({
             data: {
               storeId,
@@ -929,88 +1008,62 @@ export class InventoryService {
               batchCode: `ADJ-${Date.now().toString(36).toUpperCase()}`,
               receivedQuantityBase: delta,
               remainingQuantityBase: delta,
-              costPriceMinor: buyCost,
-              costTotalMinor: buyCost * delta,
+              costPriceMinor: unitPrice,
+              costTotalMinor: total,
               receivedAt: now,
               paid: true,
             },
           });
-          createdBatchId = batch.id;
-        } else {
-          // Decrease stock: deplete active batches using FEFO
-          const qtyToDeduct = -delta;
-          const activeBatches = await tx.storeStockBatch.findMany({
-            where: {
+          const newBalance = currentQty + delta;
+          await writeLevelInTx(tx, storeId, variant.id, newBalance, now);
+          const movement = await tx.stockMovement.create({
+            data: {
               storeId,
               storeVariantId: variant.id,
-              remainingQuantityBase: { gt: ZERO },
+              storeProductId: variant.storeProductId,
+              batchId: batch.id,
+              type: "adjustment",
+              quantityBase: delta,
+              costPriceMinor: unitPrice,
+              balanceAfterBase: newBalance,
+              negative: newBalance < ZERO,
+              opId: input.opId ?? null,
+              createdAt: now,
             },
-            orderBy: [{ expiryDate: "asc" }, { receivedAt: "asc" }],
           });
-
-          const candidates: StockBatchCandidate[] = activeBatches.map((b) => ({
-            id: b.id,
-            storeVariantId: b.storeVariantId,
-            remainingQuantityBase: b.remainingQuantityBase,
-            costPriceMinor: b.costPriceMinor,
-            expiryDate: b.expiryDate,
-            receivedAt: b.receivedAt,
-          }));
-
-          const depletion = depleteStockFEFO(candidates, qtyToDeduct);
-          for (const updated of depletion.updatedBatches) {
-            await tx.storeStockBatch.update({
-              where: { id: updated.id },
-              data: {
-                remainingQuantityBase: updated.remainingQuantityBase,
-                updatedAt: now,
-              },
-            });
-          }
+          return {
+            variantId: variant.id,
+            movementId: movement.id,
+            adjustedDelta: Number(delta),
+            newBalance: Number(newBalance),
+            duplicate: false,
+          };
         }
 
-        // 4. Update stock levels
-        await tx.stockLevel.upsert({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: variant.id,
-            },
-          },
-          update: {
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
-          create: {
-            storeId,
-            storeVariantId: variant.id,
-            quantityBase: newBalance,
-            updatedAt: now,
-          },
+        // Decrease: take the quantity out of the batches (FEFO), one movement per part.
+        const taken = await takeStockInTx(tx, storeId, {
+          storeVariantId: variant.id,
+          storeProductId: variant.storeProductId,
+          quantityBase: -delta,
+          type: "adjustment",
+          opId: input.opId ?? null,
+          now,
         });
-
-        // 5. Append-only adjustment movement
-        const movement = await tx.stockMovement.create({
-          data: {
+        const first = await tx.stockMovement.findFirst({
+          where: {
             storeId,
             storeVariantId: variant.id,
-            storeProductId: variant.storeProductId,
-            batchId: createdBatchId,
             type: "adjustment",
-            quantityBase: delta,
-            costPriceMinor: buyCost,
-            balanceAfterBase: newBalance,
-            negative: newBalance < ZERO,
-            opId: input.opId ?? null,
             createdAt: now,
           },
+          orderBy: { createdAt: "asc" },
+          select: { id: true },
         });
-
         return {
           variantId: variant.id,
-          movementId: movement.id,
+          movementId: first?.id ?? null,
           adjustedDelta: Number(delta),
-          newBalance: Number(newBalance),
+          newBalance: Number(taken.newBalance),
           duplicate: false,
         };
       },
@@ -1019,8 +1072,8 @@ export class InventoryService {
   }
 
   /**
-   * Clears all stock for a variant (zeros remaining on all active batches and stock level).
-   * Records an adjustment movement.
+   * Clears all stock for a variant: takes everything out of its batches (FEFO, one
+   * `type: "adjustment"` movement per batch part) so batches, ledger and cache all reach 0.
    * Optionally soft-removes the variant from active inventory view (isActive = false).
    */
   async clearVariantStock(
@@ -1072,61 +1125,32 @@ export class InventoryService {
           }
         }
 
-        // 3. Zero all active batches
-        await tx.storeStockBatch.updateMany({
-          where: {
-            storeId,
-            storeVariantId: variant.id,
-            remainingQuantityBase: { gt: ZERO },
-          },
-          data: {
-            remainingQuantityBase: ZERO,
-            updatedAt: now,
-          },
-        });
-
-        // 5. Zero stock_level
-        await tx.stockLevel.upsert({
-          where: {
-            storeId_storeVariantId: {
-              storeId,
-              storeVariantId: variant.id,
-            },
-          },
-          update: {
-            quantityBase: ZERO,
-            updatedAt: now,
-          },
-          create: {
-            storeId,
-            storeVariantId: variant.id,
-            quantityBase: ZERO,
-            updatedAt: now,
-          },
-        });
-
-        // 6. Record adjustment movement if there was stock
+        // 3. Take everything there is
         let movementId: string | null = null;
         if (currentQty > ZERO) {
-          const movement = await tx.stockMovement.create({
-            data: {
+          await takeStockInTx(tx, storeId, {
+            storeVariantId: variant.id,
+            storeProductId: variant.storeProductId,
+            quantityBase: currentQty,
+            type: "adjustment",
+            opId: input.opId ?? null,
+            now,
+          });
+          const first = await tx.stockMovement.findFirst({
+            where: {
               storeId,
               storeVariantId: variant.id,
-              storeProductId: variant.storeProductId,
-              batchId: null,
               type: "adjustment",
-              quantityBase: -currentQty,
-              costPriceMinor: variant.buyPricePiasters ?? ZERO,
-              balanceAfterBase: ZERO,
-              negative: false,
-              opId: input.opId ?? null,
               createdAt: now,
             },
+            select: { id: true },
           });
-          movementId = movement.id;
+          movementId = first?.id ?? null;
+        } else {
+          await writeLevelInTx(tx, storeId, variant.id, currentQty, now);
         }
 
-        // 7. If removeFromView is true, deactivate variant
+        // 4. If removeFromView is true, deactivate variant
         if (input.removeFromView) {
           await tx.storeVariant.update({
             where: { id: variant.id },
@@ -1140,7 +1164,7 @@ export class InventoryService {
         return {
           variantId: variant.id,
           movementId,
-          clearedQuantity: Number(currentQty),
+          clearedQuantity: Number(currentQty > ZERO ? currentQty : ZERO),
           removedFromView: Boolean(input.removeFromView),
           duplicate: false,
         };
@@ -1212,6 +1236,63 @@ export class InventoryService {
   }
 
   /**
+   * Stock reconciliation (ADR-0021, QA-05): for each variant of the store (or one variant),
+   * the three records of its quantity — the `stock_levels` cache, the sum of its batches'
+   * remaining quantities, and the movement ledger. They must be equal; `consistent` is false
+   * when they are not. Read-only: it reports, it never repairs.
+   */
+  async getStockReconciliation(
+    storeId: string,
+    userId: string | null,
+    options: { variantId?: string } = {},
+  ): Promise<
+    Array<{
+      variantId: string;
+      levelBase: number;
+      batchesRemainingBase: number;
+      ledgerBase: number;
+      consistent: boolean;
+    }>
+  > {
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const variantFilter = options.variantId
+          ? Prisma.sql`AND v.id = ${options.variantId}::uuid`
+          : Prisma.empty;
+        const rows = await tx.$queryRaw<
+          Array<{
+            variant_id: string;
+            level: bigint;
+            batches: bigint;
+            ledger: bigint;
+          }>
+        >`SELECT v.id::text AS variant_id,
+                 COALESCE((SELECT l.quantity_base FROM stock_levels l
+                            WHERE l.store_id = v.store_id AND l.store_variant_id = v.id), 0)::bigint AS level,
+                 COALESCE((SELECT SUM(b.remaining_quantity_base) FROM store_stock_batches b
+                            WHERE b.store_id = v.store_id AND b.store_variant_id = v.id), 0)::bigint AS batches,
+                 COALESCE((SELECT SUM(m.quantity_base) FROM stock_movements m
+                            WHERE m.store_id = v.store_id AND m.store_variant_id = v.id), 0)::bigint AS ledger
+            FROM store_variants v
+           WHERE v.store_id = ${storeId}::uuid
+             ${variantFilter}`;
+        return rows.map((r) => ({
+          variantId: r.variant_id,
+          levelBase: Number(r.level),
+          batchesRemainingBase: Number(r.batches),
+          ledgerBase: Number(r.ledger),
+          consistent:
+            BigInt(r.level) === BigInt(r.ledger) &&
+            BigInt(r.batches) === BigInt(r.ledger),
+        }));
+      },
+      this.prisma,
+    );
+  }
+
+  /**
    * Retrieves stock movements log for a store.
    */
   async getStockMovements(
@@ -1267,12 +1348,11 @@ export class InventoryService {
               : ("piece" as const),
           type: m.type,
           quantityBase: Number(m.quantityBase),
-          costPricePiasters: m.costPriceMinor ? Number(m.costPriceMinor) : null,
-          costTotalMinor: m.storeStockBatch?.costTotalMinor
-            ? Number(m.storeStockBatch.costTotalMinor)
-            : m.costPriceMinor
-              ? Number(m.costPriceMinor) * Number(m.quantityBase)
-              : null,
+          costPricePiasters:
+            m.costPriceMinor === null ? null : Number(m.costPriceMinor),
+          // Cost of THIS movement's quantity: its share of the batch's recorded total
+          // (the whole total for the movement that received the batch). Null = unknown.
+          costTotalMinor: movementCostPiasters(m),
           supplierName: m.storeStockBatch?.supplierId
             ? (supplierMap.get(m.storeStockBatch.supplierId) ?? null)
             : null,

@@ -278,6 +278,8 @@ Issues are ordered by severity. Each one lists, in this order:
   - A periodic reconciliation check.
 - **Regression risk:** medium.
 
+- **Status (2026-11-11):** fixed on branch `fix/qa-05-qa-08-inventory-reporting` (ADR-0021). Verified by `tests/integration/inventory-reporting.spec.ts` and the real app.
+
 #### QA-06 · P1 · Home "التقرير" always shows 0 sales, 0 expenses and 0 profit
 - **Category:** financial reporting / API contract · **Area:** Home · **Env:** PROD + DEV
 - **Steps:** sell 2 sandwiches (30.00, saved on the server), record an expense of 123.45, then open الرئيسية → التقرير → النهارده.
@@ -297,6 +299,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** share response schemas from `src/schemas`; map the fields; add a contract test.
 - **Regression risk:** low.
 
+- **Status (2026-11-11):** fixed on branch `fix/qa-05-qa-08-inventory-reporting` (ADR-0021). Verified by `tests/integration/inventory-reporting.spec.ts` and the real app.
+
 #### QA-07 · P1 · Home invents cost of goods (75% of revenue) and profit (25%)
 - **Category:** financial / invented numbers · **Area:** Home · **Env:** code, visible once QA-06 is fixed
 - **Steps:** read `HomeView.tsx` L215–235 and L279–349.
@@ -312,6 +316,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** compute profit server-side from recorded costs, and show "—" where cost is unknown.
 - **Regression risk:** low.
 
+- **Status (2026-11-11):** fixed on branch `fix/qa-05-qa-08-inventory-reporting` (ADR-0021). Verified by `tests/integration/inventory-reporting.spec.ts` and the real app.
+
 #### QA-08 · P1 · Batch cost is stored as a total and read as per-unit; "purchases" inflated about 11×
 - **Category:** financial · **Area:** Inventory, Home · **Env:** PROD · **Links:** UE-19
 - **Steps:** add 20 cola at a total of 160.00, 20 bread at 60.00 and 1000 g cheese at 160.00 (real spend: 380.00). Then open Home → التقرير.
@@ -323,6 +329,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Frequency:** every stock intake.
 - **Fix:** store the unit cost and `cost_total_minor` explicitly; backfill.
 - **Regression risk:** medium (needs a data migration).
+
+- **Status (2026-11-11):** fixed on branch `fix/qa-05-qa-08-inventory-reporting` (ADR-0021). Verified by `tests/integration/inventory-reporting.spec.ts` and the real app.
 
 #### QA-09 · P1 · Sales screen totals include sales the server rejected
 - **Category:** stale/phantom state · **Area:** Sales · **Env:** PROD · **Links:** UE-02, UE-05

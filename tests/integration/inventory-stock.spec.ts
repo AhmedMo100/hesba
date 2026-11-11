@@ -175,7 +175,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const result = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 50,
-      costPriceMinor: 500, // 5.00 EGP buy cost
+      costTotalMinor: 50 * 500, // 5.00 EGP each; the batch stores the total (ADR-0021)
       expiryDate: new Date("2026-11-20"),
       batchCode: "BATCH-001",
     });
@@ -211,7 +211,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const earlyBatch = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 20,
-      costPriceMinor: 520,
+      costTotalMinor: 20 * 520, // unit cost × quantity: the batch stores the total (ADR-0021)
       expiryDate: new Date("2026-11-05"), // Expires BEFORE 2026-11-20!
       batchCode: "BATCH-EARLY",
     });
@@ -307,7 +307,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const batchRes = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 12,
-      costPriceMinor: 1000,
+      costTotalMinor: 12 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
       productionDate: "2026-11-01",
       expiryDate: "2027-05-01",
       batchCode: "BATCH-EXP-01",
@@ -336,7 +336,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       inventory.addStockBatch(storeAId, userAId, {
         storeVariantId: variantAId,
         receivedQuantityBase: 6,
-        costPriceMinor: 1000,
+        costTotalMinor: 6 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
         productionDate: "2026-11-01",
         expiryDate: "2026-10-01", // before production date!
       }),
@@ -346,7 +346,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const noExpBatch = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 24,
-      costPriceMinor: 800,
+      costTotalMinor: 24 * 800, // unit cost × quantity: the batch stores the total (ADR-0021)
       productionDate: null,
       expiryDate: null,
       batchCode: "NO-EXP-01",
@@ -393,7 +393,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const res = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: gvId,
       receivedQuantityBase: 10,
-      costPriceMinor: 2500,
+      costTotalMinor: 10 * 2500, // unit cost × quantity: the batch stores the total (ADR-0021)
       expiryDate: "2027-12-31",
     });
 
@@ -442,7 +442,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       inventory.addStockBatch(storeAId, userAId, {
         storeVariantId: fakeVariantId,
         receivedQuantityBase: 5,
-        costPriceMinor: 1000,
+        costTotalMinor: 5 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
       }),
     ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
   });
@@ -465,7 +465,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const addRes = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: testVarId,
       receivedQuantityBase: 20,
-      costPriceMinor: 1200,
+      costTotalMinor: 20 * 1200, // unit cost × quantity: the batch stores the total (ADR-0021)
     });
     expect(addRes.batchId).toBeDefined();
 
@@ -548,7 +548,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: clearVarId,
       receivedQuantityBase: 10,
-      costPriceMinor: 1000,
+      costTotalMinor: 10 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
     });
 
     // Clear stock and remove from view
@@ -619,7 +619,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: archiveVarId,
       receivedQuantityBase: 5,
-      costPriceMinor: 2000,
+      costTotalMinor: 5 * 2000, // unit cost × quantity: the batch stores the total (ADR-0021)
     });
 
     // 2. Archiving with positive stock should be blocked

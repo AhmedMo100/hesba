@@ -15,7 +15,23 @@ const addStockSchema = z.object({
     .number()
     .int()
     .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً"),
-  costPricePiasters: z.number().int().min(0, "سعر التكلفة يجب ألا يقل عن صفر"),
+  /** What was paid for the whole quantity, in piasters (ADR-0021). */
+  costTotalPiasters: z
+    .number()
+    .int()
+    .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
+    .max(10_000_000_000, "المبلغ كبير قوي")
+    .optional(),
+  /**
+   * Deprecated name for the same value: the Add-Stock screen always sent the TOTAL here.
+   * Kept so older clients keep working; `costTotalPiasters` wins when both are sent.
+   */
+  costPricePiasters: z
+    .number()
+    .int()
+    .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
+    .max(10_000_000_000, "المبلغ كبير قوي")
+    .optional(),
   productionDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
   batchCode: z.string().trim().optional().nullable(),
@@ -87,9 +103,31 @@ export async function GET(req: Request) {
   try {
     const context = await requireSession(req);
     const { searchParams } = new URL(req.url);
-    const view = searchParams.get("view"); // 'levels' | 'movements' | 'all'
+    const view = searchParams.get("view"); // 'levels' | 'movements' | 'all' | 'reconcile'
 
     const inventoryService = new InventoryService(prisma);
+
+    if (view === "reconcile") {
+      // ADR-0021 (QA-05): level vs batches vs ledger, per variant of this store.
+      const variantId = searchParams.get("variantId") ?? undefined;
+      const reconciliation = await inventoryService.getStockReconciliation(
+        context.store.id,
+        context.user.id,
+        {
+          variantId:
+            variantId &&
+            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+              variantId,
+            )
+              ? variantId
+              : undefined,
+        },
+      );
+      return NextResponse.json({
+        reconciliation,
+        consistent: reconciliation.every((r) => r.consistent),
+      });
+    }
 
     if (view === "movements") {
       const movements = await inventoryService.getStockMovements(
@@ -137,7 +175,8 @@ export async function POST(req: Request) {
         {
           storeVariantId: input.storeVariantId,
           receivedQuantityBase: input.quantityBase,
-          costPriceMinor: input.costPricePiasters,
+          costTotalMinor:
+            input.costTotalPiasters ?? input.costPricePiasters ?? null,
           productionDate: input.productionDate,
           expiryDate: input.expiryDate,
           batchCode: input.batchCode,

@@ -237,7 +237,7 @@ describe("Delete a shop-created product — safety and isolation", () => {
     await new InventoryService(appPrisma).addStockBatch(storeA, userA, {
       storeVariantId: p.variantId,
       receivedQuantityBase: 7,
-      costPriceMinor: 300,
+      costTotalMinor: 7 * 300, // unit cost × quantity: the batch stores the total (ADR-0021)
     });
 
     const res = await del(p.productId);

@@ -26,6 +26,7 @@ import "server-only";
 import { type PrismaClient } from "@prisma/client";
 import { normalizeArabic } from "@/domain/normalize";
 import { matchProducts } from "@/domain/product-matcher";
+import { totalFromUnitCost } from "@/domain/stock/batch-cost";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { CommunitySuggestionsService } from "./community-suggestions.service";
@@ -933,7 +934,13 @@ export class CatalogService {
           const primaryVariant = variantResults[0];
           if (primaryVariant) {
             const qtyBase = BigInt(Math.round(input.initialQuantity));
-            const costMinor = BigInt(input.buyCostPiasters ?? 0);
+            // Initial stock is costed at the registered buy price per selling unit (ADR-0021):
+            // the batch stores that unit cost and the total it implies; unknown when no price.
+            const costMinor =
+              input.buyCostPiasters && input.buyCostPiasters > 0
+                ? BigInt(input.buyCostPiasters)
+                : null;
+            const costTotal = totalFromUnitCost(costMinor, qtyBase, input.unit);
 
             const batch = await tx.storeStockBatch.create({
               data: {
@@ -943,7 +950,7 @@ export class CatalogService {
                 receivedQuantityBase: qtyBase,
                 remainingQuantityBase: qtyBase,
                 costPriceMinor: costMinor,
-                costTotalMinor: costMinor * qtyBase,
+                costTotalMinor: costTotal,
                 receivedAt: now,
                 paid: true,
                 createdAt: now,

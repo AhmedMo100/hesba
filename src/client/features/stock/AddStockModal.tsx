@@ -3,6 +3,7 @@
 import React, { useState, useMemo, useEffect, useCallback } from "react";
 import { Modal, Button, Field, Seg, Icon } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
+import { unitCostFromTotal } from "@/domain/stock/batch-cost";
 import { ProductFormModal } from "../products/ProductFormModal";
 import {
   type StoreProductItem,
@@ -508,9 +509,21 @@ export function AddStockModal({
           targetVariantId.startsWith("temp_") ||
           !isValidUuid(targetVariantId))
       ) {
-        const calculatedBuyCost =
+        // Buy price per SELLING unit (per kg for weighed goods), from the total paid
+        // (ADR-0021) — the same rule the server uses for the batch's unit cost.
+        const newUnit =
+          sellingMethod === "weight"
+            ? weightUnit
+            : sellingMethod === "custom"
+              ? customSellingMethod.trim()
+              : targetProduct.unit || sellingMethod || "piece";
+        const derivedUnitCost =
           costPiasters > 0 && totalBaseQty > 0
-            ? Math.round(costPiasters / totalBaseQty)
+            ? unitCostFromTotal(costPiasters, totalBaseQty, newUnit)
+            : null;
+        const calculatedBuyCost =
+          derivedUnitCost !== null
+            ? Number(derivedUnitCost)
             : (targetProduct.buy_cost_piasters ?? 0);
 
         const rawGlobalProductId =
@@ -591,7 +604,8 @@ export function AddStockModal({
         action: "add",
         storeVariantId: targetVariantId,
         quantityBase: totalBaseQty,
-        costPricePiasters: costPiasters,
+        // What was paid for the whole quantity (the form asks for the total).
+        costTotalPiasters: costPiasters,
         productionDate: noExpiry ? null : prodDate || null,
         expiryDate: noExpiry ? null : expiry || null,
         batchCode: batchCode.trim() || null,

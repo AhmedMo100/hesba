@@ -978,7 +978,9 @@ model StoreStockBatch {
   batchCode             String?   @map("batch_code") @db.Text
   receivedQuantityBase  BigInt    @map("received_quantity_base")
   remainingQuantityBase BigInt    @map("remaining_quantity_base")
-  costPriceMinor        BigInt    @map("cost_price_minor")
+  /// Unit cost per SELLING unit (per kg for `kg`), derived from cost_total_minor; null = unknown (ADR-0021).
+  costPriceMinor        BigInt?   @map("cost_price_minor")
+  /// What was paid for the whole received quantity: the authority; null = unknown (ADR-0021).
   costTotalMinor        BigInt?   @map("cost_total_minor")
   productionDate        DateTime? @map("production_date") @db.Date
   expiryDate            DateTime? @map("expiry_date") @db.Date

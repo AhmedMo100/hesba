@@ -15,6 +15,7 @@ import "server-only";
  */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
+import { salesFinancialsInTx } from "@/server/modules/reports";
 import { getCairoMidnightDate } from "../cairo-date";
 import { ToolDefinition } from "../types";
 
@@ -613,36 +614,15 @@ export class BusinessToolsService {
   ) {
     const { start, end } = this.getDateRange(period);
 
-    // 1. Sales
-    const sales = await tx.sale.findMany({
-      where: { storeId, createdAt: { gte: start, lte: end } },
-      select: { totalPiasters: true },
-    });
-
-    let salesTotalPiasters = BigInt(0);
-    for (const s of sales) {
-      salesTotalPiasters += s.totalPiasters;
-    }
-
-    // 2. Cost of goods sold (COGS) from stock movements or purchase line costs
-    const movements = await tx.stockMovement.findMany({
-      where: {
-        storeId,
-        type: "sale",
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        quantityBase: true,
-        costPriceMinor: true,
-      },
-    });
-
-    let cogsPiasters = BigInt(0);
-    for (const m of movements) {
-      if (m.costPriceMinor && m.quantityBase) {
-        cogsPiasters += m.quantityBase * m.costPriceMinor;
-      }
-    }
+    // 1–2. Sales and the cost of goods sold, from the cost recorded on each sale line at sale
+    // time — the same numbers the Home report shows (ADR-0021). Unknown when any sale in the
+    // period has no recorded cost: it is never estimated.
+    const financials = await salesFinancialsInTx(
+      tx,
+      storeId,
+      start,
+      new Date(end.getTime() + 1),
+    );
 
     // 3. Expenses
     const expenses = await tx.expense.findMany({
@@ -655,18 +635,23 @@ export class BusinessToolsService {
       expensesTotalPiasters += e.amountPiasters;
     }
 
-    const grossProfitPiasters = salesTotalPiasters - cogsPiasters;
-    const netProfitPiasters = grossProfitPiasters - expensesTotalPiasters;
+    const grossProfit = financials.grossProfitPiasters;
+    const netProfit =
+      grossProfit === null ? null : grossProfit - Number(expensesTotalPiasters);
 
     return {
       period,
-      sales_count: sales.length,
-      sales_total_piasters: Number(salesTotalPiasters),
-      cogs_piasters: Number(cogsPiasters),
-      gross_profit_piasters: Number(grossProfitPiasters),
+      sales_count: financials.count,
+      sales_total_piasters: financials.revenuePiasters,
+      cogs_piasters: financials.cogsPiasters,
+      gross_profit_piasters: grossProfit,
       expenses_total_piasters: Number(expensesTotalPiasters),
-      net_profit_piasters: Number(netProfitPiasters),
-      note: "صافي الربح = مجمل الربح (المبيعات - تكلفة البضاعة) ناقص المصروفات التشغيلية.",
+      net_profit_piasters: netProfit,
+      sales_without_recorded_cost: financials.unknownCostCount,
+      note:
+        grossProfit === null
+          ? `تكلفة ${financials.unknownCostCount} بيعة مش متسجلة، فمجمل الربح وصافي الربح غير معروفين (مش هنقدّرهم).`
+          : "صافي الربح = مجمل الربح (المبيعات - تكلفة البضاعة) ناقص المصروفات التشغيلية.",
     };
   }
 }

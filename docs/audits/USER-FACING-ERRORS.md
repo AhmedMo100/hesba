@@ -107,6 +107,8 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Impact:** wrong figures for decisions.
 - **Fix:** follows from UE-01.
 
+- **Status (2026-11-11):** fixed by ADR-0021 (QA-06/QA-07): Home reads a server report built from recorded sales, expenses and costs.
+
 ### UE-06 · P1 · Machine balance changes "succeed" locally when the server rejected them
 
 - **Where:** POS machine top-up, set balance, deduct (Stock, Products, Alerts and Sales screens).
@@ -207,6 +209,8 @@ Inconsistent error handling for clients.
 - **Impact:** inventory valuation, the displayed buy cost after a stock intake, and movement costs can be off by a factor of the batch quantity.
 - **Workaround in place:** sandwich costs use the registered purchase price (`buy_price_piasters`), not batch costs.
 - **Fix (owner decision):** store a per-unit cost (total ÷ quantity) plus `cost_total_minor` in `addStockBatch`, and backfill existing batches.
+
+- **Status (2026-11-11):** fixed by ADR-0021 (QA-08): batches store the total paid and a derived unit cost per selling unit; existing batches backfilled by migration `20261111000000_batch_cost_semantics_and_stock_reconcile`.
 
 ### UE-20 · P2 · The sales screen requests `/api/machines` in an endless loop
 

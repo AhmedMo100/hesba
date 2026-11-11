@@ -485,6 +485,14 @@ async function recordProductSaleInTx(
     opId: null,
     now,
   });
+  // The line's cost is what this sale actually consumed, from the batches' recorded totals
+  // (ADR-0021, QA-07). Null when any part's cost is unknown — never estimated.
+  if (depleted.costPiasters !== null) {
+    await tx.saleLine.update({
+      where: { id: line.id },
+      data: { costPiasters: BigInt(depleted.costPiasters) },
+    });
+  }
 
   return {
     id: sale.id,
@@ -593,6 +601,9 @@ async function recordServiceSaleInTx(
       quantityBaseUnits: 1,
       unitPricePiasters: BigInt(amount),
       totalPiasters: BigInt(amount),
+      // A service paid through a machine costs the shop what the machine paid out (the
+      // recorded charge); without a machine charge its cost is unknown (QA-07).
+      costPiasters: machine ? BigInt(deduct) : null,
       createdAt: now,
     },
   });
@@ -759,6 +770,12 @@ async function recordPromotionSaleInTx(
       opId: null,
       now,
     });
+    if (depleted.costPiasters !== null) {
+      await tx.saleLine.update({
+        where: { id: line.id },
+        data: { costPiasters: BigInt(depleted.costPiasters) },
+      });
+    }
     lines.push({
       productId: item.productId,
       variantId: item.variantId,

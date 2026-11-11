@@ -553,5 +553,11 @@
       "applied": "اتسجلت",
       "duplicate": "اتسجلت"
     }
+  },
+  "home": {
+    "activitySale": "عملية بيع #{id}",
+    "activityExpense": "مصروف: {category}",
+    "unknownCost": "{count} بيعة تكلفتها مش متسجلة",
+    "purchasesUnknown": "{count} إضافة من غير تكلفة"
   }
 }

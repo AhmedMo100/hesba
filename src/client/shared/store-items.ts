@@ -80,7 +80,10 @@ export interface StockInventoryItem {
     batchCode?: string | null;
     receivedQty: number;
     remainingQty: number;
-    costPricePiasters: number;
+    /** Unit cost per selling unit (per kg for weighed goods); null = unknown (ADR-0021). */
+    costPricePiasters: number | null;
+    /** What was paid for the whole batch; null = unknown. */
+    costTotalPiasters?: number | null;
     expiryDate?: string | null;
     isNearExpiry: boolean;
     receivedAt: string;
