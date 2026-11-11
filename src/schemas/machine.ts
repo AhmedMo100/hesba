@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
 /**
  * Bodies of the POS-machine money endpoints (ADR-0020). Amounts are integer piasters; a
@@ -9,7 +10,7 @@ import { z } from "zod";
  */
 
 /** Largest single machine operation: 10,000,000 EGP (keeps sums far inside bigint/JS limits). */
-export const MAX_MACHINE_AMOUNT_PIASTERS = 1_000_000_000;
+export const MAX_MACHINE_AMOUNT_PIASTERS = MAX_AMOUNT_PIASTERS;
 
 const piasters = (message: string) =>
   z

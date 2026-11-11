@@ -12,6 +12,7 @@ import { Icon, Seg, Empty, Modal } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
+import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 
 interface SuppliedProduct {
   id: string;
@@ -579,6 +580,8 @@ export function PeopleView() {
     }
   };
 
+  const paymentOp = useRetryOpId();
+
   const handleRecordPayment = async () => {
     if (!paymentTarget) return;
     if (!paymentAmount.trim()) {
@@ -601,12 +604,23 @@ export function PeopleView() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "payment",
-            amountPiasters: amountNum,
-            note: paymentNote.trim() || null,
-            date: paymentDate ? new Date(paymentDate).toISOString() : undefined,
-          }),
+          body: JSON.stringify(
+            (() => {
+              const body = {
+                personId: paymentTarget.person.id,
+                type: "payment",
+                amountPiasters: amountNum,
+                note: paymentNote.trim() || null,
+                date: paymentDate
+                  ? new Date(paymentDate).toISOString()
+                  : undefined,
+              };
+              // Same payment retried → same opId → recorded once (QA-27).
+              const { personId: _person, ...send } = body;
+              void _person;
+              return { ...send, opId: paymentOp.opIdFor(body) };
+            })(),
+          ),
         },
       );
 
@@ -615,6 +629,7 @@ export function PeopleView() {
         throw new Error(errData?.error?.message || "فشل تسجيل العملية");
       }
 
+      paymentOp.reset();
       setPaymentTarget(null);
 
       // Refresh section data

@@ -380,6 +380,23 @@ export async function restoreSaleTakesInTx(
   return changed;
 }
 
+/**
+ * An `opId` that was already used must be a retry of the SAME operation (QA-27): the same
+ * variant and the same kind of movement. Anything else is a 409 — the earlier operation is
+ * neither repeated nor reported as this one.
+ */
+function assertSameStockOperation(
+  existing: { storeVariantId: string; type: string },
+  expected: { variantId: string; types: readonly string[] },
+): void {
+  if (
+    existing.storeVariantId !== expected.variantId ||
+    !expected.types.includes(existing.type)
+  ) {
+    throw AppError.conflict("رقم العملية ده اتسجل قبل كده لعملية مختلفة");
+  }
+}
+
 /** Cost of one movement's quantity from its batch's recorded total (ADR-0021); null = unknown. */
 function movementCostPiasters(m: {
   quantityBase: bigint;
@@ -562,6 +579,10 @@ export class InventoryService {
             where: { storeId, opId: input.opId },
           });
           if (existingMovement) {
+            assertSameStockOperation(existingMovement, {
+              variantId: resolvedVariantId,
+              types: ["purchase", "initial_stock"],
+            });
             return {
               batchId: existingMovement.batchId,
               movementId: existingMovement.id,
@@ -681,6 +702,10 @@ export class InventoryService {
             where: { storeId, opId: input.opId },
           });
           if (existing) {
+            assertSameStockOperation(existing, {
+              variantId: variant.id,
+              types: ["waste"],
+            });
             return { movementId: existing.id, duplicate: true };
           }
         }
@@ -996,8 +1021,7 @@ export class InventoryService {
    * 1) mode === "set": Sets final balance to `targetQuantityBase` (a negative target is
    *    rejected with 400).
    * 2) mode === "delta": Increments or decrements balance by `deltaQuantityBase`. A decrement
-   *    larger than the current stock is floored: the balance becomes 0 and the recorded delta
-   *    is reduced to `-current` (existing rule; audit QA-16 is about this clamp).
+   *    larger than the current stock is rejected with 409 and nothing is written (QA-16).
    * Enforces tenant isolation and append-only audit trail; `opId` makes a retry a no-op.
    *
    * Batches (ADR-0021, QA-05): an increase adds an adjustment batch costed at the registered
@@ -1047,6 +1071,10 @@ export class InventoryService {
             where: { storeId, opId: input.opId },
           });
           if (existing) {
+            assertSameStockOperation(existing, {
+              variantId: variant.id,
+              types: ["adjustment"],
+            });
             return {
               variantId: variant.id,
               movementId: existing.id,
@@ -1066,8 +1094,17 @@ export class InventoryService {
         } else {
           delta = BigInt(input.deltaQuantityBase ?? 0);
           if (currentQty + delta < ZERO) {
-            // Floor at zero (existing rule, see QA-16): take only what is there.
-            delta = currentQty > ZERO ? -currentQty : ZERO;
+            // Rejected, never floored (QA-16, decision D31): nothing is written, the stock
+            // stays as it was, and the cashier is told what is actually there.
+            throw new AppError(
+              "CONFLICT",
+              "الكمية الناتجة بعد الخصم لا يمكن أن تكون سالبة",
+              409,
+              {
+                availableBase: Number(currentQty < ZERO ? ZERO : currentQty),
+                requestedBase: Number(-delta),
+              },
+            );
           }
         }
 
@@ -1210,6 +1247,10 @@ export class InventoryService {
             where: { storeId, opId: input.opId },
           });
           if (existing) {
+            assertSameStockOperation(existing, {
+              variantId: variant.id,
+              types: ["adjustment"],
+            });
             return {
               variantId: variant.id,
               movementId: existing.id,

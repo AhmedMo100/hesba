@@ -1088,9 +1088,12 @@ model Expense {
   deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Client operation id (QA-27): the same op_id is recorded at most once per store.
+  opId           String?   @map("op_id") @db.Uuid
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
+  @@unique([storeId, opId], map: "uq_expenses_store_op")
   @@index([storeId, spentAt(sort: Desc)], map: "idx_expenses_store_spent_at")
   @@map("expenses")
 }

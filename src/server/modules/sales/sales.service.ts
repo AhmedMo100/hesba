@@ -214,7 +214,7 @@ export async function recordSale(
   const now = new Date();
 
   try {
-    return await withTenant(
+    const recorded = await withTenant(
       storeId,
       userId,
       async (tx) => {
@@ -265,6 +265,8 @@ export async function recordSale(
       },
       prisma,
     );
+    if (recorded.duplicate) assertSameSaleRequest(recorded, input);
+    return recorded;
   } catch (err) {
     // A concurrent request with the same opId committed first: (store_id, op_id) is unique,
     // so this transaction rolled back entirely. Return the sale that won.
@@ -274,9 +276,49 @@ export async function recordSale(
       err.code === "P2002"
     ) {
       const existing = await findSaleSummaryByOpId(storeId, userId, input.opId);
-      if (existing) return existing;
+      if (existing) {
+        assertSameSaleRequest(existing, input);
+        return existing;
+      }
     }
     throw err;
+  }
+}
+
+/**
+ * A replayed `opId` must be a retry of the SAME sale (QA-27): the same item and quantity (or
+ * the same offer, or the same service amount). Otherwise the client reused an id for another
+ * sale: 409, and the recorded sale is neither repeated nor reported as this one.
+ */
+function assertSameSaleRequest(
+  recorded: RecordedSale,
+  input: CreateSaleInput,
+): void {
+  const mismatch = () =>
+    AppError.conflict("رقم العملية ده اتسجل قبل كده لبيعة مختلفة");
+  if (input.promotionId) {
+    if (recorded.lines.length === 0) throw mismatch();
+    return;
+  }
+  const wanted = isValidUuid(input.variantId)
+    ? input.variantId
+    : isValidUuid(input.productId)
+      ? input.productId
+      : null;
+  const line = recorded.lines.find(
+    (l) =>
+      wanted !== null && (l.variantId === wanted || l.productId === wanted),
+  );
+  if (wanted !== null && !line) throw mismatch();
+  if (line && line.quantityBase !== input.quantityBase) throw mismatch();
+  if (
+    input.amountPiasters !== undefined &&
+    line &&
+    line.stockAfterBase === null &&
+    recorded.totalPiasters !== input.amountPiasters &&
+    input.machineId
+  ) {
+    throw mismatch(); // a service sale retried with another amount
   }
 }
 

@@ -223,10 +223,25 @@ export async function recordLedgerEntryInTx(
     throw AppError.notFound("الشخص ده مش موجود أو اتحذف");
   }
   const opId = input.opId || crypto.randomUUID();
+  const direction =
+    input.type === "debt"
+      ? debtDirection(side)
+      : side === "receivable"
+        ? "i_owe"
+        : "owed_to_me";
   const existing = await tx.debtEntry.findFirst({ where: { storeId, opId } });
   if (existing) {
     if (ownerId(owner) !== ownerIdOfEntry(existing)) {
       throw AppError.conflict("العملية دي اتسجلت قبل كده لشخص تاني");
+    }
+    // A retry must be the same entry (QA-27): another amount or direction is a 409.
+    if (
+      existing.direction !== direction ||
+      existing.amountPiasters !== BigInt(input.amountPiasters)
+    ) {
+      throw AppError.conflict(
+        "رقم العملية ده اتسجل قبل كده بمبلغ أو نوع مختلف",
+      );
     }
     const history = historyOf(
       side,
@@ -238,12 +253,6 @@ export async function recordLedgerEntryInTx(
     return item;
   }
 
-  const direction =
-    input.type === "debt"
-      ? debtDirection(side)
-      : side === "receivable"
-        ? "i_owe"
-        : "owed_to_me";
   const created = await tx.debtEntry.create({
     data: {
       storeId,

@@ -133,7 +133,10 @@ describe("QA-05 — one source of truth for stock quantities", () => {
       targetQuantityBase: 9,
     }); // adjust set down
     await expectReconciled(A, v, 9);
-    await f.adjust(A, v, -100); // floored at 0 (existing rule, QA-16)
+    // Beyond the stock is rejected, never floored (QA-16): nothing changes.
+    await expect(f.adjust(A, v, -100)).rejects.toThrow(/سالبة/);
+    await expectReconciled(A, v, 9);
+    await f.adjust(A, v, -9); // exactly what is there
     await expectReconciled(A, v, 0);
     const b3 = await f.addStock(A, v, 6, { cost: 600 });
     await expectReconciled(A, v, 6);

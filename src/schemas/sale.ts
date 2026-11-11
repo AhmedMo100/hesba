@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 import { MAX_SALE_QUANTITY_BASE } from "@/domain/sale-pricing";
 
 /**
@@ -30,17 +31,27 @@ export const createSaleSchema = z.object({
     .positive()
     .max(MAX_SALE_QUANTITY_BASE, "الكمية كبيرة قوي")
     .default(1),
-  amountPiasters: z.number().int().min(0).optional(),
+  amountPiasters: z
+    .number()
+    .int("المبلغ لازم يكون بالقروش (رقم صحيح)")
+    .min(0)
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
+    .optional(),
   label: z.string().optional(),
   isCarton: z.boolean().optional(),
-  commissionPiasters: z.number().int().min(0).optional(),
+  commissionPiasters: z
+    .number()
+    .int()
+    .min(0, "العمولة مينفعش تبقى سالبة")
+    .max(MAX_AMOUNT_PIASTERS, "العمولة كبيرة قوي")
+    .optional(),
   machineId: z.string().optional().nullable(),
   /** Services paid through a POS machine: charged in the sale transaction (ADR-0020). */
   machineDeductPiasters: z
     .number()
     .int("المبلغ لازم يكون بالقروش (رقم صحيح)")
     .min(0)
-    .max(1_000_000_000, "المبلغ كبير قوي")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional()
     .nullable(),
   machineName: z.string().optional().nullable(),

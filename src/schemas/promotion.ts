@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 /** One product line inside a published offer. Prices in integer piasters. */
 export interface PublishedPromotionItem {
@@ -39,14 +40,18 @@ export const promotionSchema = z.object({
       productId: z.string(),
       variantId: z.string(),
       productName: z.string(),
-      quantityBase: z.number().positive(),
+      quantityBase: z
+        .number()
+        .int("الكمية لازم تكون رقم صحيح")
+        .positive()
+        .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
       unit: z.string().default("piece"),
-      regularPricePiasters: z.number().int().min(0),
+      regularPricePiasters: z.number().int().min(0).max(MAX_AMOUNT_PIASTERS),
     }),
   ),
-  originalPricePiasters: z.number().int().positive(),
-  promoPricePiasters: z.number().int().positive(),
-  savingsPiasters: z.number().int().min(0),
+  originalPricePiasters: z.number().int().positive().max(MAX_AMOUNT_PIASTERS),
+  promoPricePiasters: z.number().int().positive().max(MAX_AMOUNT_PIASTERS),
+  savingsPiasters: z.number().int().min(0).max(MAX_AMOUNT_PIASTERS),
   expiryDaysMin: z.number().optional(),
 });
 

@@ -17,7 +17,8 @@ import "server-only";
  * - Amounts are integer piasters.
  */
 
-import { type Prisma, type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
+import { AppError } from "@/server/platform/error";
 import { withTenant } from "@/server/infra/db/tenant";
 import { prisma as defaultPrisma } from "@/server/infra/db/client";
 import {
@@ -209,33 +210,77 @@ export class ExpenseService {
       }
     }
 
-    return withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        const created = await tx.expense.create({
-          data: {
-            storeId,
-            category: validated.category,
-            amountPiasters: BigInt(validated.amountPiasters),
-            note: validated.note ?? null,
-            spentAt: spentAtDate,
-          },
-        });
+    const format = (e: {
+      id: string;
+      storeId: string;
+      category: string;
+      amountPiasters: bigint;
+      note: string | null;
+      spentAt: Date;
+      createdAt: Date;
+      updatedAt: Date;
+    }): FormattedExpense => ({
+      id: e.id,
+      store_id: e.storeId,
+      category: e.category,
+      amount_piasters: Number(e.amountPiasters),
+      note: e.note,
+      spent_at: e.spentAt.toISOString(),
+      created_at: e.createdAt.toISOString(),
+      updated_at: e.updatedAt.toISOString(),
+    });
+    // A retry carries the same opId (QA-27): it returns the expense already recorded. The same
+    // opId with a different expense is a 409, never a silent second record or a silent merge.
+    const replay = async (tx: Prisma.TransactionClient) => {
+      if (!validated.opId) return null;
+      const existing = await tx.expense.findFirst({
+        where: { storeId, opId: validated.opId },
+      });
+      if (!existing) return null;
+      const same =
+        existing.category === validated.category &&
+        existing.amountPiasters === BigInt(validated.amountPiasters) &&
+        (existing.note ?? null) === (validated.note ?? null);
+      if (!same) {
+        throw AppError.conflict("العملية دي اتسجلت قبل كده بمصروف تاني");
+      }
+      return format(existing);
+    };
 
-        return {
-          id: created.id,
-          store_id: created.storeId,
-          category: created.category,
-          amount_piasters: Number(created.amountPiasters),
-          note: created.note,
-          spent_at: created.spentAt.toISOString(),
-          created_at: created.createdAt.toISOString(),
-          updated_at: created.updatedAt.toISOString(),
-        };
-      },
-      this.prisma,
-    );
+    try {
+      return await withTenant(
+        storeId,
+        userId,
+        async (tx) => {
+          const replayed = await replay(tx);
+          if (replayed) return replayed;
+          const created = await tx.expense.create({
+            data: {
+              storeId,
+              category: validated.category,
+              amountPiasters: BigInt(validated.amountPiasters),
+              note: validated.note ?? null,
+              spentAt: spentAtDate,
+              opId: validated.opId ?? null,
+            },
+          });
+          return format(created);
+        },
+        this.prisma,
+      );
+    } catch (err) {
+      // A concurrent request with the same opId committed first (unique store_id + op_id):
+      // this one rolled back; answer with the recorded expense.
+      if (
+        validated.opId &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        const replayed = await withTenant(storeId, userId, replay, this.prisma);
+        if (replayed) return replayed;
+      }
+      throw err;
+    }
   }
 
   async updateExpense(

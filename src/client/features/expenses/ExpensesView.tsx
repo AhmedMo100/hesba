@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { parseEgpStrict } from "@/domain/money";
+import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./ExpensesView.module.css";
 import { Empty, Icon } from "@/client/shared/ui";
@@ -212,16 +214,16 @@ export function ExpensesView() {
     };
   }, [period, customFrom, customTo]);
 
+  const expenseOp = useRetryOpId();
+
   const handleRegister = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    const cleanAmt = normDigits(amountStr).replace(/[^\d.]/g, "");
-    const egp = parseFloat(cleanAmt);
-    if (!Number.isFinite(egp) || egp <= 0) {
+    // Exact pounds → piasters (no floating point, QA-22); invalid or 0 is refused here.
+    const piasters = parseEgpStrict(normDigits(amountStr).trim());
+    if (piasters === null || piasters <= 0) {
       alert(t("pages.expenses.errorRequiredAmount"));
       return;
     }
-
-    const piasters = Math.round(egp * 100);
     setSubmitting(true);
     try {
       const payload: {
@@ -242,10 +244,11 @@ export function ExpensesView() {
         payload.spentAt = dateStr;
       }
 
+      // Same expense retried (lost response) → same opId → recorded once (QA-27).
       const res = await fetch("/api/expenses", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ ...payload, opId: expenseOp.opIdFor(payload) }),
       });
 
       if (!res.ok) {
@@ -253,6 +256,7 @@ export function ExpensesView() {
         throw new Error(errJson.error || "فشل تسجيل المصروف");
       }
 
+      expenseOp.reset();
       // Reset input fields
       setAmountStr("");
       setNoteStr("");

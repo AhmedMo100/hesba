@@ -23,7 +23,7 @@ import "server-only";
  * `store_products` / `store_variants`.
  */
 
-import { type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { normalizeArabic } from "@/domain/normalize";
 import { matchProducts } from "@/domain/product-matcher";
 import { totalFromUnitCost } from "@/domain/stock/batch-cost";
@@ -165,6 +165,17 @@ export class CatalogService {
         select: { shareCustomProducts: true },
       });
 
+      // A shop holds each global catalog product once (unique store_id + global_product_id).
+      // Adding it again is a clear 409, not a 500 (QA-23). Same-name CUSTOM products are
+      // allowed (e.g. two sizes): names are not unique within a shop.
+      if (globalProductId) {
+        const already = await tx.storeProduct.findFirst({
+          where: { storeId: input.storeId, globalProductId },
+          select: { id: true },
+        });
+        if (already) throw duplicateGlobalProductError();
+      }
+
       const storeProduct = await tx.storeProduct.create({
         data: {
           storeId: input.storeId,
@@ -205,14 +216,28 @@ export class CatalogService {
       };
     };
 
-    const { storeProduct, storeVariant, shareCustomProducts } = options?.tx
-      ? await performTenantInserts(options.tx)
-      : await withTenant(
-          input.storeId,
-          input.userId ?? null,
-          performTenantInserts,
-          this.prisma,
-        );
+    let inserted: Awaited<ReturnType<typeof performTenantInserts>>;
+    try {
+      inserted = options?.tx
+        ? await performTenantInserts(options.tx)
+        : await withTenant(
+            input.storeId,
+            input.userId ?? null,
+            performTenantInserts,
+            this.prisma,
+          );
+    } catch (err) {
+      // Two concurrent adds of the same global product: the unique index decides; the loser
+      // rolled back entirely and gets the same 409.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        throw duplicateGlobalProductError();
+      }
+      throw err;
+    }
+    const { storeProduct, storeVariant, shareCustomProducts } = inserted;
 
     // 3. If custom product, check store sharing preference
     let candidateId: string | null = null;
@@ -1160,4 +1185,13 @@ export class CatalogService {
   ) {
     return this.hideStoreProduct(storeId, userId, productId);
   }
+}
+
+/** The product is already in the shop (QA-23). */
+function duplicateGlobalProductError(): AppError {
+  return new AppError(
+    "CONFLICT",
+    "المنتج ده موجود عندك بالفعل في المنتجات — عدّل سعره من هناك",
+    409,
+  );
 }

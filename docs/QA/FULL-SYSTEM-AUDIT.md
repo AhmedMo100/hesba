@@ -460,6 +460,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** shared sane limits in `domain/constants`.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`.
+
 #### QA-16 · P2 · Overselling or over-adjusting silently zeros the stock
 - **Category:** inventory · **Area:** Stock · **Env:** DEV · **Links:** UE-08, K5
 - **Steps:** apply a delta of −(stock + 50).
@@ -470,6 +472,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** sales beyond the recorded stock vanish from the ledger.
 - **Fix:** owner decision (Roadmap Phase 0), then implement it.
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`, `inventory-stock.spec.ts` (the K5 test now passes).
 
 #### QA-17 · P2 · The sync bar misreports status
 - **Category:** misleading UI · **Area:** App shell · **Env:** PROD · **Links:** UE-09
@@ -556,6 +560,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** zod schema; reject unknown shapes.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/store-settings-api.spec.ts`.
+
 #### QA-22 · P2 · The People API reads `"50"` as 0.50 EGP but `"50.00"` as 50 EGP
 - **Category:** money / unit conversion · **Area:** People · **Env:** DEV
 - **Steps:** create people with `amountPiasters: "50"` and with `"50.00"`.
@@ -570,6 +576,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** accept integer piasters only on the API, and parse pounds only in the UI.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`, `tests/unit/domain/money-strict.spec.ts`.
+
 #### QA-23 · P2 · Creating a second product with a name the shop already used fails with 500
 - **Category:** transaction bug · **Area:** Products · **Env:** DEV
 - **Steps:** create "بيبسي تدقيق", then create a new product with the same name and a different price.
@@ -582,6 +590,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** common real-world case (two sizes of the same product) blocked with a generic error.
 - **Fix:** use `ON CONFLICT DO NOTHING`, a savepoint, or do the candidate work after commit.
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`.
 
 #### QA-24 · P2 · Login lockout counts successful logins and returns 400 instead of 429
 - **Category:** authentication · **Area:** Login · **Env:** DEV · **Links:** UE-18
@@ -639,6 +649,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** a network retry (or the future outbox) duplicates money records.
 - **Fix:** accept and enforce a client `opId` on every write (unique `(store_id, op_id)`).
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`.
 
 #### QA-28 · P2 · The Alerts screen repeats requests endlessly
 - **Category:** performance · **Area:** Alerts · **Env:** DEV · **Links:** UE-20
@@ -698,6 +710,8 @@ Issues are ordered by severity. Each one lists, in this order:
   - Unit price = total ÷ quantity.
   - Bound the timestamp to now ± a small skew, or keep only the server time.
 - **Regression risk:** medium.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`; mostly fixed earlier by QA-01.
 
 #### QA-34 · P2 · The migrator role bypasses tenant isolation by policy
 - **Category:** security (defense in depth) · **Area:** DB · **Env:** DB

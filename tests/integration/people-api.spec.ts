@@ -525,10 +525,28 @@ describe("People Module API & Tenancy Integration", () => {
     expect(res.status).toBe(401);
   });
 
+  // QA-22: one unit per field. Pounds (Arabic or Latin digits) go in `amountEgp`; a string in
+  // `amountPiasters` is rejected instead of being guessed.
   it("P1: Supports Arabic and English numeric inputs in amounts without float errors", async () => {
     const sessionA = await createSession(userAId, storeAId);
 
-    // 1. Create with Eastern Arabic numerals "١٥٠٠" (1500 piasters)
+    const asString = await postPeopleRoute(
+      new Request("http://localhost:3000/api/people", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${sessionA.rawToken}`,
+        },
+        body: JSON.stringify({
+          name: "عم عبده نص",
+          section: "owedToMe",
+          amountPiasters: "١٥٠٠",
+        }),
+      }),
+    );
+    expect(asString.status).toBe(400);
+
+    // 1. Create with Eastern Arabic numerals "١٥٠٠" pounds (150,000 piasters)
     const postReq = new Request("http://localhost:3000/api/people", {
       method: "POST",
       headers: {
@@ -539,7 +557,7 @@ describe("People Module API & Tenancy Integration", () => {
         name: "عم عبده",
         phone: "01234567890",
         section: "owedToMe",
-        amountPiasters: "١٥٠٠",
+        amountEgp: "١٥٠٠",
         note: "تجربة أرقام عربية",
       }),
     });
@@ -547,9 +565,9 @@ describe("People Module API & Tenancy Integration", () => {
     const res = await postPeopleRoute(postReq);
     expect(res.status).toBe(201);
     const json = await res.json();
-    expect(json.person.amount_piasters).toBe(1500);
+    expect(json.person.amount_piasters).toBe(150000);
 
-    // 2. Add transaction with Arabic decimal "١٥٠٫٥٠" (15050 piasters)
+    // 2. Add transaction with Arabic decimal "١٥٠٫٥٠" pounds (15050 piasters)
     const transReq = new Request(
       `http://localhost:3000/api/people/${json.person.id}/transactions`,
       {
@@ -560,7 +578,7 @@ describe("People Module API & Tenancy Integration", () => {
         },
         body: JSON.stringify({
           type: "debt",
-          amountPiasters: "١٥٠٫٥٠",
+          amountEgp: "١٥٠٫٥٠",
           note: "دفعة إضافية بالعربي",
         }),
       },

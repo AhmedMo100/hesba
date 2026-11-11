@@ -5,6 +5,7 @@ import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { InventoryService } from "@/server/modules/inventory";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +15,14 @@ const addStockSchema = z.object({
   quantityBase: z
     .number()
     .int()
-    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً"),
+    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
   /** What was paid for the whole quantity, in piasters (ADR-0021). */
   costTotalPiasters: z
     .number()
     .int()
     .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
-    .max(10_000_000_000, "المبلغ كبير قوي")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional(),
   /**
    * Deprecated name for the same value: the Add-Stock screen always sent the TOTAL here.
@@ -30,7 +32,7 @@ const addStockSchema = z.object({
     .number()
     .int()
     .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
-    .max(10_000_000_000, "المبلغ كبير قوي")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional(),
   productionDate: z.string().optional().nullable(),
   expiryDate: z.string().optional().nullable(),
@@ -45,7 +47,8 @@ const wasteStockSchema = z.object({
   quantityBase: z
     .number()
     .int()
-    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً"),
+    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
   batchId: z.string().uuid().optional().nullable(),
   reason: z.string().trim().default("expired"),
   opId: z.string().uuid().optional(),
@@ -66,8 +69,14 @@ const adjustStockSchema = z.object({
     .number()
     .int()
     .min(0, "الرصيد يجب ألا يقل عن صفر")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
     .optional(),
-  deltaQuantityBase: z.number().int().optional(),
+  deltaQuantityBase: z
+    .number()
+    .int()
+    .min(-MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
+    .optional(),
   reason: z.string().trim().optional(),
   opId: z.string().uuid().optional(),
 });
