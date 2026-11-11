@@ -45,6 +45,10 @@ export class RealAuthApi implements AuthApi {
           error:
             json.error?.message ||
             "تعذر إنشاء الحساب. تأكد من البيانات المدخلة.",
+          field:
+            typeof json.error?.details?.field === "string"
+              ? json.error.details.field
+              : undefined,
         };
       }
       return { success: true, data: json.data };

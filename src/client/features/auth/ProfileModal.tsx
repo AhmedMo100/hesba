@@ -8,6 +8,7 @@ import { useTranslation } from "@/client/shared/i18n";
 import { authApi } from "@/client/shared/api";
 import type { StoreProfile } from "@/client/shared/api";
 import { useAuth } from "@/client/shared/auth";
+import { MAX_PERSON_NAME_LENGTH } from "@/domain/limits";
 import {
   GOVERNORATES,
   SHOP_TYPES,
@@ -79,6 +80,8 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
     const errs: Record<string, string> = {};
     if (profile.ownerName.trim().length < 2) {
       errs["owner"] = t("errors.writeName");
+    } else if (profile.ownerName.trim().length > MAX_PERSON_NAME_LENGTH) {
+      errs["owner"] = t("errors.nameTooLong", { max: MAX_PERSON_NAME_LENGTH });
     }
     if (!okPhone(profile.phone)) {
       errs["phone"] = t("errors.invalidPhone");

@@ -127,6 +127,7 @@ model Store {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   creator              User?                 @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  referral             StoreReferral?
   members              StoreMember[]
   devices              Device[]
   storeProducts        StoreProduct[]
@@ -1239,4 +1240,33 @@ model SaleReturnLine {
 
   @@index([storeId, saleLineId], map: "idx_sale_return_lines_store_line")
   @@map("sale_return_lines")
+}
+
+/// A verified signup referral code (an influencer's code). Managed by Hesba staff; `label`
+/// (whose code it is) is internal and never sent to users. Global table.
+model ReferralCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique(map: "uq_referral_codes_code") @db.Text
+  label     String   @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  storeReferrals StoreReferral[]
+
+  @@map("referral_codes")
+}
+
+/// The referral code a shop signed up with: one row per shop, written at signup only and
+/// never changed (append-only for the app role).
+model StoreReferral {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @unique(map: "uq_store_referrals_store") @map("store_id") @db.Uuid
+  referralCodeId String   @map("referral_code_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Restrict)
+
+  @@index([referralCodeId], map: "idx_store_referrals_code")
+  @@map("store_referrals")
 }

@@ -33,7 +33,8 @@ export function SideNav({ activeRoute, onNavigate }: SideNavProps) {
   return (
     <aside className={styles.side} aria-label={t("common.menu")}>
       <div className={styles.logoSection}>
-        <Icon n="store" s={28} />
+        {/* eslint-disable-next-line @next/next/no-img-element -- static asset, precached for offline */}
+        <img src="/logo.png" alt="" width={28} height={40} />
         <span>{t("common.appName")}</span>
       </div>
 

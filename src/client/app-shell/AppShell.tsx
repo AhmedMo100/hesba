@@ -18,6 +18,7 @@ import "@/client/shared/zod-csp";
  */
 
 import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import { BottomNav, type NavRoute } from "./BottomNav";
@@ -82,6 +83,11 @@ import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/client/offline/db";
 import { syncCatalogFully } from "@/client/offline/catalog";
 import {
+  forgetShopIdentities,
+  loadShopIdentity,
+  saveShopIdentity,
+} from "@/client/offline/shop";
+import {
   lastOutboxStore,
   listSaleOps,
   rememberOutboxStore,
@@ -94,7 +100,8 @@ import { ProfileModal } from "../features/auth/ProfileModal";
 import { dedupedGet } from "@/client/shared/api/dedupe";
 
 function AppShellInner() {
-  const { session, isOfflineExpired, isSessionRefused } = useAuth();
+  const { session, isOfflineExpired, isSessionRefused, logout } = useAuth();
+  const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   // The server refused the session (revoked, expired, no longer a member): sign in again
@@ -260,14 +267,17 @@ function AppShellInner() {
   useEffect(() => {
     if (session?.store?.id) {
       rememberOutboxStore(session.store.id);
+      // QA-57: keep the shop's identity on the device for the offline header and menu.
+      void saveShopIdentity(db, session).catch(() => {});
     } else if (
       !authLoading &&
       typeof navigator !== "undefined" &&
       navigator.onLine
     ) {
       rememberOutboxStore(null); // online and signed out: forget it
+      void forgetShopIdentities(db).catch(() => {});
     }
-  }, [session?.store?.id, authLoading]);
+  }, [session, authLoading]);
   // While the session is not (re)loaded — offline, or just back online — keep showing the
   // remembered shop's queue instead of a false "0 waiting / synced".
   const storeId = session?.store?.id ?? lastOutboxStore();
@@ -305,6 +315,16 @@ function AppShellInner() {
     window.addEventListener("online", run);
     return () => window.removeEventListener("online", run);
   }, [signedInStore]);
+  // The shop's name offline (QA-57): the identity saved on this device for the shop that
+  // owns it (never another shop's), read locally — no request is made for it.
+  const savedIdentity = useLiveQuery(
+    () => (storeId ? loadShopIdentity(db, storeId) : Promise.resolve(null)),
+    [storeId],
+  );
+  const identity =
+    savedIdentity && savedIdentity.storeId === storeId ? savedIdentity : null;
+  const storeName = session?.store?.name ?? identity?.storeName ?? null;
+  const ownerName = session?.user?.name ?? identity?.ownerName ?? null;
   // Honest status (QA-17): from the connection and the real queue, including each queued
   // sale's last answer (401 → log in, 503 → server updating).
   const { state: effectiveSyncState, pendingCount } = deriveSyncState({
@@ -318,10 +338,21 @@ function AppShellInner() {
       <SideNav activeRoute={route} onNavigate={navigate} />
       <div className={styles.main}>
         <Header
-          storeName={session?.store?.name}
-          onStoreClick={() => setShowProfile(true)}
+          storeName={storeName}
+          ownerName={ownerName}
+          online={syncState !== "offline"}
+          syncState={effectiveSyncState}
+          pendingCount={pendingCount}
+          onSyncNow={() => scheduleSaleSync(storeId, { now: true })}
+          onOpenProfile={() => setShowProfile(true)}
+          onLogout={async () => {
+            await logout();
+            await forgetShopIdentities(db).catch(() => {});
+            router.push("/");
+          }}
+          signedIn={Boolean(session)}
           alertCount={alertCount}
-          onNavigate={navigate}
+          onOpenAlerts={() => navigate("alerts")}
         />
         <SyncBar
           state={effectiveSyncState}
@@ -340,11 +371,7 @@ function AppShellInner() {
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
-        <BottomNav
-          activeRoute={route}
-          onNavigate={navigate}
-          alertCount={alertCount}
-        />
+        <BottomNav activeRoute={route} onNavigate={navigate} />
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

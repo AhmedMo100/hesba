@@ -6,6 +6,17 @@ import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 export const PEOPLE_SECTIONS = ["owedToMe", "iOwe", "suppliers"] as const;
 export type PeopleSection = (typeof PEOPLE_SECTIONS)[number];
 
+/**
+ * `GET /api/people` query (QA-59): `section` is one of {@link PEOPLE_SECTIONS} or absent
+ * (= `owedToMe`); anything else is a validation error, never silently reinterpreted.
+ */
+export const peopleListQuerySchema = z.object({
+  section: z
+    .enum(PEOPLE_SECTIONS, { message: "القسم غير معروف" })
+    .default("owedToMe"),
+  q: z.string().trim().max(120).optional(),
+});
+
 export const CONTACT_KINDS = ["customer", "supplier", "both"] as const;
 export type ContactKindEnum = (typeof CONTACT_KINDS)[number];
 
