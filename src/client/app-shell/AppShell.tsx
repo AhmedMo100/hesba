@@ -79,6 +79,8 @@ function ViewLoading() {
 
 import { AuthProvider, useAuth } from "../shared/auth";
 import { useLiveQuery } from "dexie-react-hooks";
+import { db } from "@/client/offline/db";
+import { syncCatalogFully } from "@/client/offline/catalog";
 import {
   lastOutboxStore,
   listSaleOps,
@@ -92,9 +94,16 @@ import { ProfileModal } from "../features/auth/ProfileModal";
 import { dedupedGet } from "@/client/shared/api/dedupe";
 
 function AppShellInner() {
-  const { session, isOfflineExpired } = useAuth();
+  const { session, isOfflineExpired, isSessionRefused } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+  // The server refused the session (revoked, expired, no longer a member): sign in again
+  // (QA-51). Offline or on a server error this is never set, so offline use is unchanged.
+  const [refusedShown, setRefusedShown] = useState(false);
+  if (isSessionRefused && !refusedShown) {
+    setRefusedShown(true);
+    setShowAuthModal(true);
+  }
 
   const [alertCount, setAlertCount] = useState<number>(0);
 
@@ -284,6 +293,18 @@ function AppShellInner() {
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [storeId]);
+  // The offline catalog (QA-53): downloaded once a shop is signed in, then brought up to date
+  // when the device is back online. Events only; a run resumes where the last one stopped.
+  const signedInStore = session?.store?.id ?? null;
+  useEffect(() => {
+    if (!signedInStore || typeof window === "undefined") return;
+    const run = () => {
+      if (navigator.onLine !== false) void syncCatalogFully(db);
+    };
+    run();
+    window.addEventListener("online", run);
+    return () => window.removeEventListener("online", run);
+  }, [signedInStore]);
   // Honest status (QA-17): from the connection and the real queue, including each queued
   // sale's last answer (401 → log in, 503 → server updating).
   const { state: effectiveSyncState, pendingCount } = deriveSyncState({
