@@ -1,0 +1,96 @@
+/* Shop details — section cards on the shared form look (Field controls, Chip, Button). */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card {
+  padding: 14px 14px 2px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--sf);
+}
+
+.cardTitle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--br);
+}
+
+.row2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+@media (max-width: 420px) {
+  .row2 {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-bottom: 16px;
+}
+
+.groupLabel {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink2);
+  padding-inline: 2px;
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf);
+  min-height: 50px;
+  padding: 3px;
+}
+
+.stepper button {
+  width: 44px;
+  height: 44px;
+  border-radius: 11px;
+  background: var(--sf2);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--br);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.stepper b {
+  font-size: 17px;
+}
+
+.securityRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.securityRow b {
+  display: block;
+  font-size: 14px;
+}
+
+.securityRow small {
+  color: var(--ink2);
+  font-size: 13px;
+}

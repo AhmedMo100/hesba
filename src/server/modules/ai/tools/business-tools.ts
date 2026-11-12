@@ -1,7 +1,64 @@
 import "server-only";
+
+/**
+ * @file business-tools.ts
+ * @description The read-only tools the AI model may call to answer questions about the store
+ * (sales summary, top sellers, inventory status, product search, purchases, expenses,
+ * customer debts, supplier payables, financial overview) plus the external market search tool.
+ *
+ * @usedBy
+ * `ai.service.ts`.
+ *
+ * @remarks
+ * Every store tool runs inside `withTenant` for the requesting store, so the model can only
+ * ever see that store's data. Tools only read; none of them writes.
+ */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
-import { getCairoMidnightDate } from "../cairo-date";
+import { salesFinancialsInTx } from "@/server/modules/reports";
+import {
+  addDaysToDateKey,
+  cairoDayStartUtc,
+  toCairoDateString,
+} from "@/domain/time";
+
+/** Periods the tools accept; anything else is read as `today` (never an arbitrary range). */
+export const TOOL_PERIODS = [
+  "today",
+  "yesterday",
+  "week",
+  "last_week",
+  "this_month",
+  "month",
+] as const;
+export type ToolPeriod = (typeof TOOL_PERIODS)[number];
+
+/**
+ * The [start, end] of a period on the Cairo calendar. `week` = the last 7 days including
+ * today; `last_week` = the 7 days before those; `this_month` = from the 1st of this Cairo month.
+ */
+export function toolDateRange(
+  period: string,
+  now: Date = new Date(),
+): { start: Date; end: Date } {
+  const today = toCairoDateString(now);
+  const day = (offset: number) =>
+    cairoDayStartUtc(addDaysToDateKey(today, offset));
+  switch (period as ToolPeriod) {
+    case "yesterday":
+      return { start: day(-1), end: new Date(day(0).getTime() - 1) };
+    case "week":
+      return { start: day(-6), end: now };
+    case "last_week":
+      return { start: day(-13), end: new Date(day(-6).getTime() - 1) };
+    case "this_month":
+      return { start: cairoDayStartUtc(`${today.slice(0, 7)}-01`), end: now };
+    case "month":
+      return { start: day(-29), end: now };
+    default:
+      return { start: day(0), end: now };
+  }
+}
 import { ToolDefinition } from "../types";
 
 export interface BusinessToolsContext {
@@ -27,8 +84,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
+              enum: [...TOOL_PERIODS],
               description:
-                "الفترة الزمنية: 'today' لليوم، 'week' لآخر 7 أيام، 'month' لآخر 30 يوم.",
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -86,7 +144,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
-              description: "الفترة: 'today' أو 'week' أو 'month'.",
+              enum: [...TOOL_PERIODS],
+              description:
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -100,7 +160,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
-              description: "الفترة: 'today' أو 'week' أو 'month'.",
+              enum: [...TOOL_PERIODS],
+              description:
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -132,7 +194,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
-              description: "الفترة: 'today' أو 'week' أو 'month'.",
+              enum: [...TOOL_PERIODS],
+              description:
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -237,19 +301,7 @@ export class BusinessToolsService {
   }
 
   private getDateRange(period: string): { start: Date; end: Date } {
-    const now = new Date();
-    const todayMidnight = getCairoMidnightDate(now);
-
-    if (period === "today") {
-      return { start: todayMidnight, end: now };
-    }
-    if (period === "week") {
-      const start = new Date(todayMidnight.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return { start, end: now };
-    }
-    // month (last 30 days)
-    const start = new Date(todayMidnight.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return { start, end: now };
+    return toolDateRange(period);
   }
 
   private async getSalesSummary(
@@ -263,6 +315,7 @@ export class BusinessToolsService {
       where: {
         storeId,
         createdAt: { gte: start, lte: end },
+        saleVoid: { is: null }, // voided sales are not sales (ADR-0022)
       },
       select: {
         totalPiasters: true,
@@ -277,10 +330,11 @@ export class BusinessToolsService {
 
     for (const s of sales) {
       totalPiasters += s.totalPiasters;
-      if (s.paymentMethod === "cash") {
-        cashPiasters += s.totalPiasters;
-      } else {
+      // Only «آجل» is credit; cash, e-wallet and card are paid on the spot.
+      if (s.paymentMethod === "debt") {
         creditPiasters += s.totalPiasters;
+      } else {
+        cashPiasters += s.totalPiasters;
       }
     }
 
@@ -290,7 +344,7 @@ export class BusinessToolsService {
       period,
       sales_count: count,
       sales_total_piasters: Number(totalPiasters),
-      cash_sales_piasters: Number(cashPiasters),
+      paid_now_sales_piasters: Number(cashPiasters),
       credit_sales_piasters: Number(creditPiasters),
       average_invoice_piasters: avgPiasters,
     };
@@ -307,22 +361,31 @@ export class BusinessToolsService {
       where: {
         storeId,
         createdAt: { gte: start, lte: end },
+        sale: { saleVoid: { is: null } }, // voided sales are not sales (ADR-0022)
       },
       include: {
-        storeProduct: { select: { nameAr: true } },
+        storeProduct: { select: { nameAr: true, unit: true } },
+        // Cart / credit lines reference the product through the variant.
+        storeVariant: {
+          select: {
+            storeProduct: { select: { id: true, nameAr: true, unit: true } },
+          },
+        },
       },
     });
 
     const aggregates = new Map<
       string,
-      { name: string; totalPiasters: bigint; qty: number }
+      { name: string; unit: string; totalPiasters: bigint; qty: number }
     >();
 
     for (const l of lines) {
-      const key = l.storeProductId || l.id;
-      const name = l.storeProduct?.nameAr || "صنف بدون اسم";
+      const product = l.storeProduct ?? l.storeVariant?.storeProduct ?? null;
+      const key = l.storeProductId || l.storeVariant?.storeProduct?.id || l.id;
+      const name = product?.nameAr || "صنف بدون اسم";
       const existing = aggregates.get(key) || {
         name,
+        unit: product?.unit || "piece",
         totalPiasters: BigInt(0),
         qty: 0,
       };
@@ -337,10 +400,13 @@ export class BusinessToolsService {
       .map((it) => ({
         name: it.name,
         total_piasters: Number(it.totalPiasters),
-        quantity_sold: it.qty,
+        // In the product's base unit: grams for kg/g products, otherwise pieces.
+        quantity_sold_base: it.qty,
+        unit: it.unit,
       }));
 
     return {
+      period: "month",
       top_products: sorted,
     };
   }
@@ -355,7 +421,7 @@ export class BusinessToolsService {
       include: {
         storeVariants: true,
       },
-      take: 100,
+      take: 1000,
     });
 
     const variantIds = products.flatMap((p) =>
@@ -377,6 +443,7 @@ export class BusinessToolsService {
     const results: Array<{
       name: string;
       remaining_qty: number;
+      unit: string;
       status: "out_of_stock" | "low_stock" | "available";
     }> = [];
 
@@ -387,19 +454,21 @@ export class BusinessToolsService {
         totalQty += levelMap.get(v.id) || 0;
       }
 
+      // "Low" = 5 units, or 1 kg for weighed products (stock is in grams).
+      const weighed = p.unit === "kg" || p.unit === "g";
       const status =
         totalQty <= 0
           ? "out_of_stock"
-          : totalQty <= 5
+          : totalQty <= (weighed ? 1000 : 5)
             ? "low_stock"
             : "available";
 
       if (filter === "low_or_out") {
         if (status === "out_of_stock" || status === "low_stock") {
-          results.push({ name, remaining_qty: totalQty, status });
+          results.push({ name, remaining_qty: totalQty, unit: p.unit, status });
         }
       } else {
-        results.push({ name, remaining_qty: totalQty, status });
+        results.push({ name, remaining_qty: totalQty, unit: p.unit, status });
       }
     }
 
@@ -599,36 +668,15 @@ export class BusinessToolsService {
   ) {
     const { start, end } = this.getDateRange(period);
 
-    // 1. Sales
-    const sales = await tx.sale.findMany({
-      where: { storeId, createdAt: { gte: start, lte: end } },
-      select: { totalPiasters: true },
-    });
-
-    let salesTotalPiasters = BigInt(0);
-    for (const s of sales) {
-      salesTotalPiasters += s.totalPiasters;
-    }
-
-    // 2. Cost of goods sold (COGS) from stock movements or purchase line costs
-    const movements = await tx.stockMovement.findMany({
-      where: {
-        storeId,
-        type: "sale",
-        createdAt: { gte: start, lte: end },
-      },
-      select: {
-        quantityBase: true,
-        costPriceMinor: true,
-      },
-    });
-
-    let cogsPiasters = BigInt(0);
-    for (const m of movements) {
-      if (m.costPriceMinor && m.quantityBase) {
-        cogsPiasters += m.quantityBase * m.costPriceMinor;
-      }
-    }
+    // 1–2. Sales and the cost of goods sold, from the cost recorded on each sale line at sale
+    // time — the same numbers the Home report shows (ADR-0021). Unknown when any sale in the
+    // period has no recorded cost: it is never estimated.
+    const financials = await salesFinancialsInTx(
+      tx,
+      storeId,
+      start,
+      new Date(end.getTime() + 1),
+    );
 
     // 3. Expenses
     const expenses = await tx.expense.findMany({
@@ -641,18 +689,23 @@ export class BusinessToolsService {
       expensesTotalPiasters += e.amountPiasters;
     }
 
-    const grossProfitPiasters = salesTotalPiasters - cogsPiasters;
-    const netProfitPiasters = grossProfitPiasters - expensesTotalPiasters;
+    const grossProfit = financials.grossProfitPiasters;
+    const netProfit =
+      grossProfit === null ? null : grossProfit - Number(expensesTotalPiasters);
 
     return {
       period,
-      sales_count: sales.length,
-      sales_total_piasters: Number(salesTotalPiasters),
-      cogs_piasters: Number(cogsPiasters),
-      gross_profit_piasters: Number(grossProfitPiasters),
+      sales_count: financials.count,
+      sales_total_piasters: financials.revenuePiasters,
+      cogs_piasters: financials.cogsPiasters,
+      gross_profit_piasters: grossProfit,
       expenses_total_piasters: Number(expensesTotalPiasters),
-      net_profit_piasters: Number(netProfitPiasters),
-      note: "صافي الربح = مجمل الربح (المبيعات - تكلفة البضاعة) ناقص المصروفات التشغيلية.",
+      net_profit_piasters: netProfit,
+      sales_without_recorded_cost: financials.unknownCostCount,
+      note:
+        grossProfit === null
+          ? `تكلفة ${financials.unknownCostCount} بيعة مش متسجلة، فمجمل الربح وصافي الربح غير معروفين (مش هنقدّرهم).`
+          : "صافي الربح = مجمل الربح (المبيعات - تكلفة البضاعة) ناقص المصروفات التشغيلية.",
     };
   }
 }

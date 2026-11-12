@@ -2,9 +2,10 @@ import "server-only";
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
 import { prisma } from "@/server/infra/db/client";
-import { AIConversationService } from "@/server/modules/ai";
+import { AIConversationService, ScannerService } from "@/server/modules/ai";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
+import { env } from "@/server/config/env";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization") || "";
-    const expectedSecret = process.env.HESBA_CRON_SECRET || "";
+    const expectedSecret = env.HESBA_CRON_SECRET;
 
     if (!expectedSecret) {
       logger.error("HESBA_CRON_SECRET is not configured on the server");
@@ -41,10 +42,20 @@ export async function POST(req: Request) {
 
     const convService = new AIConversationService(prisma);
     const result = await convService.cleanupExpiredConversations();
+    // Scanner retention (ADR-0030): stored scan results (product descriptions, no images) are
+    // cleared after 7 days; old per-minute counters and expired leases are removed.
+    const clearedScans = await new ScannerService(prisma).clearOldResults(7);
+    await prisma.aiCapacityMinute.deleteMany({
+      where: { minute: { lt: new Date(Date.now() - 24 * 3600_000) } },
+    });
+    await prisma.aiInflight.deleteMany({
+      where: { expiresAt: { lt: new Date() } },
+    });
 
     return NextResponse.json({
       ok: true,
       deleted_count: result.deletedCount,
+      cleared_scan_results: clearedScans,
       timestamp: new Date().toISOString(),
     });
   } catch (err: unknown) {

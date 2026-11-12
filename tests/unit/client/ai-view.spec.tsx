@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AiView } from "@/client/app-shell/views/AiView";
+import { AiView } from "@/client/features/ai/AiView";
+import { AI_SUGGESTED_QUESTIONS } from "@/schemas/ai";
 
 describe("AiView Component (Assistant Chat Interface)", () => {
   beforeEach(() => {
@@ -23,16 +24,16 @@ describe("AiView Component (Assistant Chat Interface)", () => {
   it("renders minimal calm empty state with sparkle icon and guidance", () => {
     const html = renderToStaticMarkup(<AiView />);
     expect(html).toContain("اسألني أي حاجة عن محلك");
-    expect(html).toContain("الأرباح، النواقص، الأسعار، تأثير الدولار والوقود…");
+    expect(html).toContain("الأرقام بتيجي من بيانات محلك بس");
+    expect(html).toContain('data-testid="ai-empty-suggestions"');
   });
 
   it("renders suggestions strip positioned above the composer", () => {
     const html = renderToStaticMarkup(<AiView />);
     expect(html).toContain('data-testid="ai-suggestions-strip"');
-    expect(html).toContain("كسبت كام النهارده؟");
-    expect(html).toContain("إيه اللي خلص ومحتاج أشتريه؟");
-    expect(html).toContain("أكتر صنف بيتباع");
-    expect(html).toContain("الدولار والبنزين هيأثروا على أسعاري إزاي؟");
+    // Only questions the read-only tools answer from the shop's data (Prompt 2).
+    for (const q of AI_SUGGESTED_QUESTIONS) expect(html).toContain(q);
+    expect(html).not.toContain("الدولار والبنزين");
   });
 
   it("renders bottom composer with voice mic and RTL-flipped send button", () => {

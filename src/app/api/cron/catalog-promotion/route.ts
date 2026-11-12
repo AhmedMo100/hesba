@@ -1,10 +1,11 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import crypto from "node:crypto";
-import { systemPrisma } from "@/server/infra/db/client";
-import { CommunitySuggestionsService } from "@/server/modules/catalog/community-suggestions.service";
+import { servicePrisma } from "@/server/infra/db/client";
+import { CommunitySuggestionsService } from "@/server/modules/catalog";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
+import { env } from "@/server/config/env";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization") || "";
-    const expectedSecret = process.env.HESBA_CRON_SECRET || "";
+    const expectedSecret = env.HESBA_CRON_SECRET;
 
     if (!expectedSecret) {
       logger.error("HESBA_CRON_SECRET is not configured on the server");
@@ -38,10 +39,26 @@ export async function POST(req: Request) {
       throw AppError.unauthorized("غير مصرح بالوصول لمهمة التعميم الدورية");
     }
 
-    const communityService = new CommunitySuggestionsService(systemPrisma);
+    // Cross-store work runs ONLY as the least-privilege service role (ADR-0024, QA-34) —
+    // never as the migrator, which no longer bypasses tenant isolation.
+    if (!servicePrisma) {
+      logger.error(
+        "HESBA_SERVICE_DATABASE_URL is not configured; cron skipped",
+      );
+      throw AppError.serviceUnavailable("مهمة التعميم الدورية غير مفعّلة");
+    }
+    const [role] = await servicePrisma.$queryRaw<Array<{ role: string }>>`
+      SELECT current_user::text AS role`;
+    if (role?.role !== "hesba_service") {
+      logger.error(
+        "Catalog cron connection is not the hesba_service role; refused",
+      );
+      throw AppError.serviceUnavailable("مهمة التعميم الدورية غير مفعّلة");
+    }
+    const communityService = new CommunitySuggestionsService(servicePrisma);
 
     // Find all suggestable candidates not yet approved or hidden
-    const candidates = await systemPrisma.catalogCandidate.findMany({
+    const candidates = await servicePrisma.catalogCandidate.findMany({
       where: { status: "suggestable" },
       select: { id: true, nameAr: true },
     });

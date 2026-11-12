@@ -15,8 +15,10 @@ import {
 import { POST as postTransactionRoute } from "@/app/api/people/[id]/transactions/route";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";
@@ -523,10 +525,28 @@ describe("People Module API & Tenancy Integration", () => {
     expect(res.status).toBe(401);
   });
 
+  // QA-22: one unit per field. Pounds (Arabic or Latin digits) go in `amountEgp`; a string in
+  // `amountPiasters` is rejected instead of being guessed.
   it("P1: Supports Arabic and English numeric inputs in amounts without float errors", async () => {
     const sessionA = await createSession(userAId, storeAId);
 
-    // 1. Create with Eastern Arabic numerals "١٥٠٠" (1500 piasters)
+    const asString = await postPeopleRoute(
+      new Request("http://localhost:3000/api/people", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${sessionA.rawToken}`,
+        },
+        body: JSON.stringify({
+          name: "عم عبده نص",
+          section: "owedToMe",
+          amountPiasters: "١٥٠٠",
+        }),
+      }),
+    );
+    expect(asString.status).toBe(400);
+
+    // 1. Create with Eastern Arabic numerals "١٥٠٠" pounds (150,000 piasters)
     const postReq = new Request("http://localhost:3000/api/people", {
       method: "POST",
       headers: {
@@ -537,7 +557,7 @@ describe("People Module API & Tenancy Integration", () => {
         name: "عم عبده",
         phone: "01234567890",
         section: "owedToMe",
-        amountPiasters: "١٥٠٠",
+        amountEgp: "١٥٠٠",
         note: "تجربة أرقام عربية",
       }),
     });
@@ -545,9 +565,9 @@ describe("People Module API & Tenancy Integration", () => {
     const res = await postPeopleRoute(postReq);
     expect(res.status).toBe(201);
     const json = await res.json();
-    expect(json.person.amount_piasters).toBe(1500);
+    expect(json.person.amount_piasters).toBe(150000);
 
-    // 2. Add transaction with Arabic decimal "١٥٠٫٥٠" (15050 piasters)
+    // 2. Add transaction with Arabic decimal "١٥٠٫٥٠" pounds (15050 piasters)
     const transReq = new Request(
       `http://localhost:3000/api/people/${json.person.id}/transactions`,
       {
@@ -558,7 +578,7 @@ describe("People Module API & Tenancy Integration", () => {
         },
         body: JSON.stringify({
           type: "debt",
-          amountPiasters: "١٥٠٫٥٠",
+          amountEgp: "١٥٠٫٥٠",
           note: "دفعة إضافية بالعربي",
         }),
       },
@@ -981,6 +1001,27 @@ describe("People Module API & Tenancy Integration", () => {
       expect(person.note).toBe("موزع رئيسي معتمد");
       expect(person.amount_piasters).toBe(540000);
       expect(person.supplies).toHaveLength(1);
+
+      // Verify updating supplier to add supplies (including direct UUID and non-UUID/legacy string safely without 500 error)
+      const patchSuppliesRes = await patchPersonRoute(
+        new Request(`http://localhost:3000/api/people/${person.id}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            cookie: `hesba_session=${session.rawToken}`,
+          },
+          body: JSON.stringify({
+            name: "شركة النور للتوريدات",
+            supplies: [testProductId, "prod_custom_temp_123"],
+          }),
+        }),
+        { params: Promise.resolve({ id: person.id }) },
+      );
+      expect(patchSuppliesRes.status).toBe(200);
+      const { person: updatedWithSupplies } = await patchSuppliesRes.json();
+      expect(updatedWithSupplies.name).toBe("شركة النور للتوريدات");
+      expect(updatedWithSupplies.supplies).toHaveLength(1);
+      expect(updatedWithSupplies.supplies[0].id).toBe(testProductId);
 
       // Verify updating supplier to add / remove supplies and update balance atomically
       const patchRes = await patchPersonRoute(

@@ -4,13 +4,20 @@ import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { InventoryService } from "@/server/modules/inventory";
 import { CatalogService } from "@/server/modules/catalog";
+import { createSession } from "@/server/modules/auth";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";
+
+/** A date some days from now: fixed calendar dates become "expired" and unsellable over time. */
+const daysFromNow = (n: number) =>
+  new Date(Date.now() + n * 24 * 60 * 60 * 1000);
 
 describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
   let migratorPrisma: PrismaClient;
@@ -175,8 +182,8 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const result = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 50,
-      costPriceMinor: 500, // 5.00 EGP buy cost
-      expiryDate: new Date("2026-11-20"),
+      costTotalMinor: 50 * 500, // 5.00 EGP each; the batch stores the total (ADR-0021)
+      expiryDate: daysFromNow(20),
       batchCode: "BATCH-001",
     });
 
@@ -211,8 +218,8 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const earlyBatch = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 20,
-      costPriceMinor: 520,
-      expiryDate: new Date("2026-11-05"), // Expires BEFORE 2026-11-20!
+      costTotalMinor: 20 * 520, // unit cost × quantity: the batch stores the total (ADR-0021)
+      expiryDate: daysFromNow(5), // Expires BEFORE the first batch (and is not expired)
       batchCode: "BATCH-EARLY",
     });
 
@@ -252,7 +259,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const wasteResult = await inventory.recordWaste(storeAId, userAId, {
       storeVariantId: variantAId,
       quantityBase: 5,
-      reason: "damaged_spill",
+      reason: "damaged",
     });
 
     expect(wasteResult.wasteId).toBeDefined();
@@ -265,7 +272,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       WHERE id = ${wasteResult.wasteId!}::uuid
     `;
     expect(BigInt(wasteDb?.quantity_base ?? 0)).toBe(BigInt(5));
-    expect(wasteDb?.reason).toBe("damaged_spill");
+    expect(wasteDb?.reason).toBe("damaged");
   });
 
   it("strictly holds the mathematical invariant: stock_levels == SUM(stock_movements)", async () => {
@@ -307,7 +314,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const batchRes = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 12,
-      costPriceMinor: 1000,
+      costTotalMinor: 12 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
       productionDate: "2026-11-01",
       expiryDate: "2027-05-01",
       batchCode: "BATCH-EXP-01",
@@ -336,7 +343,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       inventory.addStockBatch(storeAId, userAId, {
         storeVariantId: variantAId,
         receivedQuantityBase: 6,
-        costPriceMinor: 1000,
+        costTotalMinor: 6 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
         productionDate: "2026-11-01",
         expiryDate: "2026-10-01", // before production date!
       }),
@@ -346,7 +353,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const noExpBatch = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: variantAId,
       receivedQuantityBase: 24,
-      costPriceMinor: 800,
+      costTotalMinor: 24 * 800, // unit cost × quantity: the batch stores the total (ADR-0021)
       productionDate: null,
       expiryDate: null,
       batchCode: "NO-EXP-01",
@@ -393,7 +400,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const res = await inventory.addStockBatch(storeAId, userAId, {
       storeVariantId: gvId,
       receivedQuantityBase: 10,
-      costPriceMinor: 2500,
+      costTotalMinor: 10 * 2500, // unit cost × quantity: the batch stores the total (ADR-0021)
       expiryDate: "2027-12-31",
     });
 
@@ -421,14 +428,218 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     expect(spRow).toBeDefined();
     expect(spRow?.globalProductId).toBe(gpId);
 
-    // 3. Unknown variant ID throws AppError with NOT_FOUND status
+    // 4. Void / revert the added batch
+    const voidRes = await inventory.voidStockBatch(storeAId, userAId, {
+      batchId: res.batchId!,
+    });
+    expect(voidRes.voidedQuantity).toBe(10);
+    expect(voidRes.newBalance).toBe(0);
+
+    const levelAfterVoid = await migratorPrisma.stockLevel.findFirst({
+      where: {
+        storeId: storeAId,
+        storeVariantId: res.batchId ? batchRow!.store_variant_id : "",
+      },
+    });
+    expect(Number(levelAfterVoid?.quantityBase)).toBe(0);
+
+    // 5. Unknown variant ID throws AppError with NOT_FOUND status
     const fakeVariantId = crypto.randomUUID();
     await expect(
       inventory.addStockBatch(storeAId, userAId, {
         storeVariantId: fakeVariantId,
         receivedQuantityBase: 5,
-        costPriceMinor: 1000,
+        costTotalMinor: 5 * 1000, // unit cost × quantity: the batch stores the total (ADR-0021)
       }),
     ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
+  });
+
+  it("adjusts stock quantity via 'set' and 'delta' modes and creates append-only adjustment movements", async () => {
+    const catalog = new CatalogService(appPrisma);
+    const prod = await catalog.upsertStoreProduct(storeAId, userAId, {
+      nameAr: `شيبسي ملح تيست ${runId}`,
+      category: "سناكس",
+      unit: "piece",
+      sellPricePiasters: 1000,
+      isCustom: true,
+      variants: [{ flavor: "ملح", packQty: 1, sellPricePiasters: 1000 }],
+    });
+    const testVarId = prod.variants[0]!.id;
+
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Initial batch: 20 units
+    const addRes = await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: testVarId,
+      receivedQuantityBase: 20,
+      costTotalMinor: 20 * 1200, // unit cost × quantity: the batch stores the total (ADR-0021)
+    });
+    expect(addRes.batchId).toBeDefined();
+
+    // 2. Adjust using mode="set" to 35 (an increase of 15)
+    const adjSetRes = await inventory.adjustStockQuantity(storeAId, userAId, {
+      storeVariantId: testVarId,
+      mode: "set",
+      targetQuantityBase: 35,
+      reason: "جرد دوري شهري",
+    });
+
+    expect(adjSetRes.newBalance).toBe(35);
+    expect(adjSetRes.adjustedDelta).toBe(15);
+    expect(adjSetRes.movementId).toBeDefined();
+
+    // Verify stock_levels
+    const level1 = await migratorPrisma.stockLevel.findUnique({
+      where: {
+        storeId_storeVariantId: {
+          storeId: storeAId,
+          storeVariantId: testVarId,
+        },
+      },
+    });
+    expect(Number(level1?.quantityBase)).toBe(35);
+
+    // 3. Adjust using mode="delta" by -10 (a decrease of 10)
+    const adjDeltaRes = await inventory.adjustStockQuantity(storeAId, userAId, {
+      storeVariantId: testVarId,
+      mode: "delta",
+      deltaQuantityBase: -10,
+      reason: "تسوية عجز تالف",
+    });
+
+    expect(adjDeltaRes.newBalance).toBe(25);
+    expect(adjDeltaRes.adjustedDelta).toBe(-10);
+
+    // Verify movement
+    const movement = await migratorPrisma.stockMovement.findUnique({
+      where: { id: adjDeltaRes.movementId! },
+    });
+    expect(movement?.type).toBe("adjustment");
+    expect(Number(movement?.quantityBase)).toBe(-10);
+    expect(Number(movement?.balanceAfterBase)).toBe(25);
+
+    // 4. Negative resulting balance throws error
+    await expect(
+      inventory.adjustStockQuantity(storeAId, userAId, {
+        storeVariantId: testVarId,
+        mode: "delta",
+        deltaQuantityBase: -50, // exceeds current 25
+      }),
+    ).rejects.toThrow("الكمية الناتجة بعد الخصم لا يمكن أن تكون سالبة");
+
+    // 5. Tenant isolation: Store B cannot adjust Store A variant
+    await expect(
+      inventory.adjustStockQuantity(storeBId, userBId, {
+        storeVariantId: testVarId,
+        mode: "set",
+        targetQuantityBase: 10,
+      }),
+    ).rejects.toThrow("الصنف غير موجود أو غير متاح في هذا المحل");
+  });
+
+  it("zeroing a whole product is no longer an API (quantities change by adjustment)", async () => {
+    const { POST, DELETE } = await import("@/app/api/stock/route");
+    const token = (await createSession(userAId, storeAId)).rawToken;
+    const headers = {
+      cookie: `hesba_session=${token}`,
+      "content-type": "application/json",
+      origin: "http://localhost:3000",
+    };
+    const post = await POST(
+      new Request("http://localhost:3000/api/stock", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "clear",
+          storeVariantId: crypto.randomUUID(),
+        }),
+      }),
+    );
+    expect(post.status).toBe(400);
+    const del = await DELETE(
+      new Request(
+        `http://localhost:3000/api/stock?variantId=${crypto.randomUUID()}`,
+        { method: "DELETE", headers },
+      ),
+    );
+    expect(del.status).toBe(400);
+  });
+
+  it("archives variant from active inventory view only when stock is zero", async () => {
+    const catalog = new CatalogService(appPrisma);
+    const prod = await catalog.upsertStoreProduct(storeAId, userAId, {
+      nameAr: `شاي أخضر للتجربة ${runId}`,
+      category: "مشروبات",
+      unit: "piece",
+      sellPricePiasters: 3000,
+      isCustom: true,
+      variants: [{ flavor: "نعناع", packQty: 1, sellPricePiasters: 3000 }],
+    });
+    const archiveVarId = prod.variants[0]!.id;
+    const inventory = new InventoryService(appPrisma);
+
+    // 1. Add positive stock
+    await inventory.addStockBatch(storeAId, userAId, {
+      storeVariantId: archiveVarId,
+      receivedQuantityBase: 5,
+      costTotalMinor: 5 * 2000, // unit cost × quantity: the batch stores the total (ADR-0021)
+    });
+
+    // 2. Archiving with positive stock should be blocked
+    await expect(
+      inventory.archiveVariantFromView(storeAId, userAId, {
+        storeVariantId: archiveVarId,
+      }),
+    ).rejects.toThrow(
+      "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. عدّل الكمية لـ 0 الأول.",
+    );
+
+    // 3. Adjust the quantity to 0 first (keeps the product in view)
+    await inventory.adjustStockQuantity(storeAId, userAId, {
+      storeVariantId: archiveVarId,
+      mode: "set",
+      targetQuantityBase: 0,
+      reason: "جرد قبل الإزالة",
+    });
+
+    // Check variant is still active after pure zeroing
+    const variantStillActive = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeVariant.findUnique({
+          where: { id: archiveVarId },
+        }),
+      appPrisma,
+    );
+    expect(variantStillActive?.isActive).toBe(true);
+
+    // 4. Archiving when stock is 0 now succeeds
+    const archiveRes = await inventory.archiveVariantFromView(
+      storeAId,
+      userAId,
+      {
+        storeVariantId: archiveVarId,
+      },
+    );
+    expect(archiveRes.archived).toBe(true);
+
+    const variantArchived = await withTenant(
+      storeAId,
+      userAId,
+      async (tx) =>
+        tx.storeVariant.findUnique({
+          where: { id: archiveVarId },
+        }),
+      appPrisma,
+    );
+    expect(variantArchived?.isActive).toBe(false);
+
+    // 5. Tenant isolation check
+    await expect(
+      inventory.archiveVariantFromView(storeBId, userBId, {
+        storeVariantId: archiveVarId,
+      }),
+    ).rejects.toThrow("الصنف غير موجود في هذا المحل");
   });
 });

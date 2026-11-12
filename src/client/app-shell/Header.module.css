@@ -21,44 +21,6 @@
   min-width: 0;
 }
 
-.storeBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px 6px 8px;
-  border-radius: 14px;
-  font-weight: 800;
-  max-width: 62vw;
-  cursor: pointer;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  transition: background 0.15s;
-}
-
-.storeBtn:hover {
-  background: var(--sf2);
-}
-
-.storeIcon {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: var(--br);
-  color: var(--brInk);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-
-.storeName {
-  font-size: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .rightGroup {
   display: flex;
   align-items: center;
@@ -90,17 +52,33 @@
   transform: scale(0.92);
 }
 
-@media (max-width: 899px) {
-  .storeBtn {
-    max-width: calc(100vw - 120px);
-  }
+.bellWrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.bellBadge {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  background: #e27d60;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid var(--bg, #1a1917);
+  box-sizing: border-box;
+  pointer-events: none;
 }
 
 @media (max-width: 380px) {
   .top {
     padding: 0 8px;
-  }
-  .storeBtn {
-    max-width: calc(100vw - 110px);
   }
 }

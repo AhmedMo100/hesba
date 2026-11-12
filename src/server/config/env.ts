@@ -1,4 +1,20 @@
 import "server-only";
+
+/**
+ * @file env.ts
+ * @description Validated server configuration (zod schema for the `HESBA_*` variables).
+ *
+ * @responsibility
+ * `env` is a lazy proxy: the whole environment is validated on the first property access
+ * (and on every access when `NODE_ENV=test`). A missing or invalid required variable throws,
+ * naming only the variable — never its value.
+ *
+ * @remarks
+ * - `HESBA_APP_ORIGIN` falls back to `VERCEL_URL` / `VERCEL_PROJECT_PRODUCTION_URL`.
+ * - Not every variable the server reads is declared here: the database URLs
+ *   (`infra/db/client.ts`), `HESBA_CARD_KEY`, the Gemini/Brave keys and `LOG_LEVEL` are read
+ *   from `process.env` directly.
+ */
 import { z } from "zod";
 
 export const envSchema = z.object({
@@ -15,6 +31,8 @@ export const envSchema = z.object({
 
   // Optional / Defaults
   HESBA_POSTGRES_PORT: z.coerce.number().optional().default(5432),
+  /** The catalog-promotion cron's connection, as `hesba_service` (ADR-0024). Unset = cron off. */
+  HESBA_SERVICE_DATABASE_URL: z.string().optional(),
   HESBA_LLM_PROVIDER: z.string().optional().default("mock"),
   HESBA_LLM_KEY: z.string().optional(),
   HESBA_SENTRY_DSN: z.string().optional(),

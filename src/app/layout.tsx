@@ -4,6 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "حسبة | Hesba",
   description: "نظام إدارة الحسابات والمخزون للمحلات والسوبر ماركت",
+  // QA-49: installable PWA. `src/app/manifest.ts` adds the manifest link itself.
+  icons: { apple: "/icons/icon-192.png" },
+  appleWebApp: { capable: true, title: "حسبة", statusBarStyle: "default" },
 };
 
 export const viewport: Viewport = {
@@ -29,7 +32,7 @@ export default function RootLayout({
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body>{children}</body>
+      <body suppressHydrationWarning>{children}</body>
     </html>
   );
 }

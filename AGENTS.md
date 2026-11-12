@@ -47,7 +47,7 @@ Next.js (App Router) + TypeScript · Postgres (Neon at first) + Prisma · Dexie 
 ## 5. Structure
 
 One package: `src/app` (routes) · `src/client` (browser only) · `src/server` (server only, starts with `import 'server-only'`) · `src/domain` (pure shared logic) · `src/schemas` (zod) · `prisma/` (schema & migrations) · `data/catalog/` · `tests/` · `docs/`. **No folders or files outside `docs/02-arch.md` Part 2** without an ADR in `docs/adr/`.
-Import boundaries: `src/client` ❌ `src/server`. `domain` and `schemas` stay pure. `pages → features → entities → shared`. A module imports from another module only via `index.ts`.
+Import boundaries: `src/client` ❌ `src/server`. `domain` and `schemas` stay pure. Client: `app-shell → features → (shared, offline)`; shared types/API clients live in `shared/`, never inside a feature (ADR-0017). A server module imports from another module only via `index.ts`. These rules are enforced in `eslint.config.mjs`.
 
 ## 6. Commands (names are fixed, created in phase 1)
 

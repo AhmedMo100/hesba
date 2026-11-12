@@ -1,4 +1,18 @@
 import "server-only";
+
+/**
+ * @file conversation.service.ts
+ * @description AI conversation history: one conversation per store per Cairo day, kept for
+ * `AI_CONVERSATION_RETENTION_DAYS` days.
+ *
+ * @usedBy
+ * `ai.service.ts`, `src/app/api/ai/conversations/**`, `src/app/api/cron/ai-cleanup/route.ts`.
+ *
+ * @remarks
+ * Store-scoped reads run inside `withTenant`. The retention cleanup is cross-store: it sets the
+ * transaction-local `app.is_maintenance` flag, which the `ai_conversations` RLS policy accepts
+ * in place of a store id.
+ */
 import { PrismaClient, AiConversation, AiMessage } from "@prisma/client";
 import {
   getCairoMidnightDate,

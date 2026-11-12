@@ -40,8 +40,10 @@ process.env["HESBA_CRON_SECRET"] ??= "hesba-test-cron-secret";
 process.env["HESBA_APP_ORIGIN"] ??= "http://localhost:3000";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 describe("Hesba Authentication & Sessions Integration — Phone + Password & Reset Code", () => {
   let prisma: PrismaClient;
@@ -551,7 +553,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       expect(oldSession?.revokedAt).not.toBeNull();
     });
 
-    it("DETECTS SESSION REUSE: Presenting a rotated token revokes all user sessions", async () => {
+    it("DETECTS SESSION REUSE: a rotated token reused after the grace period revokes its own chain only (QA-14)", async () => {
       const { rawToken: initialToken } = await createSession(
         testUserId,
         testStoreId,
@@ -564,12 +566,17 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       );
       expect(await validateSession(otherDeviceToken)).not.toBeNull();
 
+      // The rotation happened a while ago (past the in-flight grace period).
+      await prisma.session.update({
+        where: { idHash: hashToken(initialToken) },
+        data: { revokedAt: new Date(Date.now() - 5 * 60_000) },
+      });
       // Attacker re-uses the old initialToken!
       await expect(validateSession(initialToken)).rejects.toThrow(
-        "تم رصد استخدام رمز جلسة قديم",
+        "الجلسة دي اتقفلت لحماية حسابك",
       );
 
-      // Entire session chain is revoked
+      // This device's chain (the token that replaced it) is revoked…
       expect(
         (
           await prisma.session.findUnique({
@@ -577,13 +584,8 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           })
         )?.revokedAt,
       ).not.toBeNull();
-      expect(
-        (
-          await prisma.session.findUnique({
-            where: { idHash: hashToken(otherDeviceToken) },
-          })
-        )?.revokedAt,
-      ).not.toBeNull();
+      // …and the other device keeps working.
+      expect(await validateSession(otherDeviceToken)).not.toBeNull();
     });
 
     it("revokes other sessions while preserving current device session", async () => {

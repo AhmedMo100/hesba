@@ -1,0 +1,58 @@
+.sk {
+  display: inline-block;
+  vertical-align: middle;
+  opacity: 0;
+  background: linear-gradient(
+    90deg,
+    var(--line) 0%,
+    var(--sf2, var(--sf)) 50%,
+    var(--line) 100%
+  );
+  background-size: 200% 100%;
+  transition: opacity 0.15s;
+}
+
+.on {
+  opacity: 0.7;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .on {
+    animation: none;
+  }
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 64px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--sf);
+  border: 1px solid var(--line);
+}
+
+.lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}

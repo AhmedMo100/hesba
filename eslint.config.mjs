@@ -56,6 +56,56 @@ const eslintConfig = defineConfig([
       ],
     },
   },
+  // ADR-0017 dependency rules. Each block targets a disjoint set of files, because a later
+  // `no-restricted-imports` entry replaces (does not merge with) an earlier one for the same file.
+  {
+    files: ["src/domain/**", "src/schemas/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@prisma/*", "next", "next/*", "react", "react-dom", "react/*", "dexie", "server-only"],
+              message: "src/domain and src/schemas must stay pure: no DB, framework, or React imports.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/client/shared/**", "src/client/offline/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/client/features/*", "@/client/app-shell", "@/client/app-shell/*", "**/features/*", "**/app-shell/*"],
+              message: "shared/ and offline/ are used by features; they must not depend on a feature or the shell.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
+    files: ["src/app/**", "src/server/modules/**"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          patterns: [
+            {
+              group: ["@/server/modules/*/*"],
+              message: "Import a server module through its public API (@/server/modules/<module>), not its internal files.",
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

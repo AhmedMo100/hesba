@@ -1,3 +1,13 @@
+/**
+ * @file commission.ts
+ * @description Fee calculation for financial services (transfers, bills) from configured
+ * amount-range rules.
+ *
+ * @remarks
+ * Pure and unit-tested (`tests/unit/domain/commission.spec.ts`). Not called by application
+ * code yet: the services screens do not use it.
+ */
+
 import { assertIntegerPiasters } from "./money";
 
 export interface CommissionRule {
