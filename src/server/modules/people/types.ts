@@ -54,14 +54,17 @@ export interface PeopleListResult {
 export interface DebtTransactionItem {
   id: string;
   direction: "owed_to_me" | "i_owe";
-  type: "debt" | "payment" | "adjustment";
-  /** opening | transaction | adjustment (ADR-0023). */
-  kind: "opening" | "transaction" | "adjustment";
+  type: "debt" | "payment" | "adjustment" | "reversal";
+  /** opening | transaction | adjustment (ADR-0023) | reversal (ADR-0027). */
+  kind: "opening" | "transaction" | "adjustment" | "reversal";
   action_label?: string; // "مستحق ليك", "تحصيل", "مستحق عليك", "سداد", "مستحق له", "سداد له"
   amount_piasters: number;
   balance_after_piasters: number; // Signed running balance after this entry (never floored)
   note: string | null;
   op_id: string;
+  /** The supplier invoice / credit-sale invoice this entry belongs to (ADR-0027). */
+  purchase_id?: string | null;
+  sale_id?: string | null;
   created_at: string;
 }
 

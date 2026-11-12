@@ -25,6 +25,9 @@ export interface StoreProductItem {
   stock_quantity?: number;
   barcode?: string | null;
   brand_name?: string | null;
+  /** English catalog name and brand (QA-48), for English search. */
+  name_en?: string | null;
+  brand_name_en?: string | null;
   is_custom: boolean;
   added_by_this_store?: boolean;
   is_hidden?: boolean;

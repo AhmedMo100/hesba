@@ -17,6 +17,7 @@
 import Dexie, { type Table } from "dexie";
 import type {
   LocalAlert,
+  LocalApiCacheEntry,
   LocalContact,
   LocalDebtEntry,
   LocalGlobalBrand,
@@ -51,6 +52,7 @@ export class HesbaDatabase extends Dexie {
   global_brands!: Table<LocalGlobalBrand, string>;
   global_products!: Table<LocalGlobalProduct, string>;
   global_variants!: Table<LocalGlobalVariant, string>;
+  api_cache!: Table<LocalApiCacheEntry, string>;
 
   constructor(dbName = "hesba_db") {
     super(dbName);
@@ -102,6 +104,12 @@ export class HesbaDatabase extends Dexie {
     // operations are listed and sent only while that shop is signed in.
     this.version(4).stores({
       outbox: "op_id, status, created_at, store_id",
+    });
+
+    // Schema Version 5: the last good answer of the screens' read requests, per shop, for
+    // reading offline (`offline/read-cache`). Cleared when the device signs out.
+    this.version(5).stores({
+      api_cache: "key, store_id, saved_at",
     });
   }
 }

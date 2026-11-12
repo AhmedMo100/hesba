@@ -634,6 +634,15 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | D32 | **A queued (offline) sale that the stock can no longer cover is rejected whole and kept for review**, not applied with negative stock (2026-11-10, task "Fix QA-03 + QA-04"). The docs disagree (D13 and `03-data.md` §4 allow negative and flag; §6 `fefo_depleted` says "flag negative **or** prompt stock intake"; D31 kept D13 for offline sales). Until the owner decides, the safest rule is applied: the same server check as an online sale (409), nothing partially applied, the sale shown in "محتاج مراجعة" with "جرّب تاني" (same `op_id`, e.g. after adding stock) or "إلغاء البيعة". **Needs owner confirmation.** Also open: a queued sale is recorded at the server's time when it syncs (no `client_ts`), and priced at sync time | ADR-0020 | Implemented (2026-11-10), decision pending |
 | D33 | **Upper bounds on money and quantities** (QA-15, assumptions): one money amount ≤ 10,000,000 EGP; one unit price ≤ 1,000,000 EGP; one operation ≤ 1,000,000 base units (pieces or grams); pack size ≤ 10,000. They live in `src/domain/limits.ts` and are mirrored by `NOT VALID` CHECKs. **Owner to confirm.** | ADR-0025 | Implemented (2026-11-12) |
 | D34 | **One AI reply waits at most 20 seconds** (QA-29, assumption): `AI_REPLY_TIMEOUT_MS` = 20 s for all model calls of one reply. Past it, or when the provider is busy (429/5xx), the user gets a 503 "try again" with `Retry-After: 30`, and the message credit comes back. The screen also gives up after 25 s. **Owner to confirm.** | ADR-0026 | Implemented (2026-11-12) |
+| D35 | **Supplier purchases, credit sales, discounts, payment methods and returns** (owner's rules, 2026-11-12, task "final QA pass").
+- **Purchases:** receiving a supplier invoice creates a purchase and raises «عليك» by the invoice total computed by the server. It may be partly paid, and payments are linked to the invoice. Cancelling reverses the stock and the debt, and is refused when its stock was used.
+- **Credit sales:** the invoice and the receivable are created together, payments are linked to the invoice, and revenue counts at invoice time.
+- **Discounts:** validated by the server and kept below the subtotal.
+- **Payment methods:** cash, wallet, card or debt, validated by the server.
+- **Returns:** a return references the sale, is bounded by what was sold minus earlier returns, its value comes from the original line, and repeating it is idempotent.
+- **Cart:** final prices and stock are checked at checkout.
+
+The returned value is taken off the sale's revenue on the sale's date. | ADR-0027 | Implemented (2026-11-12) |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |

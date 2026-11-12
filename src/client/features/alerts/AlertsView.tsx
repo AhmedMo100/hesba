@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Empty, Icon, Seg, useToast } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
@@ -54,7 +55,7 @@ export function AlertsView() {
 
   const loadAlerts = useCallback(async () => {
     try {
-      const res = await fetch("/api/alerts");
+      const res = await apiGet("/api/alerts");
       if (res.ok) {
         const data = await res.json();
         setOutOfStock(data.outOfStock || []);
@@ -83,8 +84,8 @@ export function AlertsView() {
     const fetchAlerts = async () => {
       try {
         const [alertsRes, productsRes] = await Promise.all([
-          fetch("/api/alerts"),
-          fetch("/api/products?filter=all"),
+          apiGet("/api/alerts"),
+          apiGet("/api/products?filter=all&scope=store"),
         ]);
 
         if (alertsRes.ok && !ignore) {
@@ -127,7 +128,7 @@ export function AlertsView() {
 
   // Load published promotions
   const loadPromotions = useCallback(() => {
-    fetch("/api/promotions")
+    apiGet("/api/promotions")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.promotions && Array.isArray(data.promotions)) {
@@ -147,6 +148,9 @@ export function AlertsView() {
   }, [storeId]);
 
   useEffect(() => {
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (!storeId) return;
     loadPromotions();
     loadMachines();
 

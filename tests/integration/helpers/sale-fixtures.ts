@@ -98,6 +98,8 @@ export class SaleFixtures {
       await sql`DELETE FROM "sale_lines" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sales" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sandwich_ingredients" WHERE store_id IN ${sql(ids)}`;
+      // Purchases first: their lines must keep a product/variant target (chk_purchase_lines_target).
+      await sql`DELETE FROM "purchases" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_variants" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_products" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sessions" WHERE store_id IN ${sql(ids)}`;
@@ -267,6 +269,7 @@ export class SaleFixtures {
         movementsSum: movements.reduce((s, m) => s + Number(m.quantityBase), 0),
         movements: movements.map((m) => ({
           type: m.type,
+          batchId: m.batchId,
           quantity: Number(m.quantityBase),
           balanceAfter: Number(m.balanceAfterBase ?? 0),
           saleLineId: m.saleLineId,
