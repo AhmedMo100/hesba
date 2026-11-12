@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { scaledSize, MAX_SIDE } from "@/client/features/sales/scan-images";
+import {
+  scaledSize,
+  MAX_SIDE,
+  hasSceneChanged,
+} from "@/client/features/sales/scan-images";
 import { ProductScannerSheet } from "@/client/features/sales/ProductScannerSheet";
 
 describe("scanner photo preparation", () => {
@@ -13,7 +17,7 @@ describe("scanner photo preparation", () => {
 });
 
 describe("ProductScannerSheet", () => {
-  it("renders the scanner with a camera button and privacy note, process button disabled without photos", () => {
+  it("renders mode selection on initial open", () => {
     const html = renderToString(
       <ProductScannerSheet
         catalog={[]}
@@ -21,15 +25,42 @@ describe("ProductScannerSheet", () => {
         onConfirm={() => {}}
       />,
     );
-    expect(html).toContain('data-testid="product-scanner"');
-    // Live camera button (replaces file input)
-    expect(html).toContain('data-testid="scan-camera"');
-    expect(html).toContain("افتح الكاميرا");
-    // Privacy note about what is sent
+    expect(html).toContain('data-testid="scan-mode-select"');
+    expect(html).toContain('data-testid="scan-mode-cash"');
+    expect(html).toContain('data-testid="scan-mode-credit"');
+    expect(html).toContain("اختر نوع البيع");
     expect(html).toContain("من غير أسعار ولا بيانات محلك");
-    // «تم» is disabled until a photo is taken.
-    expect(html).toMatch(
-      /data-testid="scan-process"[^>]*|disabled=""[^>]*data-testid="scan-process"/,
+  });
+
+  it("disables credit mode when no customer is set", () => {
+    const html = renderToString(
+      <ProductScannerSheet
+        catalog={[]}
+        onClose={() => {}}
+        onConfirm={() => {}}
+      />,
     );
+    expect(html).toContain('data-testid="scan-mode-credit"');
+    expect(html).not.toContain('data-testid="scan-mode-customer"');
+  });
+
+  it("shows customer name when creditCustomerName is provided", () => {
+    const html = renderToString(
+      <ProductScannerSheet
+        catalog={[]}
+        creditCustomerName="أحمد"
+        onClose={() => {}}
+        onConfirm={() => {}}
+      />,
+    );
+    expect(html).toContain("أحمد");
+  });
+});
+
+describe("hasSceneChanged", () => {
+  it("returns false when video is not ready", () => {
+    const video = { readyState: 1 } as HTMLVideoElement;
+    const ref = { current: null };
+    expect(hasSceneChanged(video, ref)).toBe(false);
   });
 });

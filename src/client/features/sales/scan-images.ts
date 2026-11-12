@@ -56,6 +56,47 @@ export function prepareFrame(video: HTMLVideoElement): PreparedPhoto {
   };
 }
 
+const DIFF_W = 32;
+const DIFF_H = 24;
+const SCENE_THRESHOLD = 18;
+
+/**
+ * Downsample the current video frame and compare against the previous one.
+ * Returns true when the scene has changed enough to warrant a new scan.
+ * Updates `prevRef.current` on change so the same scene is not re-scanned.
+ */
+export function hasSceneChanged(
+  video: HTMLVideoElement,
+  prevRef: { current: Uint8ClampedArray | null },
+): boolean {
+  if (video.readyState < 2) return false;
+  const canvas = document.createElement("canvas");
+  canvas.width = DIFF_W;
+  canvas.height = DIFF_H;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return false;
+  ctx.drawImage(video, 0, 0, DIFF_W, DIFF_H);
+  const { data } = ctx.getImageData(0, 0, DIFF_W, DIFF_H);
+
+  if (!prevRef.current) {
+    prevRef.current = data;
+    return true;
+  }
+  const prev = prevRef.current;
+  let diff = 0;
+  for (let i = 0; i < data.length; i += 4) {
+    diff += Math.abs(data[i]! - prev[i]!);
+    diff += Math.abs(data[i + 1]! - prev[i + 1]!);
+    diff += Math.abs(data[i + 2]! - prev[i + 2]!);
+  }
+  const avgDiff = diff / ((data.length / 4) * 3);
+  if (avgDiff > SCENE_THRESHOLD) {
+    prevRef.current = data;
+    return true;
+  }
+  return false;
+}
+
 export async function preparePhoto(file: File): Promise<PreparedPhoto> {
   if (file.type && !file.type.startsWith("image/")) {
     throw new Error("الملف ده مش صورة");

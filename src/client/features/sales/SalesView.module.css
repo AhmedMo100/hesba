@@ -27,15 +27,16 @@
 
 /* Big Green Pill on Right */
 .sTotal {
-  background: var(--br, #7fa37c);
-  color: #122112;
+  background: var(--sf);
+  color: var(--ink);
+  border: 1.5px solid var(--line);
   border-radius: 999px;
   padding: 8px 18px;
   display: flex;
   align-items: center;
   gap: 8px;
   font-weight: 700;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--sh);
 }
 
 .sTotalLabel {
@@ -46,6 +47,7 @@
 .sTotalAmount {
   font-size: 17px;
   font-weight: 800;
+  color: var(--br);
 }
 
 /* Legend on Left matching Image 1 */
@@ -513,10 +515,10 @@
 .wpInput {
   flex: 1;
   min-width: 0;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1.5px solid var(--line, #2c352c);
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
   border-radius: 12px;
-  color: var(--ink, #ffffff);
+  color: var(--ink);
   font-size: 18px;
   font-weight: 800;
   padding: 10px 14px;
@@ -527,14 +529,15 @@
 }
 
 .wpInput:focus {
-  border-color: var(--br, #7fa37c);
+  border-color: var(--br);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--br) 20%, transparent);
 }
 
 /* Segmented Control for Units (جرام / كيلو) */
 .wpSeg {
   display: flex;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1.5px solid var(--line, #2c352c);
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
   border-radius: 12px;
   padding: 3px;
   gap: 2px;
@@ -568,10 +571,10 @@
 
 .wpChip {
   flex: 1;
-  background: rgba(0, 0, 0, 0.25);
-  border: 1.5px solid var(--line, #2c352c);
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
   border-radius: 999px;
-  color: var(--ink, #ffffff);
+  color: var(--ink);
   font-size: 14px;
   font-weight: 800;
   padding: 6px 0;
@@ -609,16 +612,16 @@
 }
 
 .wpActionBtn:disabled {
-  background: #354035;
-  color: #728272;
+  background: var(--line);
+  color: var(--ink2);
   cursor: not-allowed;
-  opacity: 0.8;
+  opacity: 0.7;
 }
 
 /* Service Commission Breakdown Box */
 .serviceBreakdown {
-  background: rgba(0, 0, 0, 0.25);
-  border: 1px dashed var(--line, #2c352c);
+  background: var(--sf2);
+  border: 1px dashed var(--line);
   border-radius: 12px;
   padding: 10px 12px;
   display: flex;
@@ -657,11 +660,11 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1.5px solid var(--line, #2c352c);
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
   border-radius: 10px;
   padding: 6px 10px;
-  color: var(--ink, #ffffff);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 700;
   cursor: pointer;
@@ -671,22 +674,22 @@
 }
 
 .machinePill.active {
-  border-color: var(--br, #7fa37c);
-  background: rgba(127, 163, 124, 0.18);
-  color: #c7ecc4;
+  border-color: var(--br);
+  background: color-mix(in srgb, var(--br) 15%, transparent);
+  color: var(--br);
 }
 
 .machinePillBal {
   font-size: 11px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--sf);
   padding: 2px 6px;
   border-radius: 6px;
-  color: var(--ink2, #a0a8a0);
+  color: var(--ink2);
 }
 
 .machinePill.active .machinePillBal {
-  background: rgba(127, 163, 124, 0.3);
-  color: #ffffff;
+  background: color-mix(in srgb, var(--br) 25%, transparent);
+  color: var(--brInk);
 }
 
 .singleMachineBadge {
@@ -694,15 +697,15 @@
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  color: var(--ink2, #a0a8a0);
-  background: rgba(0, 0, 0, 0.2);
-  border: 1px solid var(--line, #2c352c);
+  color: var(--ink2);
+  background: var(--sf2);
+  border: 1px solid var(--line);
   padding: 6px 10px;
   border-radius: 8px;
 }
 
 .singleMachineBadge b {
-  color: var(--ink, #ffffff);
+  color: var(--ink);
 }
 
 .machineBalanceTag {
