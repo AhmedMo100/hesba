@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { expiryDateSchema } from "./dates";
 import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 /**
@@ -12,14 +13,6 @@ const piasters = (message: string) =>
     .number({ message })
     .int("المبلغ لازم يكون بالقروش (رقم صحيح)")
     .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي");
-
-const dateOnly = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ غير صحيح")
-  .refine((v) => {
-    const d = new Date(`${v}T00:00:00Z`);
-    return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
-  }, "التاريخ غير صحيح");
 
 /** Body of `POST /api/purchases`: one supplier invoice, received into stock. */
 export const createPurchaseSchema = z
@@ -41,7 +34,7 @@ export const createPurchaseSchema = z
             0,
             "التكلفة مينفعش تبقى سالبة",
           ),
-          expiryDate: dateOnly.optional().nullable(),
+          expiryDate: expiryDateSchema.optional().nullable(),
         }),
       )
       .min(1, "الفاتورة لازم يكون فيها صنف واحد على الأقل")

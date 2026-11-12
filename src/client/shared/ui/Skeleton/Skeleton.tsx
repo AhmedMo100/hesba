@@ -38,3 +38,35 @@ export function Skeleton({
     />
   );
 }
+
+/**
+ * The loading state of a list of cards (products, stock, people, expenses…): rows shaped like
+ * the real rows, so the page does not jump when they arrive. Announced once as `label`.
+ */
+export function ListSkeleton({
+  rows = 4,
+  label = "بيحمّل…",
+}: {
+  rows?: number;
+  label?: string;
+}) {
+  return (
+    <div
+      role="status"
+      aria-label={label}
+      data-testid="list-skeleton"
+      className={styles.list}
+    >
+      {Array.from({ length: rows }, (_, i) => (
+        <div key={i} className={styles.row}>
+          <Skeleton width={40} height={40} radius={12} />
+          <span className={styles.lines}>
+            <Skeleton width="60%" height={14} />
+            <Skeleton width="35%" height={12} />
+          </span>
+          <Skeleton width={64} height={16} />
+        </div>
+      ))}
+    </div>
+  );
+}

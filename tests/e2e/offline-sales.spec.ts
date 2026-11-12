@@ -36,7 +36,11 @@ async function signup(api: APIRequestContext, tag: string): Promise<string> {
     },
   });
   expect(res.ok()).toBe(true);
-  return (await res.json()).data.sessionToken as string;
+  // The token is only in the HttpOnly cookie (QA-40), never in the body.
+  const cookie = res.headers()["set-cookie"] ?? "";
+  const token = /hesba_session=([^;]+)/.exec(cookie)?.[1];
+  expect(token).toBeTruthy();
+  return token!;
 }
 
 async function product(

@@ -27,12 +27,17 @@ import React, {
 import type { SessionState, StoreProfile } from "../api";
 import { authApi } from "../api";
 import { clearInflightRequests } from "../api/dedupe";
+import { sessionRefusedByServer, signedOutByServer } from "../api/auth.real";
 
 interface AuthContextValue {
   session: SessionState | null;
   isLoading: boolean;
   isLocked: boolean;
   isOfflineExpired: boolean;
+  /** The server refused the session (QA-51): the owner must sign in again. */
+  isSessionRefused: boolean;
+  /** The server answered that nobody is signed in (not a network failure). */
+  isSignedOutByServer: boolean;
   unlock: () => void;
   lock: () => void;
   logout: () => Promise<void>;
@@ -48,10 +53,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [isLocked, setIsLocked] = useState(false);
   const [isOfflineExpired, setIsOfflineExpired] = useState(false);
+  const [isSessionRefused, setIsSessionRefused] = useState(false);
+  const [isSignedOutByServer, setIsSignedOutByServer] = useState(false);
 
   useEffect(() => {
     authApi.getSession().then((s) => {
       setSession(s);
+      setIsSessionRefused(!s && sessionRefusedByServer());
+      setIsSignedOutByServer(!s && signedOutByServer());
       if (typeof window !== "undefined") {
         if (s?.store?.id) {
           window.sessionStorage.setItem("hesba_current_store_id", s.store.id);
@@ -127,6 +136,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         isLoading,
         isLocked,
         isOfflineExpired,
+        isSessionRefused,
+        isSignedOutByServer,
         unlock,
         lock,
         logout,
@@ -148,6 +159,8 @@ export function useAuth(): AuthContextValue {
       isLoading: false,
       isLocked: false,
       isOfflineExpired: false,
+      isSessionRefused: false,
+      isSignedOutByServer: false,
       unlock: () => {},
       lock: () => {},
       logout: async () => {},

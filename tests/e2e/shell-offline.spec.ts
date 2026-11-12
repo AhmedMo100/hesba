@@ -32,27 +32,18 @@ test.describe("App Shell Offline Navigation", () => {
     // 2. Go offline
     await context.setOffline(true);
 
-    const isMobile = await page
-      .locator('button[aria-label="المزيد"]:visible')
-      .isVisible();
-
-    const navigateTo = async (label: string, isMoreSubItem = false) => {
-      if (isMobile && isMoreSubItem) {
+    // Six screens around «البيع» in the navigation; Alerts from the top bar's bell.
+    const navigateTo = async (label: string) => {
+      if (label === "التنبيهات") {
         await page
-          .locator('button[aria-label="المزيد"]:visible')
+          .locator('header button[aria-label^="جرس التنبيهات"]')
           .click({ force: true });
-        const dialog = page.locator("role=dialog");
-        await expect(dialog).toBeVisible();
-        await dialog.locator("button").filter({ hasText: label }).click();
-        await expect(dialog).toBeHidden();
-      } else {
-        // The navigation menu's button: on desktop the header's alerts bell has the same
-        // label (both open Alerts), so the locator is scoped to the visible navigation.
-        await page
-          .locator(`nav button[aria-label="${label}"]:visible`)
-          .first()
-          .click({ force: true });
+        return;
       }
+      await page
+        .locator(`nav:visible button[aria-label="${label}"]:visible`)
+        .first()
+        .click({ force: true });
     };
 
     // 3. Navigate to Products
@@ -68,19 +59,19 @@ test.describe("App Shell Offline Navigation", () => {
     await expect(page.locator('[data-testid="page-stock"]')).toBeVisible();
 
     // 6. Navigate to Expenses
-    await navigateTo("المصاريف", true);
+    await navigateTo("المصاريف");
     await expect(page.locator('[data-testid="page-expenses"]')).toBeVisible();
 
     // 7. Navigate to People
-    await navigateTo("الناس", true);
+    await navigateTo("الناس");
     await expect(page.locator('[data-testid="page-people"]')).toBeVisible();
 
     // 8. Navigate to Alerts
-    await navigateTo("التنبيهات", true);
+    await navigateTo("التنبيهات");
     await expect(page.locator('[data-testid="page-alerts"]')).toBeVisible();
 
     // 9. Navigate to AI
-    await navigateTo("المساعد", true);
+    await navigateTo("المساعد");
     await expect(page.locator('[data-testid="page-ai"]')).toBeVisible();
 
     // 10. Navigate back to Home

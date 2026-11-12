@@ -14,8 +14,17 @@
  * A failed request leaves that section empty.
  */
 
+import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useMemo } from "react";
-import { Seg, SearchBox, Icon, Empty, Skeleton } from "@/client/shared/ui";
+import {
+  Seg,
+  SearchBox,
+  Icon,
+  Empty,
+  Skeleton,
+  PeriodFilter,
+} from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import {
   fetchHomeReport,
@@ -24,36 +33,55 @@ import {
 } from "@/client/shared/api/reports";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "./HomeView.module.css";
 
 type PeriodKey = ReportPeriod;
+
+/** A stored base quantity in its selling unit: grams → kg for weighed goods. */
+function formatBaseQuantity(base: number, unit: string): string {
+  if (unit === "kg" || unit === "g") {
+    return `${(base / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`;
+  }
+  return `${base} ${unitWord(unit)}`;
+}
+
+const HOME_PERIODS: ReadonlyArray<readonly [PeriodKey, string]> = [
+  ["today", "النهارده"],
+  ["yesterday", "امبارح"],
+  ["week", "الأسبوع"],
+  ["month", "الشهر"],
+  ["all", "الكل"],
+];
 
 /** Money, or "—" when the server could not determine it from recorded data. */
 function moneyOrUnknown(piasters: number | null): string {
   return piasters === null ? "—" : formatMoney(piasters);
 }
 
-function formatQtyText(
+export function formatQtyText(
   unitMode: "piece" | "weight",
   qtyBase: number,
   packQty = 1,
-  unit = "قطعة",
+  unit = "piece",
   packName?: string,
 ): string {
   if (unitMode === "weight") {
     const kg = qtyBase / 1000;
     return `${kg.toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
   }
+  // Arabic words, never the stored codes (QA-43).
+  const word = unitWord(unit);
   if (packQty > 1 && qtyBase >= packQty) {
     const packs = Math.floor(qtyBase / packQty);
     const rem = qtyBase % packQty;
-    const pName = packName || "كرتونة";
+    const pName = packWord(packName, packQty);
     if (rem === 0) {
       return `${packs} ${pName}`;
     }
-    return `${packs} ${pName} و ${rem} ${unit}`;
+    return `${packs} ${pName} و ${rem} ${word}`;
   }
-  return `${qtyBase} ${unit}`;
+  return `${qtyBase} ${word}`;
 }
 
 export function HomeView() {
@@ -111,7 +139,7 @@ export function HomeView() {
     let ignore = false;
     const fetchData = async () => {
       try {
-        const stockRes = await fetch("/api/stock").catch(() => null);
+        const stockRes = await apiGet("/api/stock").catch(() => null);
         if (stockRes && stockRes.ok && !ignore) {
           const sData = await stockRes.json();
           if (sData?.inventory && Array.isArray(sData.inventory)) {
@@ -458,28 +486,11 @@ export function HomeView() {
         /* ===================== TAB: التقرير (Sales & Store Report) ===================== */
         <>
           {/* Period Selector Chips */}
-          <div className={styles.periodBar} role="tablist">
-            {(
-              [
-                ["today", "النهارده"],
-                ["yesterday", "امبارح"],
-                ["week", "الأسبوع"],
-                ["month", "الشهر"],
-                ["all", "الكل"],
-              ] as const
-            ).map(([pKey, label]) => (
-              <button
-                type="button"
-                key={pKey}
-                role="tab"
-                aria-selected={period === pKey}
-                className={`${styles.chip} ${period === pKey ? styles.chipOn : ""}`}
-                onClick={() => setPeriod(pKey)}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <PeriodFilter
+            options={HOME_PERIODS}
+            value={period}
+            onChange={setPeriod}
+          />
 
           {reportFailed && (
             <div className={styles.reportError} role="alert">
@@ -690,6 +701,66 @@ export function HomeView() {
               )}
             </section>
           </div>
+
+          {/* Damaged / lost goods (P4): real waste records of the period */}
+          <section className={styles.sectionCard} data-testid="home-losses">
+            <h2 className={styles.secTitle}>التالف / الفاقد</h2>
+            {!report ? (
+              <div className={styles.mutedText}>—</div>
+            ) : report.losses.count === 0 ? (
+              <div className={styles.mutedText}>
+                مفيش تالف أو فاقد متسجل في الفترة دي
+              </div>
+            ) : (
+              <div className={styles.topList}>
+                <div className={styles.catItem}>
+                  <span>
+                    {report.losses.count} مرة
+                    {report.losses.unknownCostCount > 0
+                      ? ` · ${report.losses.unknownCostCount} من غير تكلفة متسجلة`
+                      : ""}
+                  </span>
+                  <div className={styles.catValues}>
+                    <b data-testid="home-losses-cost">
+                      {formatMoney(report.losses.costPiasters)}
+                    </b>
+                    <small>تكلفة تقريبية بسعر الشراء</small>
+                  </div>
+                </div>
+                {report.losses.byReason.map((r) => (
+                  <div key={r.reason} className={styles.catItem}>
+                    <span>
+                      {WASTE_REASON_LABELS[r.reason as WasteReason] ?? r.reason}{" "}
+                      ({r.count})
+                    </span>
+                    <div className={styles.catValues}>
+                      <b>{formatMoney(r.costPiasters)}</b>
+                    </div>
+                  </div>
+                ))}
+                {report.losses.recent.map((l) => (
+                  <div key={l.id} className={styles.timelineItem}>
+                    <span className={`${styles.tlDot} ${styles.tlDotExp}`} />
+                    <div className={styles.tlBody}>
+                      <b>
+                        {l.name} — {formatBaseQuantity(l.quantityBase, l.unit)}
+                      </b>
+                      <small>
+                        {WASTE_REASON_LABELS[l.reason as WasteReason] ??
+                          l.reason}
+                        {l.note ? ` · ${l.note}` : ""}
+                      </small>
+                    </div>
+                    <span className={`${styles.tlAmt} ${styles.tlAmtNeg}`}>
+                      {l.costPiasters === null
+                        ? "—"
+                        : `−${formatMoney(l.costPiasters)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Store Activity Timeline matching Image 5 */}
           <section className={styles.sectionCard}>

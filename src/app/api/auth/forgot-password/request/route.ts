@@ -1,6 +1,9 @@
 import "server-only";
 import { after, NextResponse } from "next/server";
-import { requestPasswordResetCode } from "@/server/modules/auth";
+import {
+  requestPasswordResetCode,
+  assertSameOriginWrite,
+} from "@/server/modules/auth";
 import { readJsonBody, toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
@@ -13,6 +16,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
+    assertSameOriginWrite(req); // QA-39
     const clientIp =
       req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ||
       req.headers.get("x-real-ip") ||

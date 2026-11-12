@@ -74,7 +74,7 @@ export function securityHeaders(
       // Voice search (Web Speech) needs the microphone; nothing else is used.
       key: "Permissions-Policy",
       value:
-        "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), interest-cohort=()",
+        "camera=(), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()",
     },
     { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
     { key: "Cross-Origin-Resource-Policy", value: "same-origin" },

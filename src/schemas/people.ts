@@ -1,9 +1,21 @@
 import { z } from "zod";
+import { businessDateSchema, parseStrictDate } from "./dates";
 import { normalizeNumberString, parseEgpStrict } from "@/domain/money";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
 export const PEOPLE_SECTIONS = ["owedToMe", "iOwe", "suppliers"] as const;
 export type PeopleSection = (typeof PEOPLE_SECTIONS)[number];
+
+/**
+ * `GET /api/people` query (QA-59): `section` is one of {@link PEOPLE_SECTIONS} or absent
+ * (= `owedToMe`); anything else is a validation error, never silently reinterpreted.
+ */
+export const peopleListQuerySchema = z.object({
+  section: z
+    .enum(PEOPLE_SECTIONS, { message: "القسم غير معروف" })
+    .default("owedToMe"),
+  q: z.string().trim().max(120).optional(),
+});
 
 export const CONTACT_KINDS = ["customer", "supplier", "both"] as const;
 export type ContactKindEnum = (typeof CONTACT_KINDS)[number];
@@ -159,9 +171,10 @@ export const recordDebtTransactionInputSchema = z
       .max(500, "الملاحظة طويلة جداً")
       .optional()
       .nullable(),
-    date: z.string().optional().nullable(),
-    createdAt: z.string().optional().nullable(),
-    created_at: z.string().optional().nullable(),
+    // A real date, not before 2000 and not in the future (QA-37).
+    date: businessDateSchema.optional().nullable(),
+    createdAt: businessDateSchema.optional().nullable(),
+    created_at: businessDateSchema.optional().nullable(),
     opId: z.string().uuid().optional(),
     op_id: z.string().uuid().optional(),
   })
@@ -175,13 +188,9 @@ export const recordDebtTransactionInputSchema = z
       return z.NEVER;
     }
     const rawDate = data.date || data.createdAt || data.created_at;
-    let parsedDate: Date | undefined;
-    if (rawDate) {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        parsedDate = d;
-      }
-    }
+    const parsedDate = rawDate
+      ? (parseStrictDate(rawDate) ?? undefined)
+      : undefined;
 
     return {
       type: data.type,

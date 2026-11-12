@@ -37,7 +37,7 @@ import {
   MockSearchProvider,
   providerBusy,
 } from "@/server/infra/ai";
-import { AI_REPLY_TIMEOUT_MS } from "./constants";
+import { AI_MAX_TOOL_ROUNDS, AI_REPLY_TIMEOUT_MS } from "./constants";
 import { BusinessToolsService } from "./tools/business-tools";
 import { ChatMessage, SearchCitation, AIQuotaStatus } from "./types";
 import { withTenant } from "@/server/infra/db/tenant";
@@ -211,11 +211,13 @@ export class AIService {
         storeId,
         userId,
         async (tx) => {
-          return await tx.aiMessage.findMany({
+          // The latest 10 (the question just saved included), oldest first.
+          const latest = await tx.aiMessage.findMany({
             where: { storeId, conversationId: conversation.id },
-            orderBy: { createdAt: "asc" },
+            orderBy: { createdAt: "desc" },
             take: 10,
           });
+          return latest.reverse();
         },
         this.prisma,
       );
@@ -229,21 +231,34 @@ export class AIService {
       // waits more than AI_REPLY_TIMEOUT_MS; past it the provider throws a 503.
       const signal = AbortSignal.timeout(AI_REPLY_TIMEOUT_MS);
 
-      // Initial completion call to AI provider
-      const response = await this.aiProvider.generateChatCompletion(
-        messages,
-        systemInstruction,
-        toolDefinitions,
-        { signal },
-      );
+      // The model may ask for tools a few rounds in a row (sales, then expenses…). Each
+      // round replays its own request before the results; the last round has no tools, so
+      // it must answer in text.
+      const convo: ChatMessage[] = [...messages];
+      let citations: SearchCitation[] = [];
+      let finalAnswer = "";
+      for (let round = 0; ; round++) {
+        if (signal.aborted) throw providerBusy();
+        const lastRound = round >= AI_MAX_TOOL_ROUNDS;
+        const response = await this.aiProvider.generateChatCompletion(
+          convo,
+          systemInstruction,
+          lastRound ? undefined : toolDefinitions,
+          { signal },
+        );
+        if (response.citations)
+          citations = [...citations, ...response.citations];
+        if (!response.toolCalls?.length || lastRound) {
+          finalAnswer = response.text || "تم جلب البيانات بنجاح.";
+          break;
+        }
 
-      let finalAnswer = response.text;
-      let citations: SearchCitation[] = response.citations || [];
-
-      // If the model requested tool calls, execute them securely inside withTenant
-      if (response.toolCalls && response.toolCalls.length > 0) {
-        const toolMessages: ChatMessage[] = [...messages];
-
+        convo.push({
+          role: "assistant",
+          content: response.text,
+          toolCalls: response.toolCalls,
+          providerParts: response.providerParts,
+        });
         for (const call of response.toolCalls) {
           let toolResult: unknown;
 
@@ -262,26 +277,12 @@ export class AIService {
             );
           }
 
-          toolMessages.push({
+          convo.push({
             role: "tool",
             name: call.name,
             content: JSON.stringify(toolResult),
             toolCallId: call.id,
           });
-        }
-
-        // Second completion call to synthesize final answer with tool results
-        if (signal.aborted) throw providerBusy();
-        const finalResponse = await this.aiProvider.generateChatCompletion(
-          toolMessages,
-          systemInstruction,
-          undefined,
-          { signal },
-        );
-
-        finalAnswer = finalResponse.text || "تم جلب البيانات بنجاح.";
-        if (finalResponse.citations) {
-          citations = [...citations, ...finalResponse.citations];
         }
       }
 
