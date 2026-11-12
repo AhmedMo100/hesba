@@ -216,29 +216,33 @@ test("credit sale: invoice on the customer, collected from the invoice, then par
   const customer = await person(api, `زبون ${run}`, "owedToMe");
 
   await open(page, "/app/sales", "page-sales");
-  await page.getByTestId("page-sales").getByTestId("cart-toggle").click();
+  // Credit sale: the customer first (picked by name), then the items.
+  await page.getByTestId("page-sales").getByTestId("credit-start").click();
+  await page
+    .getByTestId("page-sales")
+    .getByTestId("credit-name")
+    .fill(`زبون ${run}`);
+  await page
+    .getByTestId("page-sales")
+    .getByTestId("credit-match")
+    .first()
+    .click();
   for (let i = 0; i < 3; i++)
     await page.getByRole("button", { name: `بيع رز آجل ${run}` }).click();
   await page.getByTestId("page-sales").getByTestId("cart-summary").click();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("cart-sheet")
-    .getByRole("tab", { name: "آجل" })
-    .click();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("cart-customer")
-    .selectOption(customer);
   await page.getByTestId("page-sales").getByTestId("cart-paid-now").fill("10");
   await page.getByTestId("page-sales").getByTestId("cart-checkout").click();
   await expect(
     page.getByTestId("page-sales").getByTestId("cart-sheet"),
   ).toHaveCount(0, SERVER);
+  // Straight to People → «ليك».
+  await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
   expect(
     (await (await api.get(`/api/people/${customer}`)).json()).person
       .amount_piasters,
   ).toBe(5000);
 
+  await open(page, "/app/sales", "page-sales");
   await page.getByTestId("sale-details").first().click();
   await expect(page.getByTestId("invoice-outstanding")).toHaveText(
     "50 ج.م",

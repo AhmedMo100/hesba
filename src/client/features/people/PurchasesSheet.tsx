@@ -7,6 +7,7 @@
  * or in full, or cancel it. Every figure is the server's answer; a retried tap reuses its
  * `opId`, so a lost answer never records an invoice or a payment twice.
  */
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Field, Input, Modal } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
@@ -18,18 +19,23 @@ import {
   voidPurchase,
   type PurchaseView,
 } from "@/client/shared/api/invoices";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "../sales/CartSheet.module.css";
 
 interface StockOption {
   variantId: string;
   name: string;
   unit: string;
+  packQty: number;
+  packName: string | null;
 }
 
 interface DraftLine {
   key: string;
   variantId: string;
   qty: string;
+  /** Packs (cartons, bags…) for a product sold in packs; added to `qty` loose units. */
+  packs: string;
   cost: string;
   expiry: string;
 }
@@ -38,6 +44,7 @@ const newLine = (): DraftLine => ({
   key: crypto.randomUUID(),
   variantId: "",
   qty: "",
+  packs: "",
   cost: "",
   expiry: "",
 });
@@ -69,7 +76,7 @@ export function PurchasesSheet({
 
   // An edited draft is a new invoice: a new opId (a retry of the same draft keeps it).
   const draftKey = JSON.stringify([
-    lines.map((l) => [l.variantId, l.qty, l.cost, l.expiry]),
+    lines.map((l) => [l.variantId, l.packs, l.qty, l.cost, l.expiry]),
     paidNow,
   ]);
   useEffect(() => {
@@ -88,7 +95,7 @@ export function PurchasesSheet({
 
   useEffect(() => {
     let alive = true;
-    fetch("/api/stock")
+    apiGet("/api/stock")
       .then((r) => (r.ok ? r.json() : null))
       .then(
         (
@@ -98,6 +105,8 @@ export function PurchasesSheet({
               productName: string;
               unit?: string;
               unitMode?: string;
+              packQty?: number;
+              packName?: string | null;
             }>;
           } | null,
         ) => {
@@ -107,6 +116,8 @@ export function PurchasesSheet({
               variantId: i.variantId,
               name: i.productName,
               unit: i.unit ?? (i.unitMode === "weight" ? "kg" : "piece"),
+              packQty: Math.max(1, i.packQty ?? 1),
+              packName: i.packName ?? null,
             })),
           );
         },
@@ -117,8 +128,10 @@ export function PurchasesSheet({
     };
   }, []);
 
-  const unitOf = (variantId: string) =>
-    options.find((o) => o.variantId === variantId)?.unit ?? "piece";
+  const optionOf = (variantId: string) =>
+    options.find((o) => o.variantId === variantId);
+  const unitOf = (variantId: string) => optionOf(variantId)?.unit ?? "piece";
+  const packOf = (variantId: string) => optionOf(variantId)?.packQty ?? 1;
 
   const draftTotal = lines.reduce(
     (s, l) => s + (parseEgpStrict(l.cost) ?? 0),
@@ -129,8 +142,11 @@ export function PurchasesSheet({
     setError(null);
     const parsed = lines.map((l) => {
       const unit = unitOf(l.variantId);
-      const qtyNum = Number(l.qty);
-      const quantityBase = isWeighed(unit) ? Math.round(qtyNum * 1000) : qtyNum;
+      const qtyNum = Number(l.qty || 0);
+      // Quantities in the product's own unit (Products screen): kg, or packs + loose units.
+      const quantityBase = isWeighed(unit)
+        ? Math.round(qtyNum * 1000)
+        : Number(l.packs || 0) * packOf(l.variantId) + qtyNum;
       return {
         storeVariantId: l.variantId,
         quantityBase,
@@ -258,8 +274,29 @@ export function PurchasesSheet({
                     ))}
                   </select>
                 </Field>
+                {!isWeighed(unitOf(l.variantId)) && packOf(l.variantId) > 1 && (
+                  <Field
+                    label={`${packWord(optionOf(l.variantId)?.packName, packOf(l.variantId))} (${packOf(l.variantId)} ${unitWord(unitOf(l.variantId))})`}
+                    grow
+                  >
+                    <Input
+                      inputMode="numeric"
+                      value={l.packs}
+                      data-testid="purchase-line-packs"
+                      onChange={(e) =>
+                        setLine(l.key, { packs: e.target.value })
+                      }
+                    />
+                  </Field>
+                )}
                 <Field
-                  label={`${t("invoice.qty")}${isWeighed(unitOf(l.variantId)) ? " (كجم)" : ""}`}
+                  label={
+                    isWeighed(unitOf(l.variantId))
+                      ? `${t("invoice.qty")} (كجم)`
+                      : packOf(l.variantId) > 1
+                        ? `${unitWord(unitOf(l.variantId))} زيادة`
+                        : `${t("invoice.qty")} (${unitWord(unitOf(l.variantId))})`
+                  }
                   grow
                 >
                   <Input

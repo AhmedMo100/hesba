@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -8,12 +9,20 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import { Icon, Seg, Empty, Modal, useToast } from "@/client/shared/ui";
+import {
+  Icon,
+  Seg,
+  Empty,
+  Modal,
+  useToast,
+  ListSkeleton,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import { PurchasesSheet } from "./PurchasesSheet";
+import { CustomerDebtSheet } from "./CustomerDebtSheet";
 
 interface SuppliedProduct {
   id: string;
@@ -271,6 +280,7 @@ export function PeopleView() {
   const [deleteTarget, setDeleteTarget] = useState<PersonItem | null>(null);
   const toast = useToast();
   // QA-30: the supplier whose purchase invoices are open.
+  const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
   const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
     null,
   );
@@ -330,7 +340,7 @@ export function PeopleView() {
     }));
 
     try {
-      const res = await fetch(`/api/people?section=${targetSection}`);
+      const res = await apiGet(`/api/people?section=${targetSection}`);
       if (!res.ok) {
         throw new Error(t("pages.people.loadError") || "تعذر تحميل البيانات");
       }
@@ -377,7 +387,7 @@ export function PeopleView() {
   // Load store products when opening supplier modal
   const loadStoreProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products");
+      const res = await apiGet("/api/products?scope=store");
       if (res.ok) {
         const data = await res.json();
         const prods = (data.products || []).map(
@@ -736,9 +746,7 @@ export function PeopleView() {
           </button>
         </div>
       ) : loading && !currentSectionData.loaded ? (
-        <div className={styles.loadingCard}>
-          <p>{t("common.loading")}</p>
-        </div>
+        <ListSkeleton label={t("common.loading")} />
       ) : people.length === 0 ? (
         <Empty
           icon="users"
@@ -905,6 +913,21 @@ export function PeopleView() {
                       </div>
                     );
                   })()}
+
+                {/* «ليك»: record what they took — an amount or products (optional). */}
+                {section === "owedToMe" && (
+                  <button
+                    type="button"
+                    className={styles.purchasesBtn}
+                    data-testid={`customer-debt-${p.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDebtTarget(p);
+                    }}
+                  >
+                    {t("pages.people.recordDebt")}
+                  </button>
+                )}
 
                 {/* Footer / Notes row */}
                 {section === "suppliers" ? (
@@ -1467,6 +1490,18 @@ export function PeopleView() {
             )}
           </div>
         </Modal>
+      )}
+
+      {debtTarget && (
+        <CustomerDebtSheet
+          customer={{ id: debtTarget.id, name: debtTarget.name }}
+          onClose={() => setDebtTarget(null)}
+          onDone={(message) => {
+            setDebtTarget(null);
+            toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData("owedToMe");
+          }}
+        />
       )}
 
       {/* Delete Confirmation Modal */}

@@ -264,7 +264,7 @@ test("sales: the invoice opens from a small summary, keeps its draft, and sells 
   });
 });
 
-test("sales: a card's «آجل» opens the invoice as a credit sale on the chosen customer", async ({
+test("sales: no «آجل» on cards — «آجل» above the grid starts a credit sale, then cards add to it", async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -278,20 +278,31 @@ test("sales: a card's «آجل» opens the invoice as a credit sale on the chose
   // The real sheets render in the screen; a closing sheet leaves a short-lived aria-hidden
   // copy in <body> for its exit animation.
   const screen = page.getByTestId("page-sales");
+  await expect(
+    page.getByRole("button", { name: `بيع آجل: رز آجل كارت ${run}` }),
+  ).toHaveCount(0);
+  await expect(screen.getByTestId("tile-credit")).toHaveCount(0);
+  await screen.getByTestId("credit-start").click();
+  // The customer is asked first; then a normal tap on a card joins the credit invoice.
   await page
-    .getByRole("button", { name: `بيع آجل: رز آجل كارت ${run}` })
+    .getByTestId("page-sales")
+    .getByTestId("credit-name")
+    .fill(`زبون آجل ${run}`);
+  await page
+    .getByTestId("page-sales")
+    .getByTestId("credit-match")
+    .first()
     .click();
+  await page.getByRole("button", { name: `بيع رز آجل كارت ${run}` }).click();
+  await expect(screen.getByTestId("cart-summary")).toContainText("1 صنف");
+  await screen.getByTestId("cart-summary").click();
   const sheet = screen.getByTestId("cart-sheet");
-  await expect(sheet).toBeVisible();
-  await expect(sheet.getByRole("tab", { name: "آجل" })).toHaveAttribute(
-    "aria-selected",
-    "true",
+  await expect(sheet.getByTestId("credit-customer")).toContainText(
+    `زبون آجل ${run}`,
   );
-  // Without a customer the invoice can't be recorded.
-  await expect(screen.getByTestId("cart-checkout")).toBeDisabled();
-  await screen.getByTestId("cart-customer").selectOption(buyer, SERVER);
+  expect(buyer).toBeTruthy();
   await screen.getByTestId("cart-checkout").click();
-  await expect(sheet).toHaveCount(0, SERVER);
+  await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
   expect(
     (await (await api.get(`/api/people/${buyer}`)).json()).person
       .amount_piasters,
@@ -367,7 +378,7 @@ test("sales: offers sit behind a small «العروض» control, with readable t
   }
 });
 
-test("stock: the card opens its actions (edit included); no separate edit button", async ({
+test("stock: the card opens its actions (add, record a loss, archive); no free quantity edit", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -381,10 +392,13 @@ test("stock: the card opens its actions (edit included); no separate edit button
   await expect(card).toBeVisible(SERVER);
   await expect(card.locator("button")).toHaveCount(0);
   await card.click();
-  const edit = page.getByRole("button", {
-    name: /تعديل كمية المخزون/,
-  });
-  await expect(edit).toBeVisible();
-  await edit.click();
-  await expect(page.getByRole("dialog")).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /تعديل كمية المخزون/ }),
+  ).toHaveCount(0);
+  const loss = page.getByRole("dialog").getByTestId("stock-action-loss");
+  await expect(loss).toBeVisible();
+  await loss.click();
+  await expect(
+    page.getByRole("dialog").getByTestId("record-loss"),
+  ).toBeVisible();
 });

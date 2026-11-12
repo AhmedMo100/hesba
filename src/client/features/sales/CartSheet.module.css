@@ -188,3 +188,21 @@
     animation: none;
   }
 }
+
+/* Returns: mark a returned line as damaged (recorded as a loss, not put back on sale). */
+.damaged {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 44px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+  cursor: pointer;
+}
+
+.damaged input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--red);
+}

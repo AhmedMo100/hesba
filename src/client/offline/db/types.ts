@@ -210,3 +210,14 @@ export interface LocalGlobalVariant {
   pack_qty: number;
   name_norm: string;
 }
+
+/** One cached read answer (`offline/read-cache`): the JSON body of a GET, for one shop. */
+export interface LocalApiCacheEntry {
+  /** `${store_id} ${url}` */
+  key: string;
+  store_id: string;
+  url: string;
+  status: number;
+  body: string;
+  saved_at: number;
+}

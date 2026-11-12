@@ -24,3 +24,10 @@ export const MAX_QUANTITY_BASE = 1_000_000;
 
 /** Largest pack size (pieces in a carton / dozen / bag). */
 export const MAX_PACK_QTY = 10_000;
+
+/**
+ * Longest owner (person) name, in characters (QA-58). Matches the People screen's contact
+ * names (120): room for a full Egyptian four-part name with a title, far below abuse sizes.
+ * Longer input is refused with a message, never cut.
+ */
+export const MAX_PERSON_NAME_LENGTH = 120;

@@ -21,6 +21,14 @@ export interface ChatMessage {
   content: string;
   name?: string;
   toolCallId?: string;
+  /** An assistant turn that asked for tools: the calls it made. */
+  toolCalls?: ToolCall[];
+  /**
+   * The provider's own record of that assistant turn, replayed as-is on the follow-up call
+   * (Gemini needs its `functionCall` parts, with their thought signatures, before the tool
+   * results). Opaque outside the adapter that produced it.
+   */
+  providerParts?: unknown[];
 }
 
 /** JSON-schema description of a read-only business tool the model may call. */
@@ -50,6 +58,8 @@ export interface SearchCitation {
 export interface ProviderResponse {
   text: string;
   toolCalls?: ToolCall[];
+  /** See {@link ChatMessage.providerParts}. */
+  providerParts?: unknown[];
   citations?: SearchCitation[];
   usage?: {
     promptTokens?: number;

@@ -27,6 +27,7 @@
  * - Money is integer piasters; quantities are base units (pieces or grams).
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -48,6 +49,7 @@ import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
 import { saleLineTotalPiasters } from "@/domain/sale-pricing";
+import { stockLevel } from "@/domain/alerts";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StockInventoryItem,
@@ -99,7 +101,9 @@ import {
   type CartDraft,
   type CartLine,
   type CartOpId,
+  type CreditCustomer,
 } from "./CartSheet";
+import { CreditCustomerForm } from "./CreditCustomerForm";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
 
 interface DisplaySaleItem {
@@ -300,7 +304,12 @@ function loadInitialData(storeId?: string): {
   return { initialEnabledServices, stagedSaleItem };
 }
 
-export function SalesView() {
+export function SalesView({
+  onNavigate,
+}: {
+  /** After a credit sale the owner lands on People → «ليك» (the customer's balance). */
+  onNavigate?: (route: "people") => void;
+} = {}) {
   const { session } = useAuth();
   const storeId = session?.store?.id;
   // The shop that owns the sales queue: the signed-in shop, or — while the session is not
@@ -319,6 +328,11 @@ export function SalesView() {
   const [tilesLoaded, setTilesLoaded] = useState(false);
   const [cartMode, setCartMode] = useState(false);
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  // A credit sale (آجل): the customer is chosen once, then every item goes on one invoice.
+  const [creditCustomer, setCreditCustomer] = useState<CreditCustomer | null>(
+    null,
+  );
+  const [creditFormOpen, setCreditFormOpen] = useState(false);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
   const [cartOpen, setCartOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -463,10 +477,10 @@ export function SalesView() {
     if (!storeId) return;
     let isMounted = true;
     void Promise.all([
-      fetch("/api/stock")
+      apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/products?filter=all")
+      apiGet("/api/products?filter=all&scope=sale")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
@@ -496,7 +510,7 @@ export function SalesView() {
     });
 
     const syncRemoteSalesConfig = () => {
-      fetch("/api/sales/config")
+      apiGet("/api/sales/config")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -521,7 +535,7 @@ export function SalesView() {
     };
 
     const loadPromotions = () => {
-      fetch("/api/promotions")
+      apiGet("/api/promotions")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -687,7 +701,7 @@ export function SalesView() {
         return {
           ...inv,
           currentStockBase: stock,
-          status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+          status: stockLevel(inv.unitMode, inv.packQty, stock),
         };
       }),
     );
@@ -887,7 +901,7 @@ export function SalesView() {
           return {
             ...inv,
             currentStockBase: stock,
-            status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+            status: stockLevel(inv.unitMode, inv.packQty, stock),
           };
         }),
       );
@@ -1101,7 +1115,7 @@ export function SalesView() {
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
         void Promise.all([
-          fetch("/api/stock")
+          apiGet("/api/stock")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
@@ -1152,7 +1166,7 @@ export function SalesView() {
    * Services and sandwiches are sold on their own. The server prices and checks the stock at
    * checkout; here the quantity is only capped at the shown stock.
    */
-  const addToCart = (item: DisplaySaleItem): boolean => {
+  const addToCart = (item: DisplaySaleItem, units?: number): boolean => {
     if (item.isService || item.isSandwich || !item.variantId) {
       showToast(
         t("invoice.cartServiceNotAllowed", { name: item.name }),
@@ -1162,10 +1176,16 @@ export function SalesView() {
     }
     const variantId = item.variantId;
     const weighed = item.unit === "kg" || item.unit === "g";
-    const step = weighed ? Math.min(1000, item.currentStockBase) : 1;
+    const step = units ?? (weighed ? Math.min(1000, item.currentStockBase) : 1);
     if (step <= 0) {
       showToast(`«${item.name}» خلصان`, "error");
       return false;
+    }
+    if (creditCustomer) {
+      showToast(
+        t("credit.added", { customer: creditCustomer.name, name: item.name }),
+        "success",
+      );
     }
     setCartLines((prev) => {
       const found = prev.find((l) => l.variantId === variantId);
@@ -1197,17 +1217,22 @@ export function SalesView() {
     return true;
   };
 
-  /**
-   * A card's «آجل»: the item goes into the invoice, set to a credit sale, and the invoice
-   * opens to pick the customer. It is the existing invoice-level credit flow (one payment
-   * method per invoice, the customer on the invoice); nothing is recorded until checkout.
-   */
-  const handleSellOnCredit = (e: React.MouseEvent, item: DisplaySaleItem) => {
-    e.stopPropagation();
-    if (!addToCart(item)) return;
+  /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
+  const startCreditSale = (customer: CreditCustomer) => {
+    setCreditCustomer(customer);
+    setCreditFormOpen(false);
     setCartMode(true);
-    setCartDraft((d) => ({ ...d, method: "debt" }));
-    setCartOpen(true);
+    setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
+    showToast(t("credit.started", { name: customer.name }), "success");
+  };
+
+  /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
+  const cancelCreditSale = () => {
+    setCreditCustomer(null);
+    setCartLines([]);
+    setCartMode(false);
+    setCartOpen(false);
+    setCartDraft(EMPTY_CART_DRAFT);
   };
 
   // Tap handler for a Card
@@ -1331,6 +1356,18 @@ export function SalesView() {
     e.stopPropagation();
     const packQty = item.packQty || 1;
     const packLabel = getPackLabel(item.packName, item.packQty);
+    // In an invoice (credit or not) a whole pack joins the draft as its pieces.
+    if (cartMode) {
+      if (item.currentStockBase < packQty) {
+        showToast(
+          `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
+          "error",
+        );
+        return;
+      }
+      addToCart(item, packQty);
+      return;
+    }
 
     if (item.currentStockBase < packQty) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1511,16 +1548,33 @@ export function SalesView() {
               {t("invoice.promos")} ({activePromotions.length})
             </Button>
           )}
+          {!creditCustomer && (
+            <Button
+              kind={cartMode ? "primary" : "ghost"}
+              size="sm"
+              icon="plus"
+              data-testid="cart-toggle"
+              aria-pressed={cartMode}
+              onClick={() => setCartMode((v) => !v)}
+            >
+              {t("invoice.cartToggle")}
+              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            </Button>
+          )}
+          {/* The credit-sale entry point: the customer first, then the items */}
           <Button
-            kind={cartMode ? "primary" : "ghost"}
+            kind={creditCustomer ? "primary" : "ghost"}
             size="sm"
-            icon="plus"
-            data-testid="cart-toggle"
-            aria-pressed={cartMode}
-            onClick={() => setCartMode((v) => !v)}
+            icon="users"
+            data-testid="credit-start"
+            aria-pressed={!!creditCustomer}
+            onClick={() =>
+              creditCustomer ? setCartOpen(true) : setCreditFormOpen(true)
+            }
           >
-            {t("invoice.cartToggle")}
-            {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            {creditCustomer
+              ? t("credit.sessionLabel", { name: creditCustomer.name })
+              : t("credit.start")}
           </Button>
         </div>
 
@@ -1563,12 +1617,6 @@ export function SalesView() {
                 item.unitMode === "piece" &&
                 item.packQty > 1 &&
                 !isOut;
-              // «آجل»: stocked products only (services and sandwiches are sold on their own).
-              const hasCreditBtn =
-                !item.isService &&
-                !item.isSandwich &&
-                !!item.variantId &&
-                !isOut;
 
               return (
                 <div
@@ -1609,7 +1657,8 @@ export function SalesView() {
                     <span className={styles.tS}>{formatStockText(item)}</span>
                   </button>
 
-                  {(hasCartonBtn || hasCreditBtn) && (
+                  {/* Credit sales start from «آجل» above the grid, never from a card. */}
+                  {hasCartonBtn && (
                     <div className={styles.tActions}>
                       {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
                       {hasCartonBtn && (
@@ -1624,23 +1673,6 @@ export function SalesView() {
                           <span>
                             {getPackLabel(item.packName, item.packQty)}
                           </span>
-                        </button>
-                      )}
-                      {hasCreditBtn && (
-                        <button
-                          type="button"
-                          className={`${styles.tPack} ${styles.tCredit}`}
-                          data-testid="tile-credit"
-                          onClick={(e) => handleSellOnCredit(e, item)}
-                          title={t("invoice.creditActionLabel", {
-                            name: item.name,
-                          })}
-                          aria-label={t("invoice.creditActionLabel", {
-                            name: item.name,
-                          })}
-                        >
-                          <Icon n="users" s={15} />
-                          <span>{t("invoice.creditAction")}</span>
                         </button>
                       )}
                     </div>
@@ -1662,6 +1694,7 @@ export function SalesView() {
           >
             <Icon n="list" s={16} />
             <span>
+              {creditCustomer ? `${t("credit.start")} · ` : ""}
               {t("invoice.cartSummary", {
                 count: cartLines.length,
                 total: formatMoney(
@@ -1888,7 +1921,7 @@ export function SalesView() {
           onChanged={(message) => {
             showToast(message, "success");
             void reloadSales();
-            void fetch("/api/stock")
+            void apiGet("/api/stock")
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => d?.inventory && setInventory(d.inventory))
               .catch(() => undefined);
@@ -2212,6 +2245,14 @@ export function SalesView() {
         </>
       )}
 
+      {/* Credit sale: who is the customer? */}
+      {creditFormOpen && (
+        <CreditCustomerForm
+          onClose={() => setCreditFormOpen(false)}
+          onChosen={startCreditSale}
+        />
+      )}
+
       {/* The invoice (cart) sheet */}
       {cartOpen && (
         <Modal
@@ -2224,19 +2265,33 @@ export function SalesView() {
             draft={cartDraft}
             onDraftChange={setCartDraft}
             opIdRef={cartOpIdRef}
+            creditCustomer={creditCustomer}
+            onCancelCredit={cancelCreditSale}
             onDone={(invoice) => {
+              const credited = creditCustomer;
               setCartLines([]);
               setCartMode(false);
               setCartOpen(false);
               setCartDraft(EMPTY_CART_DRAFT);
+              setCreditCustomer(null);
               showToast(
-                t("invoice.checkoutDone", {
-                  total: formatMoney(invoice.totalPiasters),
-                }),
+                credited
+                  ? t("credit.done", {
+                      name: credited.name,
+                      total: formatMoney(invoice.totalPiasters),
+                    })
+                  : t("invoice.checkoutDone", {
+                      total: formatMoney(invoice.totalPiasters),
+                    }),
                 "success",
               );
+              // A credit sale: straight to People → «ليك», where the new balance shows.
+              if (credited && onNavigate) {
+                onNavigate("people");
+                return;
+              }
               void reloadSales();
-              void fetch("/api/stock")
+              void apiGet("/api/stock")
                 .then((r) => (r.ok ? r.json() : null))
                 .then((d) => d?.inventory && setInventory(d.inventory))
                 .catch(() => undefined);

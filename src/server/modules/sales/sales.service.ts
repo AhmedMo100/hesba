@@ -30,8 +30,7 @@ import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
   depleteVariantFefoInTx,
-  lockStockLevelInTx,
-  lockStockLevelsInTx,
+  lockSellableStockInTx,
   restoreSaleTakesInTx,
 } from "@/server/modules/inventory";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
@@ -234,7 +233,9 @@ export async function recordSale(
   userId: string,
   input: CreateSaleInput,
 ): Promise<RecordedSale> {
-  const saleId = isValidUuid(input.id) ? input.id : crypto.randomUUID();
+  // The server chooses the sale id (QA-56): a client id could collide with another shop's sale
+  // (a 500 that also reveals the id exists). Retries are matched by `opId`, per store.
+  const saleId = crypto.randomUUID();
   const opId = input.opId ?? crypto.randomUUID();
   const now = new Date();
 
@@ -550,7 +551,9 @@ async function recordProductSaleInTx(
   }
   const variantId = target.variant.id;
 
-  const available = await lockStockLevelInTx(tx, storeId, variantId);
+  const available =
+    (await lockSellableStockInTx(tx, storeId, [variantId])).get(variantId) ??
+    ZERO;
   const duplicate = await findSaleIdByOpIdInTx(tx, storeId, params.opId);
   if (duplicate) return loadSaleSummaryInTx(tx, storeId, duplicate, true);
 
@@ -829,7 +832,7 @@ async function recordPromotionSaleInTx(
     });
   }
 
-  const levels = await lockStockLevelsInTx(
+  const levels = await lockSellableStockInTx(
     tx,
     storeId,
     items.map((i) => i.variantId),
