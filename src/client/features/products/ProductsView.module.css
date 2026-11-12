@@ -1444,3 +1444,22 @@
     height: 36px;
   }
 }
+
+/* Stock forms: the selling unit, read from the product (not chosen there). */
+.unitFromProduct {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--sf2);
+  color: var(--ink);
+  font-size: 14px;
+}
+
+.unitFromProduct small {
+  color: var(--ink2);
+  font-size: 12px;
+  margin-inline-start: auto;
+}

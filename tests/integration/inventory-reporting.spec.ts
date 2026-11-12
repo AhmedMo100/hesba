@@ -145,9 +145,11 @@ describe("QA-05 — one source of truth for stock quantities", () => {
     }); // void
     await expectReconciled(A, v, 0);
     await f.addStock(A, v, 4, { cost: 400 });
-    await inventory.clearVariantStock(A.storeId, A.userId, {
+    await inventory.adjustStockQuantity(A.storeId, A.userId, {
       storeVariantId: v,
-    }); // clear
+      mode: "set",
+      targetQuantityBase: 0,
+    }); // adjusted to 0
     await expectReconciled(A, v, 0);
   });
 

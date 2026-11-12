@@ -34,8 +34,9 @@ import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
   depleteVariantFefoInTx,
-  lockStockLevelsInTx,
+  lockSellableStockInTx,
   restoreReturnInTx,
+  recordWasteInTx,
 } from "@/server/modules/inventory";
 import {
   invoiceOutstanding,
@@ -199,7 +200,7 @@ export async function checkoutSale(
         }
         const merged = mergeLines(input.lines);
         const variantIds = [...merged.keys()];
-        const balances = await lockStockLevelsInTx(tx, storeId, variantIds);
+        const balances = await lockSellableStockInTx(tx, storeId, variantIds);
 
         const dup = await tx.sale.findFirst({
           where: { storeId, opId: input.opId },
@@ -510,11 +511,19 @@ export async function returnSale(
       await lockSaleInTx(tx, saleId);
 
       const wanted = new Map<string, number>();
+      // Of each line's returned quantity, how much came back damaged (P4).
+      const damaged = new Map<string, number>();
       for (const l of input.lines) {
         wanted.set(
           l.saleLineId,
           (wanted.get(l.saleLineId) ?? 0) + l.quantityBase,
         );
+        if (l.condition === "damaged") {
+          damaged.set(
+            l.saleLineId,
+            (damaged.get(l.saleLineId) ?? 0) + l.quantityBase,
+          );
+        }
       }
       const replay = await tx.saleReturn.findFirst({
         where: { storeId, opId: input.opId },
@@ -605,12 +614,30 @@ export async function returnSale(
             createdAt: now,
           },
         });
-        await restoreReturnInTx(tx, storeId, {
+        const restored = await restoreReturnInTx(tx, storeId, {
           saleLineId: p.saleLineId,
           quantityBase: BigInt(p.qty),
           opId: input.opId,
           now,
         });
+        // Damaged goods: back into the very batches they came from (traceable), then out
+        // again as a loss — never sellable stock, never a second refund.
+        let toWaste = BigInt(damaged.get(p.saleLineId) ?? 0);
+        if (toWaste > ZERO && restored) {
+          for (const part of restored.parts) {
+            if (toWaste <= ZERO) break;
+            const q = part.quantityBase < toWaste ? part.quantityBase : toWaste;
+            await recordWasteInTx(tx, storeId, {
+              storeVariantId: restored.variantId,
+              quantityBase: q,
+              batchId: part.batchId,
+              reason: "damaged_return",
+              note: input.reason?.trim() || null,
+              saleReturnId: ret.id,
+            });
+            toWaste -= q;
+          }
+        }
       }
       if (owner && credited > ZERO) {
         await writeInvoiceEntryInTx(tx, storeId, owner, {

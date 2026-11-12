@@ -1,12 +1,29 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox, Modal, Icon } from "@/client/shared/ui";
+import {
+  Chip,
+  Chips,
+  Empty,
+  SearchBox,
+  Modal,
+  Icon,
+  PeriodFilter,
+  ListSkeleton,
+  useToast,
+} from "@/client/shared/ui";
+import {
+  cairoDateRange,
+  inCairoRange,
+  type DatePreset,
+} from "@/domain/date-range";
+import { toCairoDateString } from "@/domain/time";
+import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
 import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
-import { EditStockModal } from "./EditStockModal";
-import { ClearStockModal } from "./ClearStockModal";
+import { RecordLossModal } from "./RecordLossModal";
 import { ArchiveStockModal } from "./ArchiveStockModal";
 import {
   type PosMachine,
@@ -126,23 +143,48 @@ function formatMovementQty(m: StockMovementItem): string {
   return `${m.quantityBase > 0 ? "+" : ""}${m.quantityBase} قطعة`;
 }
 
+const STOCK_HISTORY_PERIODS: ReadonlyArray<readonly [DatePreset, string]> = [
+  ["today", "اليوم"],
+  ["yesterday", "امبارح"],
+  ["week", "الأسبوع"],
+  ["month", "الشهر"],
+  ["year", "السنة"],
+  ["custom", "فترة مخصصة"],
+];
+
+/**
+ * Stock lists goods on the shelf only. Services (transfers, top-ups, bills, cards) have no
+ * stock: they are sold from the Sales screen against a POS machine's balance; the machines and
+ * their balances stay here.
+ */
+function physicalOnly(
+  items: StockInventoryItem[] | undefined,
+): StockInventoryItem[] {
+  return (items ?? []).filter(
+    (i) =>
+      !isServiceProductRule({
+        category: i.category ?? null,
+        unit: i.unit ?? null,
+      }),
+  );
+}
+
 export function StockView() {
+  const toast = useToast();
   const [tab, setTab] = useState<"qty" | "log">("qty");
   const [filter, setFilter] = useState<"all" | "low" | "out" | "nearExpiry">(
     "all",
   );
-  const [period, setPeriod] = useState<
-    "day" | "week" | "month" | "year" | "custom"
-  >("week");
+  const [period, setPeriod] = useState<DatePreset>("week");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [activeItemAction, setActiveItemAction] =
     useState<StockInventoryItem | null>(null);
-  const [editingStockItem, setEditingStockItem] =
-    useState<StockInventoryItem | null>(null);
-  const [clearingItem, setClearingItem] = useState<StockInventoryItem | null>(
-    null,
-  );
+  const [lossTarget, setLossTarget] = useState<{
+    item: StockInventoryItem;
+    reason?: "expired" | "damaged" | "missing" | "other";
+    batchId?: string | null;
+  } | null>(null);
   const [archivingItem, setArchivingItem] = useState<StockInventoryItem | null>(
     null,
   );
@@ -202,12 +244,12 @@ export function StockView() {
   const loadData = useCallback(async () => {
     try {
       const [stockRes, prodRes] = await Promise.all([
-        fetch("/api/stock?view=all"),
-        fetch("/api/products?filter=all").catch(() => null),
+        apiGet("/api/stock?view=all"),
+        apiGet("/api/products?filter=all").catch(() => null),
       ]);
       if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
       const data = await stockRes.json();
-      setInventory(data.inventory || []);
+      setInventory(physicalOnly(data.inventory));
       setMovements(data.movements || []);
 
       if (prodRes && prodRes.ok) {
@@ -227,13 +269,13 @@ export function StockView() {
     const fetchStock = async () => {
       try {
         const [stockRes, prodRes] = await Promise.all([
-          fetch("/api/stock?view=all"),
-          fetch("/api/products?filter=all").catch(() => null),
+          apiGet("/api/stock?view=all"),
+          apiGet("/api/products?filter=all").catch(() => null),
         ]);
         if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
         const data = await stockRes.json();
         if (!ignore) {
-          setInventory(data.inventory || []);
+          setInventory(physicalOnly(data.inventory));
           setMovements(data.movements || []);
         }
         if (!ignore && prodRes && prodRes.ok) {
@@ -279,24 +321,6 @@ export function StockView() {
     }, 0);
   }, [inventory]);
 
-  // Scratch cards & digital units valuation at cost
-  const cardsValuationPiasters = useMemo(() => {
-    return inventory.reduce((sum, item) => {
-      if (item.currentStockBase <= 0) return sum;
-      if (
-        item.category === "كروت شحن" ||
-        item.productName.includes("كارت شحن")
-      ) {
-        const unitCost =
-          item.buyPricePiasters && item.buyPricePiasters > 0
-            ? item.buyPricePiasters
-            : item.batches?.[0]?.costPricePiasters || 0;
-        return sum + item.currentStockBase * unitCost;
-      }
-      return sum;
-    }, 0);
-  }, [inventory]);
-
   // Provider balances across all POS machines
   const totalProviderBalancesPiasters = useMemo(() => {
     return machines.reduce(
@@ -307,9 +331,7 @@ export function StockView() {
 
   // Total working capital (physical goods + scratch cards + provider balances)
   const totalWorkingCapitalPiasters =
-    physicalValuationPiasters +
-    cardsValuationPiasters +
-    totalProviderBalancesPiasters;
+    physicalValuationPiasters + totalProviderBalancesPiasters;
 
   // Counts for filter chips
   const counts = useMemo(() => {
@@ -408,7 +430,7 @@ export function StockView() {
           packQty: i.packQty,
           currentStockBase: i.currentStockBase,
           buyCostPiasters: i.buyPricePiasters,
-          unit: i.unitMode,
+          unit: i.unit || (i.unitMode === "weight" ? "kg" : "piece"),
           category: i.category,
         });
       }
@@ -416,6 +438,15 @@ export function StockView() {
 
     return options;
   }, [inventory, storeProducts]);
+
+  const historyRange = useMemo(
+    () =>
+      cairoDateRange(
+        { preset: period, from: customFrom, to: customTo },
+        nowTimestamp,
+      ),
+    [period, customFrom, customTo, nowTimestamp],
+  );
 
   // Tab 2 movements filtered by selected period (additions / purchases log)
   const filteredMovements = useMemo(() => {
@@ -425,53 +456,10 @@ export function StockView() {
       // A sale undo puts sold stock back; it is not a purchase or an addition (ADR-0022).
       if (m.type === "sale_void") return false;
 
-      const mTime = new Date(m.createdAt).getTime();
-
-      if (period === "day") {
-        const now = new Date(nowTimestamp);
-        const dayStart = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          0,
-          0,
-          0,
-          0,
-        ).getTime();
-        const dayEnd = new Date(
-          now.getFullYear(),
-          now.getMonth(),
-          now.getDate(),
-          23,
-          59,
-          59,
-          999,
-        ).getTime();
-        return mTime >= dayStart && mTime <= dayEnd;
-      }
-      if (period === "week") return nowTimestamp - mTime <= 7 * 86400000;
-      if (period === "month") return nowTimestamp - mTime <= 30 * 86400000;
-      if (period === "year") {
-        return (
-          new Date(m.createdAt).getFullYear() ===
-          new Date(nowTimestamp).getFullYear()
-        );
-      }
-      if (period === "custom") {
-        let matches = true;
-        if (customFrom) {
-          const fromTime = new Date(`${customFrom}T00:00:00`).getTime();
-          if (!isNaN(fromTime) && mTime < fromTime) matches = false;
-        }
-        if (customTo) {
-          const toTime = new Date(`${customTo}T23:59:59.999`).getTime();
-          if (!isNaN(toTime) && mTime > toTime) matches = false;
-        }
-        return matches;
-      }
-      return true;
+      // Cairo calendar days (the shop's business day), not the device's clock.
+      return inCairoRange(m.createdAt, historyRange);
     });
-  }, [movements, period, nowTimestamp, customFrom, customTo]);
+  }, [movements, historyRange]);
 
   // Tab 2 summary total cost and additions count
   const movementSummary = useMemo(() => {
@@ -587,49 +575,28 @@ export function StockView() {
           />
 
           {/* Status Filter Chips matching Image 1 */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "all" ? styles.active : ""}`}
-              onClick={() => setFilter("all")}
-            >
+          <Chips>
+            <Chip active={filter === "all"} onClick={() => setFilter("all")}>
               الكل
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "low" ? styles.active : ""}`}
-              onClick={() => setFilter("low")}
-            >
+            </Chip>
+            <Chip active={filter === "low"} onClick={() => setFilter("low")}>
               قرب يخلص ({counts.low})
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${filter === "out" ? styles.active : ""}`}
-              onClick={() => setFilter("out")}
-            >
+            </Chip>
+            <Chip active={filter === "out"} onClick={() => setFilter("out")}>
               خلصان ({counts.out})
-            </button>
+            </Chip>
             {counts.nearExpiry > 0 && (
-              <button
-                type="button"
-                className={`${styles.chip} ${filter === "nearExpiry" ? styles.active : ""}`}
+              <Chip
+                active={filter === "nearExpiry"}
                 onClick={() => setFilter("nearExpiry")}
               >
                 صلاحية قريبة ({counts.nearExpiry})
-              </button>
+              </Chip>
             )}
-          </div>
+          </Chips>
 
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل المخزون...
-            </div>
+            <ListSkeleton label="بيحمّل المخزون…" />
           ) : filteredInventory.length === 0 ? (
             <div style={{ padding: "30px 10px" }}>
               <Empty
@@ -819,61 +786,19 @@ export function StockView() {
       ) : (
         /* Tab 2: Additions Log matching Image 5 */
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {/* Period Filter Chips matching Image 5 */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "week" ? styles.active : ""}`}
-              onClick={() => setPeriod("week")}
-            >
-              الأسبوع
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "month" ? styles.active : ""}`}
-              onClick={() => setPeriod("month")}
-            >
-              الشهر
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "year" ? styles.active : ""}`}
-              onClick={() => setPeriod("year")}
-            >
-              السنة
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${period === "custom" ? styles.active : ""}`}
-              onClick={() => setPeriod("custom")}
-            >
-              يوم/فترة
-            </button>
-          </div>
-
-          {/* Custom Date Range Picker */}
-          {period === "custom" && (
-            <div className={styles.dateRangeRow}>
-              <div className={styles.dateInputGroup}>
-                <label>من تاريخ:</label>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={customFrom}
-                  onChange={(e) => setCustomFrom(e.target.value)}
-                />
-              </div>
-              <div className={styles.dateInputGroup}>
-                <label>إلى تاريخ:</label>
-                <input
-                  type="date"
-                  className={styles.dateInput}
-                  value={customTo}
-                  onChange={(e) => setCustomTo(e.target.value)}
-                />
-              </div>
-            </div>
-          )}
+          <PeriodFilter<DatePreset>
+            options={STOCK_HISTORY_PERIODS}
+            value={period}
+            onChange={setPeriod}
+            customKey="custom"
+            from={customFrom}
+            to={customTo}
+            onRangeChange={(f, t) => {
+              setCustomFrom(f);
+              setCustomTo(t);
+            }}
+            max={toCairoDateString(nowTimestamp)}
+          />
 
           {/* Summary Row matching Image 5 */}
           <div className={styles.summaryRow}>
@@ -884,15 +809,7 @@ export function StockView() {
           </div>
 
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل سجل الإضافات...
-            </div>
+            <ListSkeleton label="بيحمّل سجل الإضافات…" />
           ) : groupedMovements.length === 0 ? (
             <div style={{ padding: "30px 10px" }}>
               <Empty
@@ -1034,24 +951,6 @@ export function StockView() {
 
           <div className={styles.valItemCard}>
             <div className={styles.valItemHeader}>
-              <span className={styles.valItemEmoji}>💳</span>
-              <span className={styles.valRowLabel}>
-                قيمة كروت الشحن والوحدات الرقمية:
-              </span>
-            </div>
-            <div className={styles.valItemValue}>
-              <b className={styles.valRowValue}>
-                {formatMoney(cardsValuationPiasters)}
-              </b>
-              <span className={styles.valCurrencySmall}>ج.م</span>
-            </div>
-            <span className={styles.valItemHint}>
-              كروت الشحن الفيزيائية بالمخزن
-            </span>
-          </div>
-
-          <div className={styles.valItemCard}>
-            <div className={styles.valItemHeader}>
               <span className={styles.valItemEmoji}>📱</span>
               <span className={styles.valRowLabel}>
                 أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):
@@ -1108,22 +1007,6 @@ export function StockView() {
               </b>
             </div>
 
-            {/* 1. Edit Stock / Inventory Adjustment */}
-            <button
-              type="button"
-              className={styles.actionItemBtn}
-              onClick={() => {
-                const itm = activeItemAction;
-                setActiveItemAction(null);
-                setEditingStockItem(itm);
-              }}
-            >
-              <span style={{ fontSize: 16 }}>✏️</span>
-              <span style={{ fontWeight: 700 }}>
-                تعديل كمية المخزون (جرد / تصحيح الرصيد)
-              </span>
-            </button>
-
             {/* 2. Add Stock */}
             <button
               type="button"
@@ -1135,16 +1018,21 @@ export function StockView() {
                   id: itm.productId,
                   name_ar: itm.productName,
                   category: itm.category || "المخزون",
-                  unit: itm.unitMode === "weight" ? "kg" : "piece",
+                  // The product's own selling unit (bag, can, kg…), not a piece/weight guess.
+                  unit:
+                    itm.unit || (itm.unitMode === "weight" ? "kg" : "piece"),
                   sell_price_piasters: itm.sellPricePiasters,
                   buy_cost_piasters: itm.buyPricePiasters,
+                  stock_quantity: itm.currentStockBase,
                   is_custom: itm.isCustom ?? false,
                   variants: [
                     {
                       id: itm.variantId,
                       flavor: itm.flavor,
                       pack_qty: itm.packQty,
+                      size_unit: itm.packName ?? undefined,
                       sell_price_piasters: itm.sellPricePiasters,
+                      stock_quantity: itm.currentStockBase,
                       buy_cost_piasters: itm.buyPricePiasters,
                     },
                   ],
@@ -1158,18 +1046,19 @@ export function StockView() {
               <span>إضافة بضاعة جديدة للمخزون</span>
             </button>
 
-            {/* 2. Clear Stock */}
+            {/* 2. Damaged / lost goods (no free quantity editing, P4) */}
             <button
               type="button"
               className={styles.actionItemBtn}
+              data-testid="stock-action-loss"
               onClick={() => {
                 const itm = activeItemAction;
                 setActiveItemAction(null);
-                setClearingItem(itm);
+                setLossTarget({ item: itm });
               }}
             >
-              <span style={{ fontSize: 16 }}>0️⃣</span>
-              <span>تصفير المخزون (تحويل الرصيد لـ 0)</span>
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              <span>سجّل تالف / فاقد</span>
             </button>
 
             {/* 3. Archive from active inventory */}
@@ -1260,25 +1149,16 @@ export function StockView() {
         </Modal>
       )}
 
-      {/* Edit Stock Modal */}
-      {editingStockItem && (
-        <EditStockModal
-          item={editingStockItem}
-          onClose={() => setEditingStockItem(null)}
-          onSaved={() => {
-            setEditingStockItem(null);
-            void loadData();
-          }}
-        />
-      )}
-
-      {/* Clear Stock Modal */}
-      {clearingItem && (
-        <ClearStockModal
-          item={clearingItem}
-          onClose={() => setClearingItem(null)}
-          onCleared={() => {
-            setClearingItem(null);
+      {/* Damaged / lost goods */}
+      {lossTarget && (
+        <RecordLossModal
+          item={lossTarget.item}
+          presetReason={lossTarget.reason}
+          presetBatchId={lossTarget.batchId}
+          onClose={() => setLossTarget(null)}
+          onSaved={(message) => {
+            setLossTarget(null);
+            toast.show({ msg: message, kind: "ok" });
             void loadData();
           }}
         />
@@ -1293,10 +1173,10 @@ export function StockView() {
             setArchivingItem(null);
             void loadData();
           }}
-          onOpenClearStock={() => {
+          onOpenEditQuantity={() => {
             const itm = archivingItem;
             setArchivingItem(null);
-            setClearingItem(itm);
+            setLossTarget({ item: itm, reason: "missing" });
           }}
         />
       )}

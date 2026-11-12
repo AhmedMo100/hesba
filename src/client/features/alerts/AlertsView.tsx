@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { Empty, Icon, Seg, useToast } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
@@ -20,7 +21,6 @@ import {
 import { useAuth } from "@/client/shared/auth";
 import { MachineTopupModal } from "../stock/MachineTopupModal";
 import styles from "./AlertsView.module.css";
-import { dedupedGet } from "@/client/shared/api/dedupe";
 
 export function AlertsView() {
   const { session } = useAuth();
@@ -55,7 +55,7 @@ export function AlertsView() {
 
   const loadAlerts = useCallback(async () => {
     try {
-      const res = await dedupedGet("/api/alerts");
+      const res = await apiGet("/api/alerts");
       if (res.ok) {
         const data = await res.json();
         setOutOfStock(data.outOfStock || []);
@@ -84,8 +84,8 @@ export function AlertsView() {
     const fetchAlerts = async () => {
       try {
         const [alertsRes, productsRes] = await Promise.all([
-          dedupedGet("/api/alerts"),
-          fetch("/api/products?filter=all&scope=store"),
+          apiGet("/api/alerts"),
+          apiGet("/api/products?filter=all&scope=store"),
         ]);
 
         if (alertsRes.ok && !ignore) {
@@ -128,7 +128,7 @@ export function AlertsView() {
 
   // Load published promotions
   const loadPromotions = useCallback(() => {
-    dedupedGet("/api/promotions")
+    apiGet("/api/promotions")
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (data?.promotions && Array.isArray(data.promotions)) {

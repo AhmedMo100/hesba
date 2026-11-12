@@ -18,12 +18,13 @@ import "@/client/shared/zod-csp";
  */
 
 import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
+import { useRouter } from "next/navigation";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import { BottomNav, type NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
-import { ToastProvider } from "../shared/ui";
+import { ListSkeleton, ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
 
 // Eagerly loaded default view
@@ -69,10 +70,11 @@ function getRouteFromPathname(pathname: string): NavRoute {
   return "home";
 }
 
+/** A screen's code is loading (first visit only; chunks are preloaded): its list's shape. */
 function ViewLoading() {
   return (
-    <div className={styles.viewLoading} role="status" aria-live="polite">
-      <span>{t("common.loading")}</span>
+    <div className={styles.viewLoading}>
+      <ListSkeleton rows={5} label={t("common.loading")} />
     </div>
   );
 }
@@ -81,6 +83,11 @@ import { AuthProvider, useAuth } from "../shared/auth";
 import { useLiveQuery } from "dexie-react-hooks";
 import { db } from "@/client/offline/db";
 import { syncCatalogFully } from "@/client/offline/catalog";
+import {
+  forgetShopIdentities,
+  loadShopIdentity,
+  saveShopIdentity,
+} from "@/client/offline/shop";
 import {
   lastOutboxStore,
   listSaleOps,
@@ -91,10 +98,29 @@ import {
 } from "../offline/outbox";
 import { AuthScreen } from "../features/auth/AuthScreen";
 import { ProfileModal } from "../features/auth/ProfileModal";
-import { dedupedGet } from "@/client/shared/api/dedupe";
+import {
+  apiGet,
+  clearReadCache,
+  installWriteInvalidation,
+  setOfflineCopyStore,
+} from "@/client/shared/api/read-cache";
+import { offlineCopyStore } from "@/client/offline/read-cache";
+
+// The screens' read cache (fast navigation, offline copies per shop): installed once.
+if (typeof window !== "undefined") {
+  setOfflineCopyStore(offlineCopyStore());
+  installWriteInvalidation();
+}
 
 function AppShellInner() {
-  const { session, isOfflineExpired, isSessionRefused } = useAuth();
+  const {
+    session,
+    isOfflineExpired,
+    isSessionRefused,
+    isSignedOutByServer,
+    logout,
+  } = useAuth();
+  const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   // The server refused the session (revoked, expired, no longer a member): sign in again
@@ -110,7 +136,7 @@ function AppShellInner() {
   useEffect(() => {
     let isMounted = true;
     const fetchAlertsCount = () => {
-      dedupedGet("/api/alerts")
+      apiGet("/api/alerts")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -260,14 +286,17 @@ function AppShellInner() {
   useEffect(() => {
     if (session?.store?.id) {
       rememberOutboxStore(session.store.id);
-    } else if (
-      !authLoading &&
-      typeof navigator !== "undefined" &&
-      navigator.onLine
-    ) {
-      rememberOutboxStore(null); // online and signed out: forget it
+      // QA-57: keep the shop's identity on the device for the offline header and menu.
+      void saveShopIdentity(db, session).catch(() => {});
+    } else if (!authLoading && isSignedOutByServer) {
+      // Forgotten only when the SERVER answered that nobody is signed in (no session, or 401:
+      // signed out, expired, removed from the shop). A failed session request (no network, even while the browser claims
+      // to be online) keeps the shop's queue and identity (QA-57).
+      rememberOutboxStore(null);
+      void forgetShopIdentities(db).catch(() => {});
+      void clearReadCache();
     }
-  }, [session?.store?.id, authLoading]);
+  }, [session, authLoading, isSignedOutByServer]);
   // While the session is not (re)loaded — offline, or just back online — keep showing the
   // remembered shop's queue instead of a false "0 waiting / synced".
   const storeId = session?.store?.id ?? lastOutboxStore();
@@ -305,6 +334,16 @@ function AppShellInner() {
     window.addEventListener("online", run);
     return () => window.removeEventListener("online", run);
   }, [signedInStore]);
+  // The shop's name offline (QA-57): the identity saved on this device for the shop that
+  // owns it (never another shop's), read locally — no request is made for it.
+  const savedIdentity = useLiveQuery(
+    () => (storeId ? loadShopIdentity(db, storeId) : Promise.resolve(null)),
+    [storeId],
+  );
+  const identity =
+    savedIdentity && savedIdentity.storeId === storeId ? savedIdentity : null;
+  const storeName = session?.store?.name ?? identity?.storeName ?? null;
+  const ownerName = session?.user?.name ?? identity?.ownerName ?? null;
   // Honest status (QA-17): from the connection and the real queue, including each queued
   // sale's last answer (401 → log in, 503 → server updating).
   const { state: effectiveSyncState, pendingCount } = deriveSyncState({
@@ -318,10 +357,22 @@ function AppShellInner() {
       <SideNav activeRoute={route} onNavigate={navigate} />
       <div className={styles.main}>
         <Header
-          storeName={session?.store?.name}
-          onStoreClick={() => setShowProfile(true)}
+          storeName={storeName}
+          ownerName={ownerName}
+          online={syncState !== "offline"}
+          syncState={effectiveSyncState}
+          pendingCount={pendingCount}
+          onSyncNow={() => scheduleSaleSync(storeId, { now: true })}
+          onOpenProfile={() => setShowProfile(true)}
+          onLogout={async () => {
+            await logout();
+            await forgetShopIdentities(db).catch(() => {});
+            await clearReadCache();
+            router.push("/");
+          }}
+          signedIn={Boolean(session)}
           alertCount={alertCount}
-          onNavigate={navigate}
+          onOpenAlerts={() => navigate("alerts")}
         />
         <SyncBar
           state={effectiveSyncState}
@@ -340,11 +391,7 @@ function AppShellInner() {
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
-        <BottomNav
-          activeRoute={route}
-          onNavigate={navigate}
-          alertCount={alertCount}
-        />
+        <BottomNav activeRoute={route} onNavigate={navigate} />
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

@@ -914,12 +914,15 @@ Issues are ordered by severity. Each one lists, in this order:
 
 #### QA-57 · P4 · Offline, the header shows "حسبة" instead of the shop's name
 - **Evidence:** `qa-j-prod-7-offline-after-sale.png`.
+- **Status (2026-11-12):** fixed. The shop and owner names are kept in IndexedDB (`stores`, `sync_meta`) and read for the shop that owns this device's data; no request is made. They are forgotten only when the server answers that nobody is signed in (a failed session request keeps them). Unit, e2e (session request aborted → name kept) and production offline reload verified.
 
 #### QA-58 · P4 · Signup accepts a 10,000-character owner name
 - **Note:** no `max()` on the signup string fields.
+- **Status (2026-11-12):** fixed. Owner name at most 120 characters (`MAX_PERSON_NAME_LENGTH`, same as People names) on signup and profile, server (zod, 400 on `ownerName`) and forms; never truncated.
 
 #### QA-59 · P4 · An unknown `section` in the People list silently returns "owedToMe"
 - **Expected:** 400.
+- **Status (2026-11-12):** fixed. `peopleListQuerySchema` (zod enum): an unknown or empty section is a 400 `VALIDATION_ERROR` on `section`; no section still means «ليك».
 
 ---
 
