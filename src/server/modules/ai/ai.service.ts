@@ -1,13 +1,43 @@
 import "server-only";
+
+/**
+ * @file ai.service.ts
+ * @description The AI assistant's request pipeline.
+ *
+ * @responsibility
+ * For one question: return the cached answer when `clientMessageId` was already processed,
+ * otherwise reserve one unit of the store's daily quota, call the model with the read-only
+ * business tools, run requested tools inside the store's tenant context, store the exchange in
+ * today's conversation, and return the answer with the updated quota. On a provider or
+ * processing failure the reserved quota unit is given back.
+ *
+ * @dependencies
+ * `infra/ai` (model + web-search adapters), `quota.service.ts`, `conversation.service.ts`,
+ * `tools/business-tools.ts`.
+ *
+ * @usedBy
+ * `src/app/api/ai/chat/route.ts`, `src/app/api/ai/quota/route.ts`.
+ *
+ * @remarks
+ * - Provider choice: Gemini when `GEMINI_API_KEY`/`HESBA_GEMINI_API_KEY` is set and not in
+ *   tests, otherwise the mock model; Brave web search when `BRAVE_SEARCH_API_KEY` is set and
+ *   not in tests, otherwise the mock search.
+ * - The `searchMarketTrends` tool sends the model-written query to the external search
+ *   provider; the system prompt instructs the model to search general market topics only.
+ */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { AIQuotaService } from "./quota.service";
 import { AIConversationService } from "./conversation.service";
-import { AIProvider } from "./providers/ai-provider.interface";
-import { GeminiProvider } from "./providers/gemini.provider";
-import { MockAIProvider } from "./providers/mock-ai.provider";
-import { SearchProvider } from "./search/search-provider.interface";
-import { BraveSearchProvider } from "./search/brave-search.provider";
-import { MockSearchProvider } from "./search/mock-search.provider";
+import {
+  type AIProvider,
+  type SearchProvider,
+  GeminiProvider,
+  MockAIProvider,
+  BraveSearchProvider,
+  MockSearchProvider,
+  providerBusy,
+} from "@/server/infra/ai";
+import { AI_REPLY_TIMEOUT_MS } from "./constants";
 import { BusinessToolsService } from "./tools/business-tools";
 import { ChatMessage, SearchCitation, AIQuotaStatus } from "./types";
 import { withTenant } from "@/server/infra/db/tenant";
@@ -195,11 +225,16 @@ export class AIService {
         content: h.bodyText,
       }));
 
+      // One deadline for the whole reply, every model call included (QA-29): the user never
+      // waits more than AI_REPLY_TIMEOUT_MS; past it the provider throws a 503.
+      const signal = AbortSignal.timeout(AI_REPLY_TIMEOUT_MS);
+
       // Initial completion call to AI provider
       const response = await this.aiProvider.generateChatCompletion(
         messages,
         systemInstruction,
         toolDefinitions,
+        { signal },
       );
 
       let finalAnswer = response.text;
@@ -236,9 +271,12 @@ export class AIService {
         }
 
         // Second completion call to synthesize final answer with tool results
+        if (signal.aborted) throw providerBusy();
         const finalResponse = await this.aiProvider.generateChatCompletion(
           toolMessages,
           systemInstruction,
+          undefined,
+          { signal },
         );
 
         finalAnswer = finalResponse.text || "تم جلب البيانات بنجاح.";

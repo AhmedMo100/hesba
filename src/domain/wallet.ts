@@ -1,3 +1,12 @@
+/**
+ * @file wallet.ts
+ * @description Balance rule for e-wallet transactions in integer piasters.
+ *
+ * @remarks
+ * Pure and unit-tested (`tests/unit/domain/wallet-ledger.spec.ts`). Not called by application
+ * code yet. `feePiasters` is validated but does not change the balance.
+ */
+
 import { assertIntegerPiasters } from "./money";
 
 export type WalletTransactionKind =

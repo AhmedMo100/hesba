@@ -1,5 +1,7 @@
 import { z } from "zod";
-import { normalizeNumberString, parseEgpToPiasters } from "@/domain/money";
+import { businessDateSchema, parseStrictDate } from "./dates";
+import { normalizeNumberString, parseEgpStrict } from "@/domain/money";
+import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
 export const PEOPLE_SECTIONS = ["owedToMe", "iOwe", "suppliers"] as const;
 export type PeopleSection = (typeof PEOPLE_SECTIONS)[number];
@@ -25,77 +27,74 @@ export const phoneSchema = z
     { message: "رقم تليفون غير صحيح" },
   );
 
-export const moneyAmountSchema = z
-  .union([z.number(), z.string()])
-  .transform((val, ctx) => {
-    if (typeof val === "number") {
-      if (!Number.isFinite(val) || val < 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "المبلغ لا يمكن أن يكون سالباً",
-        });
-        return z.NEVER;
-      }
-      return Math.round(val);
-    }
-    const clean = normalizeNumberString(val);
-    if (!clean) return 0;
-    if (clean.includes(".")) {
-      return parseEgpToPiasters(clean);
-    }
-    const num = Number(clean);
-    if (isNaN(num) || num < 0) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "المبلغ غير صحيح",
-      });
-      return z.NEVER;
-    }
-    return Math.round(num);
-  });
+/**
+ * Money on the People API (QA-22) — one unit per field, no guessing:
+ * - `amountPiasters` / `amount_piasters`: integer piasters as a JSON number. A string, a
+ *   fraction, a negative or an out-of-range value is a 400 (never silently converted).
+ * - `amountEgp`: pounds, as a number or a string with at most 2 decimals (`50`, `"50"`,
+ *   `"50.00"`, `"٥٠"` → 50.00 EGP), converted exactly (`parseEgpStrict`).
+ * Send one of them, not both.
+ */
+const piastersField = (min: 0 | 1) =>
+  z
+    .number({ message: "المبلغ لازم يكون رقم بالقروش (مش نص)" })
+    .int("المبلغ لازم يكون بالقروش (رقم صحيح)")
+    .min(
+      min,
+      min === 1
+        ? "المبلغ لازم يكون أكبر من صفر"
+        : "المبلغ لا يمكن أن يكون سالباً",
+    )
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي");
 
-export const positiveMoneyAmountSchema = z
-  .union([z.number(), z.string()])
-  .transform((val, ctx) => {
-    if (typeof val === "number") {
-      if (!Number.isFinite(val) || val <= 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "المبلغ لازم يكون أكبر من صفر",
-        });
-        return z.NEVER;
-      }
-      return Math.round(val);
-    }
-    const clean = normalizeNumberString(val);
-    if (!clean) {
+const egpField = (min: 0 | 1) =>
+  z.union([z.number(), z.string()]).transform((val, ctx) => {
+    const piasters = parseEgpStrict(val);
+    if (piasters === null) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        message: "المبلغ مطلوب",
+        message:
+          "المبلغ بالجنيه غير صحيح (رقم موجب وبحد أقصى قرشين بعد العلامة)",
       });
       return z.NEVER;
     }
-    if (clean.includes(".")) {
-      const piasters = parseEgpToPiasters(clean);
-      if (piasters <= 0) {
-        ctx.addIssue({
-          code: z.ZodIssueCode.custom,
-          message: "المبلغ لازم يكون أكبر من صفر",
-        });
-        return z.NEVER;
-      }
-      return piasters;
-    }
-    const num = Number(clean);
-    if (isNaN(num) || num <= 0) {
+    if (piasters < min) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "المبلغ لازم يكون أكبر من صفر",
       });
       return z.NEVER;
     }
-    return Math.round(num);
+    if (piasters > MAX_AMOUNT_PIASTERS) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "المبلغ كبير قوي" });
+      return z.NEVER;
+    }
+    return piasters;
   });
+
+/** The one amount of a request, from whichever single field was sent (or undefined). */
+function pickAmount(
+  data: {
+    amountPiasters?: number;
+    amount_piasters?: number;
+    amountEgp?: number;
+  },
+  ctx: z.RefinementCtx,
+): number | undefined {
+  const given = [
+    data.amountPiasters,
+    data.amount_piasters,
+    data.amountEgp,
+  ].filter((v) => v !== undefined);
+  if (given.length > 1) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "ابعت المبلغ مرة واحدة بس (amountPiasters أو amountEgp)",
+    });
+    return undefined;
+  }
+  return given[0];
+}
 
 export const createPersonInputSchema = z
   .object({
@@ -104,8 +103,9 @@ export const createPersonInputSchema = z
     section: z.enum(PEOPLE_SECTIONS, {
       message: "القسم غير صحيح (owedToMe, iOwe, suppliers)",
     }),
-    amountPiasters: moneyAmountSchema.default(0),
-    amount_piasters: moneyAmountSchema.optional(),
+    amountPiasters: piastersField(0).optional(),
+    amount_piasters: piastersField(0).optional(),
+    amountEgp: egpField(0).optional(),
     note: z
       .string()
       .trim()
@@ -114,14 +114,11 @@ export const createPersonInputSchema = z
       .nullable(),
     supplies: z.array(z.string().min(1)).optional().default([]),
   })
-  .transform((data) => ({
+  .transform((data, ctx) => ({
     name: data.name,
     phone: data.phone ?? null,
     section: data.section,
-    amountPiasters:
-      data.amount_piasters !== undefined
-        ? data.amount_piasters
-        : data.amountPiasters,
+    amountPiasters: pickAmount(data, ctx) ?? 0,
     note: data.note ?? null,
     supplies: data.supplies,
   }));
@@ -136,18 +133,16 @@ export const updatePersonInputSchema = z
       .optional(),
     phone: phoneSchema.optional(),
     supplies: z.array(z.string().min(1)).optional(),
-    amountPiasters: moneyAmountSchema.optional(),
-    amount_piasters: moneyAmountSchema.optional(),
+    amountPiasters: piastersField(0).optional(),
+    amount_piasters: piastersField(0).optional(),
+    amountEgp: egpField(0).optional(),
     note: z.string().trim().max(500).optional().nullable(),
   })
-  .transform((data) => ({
+  .transform((data, ctx) => ({
     name: data.name,
     phone: data.phone,
     supplies: data.supplies,
-    amountPiasters:
-      data.amount_piasters !== undefined
-        ? data.amount_piasters
-        : data.amountPiasters,
+    amountPiasters: pickAmount(data, ctx),
     note: data.note ?? null,
   }));
 
@@ -156,25 +151,24 @@ export const recordDebtTransactionInputSchema = z
     type: z.enum(["debt", "payment"], {
       message: "نوع المعاملة يجب أن يكون إما debt أو payment",
     }),
-    amountPiasters: positiveMoneyAmountSchema.optional(),
-    amount_piasters: positiveMoneyAmountSchema.optional(),
+    amountPiasters: piastersField(1).optional(),
+    amount_piasters: piastersField(1).optional(),
+    amountEgp: egpField(1).optional(),
     note: z
       .string()
       .trim()
       .max(500, "الملاحظة طويلة جداً")
       .optional()
       .nullable(),
-    date: z.string().optional().nullable(),
-    createdAt: z.string().optional().nullable(),
-    created_at: z.string().optional().nullable(),
+    // A real date, not before 2000 and not in the future (QA-37).
+    date: businessDateSchema.optional().nullable(),
+    createdAt: businessDateSchema.optional().nullable(),
+    created_at: businessDateSchema.optional().nullable(),
     opId: z.string().uuid().optional(),
     op_id: z.string().uuid().optional(),
   })
   .transform((data, ctx) => {
-    const amount =
-      data.amount_piasters !== undefined
-        ? data.amount_piasters
-        : data.amountPiasters;
+    const amount = pickAmount(data, ctx);
     if (amount === undefined || amount <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -183,13 +177,9 @@ export const recordDebtTransactionInputSchema = z
       return z.NEVER;
     }
     const rawDate = data.date || data.createdAt || data.created_at;
-    let parsedDate: Date | undefined;
-    if (rawDate) {
-      const d = new Date(rawDate);
-      if (!isNaN(d.getTime())) {
-        parsedDate = d;
-      }
-    }
+    const parsedDate = rawDate
+      ? (parseStrictDate(rawDate) ?? undefined)
+      : undefined;
 
     return {
       type: data.type,

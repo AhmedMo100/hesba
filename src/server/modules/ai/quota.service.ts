@@ -1,4 +1,18 @@
 import "server-only";
+
+/**
+ * @file quota.service.ts
+ * @description The AI assistant's daily message limit per store (`AI_DAILY_MESSAGE_LIMIT`),
+ * counted per Cairo calendar day in `ai_usage`.
+ *
+ * @usedBy
+ * `ai.service.ts`.
+ *
+ * @remarks
+ * Reservation is a single `INSERT … ON CONFLICT DO UPDATE … WHERE count < limit`, so
+ * concurrent requests cannot exceed the limit. A rollback decrements the current day's count
+ * (never below 0).
+ */
 import { PrismaClient } from "@prisma/client";
 import { AI_DAILY_MESSAGE_LIMIT } from "./constants";
 import {

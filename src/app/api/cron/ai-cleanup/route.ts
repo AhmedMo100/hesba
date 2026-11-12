@@ -5,6 +5,7 @@ import { prisma } from "@/server/infra/db/client";
 import { AIConversationService } from "@/server/modules/ai";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
+import { env } from "@/server/config/env";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const authHeader = req.headers.get("authorization") || "";
-    const expectedSecret = process.env.HESBA_CRON_SECRET || "";
+    const expectedSecret = env.HESBA_CRON_SECRET;
 
     if (!expectedSecret) {
       logger.error("HESBA_CRON_SECRET is not configured on the server");

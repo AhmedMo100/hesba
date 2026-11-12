@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { AiView } from "@/client/app-shell/views/AiView";
+import { AiView } from "@/client/features/ai/AiView";
 
 describe("AiView Component (Assistant Chat Interface)", () => {
   beforeEach(() => {

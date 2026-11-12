@@ -5,7 +5,7 @@ import { prisma } from "@/server/infra/db/client";
 import { CatalogService } from "@/server/modules/catalog";
 import { upsertProductInputSchema } from "@/schemas/product";
 import { normalizeArabic } from "@/domain/normalize";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -50,10 +50,14 @@ export async function GET(req: Request) {
       buy_cost_piasters: Number(p.buy_cost_piasters),
       stock_quantity: Number(p.stock_quantity ?? 0),
       brand_name: p.brand_name || null,
+      // QA-48: the products screen also searches the English catalog names.
+      name_en: p.name_en,
+      brand_name_en: p.brand_name_en,
       is_custom: p.is_custom,
       added_by_this_store: p.added_by_this_store,
       is_hidden: p.is_hidden,
       global_product_id: p.global_product_id,
+      kind: p.kind,
       variants: p.variants.map((v) => ({
         id: v.id,
         flavor: v.flavor,
@@ -87,7 +91,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const input = upsertProductInputSchema.parse(body);
 
     const catalogService = new CatalogService(prisma);
@@ -171,6 +175,10 @@ export async function PATCH(req: Request) {
 /**
  * DELETE /api/products?id=<productId>
  * Hides a store product and its variants for this store only.
+ *
+ * DELETE /api/products?id=<productId>&action=delete
+ * Deletes a product this shop created (`CatalogService.deleteShopProduct`): removed when it
+ * has no history, archived (hidden) when it does. Catalog products are refused.
  */
 export async function DELETE(req: Request) {
   try {
@@ -185,6 +193,16 @@ export async function DELETE(req: Request) {
     }
 
     const catalogService = new CatalogService(prisma);
+
+    if (searchParams.get("action") === "delete") {
+      const outcome = await catalogService.deleteShopProduct(
+        context.store.id,
+        context.user.id,
+        productId,
+      );
+      return NextResponse.json({ success: true, ...outcome });
+    }
+
     await catalogService.hideStoreProduct(
       context.store.id,
       context.user.id,

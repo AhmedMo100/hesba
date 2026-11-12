@@ -1,4 +1,16 @@
 import "server-only";
+
+/**
+ * @file logger.ts
+ * @description The server's structured JSON logger (pino).
+ *
+ * @remarks
+ * Personal data must not reach the logs (AGENTS.md rule 12). Values at the keys in
+ * `REDACTED_PATHS` (top level and up to two levels deep for most keys) are replaced with
+ * `[REDACTED]`; any other key is logged as-is, so log ids rather than personal fields.
+ * The level comes from `LOG_LEVEL` (default `info`).
+ */
+
 import pino, { type LoggerOptions, type DestinationStream } from "pino";
 
 export const REDACTED_PATHS = [

@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { fixtureAuthApi } from "@/client/shared/api/auth.fixture";
-import { okPhone, okMail, normDigits } from "@/client/shared/auth/AuthScreen";
+import { okPhone, okMail, normDigits } from "@/client/features/auth/AuthScreen";
 
 describe("Hesba Authentication Client — Phone, Password & Recovery Code", () => {
   beforeEach(async () => {

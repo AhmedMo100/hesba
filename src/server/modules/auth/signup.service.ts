@@ -8,6 +8,23 @@ import { createSession } from "./session.service";
 import { randomUUID } from "node:crypto";
 import { withTenant } from "@/server/infra/db/tenant";
 
+/**
+ * @file signup.service.ts
+ * @description Owner sign-up: creates the user, their first store, the owner membership, a
+ * device, and the first session.
+ *
+ * @usedBy
+ * `src/app/api/auth/signup/route.ts`; `normalizePhone` is also used by `login.service.ts` and
+ * `forgot-password.service.ts`.
+ */
+
+/**
+ * Normalizes an Egyptian mobile number to the stored `+20…` form. Arabic-Indic digits,
+ * spaces, `-` and `_` are accepted. Login looks users up by this normalized form, so every
+ * write of `users.phone` must use it.
+ *
+ * @example normalizePhone("٠١٠ ١٢٣٤ ٥٦٧٨") // "+201012345678"
+ */
 export function normalizePhone(v: string): string {
   let cleaned = v
     .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
@@ -26,6 +43,18 @@ export function normalizePhone(v: string): string {
   return cleaned;
 }
 
+/**
+ * Registers a new owner and their store, and signs them in.
+ *
+ * The user, the store, the `owner` membership and the first device are created in one
+ * `withTenant` transaction (QA-50), so a failed sign-up leaves no half-made account. The
+ * session is created afterwards; if that fails the account is complete and login works.
+ *
+ * @param rawInput - Sign-up form data (validated with `signupInputSchema`).
+ * @returns The raw session token plus the user and store summary.
+ * @throws AppError (409) when the phone or email is already registered. A zod error on
+ * invalid input.
+ */
 export async function registerUserWithPassword(rawInput: SignupInput) {
   const data = signupInputSchema.parse(rawInput);
   const normalizedPhone = normalizePhone(data.phone);
@@ -49,16 +78,53 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
   const storeId = randomUUID();
   const openedOnDate = data.openedOn ? new Date(data.openedOn) : new Date();
 
-  // 1. Create User (users table has NO RLS, accessed under service role)
-  let user;
+  // One transaction for the user, the store, the owner membership and the device (QA-50): a
+  // failure in any step leaves nothing behind, so the same phone and email can sign up again.
+  // `users` has no RLS; the tenant binding only matters for the store-scoped rows.
+  const userId = randomUUID();
+  let created;
   try {
-    user = await prisma.user.create({
-      data: {
-        name: data.ownerName.trim(),
-        phone: normalizedPhone,
-        email: normalizedEmail,
-        passwordHash: hashedPassword,
-      },
+    created = await withTenant(storeId, userId, async (tx) => {
+      const u = await tx.user.create({
+        data: {
+          id: userId,
+          name: data.ownerName.trim(),
+          phone: normalizedPhone,
+          email: normalizedEmail,
+          passwordHash: hashedPassword,
+        },
+      });
+
+      const s = await tx.store.create({
+        data: {
+          id: storeId,
+          name: data.storeName.trim(),
+          shopType: data.shopType,
+          governorate: data.governorate,
+          area: data.area ?? null,
+          openedOn: openedOnDate,
+          workersCount: data.workersCount ?? 1,
+          createdBy: userId,
+        },
+      });
+
+      await tx.storeMember.create({
+        data: {
+          storeId,
+          userId,
+          role: "owner",
+        },
+      });
+
+      const d = await tx.device.create({
+        data: {
+          storeId,
+          userId,
+          label: "جهاز التسجيل الأول",
+        },
+      });
+
+      return { user: u, store: s, device: d };
     });
   } catch (err: unknown) {
     if (
@@ -76,40 +142,7 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
     }
     throw err;
   }
-
-  // 2. Create Store, StoreMember, and Device under withTenant context
-  const { store, device } = await withTenant(storeId, user.id, async (tx) => {
-    const s = await tx.store.create({
-      data: {
-        id: storeId,
-        name: data.storeName.trim(),
-        shopType: data.shopType,
-        governorate: data.governorate,
-        area: data.area ?? null,
-        openedOn: openedOnDate,
-        workersCount: data.workersCount ?? 1,
-        createdBy: user.id,
-      },
-    });
-
-    await tx.storeMember.create({
-      data: {
-        storeId,
-        userId: user.id,
-        role: "owner",
-      },
-    });
-
-    const d = await tx.device.create({
-      data: {
-        storeId,
-        userId: user.id,
-        label: "جهاز التسجيل الأول",
-      },
-    });
-
-    return { store: s, device: d };
-  });
+  const { user, store, device } = created;
 
   // 3. Create initial authenticated session
   const { rawToken: sessionToken, session } = await createSession(

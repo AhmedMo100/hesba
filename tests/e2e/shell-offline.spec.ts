@@ -46,8 +46,11 @@ test.describe("App Shell Offline Navigation", () => {
         await dialog.locator("button").filter({ hasText: label }).click();
         await expect(dialog).toBeHidden();
       } else {
+        // The navigation menu's button: on desktop the header's alerts bell has the same
+        // label (both open Alerts), so the locator is scoped to the visible navigation.
         await page
-          .locator(`button[aria-label="${label}"]:visible`)
+          .locator(`nav button[aria-label="${label}"]:visible`)
+          .first()
           .click({ force: true });
       }
     };

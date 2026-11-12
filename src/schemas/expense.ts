@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { businessDateSchema } from "./dates";
+import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
 export const EXPENSE_CATEGORIES = [
   "كهرباء",
@@ -31,11 +33,13 @@ export const createExpenseInputSchema = z.object({
   amountPiasters: z
     .number()
     .int("المبلغ يجب أن يكون بالقروش (رقم صحيح)")
-    .positive("المبلغ لازم يكون أكبر من صفر"),
+    .positive("المبلغ لازم يكون أكبر من صفر")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي"),
   note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
-  spentAt: z
-    .union([z.string().datetime(), z.string().regex(/^\d{4}-\d{2}-\d{2}/)])
-    .optional(),
+  /** A real date, not before 2000 and not in the future (QA-37). */
+  spentAt: businessDateSchema.optional(),
+  /** Idempotency key (QA-27): a retry with the same opId records the expense once. */
+  opId: z.string().uuid().optional(),
 });
 
 export const updateExpenseInputSchema = z.object({
@@ -44,11 +48,11 @@ export const updateExpenseInputSchema = z.object({
     .number()
     .int("المبلغ يجب أن يكون بالقروش")
     .positive("المبلغ لازم يكون أكبر من صفر")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional(),
   note: z.string().trim().max(500).optional().nullable(),
-  spentAt: z
-    .union([z.string().datetime(), z.string().regex(/^\d{4}-\d{2}-\d{2}/)])
-    .optional(),
+  /** A real date, not before 2000 and not in the future (QA-37). */
+  spentAt: businessDateSchema.optional(),
 });
 
 export type CreateExpenseInput = z.infer<typeof createExpenseInputSchema>;

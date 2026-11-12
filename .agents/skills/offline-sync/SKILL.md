@@ -9,7 +9,7 @@ description: Offline-first architecture using Dexie IndexedDB, Outbox queue, op_
 
 - Implementing or modifying mutations in `src/client/` (sales, products, inventory, expenses).
 - Updating Dexie IndexedDB schema or local repositories.
-- Working on the sync engine in `src/client/shared/sync/`.
+- Working on the sync engine in `src/client/offline/sync/` (planned; ADR-0017).
 - Implementing or altering `/api/sync/push` or `/api/sync/pull` route handlers.
 
 ## Core Rules & Principles
@@ -27,7 +27,7 @@ description: Offline-first architecture using Dexie IndexedDB, Outbox queue, op_
 Write domain data and the outbox operation together:
 
 ```ts
-import { db } from "@/client/shared/db";
+import { db } from "@/client/offline/db";
 import { v7 as uuidv7 } from "uuid";
 
 await db.transaction("rw", [db.sales, db.outbox], async () => {

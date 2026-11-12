@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
+import { toCairoDateString } from "@/domain/time";
 import { createSession } from "@/server/modules/auth/session.service";
 import {
   GET as getExpensesRoute,
@@ -13,8 +14,10 @@ import {
 } from "@/app/api/expenses/[id]/route";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";
@@ -228,7 +231,7 @@ describe("Expenses API & Tenancy Integration", () => {
     expect(jsonWeek.expenses.length).toBeGreaterThanOrEqual(1);
 
     // Custom date range encompassing today
-    const nowIso = new Date().toISOString().slice(0, 10);
+    const nowIso = toCairoDateString(new Date());
     const getCustom = new Request(
       `http://localhost:3000/api/expenses?period=custom&from=${nowIso}&to=${nowIso}`,
       {

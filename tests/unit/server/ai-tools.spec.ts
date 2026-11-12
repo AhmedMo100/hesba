@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { BusinessToolsService } from "@/server/modules/ai/tools/business-tools";
-import { MockAIProvider } from "@/server/modules/ai/providers/mock-ai.provider";
-import { MockSearchProvider } from "@/server/modules/ai/search/mock-search.provider";
-import { GeminiProvider } from "@/server/modules/ai/providers/gemini.provider";
+import { MockAIProvider } from "@/server/infra/ai/mock-ai.provider";
+import { MockSearchProvider } from "@/server/infra/ai/mock-search.provider";
+import { GeminiProvider } from "@/server/infra/ai/gemini.provider";
 
 describe("AI Business Tools & Providers Unit Tests", () => {
   it("provides complete tool definitions with JSON schema properties", () => {

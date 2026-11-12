@@ -1,25 +1,42 @@
 "use client";
 
+import "@/client/shared/zod-csp";
+
+/**
+ * @file AppShell.tsx
+ * @description The single-route client application under `/app/*` (ADR-0013): header,
+ * side/bottom navigation, sync bar, and the active screen.
+ *
+ * @responsibility
+ * - Switches between screens in client state; Home is bundled, every other screen is a lazy
+ *   chunk preloaded after first render so navigation keeps working offline.
+ * - Registers the service worker (`/sw.js`) in production; in development unregisters old
+ *   workers and clears their caches.
+ * - Drives the sync bar from the connection and the sales outbox, and triggers the outbox sync
+ *   on events (startup/sign-in, back online, tab visible, a tap on the bar) — ADR-0020.
+ * - Opens the login modal and the profile modal.
+ */
+
 import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import { BottomNav, type NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
-import { SyncBar, type SyncState } from "./SyncBar";
+import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
 
 // Eagerly loaded default view
-import { HomeView } from "./views/HomeView";
+import { HomeView } from "../features/home/HomeView";
 
 // Lazy-loaded views
-const loadProductsView = () => import("./views/ProductsView");
-const loadSalesView = () => import("./views/SalesView");
-const loadStockView = () => import("./views/StockView");
-const loadExpensesView = () => import("./views/ExpensesView");
-const loadPeopleView = () => import("./views/PeopleView");
-const loadAlertsView = () => import("./views/AlertsView");
-const loadAiView = () => import("./views/AiView");
+const loadProductsView = () => import("../features/products/ProductsView");
+const loadSalesView = () => import("../features/sales/SalesView");
+const loadStockView = () => import("../features/stock/StockView");
+const loadExpensesView = () => import("../features/expenses/ExpensesView");
+const loadPeopleView = () => import("../features/people/PeopleView");
+const loadAlertsView = () => import("../features/alerts/AlertsView");
+const loadAiView = () => import("../features/ai/AiView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -60,17 +77,57 @@ function ViewLoading() {
   );
 }
 
+import { AuthProvider, useAuth } from "../shared/auth";
+import { useLiveQuery } from "dexie-react-hooks";
 import {
-  AuthProvider,
-  useAuth,
-  ProfileModal,
-  AuthScreen,
-} from "../shared/auth";
+  lastOutboxStore,
+  listSaleOps,
+  rememberOutboxStore,
+  scheduleSaleSync,
+  setActiveOutboxStore,
+  type SaleOutboxOp,
+} from "../offline/outbox";
+import { AuthScreen } from "../features/auth/AuthScreen";
+import { ProfileModal } from "../features/auth/ProfileModal";
+import { dedupedGet } from "@/client/shared/api/dedupe";
 
 function AppShellInner() {
   const { session, isOfflineExpired } = useAuth();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
+
+  const [alertCount, setAlertCount] = useState<number>(0);
+
+  useEffect(() => {
+    let isMounted = true;
+    const fetchAlertsCount = () => {
+      dedupedGet("/api/alerts")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!isMounted) return;
+          if (typeof data?.totalAlerts === "number") {
+            setAlertCount(data.totalAlerts);
+          }
+        })
+        .catch(() => {});
+    };
+
+    // The Alerts screen announces fresh alerts with their count: use it instead of asking the
+    // server again (QA-28). An event without a count still triggers one fetch.
+    const onAlertsUpdated = (e: Event) => {
+      const total = (e as CustomEvent<{ totalAlerts?: unknown }>).detail
+        ?.totalAlerts;
+      if (typeof total === "number") setAlertCount(total);
+      else fetchAlertsCount();
+    };
+
+    void fetchAlertsCount();
+    window.addEventListener("hesba_alerts_updated", onAlertsUpdated);
+    return () => {
+      isMounted = false;
+      window.removeEventListener("hesba_alerts_updated", onAlertsUpdated);
+    };
+  }, []);
 
   const [route, setRoute] = useState<NavRoute>(() => {
     if (typeof window !== "undefined") {
@@ -170,7 +227,7 @@ function AppShellInner() {
       case "products":
         return <ProductsView />;
       case "sales":
-        return <SalesView />;
+        return <SalesView onNavigate={navigate} />;
       case "stock":
         return <StockView />;
       case "expenses":
@@ -186,7 +243,54 @@ function AppShellInner() {
     }
   };
 
-  const effectiveSyncState: SyncState = isOfflineExpired ? "login" : syncState;
+  // Sales waiting in the outbox (ADR-0020), live across tabs. Sync runs on events only:
+  // startup / sign-in, back online, tab visible again, a new sale, or a tap on the bar.
+  // Offline the session request fails; the shop last signed in on this device still owns the
+  // queue, so its waiting sales stay visible (and new ones can be queued) after a reload.
+  const { isLoading: authLoading } = useAuth();
+  useEffect(() => {
+    if (session?.store?.id) {
+      rememberOutboxStore(session.store.id);
+    } else if (
+      !authLoading &&
+      typeof navigator !== "undefined" &&
+      navigator.onLine
+    ) {
+      rememberOutboxStore(null); // online and signed out: forget it
+    }
+  }, [session?.store?.id, authLoading]);
+  // While the session is not (re)loaded — offline, or just back online — keep showing the
+  // remembered shop's queue instead of a false "0 waiting / synced".
+  const storeId = session?.store?.id ?? lastOutboxStore();
+  // `undefined` until IndexedDB has answered: the bar must not claim "synced" before that.
+  const queuedSales = useLiveQuery(
+    () =>
+      storeId ? listSaleOps(storeId) : Promise.resolve([] as SaleOutboxOp[]),
+    [storeId],
+  );
+  useEffect(() => {
+    // Only the signed-in shop's queued sales are ever sent from this tab.
+    setActiveOutboxStore(storeId ?? null);
+    if (!storeId || typeof window === "undefined") return;
+    scheduleSaleSync(storeId, { now: true });
+    const onOnline = () => scheduleSaleSync(storeId, { now: true });
+    const onVisible = () => {
+      if (document.visibilityState === "visible") scheduleSaleSync(storeId);
+    };
+    window.addEventListener("online", onOnline);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [storeId]);
+  // Honest status (QA-17): from the connection and the real queue, including each queued
+  // sale's last answer (401 → log in, 503 → server updating).
+  const { state: effectiveSyncState, pendingCount } = deriveSyncState({
+    online: syncState !== "offline",
+    sessionExpired: isOfflineExpired,
+    queue: queuedSales,
+  });
 
   return (
     <div className={styles.app} dir="rtl">
@@ -195,11 +299,19 @@ function AppShellInner() {
         <Header
           storeName={session?.store?.name}
           onStoreClick={() => setShowProfile(true)}
+          alertCount={alertCount}
+          onNavigate={navigate}
         />
         <SyncBar
           state={effectiveSyncState}
+          pendingCount={pendingCount}
           onClick={() => {
-            if (isOfflineExpired) setShowAuthModal(true);
+            if (effectiveSyncState === "login") {
+              setShowAuthModal(true);
+              return;
+            }
+            scheduleSaleSync(storeId, { now: true });
+            if (effectiveSyncState === "needsReview") navigate("sales");
           }}
         />
         <main
@@ -207,7 +319,11 @@ function AppShellInner() {
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
-        <BottomNav activeRoute={route} onNavigate={navigate} />
+        <BottomNav
+          activeRoute={route}
+          onNavigate={navigate}
+          alertCount={alertCount}
+        />
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

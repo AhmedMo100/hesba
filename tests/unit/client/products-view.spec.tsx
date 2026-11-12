@@ -1,9 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { ProductsView } from "@/client/app-shell/views/ProductsView";
-import { ProductFormModal } from "@/client/app-shell/views/ProductFormModal";
-import { AddStockModal } from "@/client/app-shell/views/AddStockModal";
+import { ProductsView } from "@/client/features/products/ProductsView";
+import { ProductFormModal } from "@/client/features/products/ProductFormModal";
+import { ServiceFormModal } from "@/client/features/products/ServiceFormModal";
+import { AddStockModal } from "@/client/features/stock/AddStockModal";
+import { MachinesModal } from "@/client/features/products/MachinesModal";
 
 describe("ProductsView Client Component", () => {
   beforeEach(() => {
@@ -16,6 +18,12 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain("المنتجات");
     expect(html).toContain('data-testid="add-product-btn"');
     expect(html).toContain("إضافة منتج");
+  });
+
+  it("renders top segmented tabs switching between 'المنتجات' and 'الفواتير والشحن'", () => {
+    const html = renderToStaticMarkup(<ProductsView />);
+    expect(html).toContain("المنتجات");
+    expect(html).toContain("الفواتير والشحن");
   });
 
   it("renders search box with Arabic placeholder and microphone button", () => {
@@ -46,9 +54,12 @@ describe("ProductFormModal Component", () => {
     );
     expect(html).toContain("إضافة منتج");
     expect(html).toContain("اسم المنتج");
+    expect(html).toContain("التصنيف");
+    expect(html).toContain("إلزامي للإضافة");
     expect(html).toContain("بيتباع إزاي؟");
     expect(html).toContain("بالقطعة / الكرتونة");
     expect(html).toContain("بالوزن");
+    expect(html).toContain("بالكيس");
     expect(html).toContain("بيتباع كرتونة كمان");
     expect(html).toContain("سعر القطعة");
     expect(html).toContain("إضافة");
@@ -149,38 +160,34 @@ describe("ProductFormModal Component", () => {
     expect(html).not.toContain("المخزون الحالي:");
   });
 
-  it("renders dedicated digital service form with commission models, simulator, and disclaimer", () => {
-    const serviceProduct = {
-      id: "prod-bill",
-      name_ar: "دفع فاتورة إنترنت منزلي وي",
-      category: "فواتير إنترنت",
+  it("strictly keeps physical product form free from digital commission fields", () => {
+    const physicalProduct = {
+      id: "prod-phys",
+      name_ar: "سمن روابي 1.5 كجم",
+      category: "زيوت وسمن",
       unit: "piece",
-      sell_price_piasters: 500,
+      sell_price_piasters: 14000,
       variants: [
         {
-          id: "var-bill",
+          id: "var-phys",
           pack_qty: 1,
-          sell_price_piasters: 500,
+          sell_price_piasters: 14000,
         },
       ],
     };
 
     const html = renderToStaticMarkup(
       <ProductFormModal
-        product={serviceProduct}
+        product={physicalProduct}
         onClose={() => {}}
         onSaved={() => {}}
       />,
     );
 
-    expect(html).toContain("إعدادات عمولة الخدمة الرقمية");
-    expect(html).toContain("طريقة احتساب عمولة المحل:");
-    expect(html).toContain("مبلغ ثابت (ج.م)");
-    expect(html).toContain("نسبة مئوية (%)");
-    expect(html).toContain("شرائح مبالغ");
-    expect(html).toContain("محاكي الأرباح لمعاملة تجريبية:");
-    expect(html).toContain("تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات");
-    expect(html).not.toContain("بيتباع إزاي؟");
+    expect(html).toContain("بيتباع إزاي؟");
+    expect(html).not.toContain("طريقة احتساب عمولة المحل");
+    expect(html).not.toContain("محاكي الأرباح");
+    expect(html).not.toContain("رسوم المزود");
   });
 
   it("renders bag packaging options (content type, weight/count, carton of bags) when bag unit product is passed", () => {
@@ -213,10 +220,11 @@ describe("ProductFormModal Component", () => {
 
     expect(html).toContain("بالكيس");
     expect(html).toContain("محتوى الكيس");
-    expect(html).toContain("كيس بالوزن (جرام / كجم)");
-    expect(html).toContain("كيس بالعدد (قطع)");
+    expect(html).toContain("بالوزن (جرام / كجم)");
+    expect(html).toContain("بالعدد (قطع)");
     expect(html).toContain("بيتباع كرتونة كمان (تحتوي على أكياس)");
     expect(html).toContain("سعر الكيس الواحد");
+    expect(html).toContain("مصنف بالفعل");
   });
 
   it("renders scratch card title 'سعر الكارت' when prepaid card category is edited", () => {
@@ -278,21 +286,27 @@ describe("AddStockModal Component", () => {
     );
 
     expect(html).toContain("إضافة للمخزون: بيبسي 1 لتر");
-    expect(html).toContain("نوع الكمية التي يتم إدخالها:");
-    expect(html).toContain("بالقطعة / الكرتونة");
-    expect(html).toContain("بالوزن");
+    expect(html).toContain("طريقة البيع والكمية المدخلة:");
+    expect(html).toContain("قطعة");
+    expect(html).toContain("علبة");
+    expect(html).toContain("برطمان");
+    expect(html).toContain("كيس");
+    expect(html).toContain("كرتونة");
+    expect(html).toContain("وزن");
     expect(html).toContain("كراتين");
     expect(html).toContain("قطع زيادة");
     expect(html).toContain("قطع/كرتونة");
     expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
     expect(html).toContain("تاريخ الإنتاج / البداية (اختياري)");
     expect(html).toContain("تاريخ الانتهاء");
-    expect(html).toContain("المنتج ملوش تاريخ صلاحية (زي المنظفات والورقيات)");
+    expect(html).toContain(
+      "المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)",
+    );
     expect(html).toContain("بعد 3 شهور");
     expect(html).toContain("بعد سنة");
   });
 
-  it("shows active stock warning and blocks re-addition when product already has stock > 0", () => {
+  it("allows re-supplying stock at any time even when product already has stock > 0", () => {
     const stockedProduct = {
       id: "prod-stocked",
       name_ar: "شيبسي عائلي بالجبنة",
@@ -321,10 +335,9 @@ describe("AddStockModal Component", () => {
       />,
     );
 
-    expect(html).toContain("موجود بالفعل في المخزون");
-    expect(html).toContain("الرصيد الحالي: 48 قطعة");
-    expect(html).toContain("لا يمكن تسجيل كمية جديدة حتى تنفد الكمية الحالية");
-    expect(html).toContain("موجود بالمخزون");
+    expect(html).toContain("إضافة للمخزون: شيبسي عائلي بالجبنة");
+    expect(html).toContain("الرصيد الحالي: <b>4 كرتونة</b>");
+    expect(html).toContain("إضافة ✓");
   });
 
   it("renders bag-specific labels when adding stock for a product sold in bags", () => {
@@ -357,5 +370,107 @@ describe("AddStockModal Component", () => {
 
     expect(html).toContain("أكياس زيادة");
     expect(html).toContain("أكياس/كرتونة");
+  });
+});
+
+describe("MachinesModal Component (Payment POS Terminals & Providers)", () => {
+  it("renders POS machines manager with registered machines and action to add machine", () => {
+    const html = renderToStaticMarkup(
+      <MachinesModal onClose={() => {}} onMachinesUpdated={() => {}} />,
+    );
+
+    expect(html).toContain("ماكينات الدفع ومزودو الخدمة");
+    expect(html).toContain("+ إضافة ماكينة دفع");
+  });
+
+  it("renders safety and privacy disclaimer without asking for PIN or OTP", () => {
+    const html = renderToStaticMarkup(
+      <MachinesModal onClose={() => {}} onMachinesUpdated={() => {}} />,
+    );
+
+    expect(html).not.toContain("رمز PIN");
+    expect(html).not.toContain("كلمة المرور");
+  });
+});
+
+describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () => {
+  it("renders dedicated digital service form with responsive commission grid and no simulator or provider fee", () => {
+    const serviceProduct = {
+      id: "prod-bill",
+      name_ar: "دفع فاتورة إنترنت منزلي وي",
+      category: "فواتير إنترنت",
+      unit: "service",
+      sell_price_piasters: 500,
+      variants: [
+        {
+          id: "var-bill",
+          pack_qty: 1,
+          sell_price_piasters: 500,
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <ServiceFormModal
+        product={serviceProduct}
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    // Header & Title
+    expect(html).toContain("تعديل الخدمة / الكارت");
+    expect(html).toContain("اسم الخدمة أو الكارت");
+
+    // Preselected Category with badge
+    expect(html).toContain("تصنيف الخدمة");
+    expect(html).toContain("مصنف بالفعل");
+
+    // Commission Model Options
+    expect(html).toContain("طريقة احتساب عمولة المحل:");
+    expect(html).toContain("مبلغ ثابت (ج.م)");
+    expect(html).toContain("نسبة مئوية (%)");
+    expect(html).toContain("شرائح مبالغ");
+
+    // Strictly omitted elements
+    expect(html).not.toContain("محاكي الأرباح");
+    expect(html).not.toContain("رسوم المزود");
+    expect(html).not.toContain("بيتباع إزاي؟");
+
+    // Regulatory disclaimer
+    expect(html).toContain("تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات");
+  });
+
+  it("renders card-specific labels and placeholder when card category is selected", () => {
+    const html = renderToStaticMarkup(
+      <ServiceFormModal
+        presetCategory="كروت شحن"
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+
+    expect(html).toContain("إضافة خدمة أو كارت");
+    expect(html).toContain("مثال: كارت شحن فودافون فكة 10");
+    expect(html).toContain("إلزامي للإضافة");
+    expect(html).toContain("سعر بيع الكارت (ج.م)");
+  });
+
+  it("renders 'أخرى (إنشاء تصنيف جديد...)' option and input in ProductFormModal", () => {
+    const htmlNormal = renderToStaticMarkup(
+      <ProductFormModal onClose={() => {}} onSaved={() => {}} />,
+    );
+    expect(htmlNormal).toContain("أخرى (إنشاء تصنيف جديد...)");
+
+    // When custom category is preset, custom input field is rendered
+    const htmlCustom = renderToStaticMarkup(
+      <ProductFormModal
+        defaultCategory="أدوات مكتبية"
+        onClose={() => {}}
+        onSaved={() => {}}
+      />,
+    );
+    expect(htmlCustom).toContain("اكتب اسم التصنيف الجديد هنا...");
+    expect(htmlCustom).toContain("أدوات مكتبية");
   });
 });

@@ -1,4 +1,26 @@
 import "server-only";
+
+/**
+ * @file community-suggestions.service.ts
+ * @description The community catalog pipeline: stores' custom products become candidates,
+ * other stores adopt or report them, and well-adopted candidates are promoted into the global
+ * catalog.
+ *
+ * @responsibility
+ * Submit candidates, record one adoption per store, report candidates (auto-hide at the
+ * report threshold), and evaluate promotion.
+ *
+ * @usedBy
+ * `catalog.service.ts`, `src/app/api/cron/catalog-promotion/route.ts`.
+ *
+ * @remarks
+ * - The pool is cross-tenant by design, so this service works on the client it is given
+ *   (the cron route passes `servicePrisma`, role `hesba_service`, ADR-0024) rather than inside one store's `withTenant`.
+ * - Only product identity is shared (name, brand, category, size) — never prices, stock or
+ *   the submitting store's identity (AGENTS.md rule 8).
+ * - Thresholds (minimum adopting stores, minimum age, report limit) are in `./constants.ts`.
+ */
+
 import { type PrismaClient } from "@prisma/client";
 import { normalizeArabic } from "@/domain/normalize";
 import { matchProducts } from "@/domain/product-matcher";
@@ -204,27 +226,15 @@ export class CommunitySuggestionsService {
     const db = (options?.tx ? options.tx : this.prisma) as PrismaClient;
     const now = options?.now ?? new Date();
 
-    // Idempotent upsert on candidate_adoptions
-    try {
-      await db.candidateAdoption.create({
-        data: {
-          candidateId,
-          storeId,
-          createdAt: now,
-        },
-      });
-    } catch (err: unknown) {
-      // If unique constraint violation, this store already adopted - safe to ignore
-      const isUniqueViolation =
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        (err as { code: string }).code === "P2002";
-
-      if (!isUniqueViolation) {
-        throw err;
-      }
-
+    // Idempotent insert: ON CONFLICT DO NOTHING (QA-23). Catching a unique violation inside
+    // the caller's transaction is not possible — Postgres aborts the transaction (25P02) and
+    // every later statement fails, which made a second same-name product a 500.
+    const inserted = await db.candidateAdoption.createMany({
+      data: [{ candidateId, storeId, createdAt: now }],
+      skipDuplicates: true,
+    });
+    if (inserted.count === 0) {
+      // This store had already adopted the candidate.
       const existingCandidate = await this.prisma.catalogCandidate.findUnique({
         where: { id: candidateId },
         select: { acceptsCount: true },

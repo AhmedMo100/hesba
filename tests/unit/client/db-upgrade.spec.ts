@@ -5,7 +5,7 @@ import {
   HesbaDatabase,
   assertIntegerPiasters,
   assertIntegerBaseUnits,
-} from "@/client/shared/db";
+} from "@/client/offline/db";
 import type {
   LocalStore,
   LocalStoreProduct,
@@ -13,7 +13,7 @@ import type {
   LocalStockBatch,
   LocalSale,
   LocalSaleLine,
-} from "@/client/shared/db";
+} from "@/client/offline/db";
 
 describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () => {
   const DB_NAME = "hesba_test_upgrade_db";
@@ -128,15 +128,33 @@ describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () 
     await v1Db.table("sales").add(sampleSale);
     await v1Db.table("sale_lines").add(sampleSaleLine);
     await v1Db.table("sync_meta").add({ key: "cursor", value: "100" });
+    await v1Db.table("outbox").add({
+      op_id: "op-legacy-01",
+      type: "sale.create",
+      payload: { opId: "op-legacy-01" },
+      client_ts: "2026-10-28T00:00:00Z",
+      status: "pending",
+      attempts: 0,
+      created_at: "2026-10-28T00:00:00Z",
+    });
 
     // Close v1 database
     v1Db.close();
 
-    // 2. Open upgraded Database using HesbaDatabase (which declares v1, v2, and v3)
+    // 2. Open upgraded Database using HesbaDatabase (which declares v1 to v4)
     const upgradedDb = new HesbaDatabase(DB_NAME);
     await upgradedDb.open();
 
-    expect(upgradedDb.verno).toBe(3);
+    expect(upgradedDb.verno).toBe(4);
+
+    // v4 (ADR-0020): a queued operation from an older version survives the upgrade, and the
+    // new store_id index answers (an op without a shop is simply not listed for any shop).
+    expect(await upgradedDb.outbox.get("op-legacy-01")).toMatchObject({
+      status: "pending",
+    });
+    expect(
+      await upgradedDb.outbox.where("store_id").equals("store-01").count(),
+    ).toBe(0);
 
     // 3. Verify all records written under v1 are preserved exactly
     const store = await upgradedDb.stores.get("store-01");

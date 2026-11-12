@@ -35,6 +35,36 @@
   transition: transform 0.25s var(--ease);
 }
 
+.badge {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  background: #e27d60;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  min-width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 1.5px solid var(--sf, #1e1d1a);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.moreBadgePill {
+  background: #e27d60;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-top: 4px;
+}
+
 .bn.on {
   color: var(--br);
 }

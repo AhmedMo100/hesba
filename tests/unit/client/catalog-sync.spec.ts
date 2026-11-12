@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import "fake-indexeddb/auto";
 import Dexie from "dexie";
-import { HesbaDatabase } from "@/client/shared/db";
-import { syncCatalog, searchOfflineCatalog } from "@/client/shared/catalog";
+import { HesbaDatabase } from "@/client/offline/db";
+import { syncCatalog, searchOfflineCatalog } from "@/client/offline/catalog";
 
 describe("Offline Catalog Sync and Search (Phase 3.3)", () => {
   const DB_NAME = "hesba_test_catalog_db";
