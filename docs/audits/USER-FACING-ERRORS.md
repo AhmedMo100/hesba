@@ -64,6 +64,7 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Workaround:** none.
 - **Should:** a sale and its stock deduction are recorded atomically, and the UI reports failure.
 - **Fix:** set exactly one target on the line, record the sale and FEFO deduction in one server transaction, and remove the separate client deduction (see Roadmap phase 1).
+- **Status (2026-11-10):** fixed by ADR-0019 (audit QA-01). The server records the sale, its lines and the FEFO stock deduction in one transaction, priced by the server and idempotent by `opId`; the Sales screen sends one request and shows success only after the server accepted it.
 
 ### UE-02 · P0 · Today's sales exist only in one browser's storage
 
@@ -106,6 +107,8 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Impact:** wrong figures for decisions.
 - **Fix:** follows from UE-01.
 
+- **Status (2026-11-11):** fixed by ADR-0021 (QA-06/QA-07): Home reads a server report built from recorded sales, expenses and costs.
+
 ### UE-06 · P1 · Machine balance changes "succeed" locally when the server rejected them
 
 - **Where:** POS machine top-up, set balance, deduct (Stock, Products, Alerts and Sales screens).
@@ -116,12 +119,15 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Impact:** wrong financial balances; a misleading success.
 - **Fix:** surface failures. Queue only true offline cases (with the outbox). Lock or atomically increment on the server and add an `opId`.
 
+- **Status (2026-11-10):** fixed by ADR-0020 (audit QA-03). Balance operations lock the machine row, are idempotent by `opId`, never overdraw, and the client's top-up/adjust/deduct no longer fall back to a local change: a failure is shown and nothing changes. A service sale charges the machine inside the sale transaction (no separate deduction or refund). Creating/deleting a machine still falls back locally (not money).
+
 ### UE-07 · P1 · Concurrent stock operations can lose updates
 
 - **Where:** any two devices or tabs changing the same item at once (sell, add stock, adjust).
 - **Cause:** inventory methods read `remaining_quantity` and `stock_levels`, then write computed values, under READ COMMITTED with no row lock or atomic increment ([C] `inventory.service.ts`).
 - **Impact:** stock overstated or understated. Evidence type [R]: not reproduced, but the code path is clear.
 - **Fix:** `SELECT … FOR UPDATE` on the batches and level row, or atomic `increment`.
+- **Status (2026-11-10):** fixed by ADR-0019 (audit QA-02). Every stock writer locks the variant's `stock_levels` row first and computes from the locked value; reproduced and verified by `tests/integration/sales-concurrency.spec.ts`.
 
 ### UE-08 · P2 · Overselling silently zeros stock (K5)
 
@@ -141,6 +147,8 @@ No fixes were made. Fix order is in `BUG-FIX-ROADMAP.md`.
 - **Misleading message:** when the database is unreachable, the API returns "جاري إعادة المحاولة... شغلك محفوظ" ("retrying… your work is saved"). Neither is true ([C] `platform/error.ts`).
 - **Impact:** data loss during outages; false reassurance.
 - **Fix:** sync engine (separate ADR); until then, honest status and messages.
+
+- **Status (2026-11-10):** sales part fixed by ADR-0020 (audit QA-04): sales are queued durably in the outbox, shown as waiting, synced on events with backoff, exactly once; the sync bar shows the real waiting/review count. Other offline writes (expenses, people, stock) are still online-only and out of scope.
 
 ### UE-10 · P2 · Login timing reveals which phones have accounts
 
@@ -202,6 +210,8 @@ Inconsistent error handling for clients.
 - **Workaround in place:** sandwich costs use the registered purchase price (`buy_price_piasters`), not batch costs.
 - **Fix (owner decision):** store a per-unit cost (total ÷ quantity) plus `cost_total_minor` in `addStockBatch`, and backfill existing batches.
 
+- **Status (2026-11-11):** fixed by ADR-0021 (QA-08): batches store the total paid and a derived unit cost per selling unit; existing batches backfilled by migration `20261111000000_batch_cost_semantics_and_stock_reconcile`.
+
 ### UE-20 · P2 · The sales screen requests `/api/machines` in an endless loop
 
 *Logged 2026-11-09 while verifying sandwiches on the dev server. Present at HEAD (before ADR-0017 and ADR-0018). Not fixed.*
@@ -212,6 +222,7 @@ Inconsistent error handling for clients.
 - **Seen:** 81 `GET /api/machines` requests within about two minutes of one open sales screen. The page never reaches network idle.
 - **Impact:** constant load on the server and database (each request is a tenant transaction), plus battery and data use on phones.
 - **Fix:** do not dispatch the event from the fetch path, or ignore the event when it was caused by our own fetch.
+- **Status (2026-11-09):** fixed on the **Sales** screen only. The loop there kept the screen's own data requests waiting, which the sandwich "إضافة إلى البيع" step depends on. The `hesba_machines_updated` listener in `SalesView` now reads the cache (`getStoredMachines`) instead of fetching again. `AlertsView` (`loadMachines`) still has the same loop and is **not fixed**.
 
 ---
 

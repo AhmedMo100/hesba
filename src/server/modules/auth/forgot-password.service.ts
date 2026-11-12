@@ -46,9 +46,28 @@ function computeKeyedCodeHash(userId: string, code: string): string {
     .digest("hex");
 }
 
+/** The one public answer to a reset request, whether or not the email has an account (QA-25). */
+export const PASSWORD_RESET_REQUEST_RESPONSE = {
+  message: "إذا كان البريد مسجلاً لدينا، تم إرسال كود التأكيد.",
+} as const;
+
+/**
+ * Starts a password reset. Whatever happens — unknown email, known email, the email provider
+ * failing — the caller gets the same generic answer (QA-25): nothing in the response says
+ * whether the email has an account.
+ *
+ * For a known email a fresh 6-digit code (HMAC-hashed, 10 minutes, single use, 5 attempts)
+ * replaces any unused one, and the email is sent by `deliver`. The route passes Next's
+ * `after()`, so the response does not wait for the email provider (the provider's latency
+ * would otherwise tell known emails apart). A failed send is logged without the address and
+ * invalidates the code. Without `deliver` (tests, scripts) the send runs before returning.
+ *
+ * Rate limits (by email and by IP) apply before the lookup, identically for every email.
+ */
 export async function requestPasswordResetCode(
   rawInput: ForgotPasswordRequestInput,
   clientIp?: string,
+  options: { deliver?: (task: () => Promise<void>) => void } = {},
 ) {
   const data = forgotPasswordRequestSchema.parse(rawInput);
   const normalizedEmail = data.email.trim().toLowerCase();
@@ -61,10 +80,7 @@ export async function requestPasswordResetCode(
       60 * 60 * 1000,
     )
   ) {
-    logger.warn(
-      { email: normalizedEmail },
-      "Password reset rate limit exceeded for email",
-    );
+    logger.warn("Password reset rate limit exceeded for an email");
     throw AppError.rateLimited(
       "تجاوزت الحد الأقصى لطلب الأكواد. يُرجى الانتظار والمحاولة لاحقاً.",
     );
@@ -81,19 +97,14 @@ export async function requestPasswordResetCode(
     );
   }
 
-  const genericResponse = {
-    message: "إذا كان البريد مسجلاً لدينا، تم إرسال كود التأكيد.",
-  };
+  const genericResponse = { ...PASSWORD_RESET_REQUEST_RESPONSE };
 
   const user = await prisma.user.findUnique({
     where: { email: normalizedEmail },
   });
 
   if (!user) {
-    logger.info(
-      { email: normalizedEmail },
-      "Password reset requested for non-existent email (anti-enumeration)",
-    );
+    // No account: nothing is created, and the answer is the same as for a real account.
     return genericResponse;
   }
 
@@ -121,20 +132,27 @@ export async function requestPasswordResetCode(
     },
   });
 
-  try {
-    await getEmailProvider().sendPasswordResetCode(user.email, code);
-  } catch (err) {
-    // If provider rejected delivery or timed out, invalidate the freshly generated code
-    await prisma.passwordResetCode
-      .update({
-        where: { id: newCodeRecord.id },
-        data: { usedAt: new Date() },
-      })
-      .catch(() => {});
-    throw err;
-  }
-
-  logger.info({ userId: user.id }, "Password reset code dispatched via email");
+  const send = async () => {
+    try {
+      await getEmailProvider().sendPasswordResetCode(user.email, code);
+      logger.info({ userId: user.id }, "Password reset code dispatched");
+    } catch (err) {
+      // Never surfaced to the caller (it would reveal that the email has an account): the
+      // code is invalidated and the failure is logged for the operator, without the address.
+      logger.error(
+        { userId: user.id, err: err instanceof Error ? err.name : "unknown" },
+        "Password reset email could not be sent",
+      );
+      await prisma.passwordResetCode
+        .update({
+          where: { id: newCodeRecord.id },
+          data: { usedAt: new Date() },
+        })
+        .catch(() => {});
+    }
+  };
+  if (options.deliver) options.deliver(send);
+  else await send();
 
   return genericResponse;
 }
@@ -162,10 +180,7 @@ export async function resetPasswordWithCode(
   });
 
   if (!user) {
-    logger.warn(
-      { email: normalizedEmail },
-      "Password reset attempt for non-existent user",
-    );
+    logger.warn("Password reset attempt for an unknown email");
     throw AppError.badRequest("كود التأكيد غير صحيح أو انتهت صلاحيته");
   }
 

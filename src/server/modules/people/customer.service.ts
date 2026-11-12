@@ -5,25 +5,26 @@ import "server-only";
  * @description Customers who owe the store money (section "owedToMe", ليك): receivables.
  *
  * @responsibility
- * List customers with their receivable balance, create (with an optional opening debt), view
- * details with the running ledger, record a debt or a collection, edit, and delete.
+ * List customers with their balance, create (with an optional opening balance), view details
+ * with the running ledger, record a debt or a collection, edit, and delete.
  * A debt is `owed_to_me`; a collection (تحصيل) is `i_owe`.
  *
  * @usedBy
  * `people.service.ts` (section dispatcher).
  *
  * @remarks
- * - Balances are never stored: they are recomputed from the person's `debt_entries` ledger
- *   (`owed_to_me` adds to what others owe the store, `i_owe` adds to what the store owes).
- *   A "payment" is recorded as an entry in the opposite direction of a "debt".
- * - Displayed balances are floored at 0 (`Math.max(0, …)`), so an overpayment shows as 0.
- * - A transaction with an `opId` already recorded for the store returns the existing entry
- *   instead of creating a second one; when no `opId` is sent, a random one is generated.
- * - Delete is a soft delete. Money is integer piasters.
+ * - Balances are never stored: they are recomputed from the customer's `debt_entries` ledger
+ *   (`./ledger.ts`, ADR-0023). They are SIGNED and never floored: > 0 the customer owes the
+ *   shop, < 0 the customer has a credit (paid more than owed), shown as such.
+ * - Editing the balance writes one `adjustment` entry labelled as the owner's — never a debt
+ *   or a collection — and only when the amount actually changes.
+ * - Every ledger write locks the customer's row; an `opId` already recorded returns that
+ *   entry. Delete is a soft delete. Money is integer piasters.
  */
 import { type Prisma, type PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { prisma as defaultPrisma } from "@/server/infra/db/client";
+import { AppError } from "@/server/platform/error";
 import {
   type CreatePersonInput,
   type UpdatePersonInput,
@@ -35,9 +36,49 @@ import {
   type PersonDetailsResult,
   type DebtTransactionItem,
 } from "./types";
+import {
+  balanceFields,
+  historyOf,
+  latestNoteOf,
+  recordLedgerEntryInTx,
+  sectionTotals,
+  setLedgerBalanceInTx,
+  type LedgerLabels,
+} from "./ledger";
+
+const LABELS: LedgerLabels = { debt: "مستحق ليك", payment: "تحصيل" };
+const NOT_FOUND = "العميل غير موجود أو تم حذفه";
+
+function formatCustomer(
+  customer: {
+    id: string;
+    storeId: string;
+    nameAr: string;
+    phone: string | null;
+    note: string | null;
+    createdAt: Date;
+    updatedAt: Date;
+  },
+  entries: Parameters<typeof balanceFields>[1],
+): FormattedPerson {
+  return {
+    id: customer.id,
+    store_id: customer.storeId,
+    section: "owedToMe",
+    kind: "customer",
+    name: customer.nameAr,
+    phone: customer.phone,
+    ...balanceFields("receivable", entries),
+    note: latestNoteOf(customer.note, entries),
+    supplies: [],
+    created_at: customer.createdAt.toISOString(),
+    updated_at: customer.updatedAt.toISOString(),
+  };
+}
 
 /**
- * Lists customers (العملاء / ليك) and computes their receivable balances.
+ * Lists customers (العملاء / ليك) with their signed balances. The section total is what
+ * customers owe; credits are totalled apart (`summary.total_credit_piasters`).
  */
 export async function getCustomers(
   storeId: string,
@@ -64,84 +105,18 @@ export async function getCustomers(
 
       const customers = await tx.customer.findMany({
         where: whereClause,
-        include: {
-          debtEntries: {
-            orderBy: { createdAt: "asc" },
-          },
-        },
+        include: { debtEntries: { orderBy: { createdAt: "asc" } } },
         orderBy: { createdAt: "desc" },
       });
 
-      const formattedList: FormattedPerson[] = [];
-
-      for (const customer of customers) {
-        let owedToMeSum = BigInt(0);
-        let iOweSum = BigInt(0);
-        let latestNote: string | null = customer.note || null;
-
-        for (const entry of customer.debtEntries) {
-          if (entry.direction === "owed_to_me") {
-            owedToMeSum += entry.amountPiasters;
-          } else {
-            iOweSum += entry.amountPiasters;
-          }
-          if (entry.noteAr) {
-            latestNote = entry.noteAr;
-          }
-        }
-
-        const totalOriginal = Number(owedToMeSum);
-        const totalPaid = Number(iOweSum);
-        const netBalance = Math.max(0, Number(owedToMeSum - iOweSum));
-        const isSettled = totalOriginal > 0 && netBalance <= 0;
-
-        formattedList.push({
-          id: customer.id,
-          store_id: customer.storeId,
-          section: "owedToMe",
-          kind: "customer",
-          name: customer.nameAr,
-          phone: customer.phone,
-          amount_piasters: netBalance,
-          total_original_piasters: totalOriginal,
-          total_paid_piasters: totalPaid,
-          is_settled: isSettled,
-          note: latestNote,
-          supplies: [],
-          created_at: customer.createdAt.toISOString(),
-          updated_at: customer.updatedAt.toISOString(),
-        });
-      }
-
-      formattedList.sort((a, b) => b.amount_piasters - a.amount_piasters);
-
-      let totalOriginalPiasters = 0;
-      let totalCollectedPiasters = 0;
-      let totalRemainingPiasters = 0;
-      let activeCount = 0;
-      let settledCount = 0;
-
-      for (const p of formattedList) {
-        totalOriginalPiasters += p.total_original_piasters || 0;
-        totalCollectedPiasters += p.total_paid_piasters || 0;
-        totalRemainingPiasters += p.amount_piasters;
-        if (p.amount_piasters > 0) activeCount++;
-        if (p.is_settled) settledCount++;
-      }
+      const people = customers.map((c) => formatCustomer(c, c.debtEntries));
+      people.sort((a, b) => b.amount_piasters - a.amount_piasters);
 
       return {
         section: "owedToMe",
-        people: formattedList,
-        count: formattedList.length,
-        total_piasters: totalRemainingPiasters,
-        summary: {
-          total_original_piasters: totalOriginalPiasters,
-          total_paid_piasters: totalCollectedPiasters,
-          total_remaining_piasters: totalRemainingPiasters,
-          total_count: formattedList.length,
-          active_count: activeCount,
-          settled_count: settledCount,
-        },
+        people,
+        count: people.length,
+        ...sectionTotals(people),
       };
     },
     customPrisma ?? defaultPrisma,
@@ -149,7 +124,7 @@ export async function getCustomers(
 }
 
 /**
- * Creates a new customer with optional initial receivable balance.
+ * Creates a new customer with an optional opening balance (an `opening` entry).
  */
 export async function createCustomer(
   storeId: string,
@@ -170,43 +145,31 @@ export async function createCustomer(
         },
       });
 
-      let latestNote: string | null = customer.note;
       if (input.amountPiasters > 0) {
-        latestNote = input.note?.trim() || null;
-        const opId = crypto.randomUUID();
-
         await tx.debtEntry.create({
           data: {
             storeId,
             customerId: customer.id,
             direction: "owed_to_me",
             amountPiasters: BigInt(input.amountPiasters),
-            noteAr: latestNote,
-            opId,
+            noteAr: input.note?.trim() || null,
+            opId: crypto.randomUUID(),
+            entryKind: "opening",
           },
         });
       }
 
-      return {
-        id: customer.id,
-        store_id: customer.storeId,
-        section: "owedToMe",
-        kind: "customer",
-        name: customer.nameAr,
-        phone: customer.phone,
-        amount_piasters: input.amountPiasters,
-        note: latestNote,
-        supplies: [],
-        created_at: customer.createdAt.toISOString(),
-        updated_at: customer.updatedAt.toISOString(),
-      };
+      const entries = await tx.debtEntry.findMany({
+        where: { storeId, customerId: customer.id },
+      });
+      return formatCustomer(customer, entries);
     },
     customPrisma ?? defaultPrisma,
   );
 }
 
 /**
- * Gets details and transaction history for a customer.
+ * Gets details and the full ledger for a customer (newest first, signed running balances).
  */
 export async function getCustomerDetails(
   storeId: string,
@@ -219,92 +182,21 @@ export async function getCustomerDetails(
     userId ?? null,
     async (tx) => {
       const customer = await tx.customer.findFirst({
-        where: {
-          id: customerId,
-          storeId,
-          deletedAt: null,
-        },
-        include: {
-          debtEntries: {
-            orderBy: { createdAt: "asc" },
-          },
-        },
+        where: { id: customerId, storeId, deletedAt: null },
+        include: { debtEntries: { orderBy: { createdAt: "asc" } } },
       });
+      if (!customer) throw AppError.notFound(NOT_FOUND);
 
-      if (!customer) {
-        throw new Error("العميل غير موجود أو تم حذفه");
-      }
-
-      let runningBalance = BigInt(0);
-      let totalOriginalSum = BigInt(0);
-      let totalCollectedSum = BigInt(0);
-      let latestNote: string | null = customer.note;
-
-      const transactions: DebtTransactionItem[] = [];
-
-      for (const entry of customer.debtEntries) {
-        let type: "debt" | "payment";
-        let actionLabel: string;
-
-        if (entry.direction === "owed_to_me") {
-          type = "debt";
-          actionLabel = "مستحق ليك";
-          runningBalance += entry.amountPiasters;
-          totalOriginalSum += entry.amountPiasters;
-        } else {
-          type = "payment";
-          actionLabel = "تحصيل";
-          runningBalance -= entry.amountPiasters;
-          totalCollectedSum += entry.amountPiasters;
-        }
-
-        if (entry.noteAr) {
-          latestNote = entry.noteAr;
-        }
-
-        transactions.push({
-          id: entry.id,
-          direction: entry.direction,
-          type,
-          action_label: actionLabel,
-          amount_piasters: Number(entry.amountPiasters),
-          balance_after_piasters: Math.max(0, Number(runningBalance)),
-          note: entry.noteAr,
-          op_id: entry.opId,
-          created_at: entry.createdAt.toISOString(),
-        });
-      }
-
-      transactions.reverse();
-
-      const remainingPiasters = Math.max(0, Number(runningBalance));
-      const totalOriginal = Number(totalOriginalSum);
-      const totalCollected = Number(totalCollectedSum);
-      const isSettled = totalOriginal > 0 && remainingPiasters <= 0;
-
+      const person = formatCustomer(customer, customer.debtEntries);
       return {
-        person: {
-          id: customer.id,
-          store_id: customer.storeId,
-          section: "owedToMe",
-          kind: "customer",
-          name: customer.nameAr,
-          phone: customer.phone,
-          amount_piasters: remainingPiasters,
-          total_original_piasters: totalOriginal,
-          total_paid_piasters: totalCollected,
-          is_settled: isSettled,
-          note: latestNote,
-          supplies: [],
-          created_at: customer.createdAt.toISOString(),
-          updated_at: customer.updatedAt.toISOString(),
-        },
-        transactions,
+        person,
+        transactions: historyOf("receivable", customer.debtEntries, LABELS),
         summary: {
-          total_original_piasters: totalOriginal,
-          total_paid_piasters: totalCollected,
-          remaining_piasters: remainingPiasters,
-          is_settled: isSettled,
+          total_original_piasters: person.total_original_piasters ?? 0,
+          total_paid_piasters: person.total_paid_piasters ?? 0,
+          remaining_piasters: person.amount_piasters,
+          credit_piasters: person.credit_piasters ?? 0,
+          is_settled: person.is_settled ?? false,
         },
       };
     },
@@ -313,7 +205,8 @@ export async function getCustomerDetails(
 }
 
 /**
- * Records a debt or payment transaction for a customer (idempotent via opId).
+ * Records a debt or a collection for a customer (idempotent via `opId`). A collection larger
+ * than the debt leaves a visible credit (ADR-0023).
  */
 export async function recordCustomerTransaction(
   storeId: string,
@@ -325,99 +218,21 @@ export async function recordCustomerTransaction(
   return await withTenant(
     storeId,
     userId ?? null,
-    async (tx) => {
-      const customer = await tx.customer.findFirst({
-        where: {
-          id: customerId,
-          storeId,
-          deletedAt: null,
-        },
-        include: {
-          debtEntries: {
-            orderBy: { createdAt: "asc" },
-          },
-        },
-      });
-
-      if (!customer) {
-        throw new Error("العميل غير موجود أو تم حذفه");
-      }
-
-      const opId = input.opId || crypto.randomUUID();
-
-      const existing = await tx.debtEntry.findFirst({
-        where: {
-          storeId,
-          opId,
-        },
-      });
-
-      if (existing) {
-        const type = existing.direction === "owed_to_me" ? "debt" : "payment";
-        const actionLabel =
-          existing.direction === "owed_to_me" ? "مستحق ليك" : "تحصيل";
-
-        let bal = BigInt(0);
-        for (const e of customer.debtEntries) {
-          if (e.direction === "owed_to_me") bal += e.amountPiasters;
-          else bal -= e.amountPiasters;
-          if (e.id === existing.id) break;
-        }
-
-        return {
-          id: existing.id,
-          direction: existing.direction,
-          type,
-          action_label: actionLabel,
-          amount_piasters: Number(existing.amountPiasters),
-          balance_after_piasters: Math.max(0, Number(bal)),
-          note: existing.noteAr,
-          op_id: existing.opId,
-          created_at: existing.createdAt.toISOString(),
-        };
-      }
-
-      const direction = input.type === "debt" ? "owed_to_me" : "i_owe";
-      const actionLabel = input.type === "debt" ? "مستحق ليك" : "تحصيل";
-
-      const created = await tx.debtEntry.create({
-        data: {
-          storeId,
-          customerId: customer.id,
-          direction,
-          amountPiasters: BigInt(input.amountPiasters),
-          noteAr: input.note?.trim() || null,
-          opId,
-          createdAt: input.date ?? new Date(),
-        },
-      });
-
-      let currentBal = BigInt(0);
-      for (const e of customer.debtEntries) {
-        if (e.direction === "owed_to_me") currentBal += e.amountPiasters;
-        else currentBal -= e.amountPiasters;
-      }
-      if (direction === "owed_to_me") currentBal += created.amountPiasters;
-      else currentBal -= created.amountPiasters;
-
-      return {
-        id: created.id,
-        direction: created.direction,
-        type: input.type,
-        action_label: actionLabel,
-        amount_piasters: Number(created.amountPiasters),
-        balance_after_piasters: Math.max(0, Number(currentBal)),
-        note: created.noteAr,
-        op_id: created.opId,
-        created_at: created.createdAt.toISOString(),
-      };
-    },
+    (tx) =>
+      recordLedgerEntryInTx(
+        tx,
+        storeId,
+        { table: "customers", customerId },
+        input,
+        LABELS,
+      ),
     customPrisma ?? defaultPrisma,
   );
 }
 
 /**
- * Updates customer details and optionally adjusts balance.
+ * Updates customer details. When `amountPiasters` is given and differs from the current
+ * balance, ONE owner `adjustment` entry sets the balance to it (ADR-0023).
  */
 export async function updateCustomer(
   storeId: string,
@@ -431,19 +246,9 @@ export async function updateCustomer(
     userId ?? null,
     async (tx) => {
       const customer = await tx.customer.findFirst({
-        where: {
-          id: customerId,
-          storeId,
-          deletedAt: null,
-        },
-        include: {
-          debtEntries: true,
-        },
+        where: { id: customerId, storeId, deletedAt: null },
       });
-
-      if (!customer) {
-        throw new Error("العميل غير موجود أو لا تملك صلاحية تعديله");
-      }
+      if (!customer) throw AppError.notFound(NOT_FOUND);
 
       const updateData: Prisma.CustomerUpdateInput = {};
       if (input.name !== undefined && input.name.trim()) {
@@ -455,7 +260,6 @@ export async function updateCustomer(
       if (input.note !== undefined) {
         updateData.note = input.note?.trim() || null;
       }
-
       if (Object.keys(updateData).length > 0) {
         await tx.customer.update({
           where: { id: customer.id },
@@ -464,74 +268,20 @@ export async function updateCustomer(
       }
 
       if (input.amountPiasters !== undefined) {
-        let currentOwed = BigInt(0);
-        let currentPaid = BigInt(0);
-        for (const entry of customer.debtEntries) {
-          if (entry.direction === "owed_to_me") {
-            currentOwed += entry.amountPiasters;
-          } else {
-            currentPaid += entry.amountPiasters;
-          }
-        }
-        const currentBalance = Number(currentOwed - currentPaid);
-        const targetBalance = input.amountPiasters;
-        const diff = targetBalance - currentBalance;
-
-        if (diff !== 0) {
-          const direction = diff > 0 ? "owed_to_me" : "i_owe";
-          const adjustmentAmount = BigInt(Math.abs(diff));
-          const opId = crypto.randomUUID();
-
-          await tx.debtEntry.create({
-            data: {
-              storeId,
-              customerId: customer.id,
-              direction,
-              amountPiasters: adjustmentAmount,
-              noteAr: input.note?.trim() || "تعديل رصيد",
-              opId,
-            },
-          });
-        }
+        await setLedgerBalanceInTx(
+          tx,
+          storeId,
+          { table: "customers", customerId: customer.id },
+          input.amountPiasters,
+        );
       }
 
       const updated = await tx.customer.findFirst({
         where: { id: customer.id },
         include: { debtEntries: true },
       });
-
-      if (!updated) {
-        throw new Error("فشل في استرجاع العميل بعد التعديل");
-      }
-
-      let owedToMeSum = BigInt(0);
-      let iOweSum = BigInt(0);
-      let latestNote: string | null = updated.note;
-
-      for (const entry of updated.debtEntries) {
-        if (entry.direction === "owed_to_me") {
-          owedToMeSum += entry.amountPiasters;
-        } else {
-          iOweSum += entry.amountPiasters;
-        }
-        if (entry.noteAr) {
-          latestNote = entry.noteAr;
-        }
-      }
-
-      return {
-        id: updated.id,
-        store_id: updated.storeId,
-        section: "owedToMe",
-        kind: "customer",
-        name: updated.nameAr,
-        phone: updated.phone,
-        amount_piasters: Number(owedToMeSum - iOweSum),
-        note: latestNote,
-        supplies: [],
-        created_at: updated.createdAt.toISOString(),
-        updated_at: updated.updatedAt.toISOString(),
-      };
+      if (!updated) throw AppError.notFound(NOT_FOUND);
+      return formatCustomer(updated, updated.debtEntries);
     },
     customPrisma ?? defaultPrisma,
   );
@@ -551,16 +301,10 @@ export async function deleteCustomer(
     userId ?? null,
     async (tx) => {
       const customer = await tx.customer.findFirst({
-        where: {
-          id: customerId,
-          storeId,
-          deletedAt: null,
-        },
+        where: { id: customerId, storeId, deletedAt: null },
       });
-
-      if (!customer) {
-        throw new Error("العميل غير موجود أو تم حذفه بالفعل");
-      }
+      if (!customer)
+        throw AppError.notFound("العميل غير موجود أو تم حذفه بالفعل");
 
       await tx.customer.update({
         where: { id: customer.id },

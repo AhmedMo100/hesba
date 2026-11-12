@@ -114,6 +114,8 @@ jobs:
         env:
           HESBA_DATABASE_URL: postgres://hesba_app:change-me-local@localhost:5432/hesba
           HESBA_DIRECT_URL: postgres://hesba_migrator:change-me-local@localhost:5432/hesba
+          HESBA_SERVICE_DATABASE_URL: postgres://hesba_service:change-me-local@localhost:5432/hesba
+          HESBA_TEST_ADMIN_URL: postgres://postgres:change-me-local-root@localhost:5432/hesba
           HESBA_SESSION_SECRET: hesba-test-session-secret-at-least-16-chars
           HESBA_CRON_SECRET: hesba-test-cron-secret
           HESBA_APP_ORIGIN: http://localhost:3000

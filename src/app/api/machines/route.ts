@@ -3,7 +3,8 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { MachinesService } from "@/server/modules/machines";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
+import { upsertMachineSchema } from "@/schemas/machine";
 
 export const dynamic = "force-dynamic";
 
@@ -33,20 +34,13 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const input = upsertMachineSchema.parse(await readJsonBody(req));
 
     const machinesService = new MachinesService(prisma);
     const machine = await machinesService.upsertMachine(
       context.store.id,
       context.user.id,
-      {
-        id: body.id,
-        name: body.name,
-        provider: body.provider,
-        terminalId: body.terminalId,
-        status: body.status,
-        notes: body.notes,
-      },
+      input,
     );
 
     return NextResponse.json({ machine }, { status: 201 });

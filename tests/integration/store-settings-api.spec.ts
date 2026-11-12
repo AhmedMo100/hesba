@@ -18,8 +18,10 @@ import {
 } from "@/app/api/store/custom-taxonomy/route";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 type Handler = (req: Request) => Promise<Response>;
 
@@ -142,30 +144,72 @@ describe("Store settings routes (characterization) & Tenancy", () => {
       });
     });
 
-    it("POST de-duplicates ids, coerces to strings, treats non-arrays as empty, and keeps other settings", async () => {
-      const r = await call(
+    // QA-21: a strict PARTIAL update — invalid bodies are a 400 and change nothing.
+    it("POST rejects unknown fields, wrong types, empty and malformed bodies, and keeps the saved config", async () => {
+      const saved = await call(
         postSalesConfig,
         "/api/sales/config",
         userAId,
         storeAId,
-        {
-          enabledServiceIds: ["s1", "s1", 7],
-          enabledProductIds: "not-an-array",
-        },
+        { enabledServiceIds: ["s1", "s1", "s2"], enabledProductIds: ["p1"] },
       );
-      expect(r.status).toBe(200);
-      expect(r.json.success).toBe(true);
-      expect(r.json.config.enabledServiceIds).toEqual(["s1", "7"]);
-      expect(r.json.config.enabledProductIds).toEqual([]);
-      expect(typeof r.json.config.updatedAt).toBe("string");
-
+      expect(saved.status).toBe(200);
+      expect(saved.json.config).toMatchObject({
+        enabledServiceIds: ["s1", "s2"],
+        enabledProductIds: ["p1"],
+      });
+      for (const body of [
+        { anything: "x" },
+        [1, 2],
+        {},
+        { enabledServiceIds: ["s1", 7] },
+        { enabledProductIds: "not-an-array" },
+        { enabledServiceIds: [""] },
+        { enabledServiceIds: ["s1"], extra: true },
+        null,
+      ]) {
+        const r = await call(
+          postSalesConfig,
+          "/api/sales/config",
+          userAId,
+          storeAId,
+          body,
+        );
+        expect(r.status).toBe(400);
+      }
       const g = await call(
         getSalesConfig,
         "/api/sales/config",
         userAId,
         storeAId,
       );
-      expect(g.json.config.enabledServiceIds).toEqual(["s1", "7"]);
+      expect(g.json.config).toMatchObject({
+        enabledServiceIds: ["s1", "s2"],
+        enabledProductIds: ["p1"],
+      });
+    });
+
+    it("POST updates only the lists it sends; the other list and other settings are kept", async () => {
+      const r = await call(
+        postSalesConfig,
+        "/api/sales/config",
+        userAId,
+        storeAId,
+        { enabledServiceIds: ["s3"] },
+      );
+      expect(r.status).toBe(200);
+      expect(r.json.config).toMatchObject({
+        enabledServiceIds: ["s3"],
+        enabledProductIds: ["p1"],
+      });
+      expect(typeof r.json.config.updatedAt).toBe("string");
+      const g = await call(
+        getSalesConfig,
+        "/api/sales/config",
+        userAId,
+        storeAId,
+      );
+      expect(g.json.config.enabledProductIds).toEqual(["p1"]);
       expect((await settingsOf(storeAId, userAId))["keepMe"]).toBe(1);
     });
 

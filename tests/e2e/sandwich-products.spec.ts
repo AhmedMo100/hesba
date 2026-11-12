@@ -19,6 +19,12 @@ import {
 
 /** Waits on server round-trips (a remote dev database can take seconds per write). */
 const SERVER = { timeout: 20_000 };
+/**
+ * The Sales screen waits for four API calls before showing tiles. Against the remote dev
+ * database each takes 1–5 s server-side, plus dev-mode compilation, so its first load needs a
+ * longer wait than a single request.
+ */
+const PAGE_LOAD = { timeout: 45_000 };
 
 function randomPhone(): string {
   const digits = Array.from({ length: 8 }, () =>
@@ -94,9 +100,13 @@ async function stockOf(api: APIRequestContext, variantId: string) {
 
 async function salesNamed(api: APIRequestContext, name: string) {
   const body = await (await api.get("/api/sales")).json();
-  return (body.sales as Array<{ name: string; amountPiasters: number }>).filter(
-    (s) => s.name === name,
-  );
+  return (
+    body.sales as Array<{
+      name: string;
+      amountPiasters: number;
+      quantity: number;
+    }>
+  ).filter((s) => s.name === name);
 }
 
 async function hideDevOverlay(page: Page) {
@@ -279,7 +289,7 @@ test.describe("Sandwich products", () => {
     await page.goto("/app/sales");
     await hideDevOverlay(page);
     const tile = page.getByRole("button", { name: `بيع ${name}` });
-    await expect(tile).toBeVisible(SERVER);
+    await expect(tile).toBeVisible(PAGE_LOAD);
     await tile.click();
     await expect(page.getByText(`اتباع: ${name}`)).toBeVisible(SERVER);
     await expect.poll(() => stockOf(api, bread), SERVER).toBe(9);
@@ -292,6 +302,78 @@ test.describe("Sandwich products", () => {
     const sold = await salesNamed(api, name);
     expect(sold).toHaveLength(2);
     expect(sold.every((s) => s.amountPiasters === 1200)).toBe(true);
+
+    // ---- G. "إضافة إلى البيع": quantity step, no sale until confirmed ---------------------
+    const openAddToSale = async () => {
+      await page.goto("/app/products");
+      await hideDevOverlay(page);
+      await page
+        .getByRole("button", { name: "ساندوتشات", exact: true })
+        .click(SERVER);
+      await page.getByRole("button", { name: `خيارات ${name}` }).click(SERVER);
+      await page.getByTestId(/^add-to-sale-/).click();
+      await expect(page.getByTestId("page-sales")).toBeVisible(SERVER);
+      await expect(dialog.getByTestId("sandwich-qty-sheet")).toBeVisible(
+        PAGE_LOAD,
+      );
+      await expect(dialog.getByTestId("sandwich-qty-sheet")).toContainText(
+        name,
+      );
+      await expect(dialog.getByTestId("sandwich-qty-sheet")).toContainText(
+        "سعر الواحد 12 ج.م",
+      );
+    };
+    // Cancel: nothing is saved or deducted.
+    await openAddToSale();
+    await dialog.getByTestId("sandwich-qty-input").fill("3");
+    await expect(dialog.getByTestId("sandwich-qty-total")).toHaveText("36 ج.م");
+    await dialog.getByTestId("sandwich-qty-cancel").click();
+    await expect(dialog).toHaveCount(0);
+    expect(await salesNamed(api, name)).toHaveLength(2);
+    expect(await stockOf(api, bread)).toBe(8);
+    // A reload does not reopen the step (the hand-off was consumed).
+    await page.reload();
+    await hideDevOverlay(page);
+    await expect(tile).toBeVisible(PAGE_LOAD);
+    await expect(dialog).toHaveCount(0);
+
+    // More than the ingredients can make is blocked before reaching the server.
+    await openAddToSale();
+    await dialog.getByTestId("sandwich-qty-input").fill("99");
+    await expect(dialog.getByTestId("sandwich-qty-confirm")).toBeDisabled();
+    await expect(dialog.getByText("المكونات تكفي 8 بس")).toBeVisible();
+
+    // Confirm 3 (via + +): exactly one sale of 3, ingredients deducted once.
+    await dialog.getByTestId("sandwich-qty-input").fill("1");
+    await dialog.getByTestId("sandwich-qty-plus").click();
+    await dialog.getByTestId("sandwich-qty-plus").click();
+    await expect(dialog.getByTestId("sandwich-qty-input")).toHaveValue("3");
+    await dialog.getByTestId("sandwich-qty-minus").click();
+    await dialog.getByTestId("sandwich-qty-plus").click();
+    await expect(dialog.getByTestId("sandwich-qty-total")).toHaveText("36 ج.م");
+    await dialog.getByTestId("sandwich-qty-confirm").click();
+    await expect(dialog).toHaveCount(0, SERVER);
+    await expect(page.getByText(`اتباع 3 × ${name}`)).toBeVisible(SERVER);
+    const afterG = await salesNamed(api, name);
+    expect(afterG).toHaveLength(3);
+    expect(afterG[0]).toMatchObject({ quantity: 3, amountPiasters: 3600 });
+    expect(await stockOf(api, bread)).toBe(8 - 3);
+    expect(await stockOf(api, luncheon)).toBe(1000 - 2 * 10 - 3 * 10);
+    expect(await stockOf(api, cheese)).toBe(1000 - 2 * 5 - 3 * 5);
+
+    // Ordinary products still sell with one tap; the sale is now saved on the server with
+    // its stock deduction in one transaction (ADR-0019).
+    const ketchupTile = page.getByRole("button", {
+      name: `بيع كاتشب ${runId}`,
+    });
+    await ketchupTile.click();
+    await expect(page.getByText(`تم تسجيل بيع: كاتشب ${runId}`)).toBeVisible(
+      SERVER,
+    );
+    await expect.poll(() => stockOf(api, ketchup), SERVER).toBe(19);
+    expect(await salesNamed(api, `كاتشب ${runId}`)).toEqual([
+      expect.objectContaining({ quantity: 1, amountPiasters: 75 }),
+    ]);
 
     // ---- D. Not enough bread -------------------------------------------------------------
     const adjust = await api.post("/api/stock", {
@@ -309,7 +391,7 @@ test.describe("Sandwich products", () => {
 
     await page.reload();
     await hideDevOverlay(page);
-    await expect(tile).toBeVisible(SERVER);
+    await expect(tile).toBeVisible(PAGE_LOAD);
     await tile.click();
     await expect(page.getByText("المكونات مش كفاية").last()).toBeVisible(
       SERVER,
@@ -318,7 +400,7 @@ test.describe("Sandwich products", () => {
     expect(await stockOf(api, bread)).toBe(0);
     expect(await stockOf(api, luncheon)).toBe(luncheonBefore);
     expect(await stockOf(api, cheese)).toBe(cheeseBefore);
-    expect(await salesNamed(api, name)).toHaveLength(2);
+    expect(await salesNamed(api, name)).toHaveLength(3);
 
     // ---- E. Another store cannot see it --------------------------------------------------
     const other = await browser.newContext({

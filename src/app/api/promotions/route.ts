@@ -6,7 +6,11 @@ import {
   publishPromotion,
   removePromotion,
 } from "@/server/modules/promotions";
-import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import {
+  AppError,
+  toSafeErrorResponse,
+  readJsonBody,
+} from "@/server/platform/error";
 import { promotionSchema } from "@/schemas/promotion";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +36,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const input = promotionSchema.parse(await req.json());
+    const input = promotionSchema.parse(await readJsonBody(req));
     const promotion = await publishPromotion(
       context.store.id,
       context.user.id,

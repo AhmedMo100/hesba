@@ -46,9 +46,9 @@ export function normalizePhone(v: string): string {
 /**
  * Registers a new owner and their store, and signs them in.
  *
- * Runs in two separate database steps: (1) create the user (identity table, no tenant
- * context); (2) in one `withTenant` transaction for the new store id, create the store, the
- * `owner` membership and the first device. The session is created afterwards.
+ * The user, the store, the `owner` membership and the first device are created in one
+ * `withTenant` transaction (QA-50), so a failed sign-up leaves no half-made account. The
+ * session is created afterwards; if that fails the account is complete and login works.
  *
  * @param rawInput - Sign-up form data (validated with `signupInputSchema`).
  * @returns The raw session token plus the user and store summary.
@@ -73,21 +73,84 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
     throw AppError.conflict("البريد الإلكتروني مسجل بالفعل");
   }
 
+  // A referral code must be a verified, active one (never an arbitrary string). Checked
+  // before anything is created; the response says only "unknown code", nothing about whose.
+  let referralCodeId: string | null = null;
+  if (data.referralCode) {
+    const code = await prisma.referralCode.findFirst({
+      where: { code: data.referralCode, isActive: true },
+      select: { id: true },
+    });
+    if (!code) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "كود الدعوة ده مش موجود. اتأكد منه أو سيب الخانة فاضية.",
+        400,
+        { field: "referralCode" },
+      );
+    }
+    referralCodeId = code.id;
+  }
+
   const hashedPassword = await hashPassword(data.password);
 
   const storeId = randomUUID();
   const openedOnDate = data.openedOn ? new Date(data.openedOn) : new Date();
 
-  // 1. Create User (users table has NO RLS, accessed under service role)
-  let user;
+  // One transaction for the user, the store, the owner membership and the device (QA-50): a
+  // failure in any step leaves nothing behind, so the same phone and email can sign up again.
+  // `users` has no RLS; the tenant binding only matters for the store-scoped rows.
+  const userId = randomUUID();
+  let created;
   try {
-    user = await prisma.user.create({
-      data: {
-        name: data.ownerName.trim(),
-        phone: normalizedPhone,
-        email: normalizedEmail,
-        passwordHash: hashedPassword,
-      },
+    created = await withTenant(storeId, userId, async (tx) => {
+      const u = await tx.user.create({
+        data: {
+          id: userId,
+          name: data.ownerName.trim(),
+          phone: normalizedPhone,
+          email: normalizedEmail,
+          passwordHash: hashedPassword,
+        },
+      });
+
+      const s = await tx.store.create({
+        data: {
+          id: storeId,
+          name: data.storeName.trim(),
+          shopType: data.shopType,
+          governorate: data.governorate,
+          area: data.area ?? null,
+          openedOn: openedOnDate,
+          workersCount: data.workersCount ?? 1,
+          createdBy: userId,
+        },
+      });
+
+      await tx.storeMember.create({
+        data: {
+          storeId,
+          userId,
+          role: "owner",
+        },
+      });
+
+      // The attribution, permanently (append-only), in the same transaction as the shop.
+      if (referralCodeId) {
+        await tx.storeReferral.create({
+          data: { storeId, referralCodeId },
+        });
+      }
+
+      const d = await tx.device.create({
+        data: {
+          storeId,
+          userId,
+          label: "جهاز التسجيل الأول",
+        },
+      });
+
+      return { user: u, store: s, device: d };
     });
   } catch (err: unknown) {
     if (
@@ -105,40 +168,7 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
     }
     throw err;
   }
-
-  // 2. Create Store, StoreMember, and Device under withTenant context
-  const { store, device } = await withTenant(storeId, user.id, async (tx) => {
-    const s = await tx.store.create({
-      data: {
-        id: storeId,
-        name: data.storeName.trim(),
-        shopType: data.shopType,
-        governorate: data.governorate,
-        area: data.area ?? null,
-        openedOn: openedOnDate,
-        workersCount: data.workersCount ?? 1,
-        createdBy: user.id,
-      },
-    });
-
-    await tx.storeMember.create({
-      data: {
-        storeId,
-        userId: user.id,
-        role: "owner",
-      },
-    });
-
-    const d = await tx.device.create({
-      data: {
-        storeId,
-        userId: user.id,
-        label: "جهاز التسجيل الأول",
-      },
-    });
-
-    return { store: s, device: d };
-  });
+  const { user, store, device } = created;
 
   // 3. Create initial authenticated session
   const { rawToken: sessionToken, session } = await createSession(

@@ -4,6 +4,7 @@ import {
   rotateSession,
   getSessionCookieOptions,
   SESSION_COOKIE_NAME,
+  assertSameOriginWrite,
 } from "@/server/modules/auth";
 import { toSafeErrorResponse, AppError } from "@/server/platform/error";
 
@@ -11,6 +12,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
+    assertSameOriginWrite(req); // QA-39
     const cookieHeader = req.headers.get("cookie");
     let rawToken: string | undefined;
 
@@ -46,7 +48,7 @@ export async function POST(req: Request) {
           storeId: result.store.id,
           expiresAt: result.session.expiresAt.toISOString(),
         },
-        token: result.rawToken,
+        // The new token is only in the HttpOnly cookie (QA-40).
       },
     });
 
