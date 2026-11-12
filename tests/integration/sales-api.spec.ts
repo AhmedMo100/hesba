@@ -37,10 +37,11 @@ describe("QA-01 — atomic ordinary sale", () => {
       expect(res.status).toBe(200);
       const data = res.json.data as Record<string, unknown>;
       expect(data).toMatchObject({
-        id: saleId,
         totalPiasters: 3750,
         duplicate: false,
       });
+      // The server chooses the sale id; a client id is ignored (QA-56).
+      expect(data.id).not.toBe(saleId);
       expect(data.lines).toEqual([
         {
           productId: cola.productId,
@@ -51,7 +52,7 @@ describe("QA-01 — atomic ordinary sale", () => {
         },
       ]);
 
-      const [sale] = (await f.salesOf(A)).filter((s) => s.id === saleId);
+      const [sale] = (await f.salesOf(A)).filter((s) => s.id === data.id);
       expect(Number(sale!.totalPiasters)).toBe(3750);
       expect(Math.abs(sale!.createdAt.getTime() - Date.now())).toBeLessThan(
         60_000,

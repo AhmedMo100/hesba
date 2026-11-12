@@ -863,6 +863,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Details:**
   - The cookie lasts 30 days fixed; the client never calls rotate.
   - A removed member keeps access until expiry (UE-17).
+- **Status (2026-11-13):** fixed. Each request's store lookup now requires the user's membership (same query). Without it the session is revoked and the owner sees the login. The app rotates a session older than a day (`POST /api/auth/rotate`, the documented "rotation on periodic use"), which gives a fresh 30-day HttpOnly cookie; other devices are untouched. Tests: `tests/integration/p3-final.spec.ts`, `tests/unit/client/p3-final.spec.ts`, plus a browser check.
 
 #### QA-52 · P3 · Alert rules
 - **Status:** [T]/[C], from earlier audits, not re-reproduced.
@@ -870,10 +871,12 @@ Issues are ordered by severity. Each one lists, in this order:
   - Clearance offer can be above the original price (K7).
   - Expiry day uses the server's local day, not Cairo (K8).
   - Weighed goods count as "low" only at ≤ 5 **grams**.
+- **Status (2026-11-13):** fixed. K7 was already fixed by QA-20 (no offer that is not cheaper); a test now covers it. Expiry days use the Cairo calendar, and the stock badge uses the same rule. The stock level follows the reference rule (`docs/demo` `stockLevel`): low under 3 kg, under two packs, or under 10 pieces. It is one shared function used by the server and Sales.
 
 #### QA-53 · P3 · The offline catalog is never downloaded
 - **Status:** [C] (UE-15). `syncCatalog` is never called.
 - **Also:** `/api/sync/catalog` is public and accepts `limit=999999` (a 300 KB response).
+- **Status (2026-11-13):** fixed. The shell downloads the catalog after sign-in and again when back online (events only). The download resumes from the last saved page, writes nothing twice, and gets a 204 when nothing changed. The endpoint needs a session, caps `limit` at 1000, returns its position on the last page too, and no longer leaks error text. Browser check on a production build: the catalog is still there after an offline reload, and the pending offline sale syncs once when back online.
 
 #### QA-54 · P3 · Test-suite problems
 - **Integration:** 1 test fails (the K5 clamp test vs the code).
@@ -881,12 +884,22 @@ Issues are ordered by severity. Each one lists, in this order:
   - The desktop `shell-offline` test fails (QA-45).
   - The `sandwich-products` spec failed on both viewports in two runs, timing out on the slow DB. It passed earlier today at the same commit while the server was idle.
   - `auth-screens.spec.ts` writes into the tracked `docs/screens/phase-2/auth-forgot-code.png` on every run. The file was restored after this audit's run.
+- **Status (2026-11-13):** fixed.
+  - The K5 and `shell-offline` failures were already fixed (QA-16, QA-45).
+  - `auth-screens` writes to `test-results/` unless `HESBA_UPDATE_SCREENS=1`.
+  - A Playwright `globalSetup` compiles every route before the workers start. On a cold dev server, first-time compiles used to reload other workers' pages mid-test; the full suite now passes in parallel (64/64).
+  - **Environment-dependent:** the e2e suite needs a server whose database may be written to (each test signs up a store). Use `HESBA_APP_ORIGIN` for a local-DB server, never a shared DB.
 
 #### QA-55 · P3 · Products list payload is about 230 KB
 - **Actual:**
   - `GET /api/products?filter=all` returns 230 KB: the global catalog merged with the shop's products.
   - It is loaded by Products, and by Sales and Home through other calls.
   - It takes about 2 s per load on DEV.
+- **Status (2026-11-13):** fixed. Measured on Neon dev data (270 rows):
+  - Full list (Products, Stock): 214.7 → 198.0 KB raw (30.7 → 28.5 KB gzip). `name_norm` and the variants' `is_active` are dropped; no screen reads them.
+  - Sales (`scope=sale`, own products and services): 22.8 KB raw (3.2 KB gzip).
+  - People and the offer editor (`scope=store`): under 1.2 KB.
+  - Without `scope` the response is the same as before.
 
 #### QA-56 · P3 · A client-chosen sale id collides across shops
 - **Status:** latent.
@@ -895,17 +908,21 @@ Issues are ordered by severity. Each one lists, in this order:
   - Shop B posting shop A's sale id → 500 (primary-key collision).
   - Once QA-01 is fixed, the 500 vs 200 difference would reveal whether an id exists in another shop.
 - **Fix:** generate ids on the server, or scope the uniqueness check.
+- **Status (2026-11-13):** fixed. The server always chooses the sale id; a client `id` is ignored. Retries are matched by `(store_id, op_id)`. Tests cover: the same id in two shops, twice in one shop (no overwrite), and an offline retry (same sale, once).
 
 ### P4
 
 #### QA-57 · P4 · Offline, the header shows "حسبة" instead of the shop's name
 - **Evidence:** `qa-j-prod-7-offline-after-sale.png`.
+- **Status (2026-11-12):** fixed. The shop and owner names are kept in IndexedDB (`stores`, `sync_meta`) and read for the shop that owns this device's data; no request is made. They are forgotten only when the server answers that nobody is signed in (a failed session request keeps them). Unit, e2e (session request aborted → name kept) and production offline reload verified.
 
 #### QA-58 · P4 · Signup accepts a 10,000-character owner name
 - **Note:** no `max()` on the signup string fields.
+- **Status (2026-11-12):** fixed. Owner name at most 120 characters (`MAX_PERSON_NAME_LENGTH`, same as People names) on signup and profile, server (zod, 400 on `ownerName`) and forms; never truncated.
 
 #### QA-59 · P4 · An unknown `section` in the People list silently returns "owedToMe"
 - **Expected:** 400.
+- **Status (2026-11-12):** fixed. `peopleListQuerySchema` (zod enum): an unknown or empty section is a 400 `VALIDATION_ERROR` on `section`; no section still means «ليك».
 
 ---
 

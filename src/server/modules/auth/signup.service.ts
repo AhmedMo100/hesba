@@ -73,6 +73,25 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
     throw AppError.conflict("البريد الإلكتروني مسجل بالفعل");
   }
 
+  // A referral code must be a verified, active one (never an arbitrary string). Checked
+  // before anything is created; the response says only "unknown code", nothing about whose.
+  let referralCodeId: string | null = null;
+  if (data.referralCode) {
+    const code = await prisma.referralCode.findFirst({
+      where: { code: data.referralCode, isActive: true },
+      select: { id: true },
+    });
+    if (!code) {
+      throw new AppError(
+        "VALIDATION_ERROR",
+        "كود الدعوة ده مش موجود. اتأكد منه أو سيب الخانة فاضية.",
+        400,
+        { field: "referralCode" },
+      );
+    }
+    referralCodeId = code.id;
+  }
+
   const hashedPassword = await hashPassword(data.password);
 
   const storeId = randomUUID();
@@ -115,6 +134,13 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
           role: "owner",
         },
       });
+
+      // The attribution, permanently (append-only), in the same transaction as the shop.
+      if (referralCodeId) {
+        await tx.storeReferral.create({
+          data: { storeId, referralCodeId },
+        });
+      }
 
       const d = await tx.device.create({
         data: {

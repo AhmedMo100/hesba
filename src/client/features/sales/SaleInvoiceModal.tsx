@@ -7,6 +7,7 @@
  * server (`GET /api/sales/:id`); a return or a payment is shown done only after the server
  * recorded it, and a retried tap reuses its `opId`.
  */
+import { unitWord } from "@/client/shared/unit-labels";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Button, Field, Input, Modal } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
@@ -18,6 +19,28 @@ import {
   type SaleInvoice,
 } from "@/client/shared/api/invoices";
 import styles from "./CartSheet.module.css";
+
+const isWeighed = (unit: string) => unit === "kg" || unit === "g";
+
+/** A base quantity (grams / units) shown in the product's unit: 500 g of a kg product → 0.5 كجم. */
+function showQty(base: number, unit: string): string {
+  if (isWeighed(unit)) {
+    return `${(base / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`;
+  }
+  return `${base} ${unitWord(unit)}`;
+}
+
+/** What the owner typed, in the product's unit, as base units; null when not a number. */
+function toBase(typed: string, unit: string): number | null {
+  const n = Number(
+    typed
+      .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+      .replace("٫", "."),
+  );
+  if (!Number.isFinite(n) || n <= 0) return null;
+  if (isWeighed(unit)) return Math.round(n * 1000);
+  return Number.isInteger(n) ? n : null;
+}
 
 export function SaleInvoiceModal({
   saleId,
@@ -31,7 +54,10 @@ export function SaleInvoiceModal({
 }) {
   const [invoice, setInvoice] = useState<SaleInvoice | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [qty, setQty] = useState<Record<string, number>>({});
+  // Typed in the product's own unit: kilograms for weighed goods, units otherwise.
+  const [qty, setQty] = useState<Record<string, string>>({});
+  // Lines whose returned goods are damaged (recorded as a loss, not put back on sale).
+  const [damaged, setDamaged] = useState<Record<string, boolean>>({});
   const [collect, setCollect] = useState("");
   const [busy, setBusy] = useState<"return" | "pay" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,9 +76,32 @@ export function SaleInvoiceModal({
 
   const submitReturn = async () => {
     if (!invoice) return;
-    const lines = Object.entries(qty)
-      .filter(([, q]) => q > 0)
-      .map(([saleLineId, quantityBase]) => ({ saleLineId, quantityBase }));
+    const lines: Array<{
+      saleLineId: string;
+      quantityBase: number;
+      condition: "sellable" | "damaged";
+    }> = [];
+    for (const l of invoice.lines) {
+      const typed = (qty[l.id] ?? "").trim();
+      if (!typed) continue;
+      const base = toBase(typed, l.unit);
+      const left = l.quantityBase - l.returnedQuantityBase;
+      if (base === null || base <= 0) {
+        setError(t("invoice.invalidAmount"));
+        return;
+      }
+      if (base > left) {
+        setError(
+          `«${l.name}»: الكمية المرتجعة أكبر من الباقي (${showQty(left, l.unit)})`,
+        );
+        return;
+      }
+      lines.push({
+        saleLineId: l.id,
+        quantityBase: base,
+        condition: damaged[l.id] ? "damaged" : "sellable",
+      });
+    }
     if (lines.length === 0) {
       setError(t("invoice.nothingToReturn"));
       return;
@@ -65,6 +114,7 @@ export function SaleInvoiceModal({
       returnOp.current = crypto.randomUUID();
       setInvoice(next);
       setQty({});
+      setDamaged({});
       onChanged(
         t("invoice.returnDone", {
           amount: formatMoney(next.returnedPiasters - before),
@@ -132,34 +182,47 @@ export function SaleInvoiceModal({
                     data-testid="invoice-line"
                   >
                     <span className={styles.name}>
-                      {l.name} × {l.quantityBase}
+                      {l.name} × {showQty(l.quantityBase, l.unit)}
                       {l.returnedQuantityBase > 0 && (
                         <small className={styles.badge}>
-                          {t("invoice.returned")} {l.returnedQuantityBase}
+                          {t("invoice.returned")}{" "}
+                          {showQty(l.returnedQuantityBase, l.unit)}
                         </small>
                       )}
                     </span>
                     <div className={styles.qty}>
                       {l.returnable && left > 0 && !invoice.voided ? (
-                        <input
-                          type="number"
-                          min={0}
-                          max={left}
-                          inputMode="numeric"
-                          aria-label={`${t("invoice.returnQty")} ${l.name}`}
-                          data-testid="invoice-return-qty"
-                          value={qty[l.id] ?? ""}
-                          onChange={(e) => {
-                            const n = Math.max(
-                              0,
-                              Math.min(
-                                left,
-                                Math.floor(Number(e.target.value) || 0),
-                              ),
-                            );
-                            setQty((q) => ({ ...q, [l.id]: n }));
-                          }}
-                        />
+                        <>
+                          <input
+                            type="text"
+                            inputMode={
+                              isWeighed(l.unit) ? "decimal" : "numeric"
+                            }
+                            aria-label={`${t("invoice.returnQty")} ${l.name} (${isWeighed(l.unit) ? "كيلو" : unitWord(l.unit)})`}
+                            placeholder={
+                              isWeighed(l.unit) ? "كجم" : unitWord(l.unit)
+                            }
+                            data-testid="invoice-return-qty"
+                            value={qty[l.id] ?? ""}
+                            onChange={(e) =>
+                              setQty((q) => ({ ...q, [l.id]: e.target.value }))
+                            }
+                          />
+                          <label className={styles.damaged}>
+                            <input
+                              type="checkbox"
+                              data-testid="invoice-return-damaged"
+                              checked={!!damaged[l.id]}
+                              onChange={(e) =>
+                                setDamaged((d) => ({
+                                  ...d,
+                                  [l.id]: e.target.checked,
+                                }))
+                              }
+                            />
+                            <span>تالف</span>
+                          </label>
+                        </>
                       ) : null}
                     </div>
                     <span className={styles.amount}>

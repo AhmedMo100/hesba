@@ -3,7 +3,10 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { getPeopleBySection, createPerson } from "@/server/modules/people";
-import { createPersonInputSchema, type PeopleSection } from "@/schemas/people";
+import {
+  createPersonInputSchema,
+  peopleListQuerySchema,
+} from "@/schemas/people";
 import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
@@ -17,13 +20,11 @@ export async function GET(req: Request) {
     const context = await requireSession(req);
     const { searchParams } = new URL(req.url);
 
-    const sectionParam = searchParams.get("section") || "owedToMe";
-    const section: PeopleSection =
-      sectionParam === "iOwe" || sectionParam === "suppliers"
-        ? sectionParam
-        : "owedToMe";
-
-    const search = searchParams.get("q") || undefined;
+    // QA-59: an unknown section is a 400, never read as «ليك». No section = «ليك» (default).
+    const { section, q: search } = peopleListQuerySchema.parse({
+      section: searchParams.get("section") ?? undefined,
+      q: searchParams.get("q") || undefined,
+    });
 
     const result = await getPeopleBySection(
       context.store.id,

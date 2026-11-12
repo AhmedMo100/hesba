@@ -209,14 +209,14 @@ export class MockAIProvider implements AIProvider {
         (data.top_products as Array<{
           name: string;
           total_piasters: number;
-          quantity_sold: number;
+          quantity_sold_base: number;
         }>) || [];
       if (items.length === 0) {
         return "لسه مفيش مبيعات مسجلة في الفترة دي لتحديد أكتر صنف بيتباع.";
       }
       const lines = items.map(
         (it, idx: number) =>
-          `${idx + 1}. ${it.name} — إجمالي ${((it.total_piasters || 0) / 100).toLocaleString("en-US")} ج.م (${it.quantity_sold} قطعة)`,
+          `${idx + 1}. ${it.name} — إجمالي ${((it.total_piasters || 0) / 100).toLocaleString("en-US")} ج.م (${it.quantity_sold_base})`,
       );
       return `أكتر 5 أصناف مبيعاً:\n${lines.join("\n")}`;
     }

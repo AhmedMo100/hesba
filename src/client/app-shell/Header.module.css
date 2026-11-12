@@ -21,44 +21,6 @@
   min-width: 0;
 }
 
-.storeBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 10px 6px 8px;
-  border-radius: 14px;
-  font-weight: 800;
-  max-width: 62vw;
-  cursor: pointer;
-  border: 0;
-  background: none;
-  color: var(--ink);
-  transition: background 0.15s;
-}
-
-.storeBtn:hover {
-  background: var(--sf2);
-}
-
-.storeIcon {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: var(--br);
-  color: var(--brInk);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-}
-
-.storeName {
-  font-size: 16px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .rightGroup {
   display: flex;
   align-items: center;
@@ -115,17 +77,8 @@
   pointer-events: none;
 }
 
-@media (max-width: 899px) {
-  .storeBtn {
-    max-width: calc(100vw - 120px);
-  }
-}
-
 @media (max-width: 380px) {
   .top {
     padding: 0 8px;
-  }
-  .storeBtn {
-    max-width: calc(100vw - 110px);
   }
 }

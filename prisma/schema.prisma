@@ -127,6 +127,7 @@ model Store {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   creator              User?                 @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  referral             StoreReferral?
   members              StoreMember[]
   devices              Device[]
   storeProducts        StoreProduct[]
@@ -168,6 +169,10 @@ model Store {
   purchaseVoids        PurchaseVoid[]
   saleReturns          SaleReturn[]
   saleReturnLines      SaleReturnLine[]
+  aiScannerQuota       AiScannerShopQuota?
+  aiScanOperations     AiScanOperation[]
+  aiUsageEvents        AiUsageEvent[]
+  aiAdminAudits        AiAdminAudit[]
 
   @@map("stores")
 }
@@ -195,6 +200,8 @@ model User {
   sessions                Session[]
   saleVoids               SaleVoid[]
   purchaseVoids           PurchaseVoid[]
+  platformAdmin           PlatformAdmin?
+  aiAdminAudits           AiAdminAudit[]
   saleReturns             SaleReturn[]
 
   @@map("users")
@@ -1109,12 +1116,17 @@ model WasteRecord {
   batchId        String?  @map("batch_id") @db.Uuid
   quantityBase   BigInt   @map("quantity_base")
   costMinor      BigInt   @map("cost_minor")
+  /// expired | damaged | missing | damaged_return | other (CHECK, P4).
   reason         String   @default("expired") @db.Text
+  note           String?  @db.Text
+  /// Goods returned damaged: the return they came back in.
+  saleReturnId   String?  @map("sale_return_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeVariant StoreVariant @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
 
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_waste_records_store_created")
   @@map("waste_records")
 }
 
@@ -1239,4 +1251,200 @@ model SaleReturnLine {
 
   @@index([storeId, saleLineId], map: "idx_sale_return_lines_store_line")
   @@map("sale_return_lines")
+}
+
+/// A verified signup referral code (an influencer's code). Managed by Hesba staff; `label`
+/// (whose code it is) is internal and never sent to users. Global table.
+model ReferralCode {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code      String   @unique(map: "uq_referral_codes_code") @db.Text
+  label     String   @db.Text
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  storeReferrals StoreReferral[]
+
+  @@map("referral_codes")
+}
+
+/// The referral code a shop signed up with: one row per shop, written at signup only and
+/// never changed (append-only for the app role).
+model StoreReferral {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @unique(map: "uq_store_referrals_store") @map("store_id") @db.Uuid
+  referralCodeId String   @map("referral_code_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  referralCode ReferralCode @relation(fields: [referralCodeId], references: [id], onDelete: Restrict)
+
+  @@index([referralCodeId], map: "idx_store_referrals_code")
+  @@map("store_referrals")
+}
+
+// ---- AI scanner, quotas, platform limits and usage (ADR-0030) --------------------------------
+
+/// A Hesba platform administrator. Written by staff only (SQL as the migrator); the app reads
+/// the acting user's own row. Global table.
+model PlatformAdmin {
+  userId    String   @id @map("user_id") @db.Uuid
+  note      String?  @db.Text
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("platform_admins")
+}
+
+/// The platform's AI switches and limits (one row, id = 1). Admin-controlled; read by every
+/// AI request. Costs are in micro-USD (integer). Global table.
+model AiPlatformSettings {
+  id                          Int      @id @default(1) @db.SmallInt
+  scannerEnabled              Boolean  @default(true) @map("scanner_enabled")
+  assistantEnabled            Boolean  @default(true) @map("assistant_enabled")
+  scannerDailyDefault         Int      @default(10) @map("scanner_daily_default")
+  scannerMonthlyDefault       Int      @default(200) @map("scanner_monthly_default")
+  scannerMaxImages            Int      @default(6) @map("scanner_max_images")
+  scannerRpm                  Int      @default(10) @map("scanner_rpm")
+  assistantRpm                Int      @default(10) @map("assistant_rpm")
+  scannerMaxConcurrent        Int      @default(4) @map("scanner_max_concurrent")
+  assistantMaxConcurrent      Int      @default(4) @map("assistant_max_concurrent")
+  shopRpm                     Int      @default(3) @map("shop_rpm")
+  monthlyBudgetMicros         BigInt   @default(0) @map("monthly_budget_micros")
+  scannerCostEstimateMicros   BigInt   @default(0) @map("scanner_cost_estimate_micros")
+  assistantCostEstimateMicros BigInt   @default(0) @map("assistant_cost_estimate_micros")
+  warningThresholdPct         Int      @default(80) @map("warning_threshold_pct")
+  breakerFailureThreshold     Int      @default(5) @map("breaker_failure_threshold")
+  breakerCooldownSeconds      Int      @default(60) @map("breaker_cooldown_seconds")
+  updatedAt                   DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy                   String?  @map("updated_by") @db.Uuid
+
+  @@map("ai_platform_settings")
+}
+
+/// Requests started per feature per minute, across all shops (no shop data).
+model AiCapacityMinute {
+  feature String
+  minute  DateTime @db.Timestamptz(6)
+  count   Int      @default(0)
+
+  @@id([feature, minute])
+  @@map("ai_capacity_minutes")
+}
+
+/// A provider call in progress (a lease that expires on its own if a server dies).
+model AiInflight {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  feature   String
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(6)
+
+  @@index([feature, expiresAt], map: "idx_ai_inflight_feature_expires")
+  @@map("ai_inflight")
+}
+
+/// Platform AI spending per Cairo month, micro-USD: reserved (calls in flight) and spent.
+model AiBudgetMonth {
+  month          DateTime @id @db.Date
+  reservedMicros BigInt   @default(0) @map("reserved_micros")
+  spentMicros    BigInt   @default(0) @map("spent_micros")
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  @@map("ai_budget_months")
+}
+
+/// The circuit breaker per feature: open (no provider calls) until `openUntil`.
+model AiProviderHealth {
+  feature             String    @id
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  openUntil           DateTime? @map("open_until") @db.Timestamptz(6)
+  lastError           String?   @map("last_error")
+  lastFailureAt       DateTime? @map("last_failure_at") @db.Timestamptz(6)
+  lastSuccessAt       DateTime? @map("last_success_at") @db.Timestamptz(6)
+
+  @@map("ai_provider_health")
+}
+
+/// A shop's scanner overrides. No row = the platform defaults, scanner enabled, no bonus.
+model AiScannerShopQuota {
+  storeId      String   @id @map("store_id") @db.Uuid
+  dailyLimit   Int?     @map("daily_limit")
+  monthlyLimit Int?     @map("monthly_limit")
+  enabled      Boolean  @default(true)
+  bonusCredits Int      @default(0) @map("bonus_credits")
+  updatedAt    DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+  updatedBy    String?  @map("updated_by") @db.Uuid
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@map("ai_scanner_shop_quotas")
+}
+
+/// One submitted scan (a batch of images). Counts against the quota while `reserved` (recent)
+/// and once `succeeded`; a `failed` scan never counts. Images are never stored.
+model AiScanOperation {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId       String    @map("store_id") @db.Uuid
+  opId          String    @map("op_id") @db.Uuid
+  status        String    @default("reserved")
+  day           DateTime  @db.Date
+  month         DateTime  @db.Date
+  usesBonus     Boolean   @default(false) @map("uses_bonus")
+  imageCount    Int       @map("image_count")
+  provider      String?
+  model         String?
+  errorCategory String?   @map("error_category")
+  result        Json?     @db.JsonB
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  finishedAt    DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@unique([storeId, opId], map: "uq_ai_scan_operations_store_op")
+  @@index([storeId, day], map: "idx_ai_scan_operations_store_day")
+  @@index([storeId, month], map: "idx_ai_scan_operations_store_month")
+  @@map("ai_scan_operations")
+}
+
+/// One AI provider request (or a request refused before it), for usage and cost monitoring.
+/// Holds no prompt, answer or image.
+model AiUsageEvent {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId             String   @map("store_id") @db.Uuid
+  feature             String
+  provider            String
+  model               String?
+  requestId           String   @map("request_id")
+  status              String
+  errorCategory       String?  @map("error_category")
+  inputTokens         Int?     @map("input_tokens")
+  outputTokens        Int?     @map("output_tokens")
+  imageCount          Int      @default(0) @map("image_count")
+  estimatedCostMicros BigInt   @default(0) @map("estimated_cost_micros")
+  actualCostMicros    BigInt?  @map("actual_cost_micros")
+  latencyMs           Int?     @map("latency_ms")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt], map: "idx_ai_usage_events_created")
+  @@index([storeId, createdAt], map: "idx_ai_usage_events_store_created")
+  @@map("ai_usage_events")
+}
+
+/// Every admin change to AI settings or a shop's scanner quota (append-only).
+model AiAdminAudit {
+  id            String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  adminUserId   String   @map("admin_user_id") @db.Uuid
+  targetStoreId String?  @map("target_store_id") @db.Uuid
+  action        String
+  previousValue Json?    @map("previous_value") @db.JsonB
+  newValue      Json?    @map("new_value") @db.JsonB
+  reason        String?
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  admin       User   @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+  targetStore Store? @relation(fields: [targetStoreId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)], map: "idx_ai_admin_audit_created")
+  @@map("ai_admin_audit")
 }

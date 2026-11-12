@@ -2,7 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
-import { AIService } from "@/server/modules/ai";
+import { AIService, assistantProviderInfo } from "@/server/modules/ai";
 import { toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,9 @@ export async function GET(req: Request) {
       limit: quota.limit,
       resets_at: quota.resetsAt,
       day_key: quota.dayKey,
+      // `grounded`: private mode — questions are answered on the server from the shop's data,
+      // nothing is sent to an AI provider (ADR-0030).
+      mode: assistantProviderInfo().mode,
     });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);

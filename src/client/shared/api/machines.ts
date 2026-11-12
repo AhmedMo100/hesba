@@ -1,6 +1,6 @@
 "use client";
 
-import { dedupedGet } from "./dedupe";
+import { apiGet } from "./read-cache";
 
 /**
  * @file machines.ts
@@ -209,7 +209,7 @@ export async function fetchStoreMachines(
   }
 
   try {
-    const res = await dedupedGet("/api/machines");
+    const res = await apiGet("/api/machines");
     if (!res.ok) {
       return getStoredMachines(storeId);
     }

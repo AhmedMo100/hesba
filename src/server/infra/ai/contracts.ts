@@ -21,6 +21,14 @@ export interface ChatMessage {
   content: string;
   name?: string;
   toolCallId?: string;
+  /** An assistant turn that asked for tools: the calls it made. */
+  toolCalls?: ToolCall[];
+  /**
+   * The provider's own record of that assistant turn, replayed as-is on the follow-up call
+   * (Gemini needs its `functionCall` parts, with their thought signatures, before the tool
+   * results). Opaque outside the adapter that produced it.
+   */
+  providerParts?: unknown[];
 }
 
 /** JSON-schema description of a read-only business tool the model may call. */
@@ -50,6 +58,8 @@ export interface SearchCitation {
 export interface ProviderResponse {
   text: string;
   toolCalls?: ToolCall[];
+  /** See {@link ChatMessage.providerParts}. */
+  providerParts?: unknown[];
   citations?: SearchCitation[];
   usage?: {
     promptTokens?: number;
@@ -92,4 +102,37 @@ export interface SearchProvider {
    * into this method — the query leaves Hesba and reaches a third party.
    */
   search(query: string): Promise<SearchResult>;
+}
+
+// ---- Product scanner (visual recognition, ADR-0030) ---------------------------------------
+
+/** One photo for the scanner, already checked (type, size) and stripped of metadata. */
+export interface ScanImage {
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  data: Buffer;
+}
+
+export interface VisionResponse {
+  /**
+   * The model's answer, parsed from JSON but NOT validated: the caller treats it as untrusted
+   * input and validates it (zod) before using any of it.
+   */
+  raw: unknown;
+  model: string;
+  usage?: { promptTokens?: number; completionTokens?: number };
+}
+
+export interface VisionProvider {
+  readonly name: string;
+  readonly model: string;
+  /**
+   * Describes the products visible in the photos (brand, name, flavor, size, packaging, how
+   * many). It receives only the photos and a fixed instruction: no shop data, no catalog.
+   *
+   * @throws ProviderError (classified) on any provider failure or a non-JSON answer.
+   */
+  recognizeProducts(
+    images: ScanImage[],
+    options: { signal: AbortSignal },
+  ): Promise<VisionResponse>;
 }

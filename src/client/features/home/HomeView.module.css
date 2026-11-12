@@ -150,7 +150,7 @@
 
 .invSearch {
   flex: 1;
-  min-width: 170px;
+  min-width: 0;
 }
 
 .exportBtn {

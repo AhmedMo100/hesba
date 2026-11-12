@@ -1,7 +1,17 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox, Button, Icon, Modal } from "@/client/shared/ui";
+import {
+  Chip,
+  Chips,
+  Empty,
+  SearchBox,
+  Button,
+  Icon,
+  Modal,
+  ListSkeleton,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { SANDWICH_CATEGORY } from "@/domain/recipe";
@@ -351,7 +361,7 @@ export function ProductsView() {
 
   const loadProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products?filter=all");
+      const res = await apiGet("/api/products?filter=all");
       if (!res.ok) {
         throw new Error("فشل تحميل قائمة المنتجات");
       }
@@ -377,7 +387,7 @@ export function ProductsView() {
 
   useEffect(() => {
     let ignore = false;
-    fetch("/api/products?filter=all")
+    apiGet("/api/products?filter=all")
       .then((res) => {
         if (!res.ok) throw new Error("فشل تحميل قائمة المنتجات");
         return res.json();
@@ -936,22 +946,20 @@ export function ProductsView() {
         /* ================= TAB 1: المنتجات الفيزيائية ================= */
         <>
           {/* Physical Filter Chips */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${filterMode === "all" && activeCategory === "all" ? styles.active : ""}`}
+          <Chips>
+            <Chip
+              active={filterMode === "all" && activeCategory === "all"}
               onClick={() => {
                 setFilterMode("all");
                 setActiveCategory("all");
               }}
             >
               الكل ({physicalProducts.filter((p) => !p.is_hidden).length})
-            </button>
+            </Chip>
 
             {summary.customCount > 0 && (
-              <button
-                type="button"
-                className={`${styles.chip} ${filterMode === "custom" ? styles.active : ""}`}
+              <Chip
+                active={filterMode === "custom"}
                 onClick={() => {
                   setFilterMode((prev) =>
                     prev === "custom" ? "all" : "custom",
@@ -959,23 +967,22 @@ export function ProductsView() {
                 }}
               >
                 أضافه المحل ({summary.customCount})
-              </button>
+              </Chip>
             )}
 
             {physicalCategories.map((cat) => (
-              <button
+              <Chip
                 key={cat}
-                type="button"
-                className={`${styles.chip} ${activeCategory === cat && filterMode === "all" ? styles.active : ""}`}
+                active={activeCategory === cat && filterMode === "all"}
                 onClick={() => {
                   setFilterMode("all");
                   setActiveCategory((prev) => (prev === cat ? "all" : cat));
                 }}
               >
                 {cat}
-              </button>
+              </Chip>
             ))}
-          </div>
+          </Chips>
 
           {notice && (
             <div
@@ -1017,15 +1024,7 @@ export function ProductsView() {
 
           {/* Physical Products Grid */}
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل المنتجات...
-            </div>
+            <ListSkeleton label="بيحمّل المنتجات…" />
           ) : filteredPhysicalProducts.length === 0 ? (
             <div className={styles.pcard}>
               <Empty
@@ -1266,251 +1265,200 @@ export function ProductsView() {
         /* ================= TAB 2: الفواتير والشحن والخدمات ================= */
         <>
           {/* Exactly 5 Main Service Category Chips in a single scrollable row */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "utilities" ? styles.active : ""}`}
+          <Chips>
+            <Chip
+              active={serviceCategory === "utilities"}
               onClick={() => {
                 setServiceCategory("utilities");
                 setCompanyFilter("all");
               }}
             >
               شحن المرافق
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "internet" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "internet"}
               onClick={() => {
                 setServiceCategory("internet");
                 setCompanyFilter("all");
               }}
             >
               فواتير الإنترنت
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "cards" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "cards"}
               onClick={() => {
                 setServiceCategory("cards");
                 setCompanyFilter("all");
               }}
             >
               كروت الشحن
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "transfer" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "transfer"}
               onClick={() => {
                 setServiceCategory("transfer");
                 setCompanyFilter("all");
               }}
             >
               تحويل الأموال
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "airtime" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "airtime"}
               onClick={() => {
                 setServiceCategory("airtime");
                 setCompanyFilter("all");
               }}
             >
               شحن الرصيد
-            </button>
-          </div>
+            </Chip>
+          </Chips>
 
           {/* Contextual Subcategory / Company Chips based on active service category */}
-          <div className={styles.chips} style={{ marginTop: -4 }}>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "all" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+          <Chips>
+            <Chip
+              active={companyFilter === "all"}
               onClick={() => setCompanyFilter("all")}
             >
               الكل
-            </button>
+            </Chip>
 
             {serviceCategory === "utilities" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "electricity" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "electricity"}
                   onClick={() => setCompanyFilter("electricity")}
                 >
                   الكهرباء
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "water" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "water"}
                   onClick={() => setCompanyFilter("water")}
                 >
                   المياه
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "gas" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "gas"}
                   onClick={() => setCompanyFilter("gas")}
                 >
                   الغاز الطبيعي
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "internet" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "we"}
                   onClick={() => setCompanyFilter("we")}
                 >
                   وي (WE)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "orange"}
                   onClick={() => setCompanyFilter("orange")}
                 >
                   أورانج
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "etisalat"}
                   onClick={() => setCompanyFilter("etisalat")}
                 >
                   اتصالات (e&)
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "cards" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "orange"}
                   onClick={() => setCompanyFilter("orange")}
                 >
                   أورانج
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "etisalat"}
                   onClick={() => setCompanyFilter("etisalat")}
                 >
                   اتصالات (e&)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "we"}
                   onClick={() => setCompanyFilter("we")}
                 >
                   وي (WE)
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "transfer" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "instapay" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "instapay"}
                   onClick={() => setCompanyFilter("instapay")}
                 >
                   إنستاباي (InstaPay)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون كاش
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "fawry" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "fawry"}
                   onClick={() => setCompanyFilter("fawry")}
                 >
                   فوري (Fawry)
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "airtime" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "orange"}
                   onClick={() => setCompanyFilter("orange")}
                 >
                   أورانج
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "etisalat"}
                   onClick={() => setCompanyFilter("etisalat")}
                 >
                   اتصالات (e&)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "we"}
                   onClick={() => setCompanyFilter("we")}
                 >
                   وي (WE)
-                </button>
+                </Chip>
               </>
             )}
-          </div>
+          </Chips>
 
           {/* Services Grid */}
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل الخدمات وكروت الشحن...
-            </div>
+            <ListSkeleton label="بيحمّل الخدمات…" />
           ) : filteredServiceProducts.length === 0 ? (
             <div className={styles.pcard}>
               <Empty

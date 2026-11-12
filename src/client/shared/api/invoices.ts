@@ -145,7 +145,11 @@ export async function paySaleInvoice(
 export async function returnSaleLines(
   saleId: string,
   opId: string,
-  lines: Array<{ saleLineId: string; quantityBase: number }>,
+  lines: Array<{
+    saleLineId: string;
+    quantityBase: number;
+    condition?: "sellable" | "damaged";
+  }>,
 ): Promise<SaleInvoice> {
   return (
     await send<{ invoice: SaleInvoice }>(
@@ -157,4 +161,14 @@ export async function returnSaleLines(
       },
     )
   ).invoice;
+}
+
+// ---- A customer's credit invoices («ليك», Prompt 2) ----------------------------------------
+
+export type { CustomerInvoicesView } from "@/schemas/sale";
+
+export async function listCustomerInvoices(
+  customerId: string,
+): Promise<import("@/schemas/sale").CustomerInvoicesView> {
+  return send("GET", `/api/people/${encodeURIComponent(customerId)}/invoices`);
 }

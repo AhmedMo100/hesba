@@ -55,3 +55,18 @@ export const ConversationSummarySchema = z.object({
 export const ConversationDetailSchema = ConversationSummarySchema.extend({
   messages: z.array(MessageItemSchema),
 });
+
+/**
+ * The assistant's suggested questions (Prompt 2): only questions its read-only tools answer
+ * from the shop's own data, in Egyptian Arabic. Shared by the screen and the private mode.
+ */
+export const AI_SUGGESTED_QUESTIONS = [
+  "بعت كام النهارده؟",
+  "إيه أكتر المنتجات اللي بتتباع عندي؟",
+  "عندي منتجات قربت تخلص؟",
+  "مين أكتر عميل عليه فلوس؟",
+  "عليّا كام للموردين؟",
+  "مصروفاتي الشهر ده كام؟",
+  "كسبت كام الشهر ده؟",
+  "قارن مبيعات الأسبوع ده بالأسبوع اللي فات.",
+] as const;

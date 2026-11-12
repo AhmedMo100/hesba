@@ -27,6 +27,7 @@
  * - Money is integer piasters; quantities are base units (pieces or grams).
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -48,6 +49,7 @@ import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
 import { saleLineTotalPiasters } from "@/domain/sale-pricing";
+import { stockLevel } from "@/domain/alerts";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StockInventoryItem,
@@ -103,6 +105,10 @@ import {
 } from "./CartSheet";
 import { CreditCustomerForm } from "./CreditCustomerForm";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
+import {
+  ProductScannerSheet,
+  type ConfirmedScanLine,
+} from "./ProductScannerSheet";
 
 interface DisplaySaleItem {
   id: string;
@@ -331,9 +337,8 @@ export function SalesView({
     null,
   );
   const [creditFormOpen, setCreditFormOpen] = useState(false);
-  // The card whose «آجل» opened the customer form: added once the customer is chosen.
-  const [pendingCreditItem, setPendingCreditItem] =
-    useState<DisplaySaleItem | null>(null);
+  // The AI product scanner: another way to fill the same cart (ADR-0030).
+  const [scannerOpen, setScannerOpen] = useState(false);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
   const [cartOpen, setCartOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -478,10 +483,10 @@ export function SalesView({
     if (!storeId) return;
     let isMounted = true;
     void Promise.all([
-      fetch("/api/stock")
+      apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/products?filter=all")
+      apiGet("/api/products?filter=all&scope=sale")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
@@ -511,7 +516,7 @@ export function SalesView({
     });
 
     const syncRemoteSalesConfig = () => {
-      fetch("/api/sales/config")
+      apiGet("/api/sales/config")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -536,7 +541,7 @@ export function SalesView({
     };
 
     const loadPromotions = () => {
-      fetch("/api/promotions")
+      apiGet("/api/promotions")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -702,7 +707,7 @@ export function SalesView({
         return {
           ...inv,
           currentStockBase: stock,
-          status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+          status: stockLevel(inv.unitMode, inv.packQty, stock),
         };
       }),
     );
@@ -902,7 +907,7 @@ export function SalesView({
           return {
             ...inv,
             currentStockBase: stock,
-            status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+            status: stockLevel(inv.unitMode, inv.packQty, stock),
           };
         }),
       );
@@ -1116,7 +1121,7 @@ export function SalesView({
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
         void Promise.all([
-          fetch("/api/stock")
+          apiGet("/api/stock")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
@@ -1219,18 +1224,40 @@ export function SalesView({
   };
 
   /**
-   * A card's «آجل»: within a credit sale the item joins its invoice; otherwise the customer
-   * form opens first and the item is added once the customer is chosen. It is the existing
-   * invoice-level credit flow; nothing is recorded until «تسجيل الآجل».
+   * Lines confirmed in the scanner join the cart: the same product is merged, never added
+   * twice. Names, prices, units and stock come from the server's match; checkout re-checks all.
    */
-  const handleSellOnCredit = (e: React.MouseEvent, item: DisplaySaleItem) => {
-    e.stopPropagation();
-    if (creditCustomer) {
-      addToCart(item);
-      return;
-    }
-    setPendingCreditItem(item);
-    setCreditFormOpen(true);
+  const addScannedToCart = (lines: ConfirmedScanLine[]) => {
+    setCartLines((prev) => {
+      const next = [...prev];
+      for (const l of lines) {
+        const i = next.findIndex((c) => c.variantId === l.variantId);
+        if (i >= 0) {
+          const cur = next[i]!;
+          next[i] = {
+            ...cur,
+            quantityBase: Math.min(
+              cur.quantityBase + l.quantityBase,
+              l.stockBase,
+            ),
+          };
+        } else {
+          next.push({
+            variantId: l.variantId,
+            name: l.name,
+            unit: l.unit,
+            quantityBase: Math.min(l.quantityBase, l.stockBase),
+            sellPricePiasters: l.sellPricePiasters,
+            stockBase: l.stockBase,
+          });
+        }
+      }
+      return next;
+    });
+    setScannerOpen(false);
+    setCartMode(true);
+    setCartOpen(true);
+    showToast(`اتضاف ${lines.length} صنف للفاتورة من الاسكان`, "success");
   };
 
   /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
@@ -1240,12 +1267,6 @@ export function SalesView({
     setCartMode(true);
     setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
     showToast(t("credit.started", { name: customer.name }), "success");
-    if (pendingCreditItem) {
-      const item = pendingCreditItem;
-      setPendingCreditItem(null);
-      // added after the session state is set, so the toast names the customer
-      setTimeout(() => addToCartRef.current?.(item), 0);
-    }
   };
 
   /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
@@ -1256,11 +1277,6 @@ export function SalesView({
     setCartOpen(false);
     setCartDraft(EMPTY_CART_DRAFT);
   };
-
-  const addToCartRef = useRef(addToCart);
-  useEffect(() => {
-    addToCartRef.current = addToCart;
-  });
 
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
@@ -1603,6 +1619,15 @@ export function SalesView({
               ? t("credit.sessionLabel", { name: creditCustomer.name })
               : t("credit.start")}
           </Button>
+          <Button
+            kind="ghost"
+            size="sm"
+            icon="sparkle"
+            data-testid="scan-start"
+            onClick={() => setScannerOpen(true)}
+          >
+            اسكان المنتجات بالذكاء الاصطناعي
+          </Button>
         </div>
 
         {/* Product & Services Tiles Grid matching Image 1 */}
@@ -1644,12 +1669,6 @@ export function SalesView({
                 item.unitMode === "piece" &&
                 item.packQty > 1 &&
                 !isOut;
-              // «آجل»: stocked products only (services and sandwiches are sold on their own).
-              const hasCreditBtn =
-                !item.isService &&
-                !item.isSandwich &&
-                !!item.variantId &&
-                !isOut;
 
               return (
                 <div
@@ -1690,7 +1709,8 @@ export function SalesView({
                     <span className={styles.tS}>{formatStockText(item)}</span>
                   </button>
 
-                  {(hasCartonBtn || hasCreditBtn) && (
+                  {/* Credit sales start from «آجل» above the grid, never from a card. */}
+                  {hasCartonBtn && (
                     <div className={styles.tActions}>
                       {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
                       {hasCartonBtn && (
@@ -1705,23 +1725,6 @@ export function SalesView({
                           <span>
                             {getPackLabel(item.packName, item.packQty)}
                           </span>
-                        </button>
-                      )}
-                      {hasCreditBtn && (
-                        <button
-                          type="button"
-                          className={`${styles.tPack} ${styles.tCredit}`}
-                          data-testid="tile-credit"
-                          onClick={(e) => handleSellOnCredit(e, item)}
-                          title={t("invoice.creditActionLabel", {
-                            name: item.name,
-                          })}
-                          aria-label={t("invoice.creditActionLabel", {
-                            name: item.name,
-                          })}
-                        >
-                          <Icon n="users" s={15} />
-                          <span>{t("invoice.creditAction")}</span>
                         </button>
                       )}
                     </div>
@@ -1970,7 +1973,7 @@ export function SalesView({
           onChanged={(message) => {
             showToast(message, "success");
             void reloadSales();
-            void fetch("/api/stock")
+            void apiGet("/api/stock")
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => d?.inventory && setInventory(d.inventory))
               .catch(() => undefined);
@@ -2294,13 +2297,28 @@ export function SalesView({
         </>
       )}
 
+      {/* AI product scanner: confirmed lines join the same cart (normal or credit sale) */}
+      {scannerOpen && (
+        <ProductScannerSheet
+          catalog={displayItems
+            .filter((i) => i.variantId && !i.isService && !i.isSandwich)
+            .map((i) => ({
+              variantId: i.variantId!,
+              name: i.name,
+              unit: i.unit ?? "piece",
+              sellPricePiasters: i.sellPricePiasters,
+              stockBase: i.currentStockBase,
+            }))}
+          creditCustomerName={creditCustomer?.name ?? null}
+          onClose={() => setScannerOpen(false)}
+          onConfirm={addScannedToCart}
+        />
+      )}
+
       {/* Credit sale: who is the customer? */}
       {creditFormOpen && (
         <CreditCustomerForm
-          onClose={() => {
-            setCreditFormOpen(false);
-            setPendingCreditItem(null);
-          }}
+          onClose={() => setCreditFormOpen(false)}
           onChosen={startCreditSale}
         />
       )}
@@ -2343,7 +2361,7 @@ export function SalesView({
                 return;
               }
               void reloadSales();
-              void fetch("/api/stock")
+              void apiGet("/api/stock")
                 .then((r) => (r.ok ? r.json() : null))
                 .then((d) => d?.inventory && setInventory(d.inventory))
                 .catch(() => undefined);
