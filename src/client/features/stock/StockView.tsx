@@ -427,7 +427,7 @@ export function StockView() {
           packQty: i.packQty,
           currentStockBase: i.currentStockBase,
           buyCostPiasters: i.buyPricePiasters,
-          unit: i.unitMode,
+          unit: i.unit || (i.unitMode === "weight" ? "kg" : "piece"),
           category: i.category,
         });
       }
@@ -1049,7 +1049,9 @@ export function StockView() {
                   id: itm.productId,
                   name_ar: itm.productName,
                   category: itm.category || "المخزون",
-                  unit: itm.unitMode === "weight" ? "kg" : "piece",
+                  // The product's own selling unit (bag, can, kg…), not a piece/weight guess.
+                  unit:
+                    itm.unit || (itm.unitMode === "weight" ? "kg" : "piece"),
                   sell_price_piasters: itm.sellPricePiasters,
                   buy_cost_piasters: itm.buyPricePiasters,
                   is_custom: itm.isCustom ?? false,
@@ -1058,6 +1060,7 @@ export function StockView() {
                       id: itm.variantId,
                       flavor: itm.flavor,
                       pack_qty: itm.packQty,
+                      size_unit: itm.packName ?? undefined,
                       sell_price_piasters: itm.sellPricePiasters,
                       buy_cost_piasters: itm.buyPricePiasters,
                     },

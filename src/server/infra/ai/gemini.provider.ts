@@ -21,6 +21,16 @@ export function providerBusy(): AppError {
   return err;
 }
 
+/** The AI provider account is out of quota: a 503 that says the assistant is paused. */
+export function providerQuotaExhausted(): AppError {
+  const err = AppError.serviceUnavailable(
+    "المساعد واقف مؤقتاً لأن حد الاستخدام عند مزود الخدمة خلص. جرّب بعد شوية، ورصيد رسالتك رجعلك.",
+    { reason: "ai_provider_quota" },
+  );
+  err.retryAfterSeconds = 300;
+  return err;
+}
+
 /** The server has no AI key: the assistant is switched off here (a 503, not a crash). */
 export function providerNotConfigured(): AppError {
   return AppError.serviceUnavailable(
@@ -197,6 +207,13 @@ export class GeminiProvider implements AIProvider {
         );
         // Busy or down (429, 5xx — e.g. 503 "high demand"): a temporary 503 with a retry hint,
         // not a 500 (QA-29). Other statuses (bad key, bad request) are our fault: 500.
+        // The provider account ran out of quota (not a momentary peak): say so.
+        if (
+          response.status === 429 &&
+          /quota|RESOURCE_EXHAUSTED/i.test(errorBody)
+        ) {
+          throw providerQuotaExhausted();
+        }
         if (response.status === 429 || response.status >= 500) {
           throw providerBusy();
         }

@@ -113,7 +113,13 @@ if (typeof window !== "undefined") {
 }
 
 function AppShellInner() {
-  const { session, isOfflineExpired, isSessionRefused, logout } = useAuth();
+  const {
+    session,
+    isOfflineExpired,
+    isSessionRefused,
+    isSignedOutByServer,
+    logout,
+  } = useAuth();
   const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -282,16 +288,15 @@ function AppShellInner() {
       rememberOutboxStore(session.store.id);
       // QA-57: keep the shop's identity on the device for the offline header and menu.
       void saveShopIdentity(db, session).catch(() => {});
-    } else if (
-      !authLoading &&
-      typeof navigator !== "undefined" &&
-      navigator.onLine
-    ) {
-      rememberOutboxStore(null); // online and signed out: forget it
+    } else if (!authLoading && isSignedOutByServer) {
+      // Forgotten only when the SERVER answered that nobody is signed in (no session, or 401:
+      // signed out, expired, removed from the shop). A failed session request (no network, even while the browser claims
+      // to be online) keeps the shop's queue and identity (QA-57).
+      rememberOutboxStore(null);
       void forgetShopIdentities(db).catch(() => {});
       void clearReadCache();
     }
-  }, [session, authLoading]);
+  }, [session, authLoading, isSignedOutByServer]);
   // While the session is not (re)loaded — offline, or just back online — keep showing the
   // remembered shop's queue instead of a false "0 waiting / synced".
   const storeId = session?.store?.id ?? lastOutboxStore();

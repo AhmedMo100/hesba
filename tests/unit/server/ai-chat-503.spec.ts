@@ -162,4 +162,23 @@ describe("AI 503 — Gemini adapter", () => {
       });
     },
   );
+
+  it("an exhausted provider quota is a 503 that says so (not 'busy'), with a longer retry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            '{"error":{"code":429,"message":"You exceeded your current quota","status":"RESOURCE_EXHAUSTED"}}',
+            { status: 429 },
+          ),
+      ),
+    );
+    const err = (await new GeminiProvider("k", "m")
+      .generateChatCompletion([{ role: "user", content: "؟" }], "sys")
+      .catch((e: unknown) => e)) as AppError;
+    expect(err.statusCode).toBe(503);
+    expect(err.details).toEqual({ reason: "ai_provider_quota" });
+    expect(err.retryAfterSeconds).toBe(300);
+  });
 });

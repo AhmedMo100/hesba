@@ -118,9 +118,14 @@ export class RealAuthApi implements AuthApi {
       const res = await fetch("/api/auth/session");
       // The server said this session is over (revoked, expired, membership removed): QA-51.
       sessionRefused = res.status === 401;
+      serverSaysSignedOut = res.status === 401;
       if (!res.ok) return null;
       const json = await res.json();
-      if (!json.success || !json.data) return null;
+      if (!json.success || !json.data) {
+        serverSaysSignedOut = json.success === true; // answered: nobody signed in
+        return null;
+      }
+      serverSaysSignedOut = false;
       void slideSessionIfDue(json.data);
       return json.data;
     } catch {
@@ -188,6 +193,14 @@ export const realAuthApi = new RealAuthApi();
  * A failed rotation changes nothing (the current session stays valid until its expiry).
  */
 let sessionRefused = false;
+let serverSaysSignedOut = false;
+/**
+ * True when the server ANSWERED the last session check and nobody is signed in (401, or no
+ * session). A network failure leaves it false, so offline data is kept (QA-57).
+ */
+export function signedOutByServer(): boolean {
+  return serverSaysSignedOut;
+}
 /**
  * True when the last session check got a 401: the server refused this session (signed out
  * elsewhere, expired, removed from the shop). Not set by a network error or a 5xx, so offline
