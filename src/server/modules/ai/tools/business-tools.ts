@@ -16,7 +16,49 @@ import "server-only";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
 import { salesFinancialsInTx } from "@/server/modules/reports";
-import { getCairoMidnightDate } from "../cairo-date";
+import {
+  addDaysToDateKey,
+  cairoDayStartUtc,
+  toCairoDateString,
+} from "@/domain/time";
+
+/** Periods the tools accept; anything else is read as `today` (never an arbitrary range). */
+export const TOOL_PERIODS = [
+  "today",
+  "yesterday",
+  "week",
+  "last_week",
+  "this_month",
+  "month",
+] as const;
+export type ToolPeriod = (typeof TOOL_PERIODS)[number];
+
+/**
+ * The [start, end] of a period on the Cairo calendar. `week` = the last 7 days including
+ * today; `last_week` = the 7 days before those; `this_month` = from the 1st of this Cairo month.
+ */
+export function toolDateRange(
+  period: string,
+  now: Date = new Date(),
+): { start: Date; end: Date } {
+  const today = toCairoDateString(now);
+  const day = (offset: number) =>
+    cairoDayStartUtc(addDaysToDateKey(today, offset));
+  switch (period as ToolPeriod) {
+    case "yesterday":
+      return { start: day(-1), end: new Date(day(0).getTime() - 1) };
+    case "week":
+      return { start: day(-6), end: now };
+    case "last_week":
+      return { start: day(-13), end: new Date(day(-6).getTime() - 1) };
+    case "this_month":
+      return { start: cairoDayStartUtc(`${today.slice(0, 7)}-01`), end: now };
+    case "month":
+      return { start: day(-29), end: now };
+    default:
+      return { start: day(0), end: now };
+  }
+}
 import { ToolDefinition } from "../types";
 
 export interface BusinessToolsContext {
@@ -42,8 +84,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
+              enum: [...TOOL_PERIODS],
               description:
-                "الفترة الزمنية: 'today' لليوم، 'week' لآخر 7 أيام، 'month' لآخر 30 يوم.",
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -101,7 +144,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
-              description: "الفترة: 'today' أو 'week' أو 'month'.",
+              enum: [...TOOL_PERIODS],
+              description:
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -115,7 +160,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
-              description: "الفترة: 'today' أو 'week' أو 'month'.",
+              enum: [...TOOL_PERIODS],
+              description:
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -147,7 +194,9 @@ export class BusinessToolsService {
           properties: {
             period: {
               type: "string",
-              description: "الفترة: 'today' أو 'week' أو 'month'.",
+              enum: [...TOOL_PERIODS],
+              description:
+                "الفترة (بتوقيت القاهرة): 'today' النهارده، 'yesterday' امبارح، 'week' آخر 7 أيام، 'last_week' الـ 7 أيام اللي قبلهم، 'this_month' الشهر الحالي من أوله، 'month' آخر 30 يوم.",
             },
           },
         },
@@ -252,19 +301,7 @@ export class BusinessToolsService {
   }
 
   private getDateRange(period: string): { start: Date; end: Date } {
-    const now = new Date();
-    const todayMidnight = getCairoMidnightDate(now);
-
-    if (period === "today") {
-      return { start: todayMidnight, end: now };
-    }
-    if (period === "week") {
-      const start = new Date(todayMidnight.getTime() - 7 * 24 * 60 * 60 * 1000);
-      return { start, end: now };
-    }
-    // month (last 30 days)
-    const start = new Date(todayMidnight.getTime() - 30 * 24 * 60 * 60 * 1000);
-    return { start, end: now };
+    return toolDateRange(period);
   }
 
   private async getSalesSummary(
@@ -293,10 +330,11 @@ export class BusinessToolsService {
 
     for (const s of sales) {
       totalPiasters += s.totalPiasters;
-      if (s.paymentMethod === "cash") {
-        cashPiasters += s.totalPiasters;
-      } else {
+      // Only «آجل» is credit; cash, e-wallet and card are paid on the spot.
+      if (s.paymentMethod === "debt") {
         creditPiasters += s.totalPiasters;
+      } else {
+        cashPiasters += s.totalPiasters;
       }
     }
 
@@ -306,7 +344,7 @@ export class BusinessToolsService {
       period,
       sales_count: count,
       sales_total_piasters: Number(totalPiasters),
-      cash_sales_piasters: Number(cashPiasters),
+      paid_now_sales_piasters: Number(cashPiasters),
       credit_sales_piasters: Number(creditPiasters),
       average_invoice_piasters: avgPiasters,
     };
@@ -326,13 +364,13 @@ export class BusinessToolsService {
         sale: { saleVoid: { is: null } }, // voided sales are not sales (ADR-0022)
       },
       include: {
-        storeProduct: { select: { nameAr: true } },
+        storeProduct: { select: { nameAr: true, unit: true } },
       },
     });
 
     const aggregates = new Map<
       string,
-      { name: string; totalPiasters: bigint; qty: number }
+      { name: string; unit: string; totalPiasters: bigint; qty: number }
     >();
 
     for (const l of lines) {
@@ -340,6 +378,7 @@ export class BusinessToolsService {
       const name = l.storeProduct?.nameAr || "صنف بدون اسم";
       const existing = aggregates.get(key) || {
         name,
+        unit: l.storeProduct?.unit || "piece",
         totalPiasters: BigInt(0),
         qty: 0,
       };
@@ -354,10 +393,13 @@ export class BusinessToolsService {
       .map((it) => ({
         name: it.name,
         total_piasters: Number(it.totalPiasters),
-        quantity_sold: it.qty,
+        // In the product's base unit: grams for kg/g products, otherwise pieces.
+        quantity_sold_base: it.qty,
+        unit: it.unit,
       }));
 
     return {
+      period: "month",
       top_products: sorted,
     };
   }
@@ -372,7 +414,7 @@ export class BusinessToolsService {
       include: {
         storeVariants: true,
       },
-      take: 100,
+      take: 1000,
     });
 
     const variantIds = products.flatMap((p) =>
@@ -394,6 +436,7 @@ export class BusinessToolsService {
     const results: Array<{
       name: string;
       remaining_qty: number;
+      unit: string;
       status: "out_of_stock" | "low_stock" | "available";
     }> = [];
 
@@ -404,19 +447,21 @@ export class BusinessToolsService {
         totalQty += levelMap.get(v.id) || 0;
       }
 
+      // "Low" = 5 units, or 1 kg for weighed products (stock is in grams).
+      const weighed = p.unit === "kg" || p.unit === "g";
       const status =
         totalQty <= 0
           ? "out_of_stock"
-          : totalQty <= 5
+          : totalQty <= (weighed ? 1000 : 5)
             ? "low_stock"
             : "available";
 
       if (filter === "low_or_out") {
         if (status === "out_of_stock" || status === "low_stock") {
-          results.push({ name, remaining_qty: totalQty, status });
+          results.push({ name, remaining_qty: totalQty, unit: p.unit, status });
         }
       } else {
-        results.push({ name, remaining_qty: totalQty, status });
+        results.push({ name, remaining_qty: totalQty, unit: p.unit, status });
       }
     }
 

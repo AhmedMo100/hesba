@@ -19,9 +19,14 @@ import "server-only";
  * `src/app/api/ai/chat/route.ts`, `src/app/api/ai/quota/route.ts`.
  *
  * @remarks
- * - Provider choice: Gemini when `GEMINI_API_KEY`/`HESBA_GEMINI_API_KEY` is set and not in
- *   tests, otherwise the mock model; Brave web search when `BRAVE_SEARCH_API_KEY` is set and
- *   not in tests, otherwise the mock search.
+ * - Provider choice (ADR-0030): `assistantProviderInfo()`. An external model receives shop
+ *   data ONLY when the operator set `HESBA_AI_ASSISTANT_DATA_SHARING=approved` (a provider tier
+ *   whose terms do not use the data for training / human review). Otherwise the assistant runs
+ *   in private "grounded" mode (`grounded-answers.ts`): nothing leaves the server and answers
+ *   are written from the tools' results. The mock model (tests, no key) is local.
+ * - Every model round goes through the platform gate (`platform/ai-gate.ts`) and is recorded
+ *   in `ai_usage_events` (no question or answer text is stored there).
+ * - Brave web search when `BRAVE_SEARCH_API_KEY` is set and not in tests, otherwise the mock.
  * - The `searchMarketTrends` tool sends the model-written query to the external search
  *   provider; the system prompt instructs the model to search general market topics only.
  */
@@ -43,6 +48,72 @@ import { ChatMessage, SearchCitation, AIQuotaStatus } from "./types";
 import { withTenant } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { logger } from "@/server/platform/logger";
+import type { ProviderErrorCategory } from "@/server/infra/ai";
+import { acquireAiCapacity, type AiLease } from "./platform/ai-gate";
+import { recordAiUsage } from "./platform/usage";
+import {
+  detectIntent,
+  formatGroundedAnswer,
+  GROUNDED_UNSUPPORTED_ANSWER,
+} from "./grounded-answers";
+
+export const DEFAULT_ASSISTANT_MODEL = "gemini-3.6-flash";
+
+export interface AssistantProviderInfo {
+  provider: "gemini" | "mock";
+  model: string;
+  /** The operator approved sending shop data to this provider (its terms were checked). */
+  dataSharing: "approved" | "none";
+  /** `model`: the model answers with tools; `grounded`: private mode, no model call. */
+  mode: "model" | "grounded";
+}
+
+/** Which assistant model this server uses and whether shop data may be sent to it. */
+export function assistantProviderInfo(): AssistantProviderInfo {
+  const key =
+    process.env.HESBA_AI_ASSISTANT_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.HESBA_GEMINI_API_KEY;
+  const wanted =
+    process.env.HESBA_AI_ASSISTANT_PROVIDER || (key ? "gemini" : "mock");
+  const provider =
+    wanted === "gemini" && key && process.env.NODE_ENV !== "test"
+      ? "gemini"
+      : "mock";
+  const dataSharing =
+    process.env.HESBA_AI_ASSISTANT_DATA_SHARING === "approved"
+      ? "approved"
+      : "none";
+  return {
+    provider,
+    model:
+      provider === "mock"
+        ? "mock"
+        : process.env.HESBA_AI_ASSISTANT_MODEL ||
+          process.env.GEMINI_MODEL ||
+          process.env.HESBA_GEMINI_MODEL ||
+          DEFAULT_ASSISTANT_MODEL,
+    dataSharing,
+    // The local mock receives nothing external; an external model only when approved.
+    mode:
+      provider === "mock" || dataSharing === "approved" ? "model" : "grounded",
+  };
+}
+
+/** A user message being answered within this time is "still processing", not a retry. */
+const IN_PROGRESS_MS = 45_000;
+
+function categoryOf(err: unknown): ProviderErrorCategory {
+  const reason =
+    err instanceof AppError
+      ? (err.details as { reason?: string; category?: string } | undefined)
+      : undefined;
+  if (reason?.category) return reason.category as ProviderErrorCategory;
+  if (reason?.reason === "ai_provider_quota") return "provider_quota";
+  if (reason?.reason === "ai_not_configured") return "invalid_key";
+  if (err instanceof AppError && err.statusCode === 503) return "unavailable";
+  return "invalid_request";
+}
 
 export interface SendMessageOptions {
   storeId: string;
@@ -65,6 +136,7 @@ export class AIService {
   private readonly businessTools: BusinessToolsService;
   private readonly aiProvider: AIProvider;
   private readonly searchProvider: SearchProvider;
+  private readonly info: AssistantProviderInfo;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -75,16 +147,25 @@ export class AIService {
     this.conversationService = new AIConversationService(prisma);
     this.businessTools = new BusinessToolsService(prisma);
 
-    // AI Provider selection: Gemini if API key present, otherwise Mock
+    const info = assistantProviderInfo();
     if (aiProvider) {
+      // An injected provider (tests) is treated as approved for data unless it says otherwise.
       this.aiProvider = aiProvider;
-    } else if (
-      (process.env.GEMINI_API_KEY || process.env.HESBA_GEMINI_API_KEY) &&
-      process.env.NODE_ENV !== "test"
-    ) {
-      this.aiProvider = new GeminiProvider();
+      this.info = {
+        provider: aiProvider.name === "gemini" ? "gemini" : "mock",
+        model: aiProvider.name,
+        dataSharing: "approved",
+        mode: "model",
+      };
     } else {
-      this.aiProvider = new MockAIProvider();
+      this.aiProvider =
+        info.provider === "gemini"
+          ? new GeminiProvider(
+              process.env.HESBA_AI_ASSISTANT_API_KEY || undefined,
+              info.model,
+            )
+          : new MockAIProvider();
+      this.info = info;
     }
 
     // Search Provider selection: Brave if API key present, otherwise Mock
@@ -121,54 +202,62 @@ export class AIService {
       throw AppError.badRequest("نص السؤال مطلوب ولا يمكن أن يكون فارغاً");
     }
 
-    // 1. Idempotency Check: if client_message_id was already processed, return existing answer
+    // 1. Idempotency: the same clientMessageId is answered once. A retry after an answer gets
+    // that answer; a retry while it is being answered is refused; a retry after a failure
+    // reuses the stored question (no second copy of it, one credit).
+    let retryOfMessageId: string | null = null;
     if (clientMessageId) {
-      const cached = await withTenant(
+      const prior = await withTenant(
         storeId,
         userId,
         async (tx) => {
+          // Two requests with the same id wait for each other here (transaction-scoped lock).
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${storeId}:${clientMessageId}`}))`;
           const existingUserMsg = await tx.aiMessage.findFirst({
+            where: { storeId, clientMessageId, role: "user" },
+            orderBy: { createdAt: "asc" },
+          });
+          if (!existingUserMsg?.conversationId) return null;
+          const reply = await tx.aiMessage.findFirst({
             where: {
               storeId,
-              clientMessageId,
-              role: "user",
+              conversationId: existingUserMsg.conversationId,
+              role: "assistant",
+              createdAt: { gte: existingUserMsg.createdAt },
             },
+            orderBy: { createdAt: "asc" },
           });
-
-          if (existingUserMsg && existingUserMsg.conversationId) {
-            const subsequentAssistantMsg = await tx.aiMessage.findFirst({
-              where: {
-                storeId,
+          if (reply) {
+            return {
+              cached: {
                 conversationId: existingUserMsg.conversationId,
-                role: "assistant",
-                createdAt: { gte: existingUserMsg.createdAt },
-              },
-              orderBy: { createdAt: "asc" },
-            });
-
-            if (subsequentAssistantMsg) {
-              return {
-                conversationId: existingUserMsg.conversationId,
-                messageId: subsequentAssistantMsg.id,
-                bodyText: subsequentAssistantMsg.bodyText,
+                messageId: reply.id,
+                bodyText: reply.bodyText,
                 sources:
-                  (subsequentAssistantMsg.sources as unknown as SearchCitation[]) ||
-                  undefined,
-              };
-            }
+                  (reply.sources as unknown as SearchCitation[]) || undefined,
+              },
+            };
           }
-          return null;
+          if (
+            Date.now() - existingUserMsg.createdAt.getTime() <
+            IN_PROGRESS_MS
+          ) {
+            throw AppError.conflict("سؤالك لسه بيتجاوب، استنى ثواني");
+          }
+          // Mark the attempt as fresh, so a parallel retry sees it "in progress".
+          await tx.aiMessage.update({
+            where: { id: existingUserMsg.id },
+            data: { createdAt: new Date() },
+          });
+          return { retryOf: existingUserMsg.id };
         },
         this.prisma,
       );
-
-      if (cached) {
+      if (prior && "cached" in prior && prior.cached) {
         const quota = await this.quotaService.getQuotaStatus(storeId);
-        return {
-          ...cached,
-          quota,
-        };
+        return { ...prior.cached, quota };
       }
+      if (prior && "retryOf" in prior) retryOfMessageId = prior.retryOf ?? null;
     }
 
     // 2. Atomic Quota Reservation
@@ -183,23 +272,29 @@ export class AIService {
     const conversation =
       await this.conversationService.getOrCreateTodayConversation(storeId);
 
-    // 4. Persist User Message inside withTenant
-    await withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        return await tx.aiMessage.create({
-          data: {
-            storeId,
-            conversationId: conversation.id,
-            role: "user",
-            bodyText: cleanPrompt,
-            clientMessageId: clientMessageId || null,
-          },
-        });
-      },
-      this.prisma,
-    );
+    // 4. Persist the question (once; a retry reuses the stored one)
+    if (!retryOfMessageId) {
+      await withTenant(
+        storeId,
+        userId,
+        async (tx) => {
+          return await tx.aiMessage.create({
+            data: {
+              storeId,
+              conversationId: conversation.id,
+              role: "user",
+              bodyText: cleanPrompt,
+              clientMessageId: clientMessageId || null,
+            },
+          });
+        },
+        this.prisma,
+      );
+    }
+
+    if (this.info.mode === "grounded") {
+      return this.answerGrounded(storeId, userId, cleanPrompt, conversation.id);
+    }
 
     // 5. Orchestration Execution with Tools and Rollback on Failure
     try {
@@ -240,11 +335,12 @@ export class AIService {
       for (let round = 0; ; round++) {
         if (signal.aborted) throw providerBusy();
         const lastRound = round >= AI_MAX_TOOL_ROUNDS;
-        const response = await this.aiProvider.generateChatCompletion(
+        const response = await this.callModel(
+          storeId,
           convo,
           systemInstruction,
           lastRound ? undefined : toolDefinitions,
-          { signal },
+          signal,
         );
         if (response.citations)
           citations = [...citations, ...response.citations];
@@ -330,6 +426,147 @@ export class AIService {
       );
       throw err;
     }
+  }
+
+  /** One model round through the platform gate, recorded in the usage log. */
+  private async callModel(
+    storeId: string,
+    convo: ChatMessage[],
+    systemInstruction: string,
+    tools: ReturnType<typeof BusinessToolsService.getDefinitions> | undefined,
+    signal: AbortSignal,
+  ) {
+    const requestId = crypto.randomUUID();
+    const started = Date.now();
+    let lease: AiLease;
+    try {
+      lease = await acquireAiCapacity(
+        this.prisma,
+        "assistant",
+        AI_REPLY_TIMEOUT_MS,
+      );
+    } catch (err: unknown) {
+      await recordAiUsage(this.prisma, storeId, {
+        feature: "assistant",
+        provider: this.info.provider,
+        model: this.info.model,
+        requestId,
+        status: "rejected",
+        errorCategory: categoryOf(err),
+      });
+      throw err;
+    }
+    try {
+      const response = await this.aiProvider.generateChatCompletion(
+        convo,
+        systemInstruction,
+        tools,
+        { signal },
+      );
+      await lease.finish({ ok: true });
+      await recordAiUsage(this.prisma, storeId, {
+        feature: "assistant",
+        provider: this.info.provider,
+        model: this.info.model,
+        requestId,
+        status: "succeeded",
+        inputTokens: response.usage?.promptTokens ?? null,
+        outputTokens: response.usage?.completionTokens ?? null,
+        estimatedCostMicros: lease.estimatedCostMicros,
+        latencyMs: Date.now() - started,
+      });
+      return response;
+    } catch (err: unknown) {
+      const category = categoryOf(err);
+      await lease.finish({ ok: false, category });
+      await recordAiUsage(this.prisma, storeId, {
+        feature: "assistant",
+        provider: this.info.provider,
+        model: this.info.model,
+        requestId,
+        status: "failed",
+        errorCategory: category,
+        latencyMs: Date.now() - started,
+      });
+      throw err;
+    }
+  }
+
+  /**
+   * Private mode: answers from the tools on this server, no model call (see file header).
+   * An unrecognized question gets the honest limitation answer and its credit back.
+   */
+  private async answerGrounded(
+    storeId: string,
+    userId: string,
+    question: string,
+    conversationId: string,
+  ): Promise<SendMessageResult> {
+    let answer: string;
+    try {
+      const intent = detectIntent(question);
+      if (!intent) {
+        answer = GROUNDED_UNSUPPORTED_ANSWER;
+        await this.quotaService.rollbackQuota(storeId);
+      } else {
+        const ctx = { prisma: this.prisma, storeId, userId };
+        const results =
+          intent.tool === "compare_weeks"
+            ? [
+                await this.businessTools.executeTool(
+                  "getSalesSummary",
+                  { period: "week" },
+                  ctx,
+                ),
+                await this.businessTools.executeTool(
+                  "getSalesSummary",
+                  { period: "last_week" },
+                  ctx,
+                ),
+              ]
+            : [
+                await this.businessTools.executeTool(
+                  intent.tool,
+                  "period" in intent ? { period: intent.period } : { limit: 5 },
+                  ctx,
+                ),
+              ];
+        answer = formatGroundedAnswer(
+          intent,
+          results as Array<Record<string, unknown>>,
+        );
+      }
+    } catch (err: unknown) {
+      await this.quotaService.rollbackQuota(storeId);
+      logger.error(
+        { err, storeId },
+        "Grounded assistant answer failed, quota restored",
+      );
+      throw AppError.serviceUnavailable(
+        "مقدرتش أجيب البيانات دلوقتي، جرّب تاني. رصيد رسالتك رجعلك.",
+      );
+    }
+    const record = await withTenant(
+      storeId,
+      userId,
+      (tx) =>
+        tx.aiMessage.create({
+          data: {
+            storeId,
+            conversationId,
+            role: "assistant",
+            bodyText: answer,
+            sources: Prisma.JsonNull,
+          },
+        }),
+      this.prisma,
+    );
+    return {
+      conversationId,
+      messageId: record.id,
+      bodyText: answer,
+      quota: await this.quotaService.getQuotaStatus(storeId),
+    };
   }
 
   private buildSystemPrompt(): string {

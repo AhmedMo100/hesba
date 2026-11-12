@@ -103,3 +103,36 @@ export interface SearchProvider {
    */
   search(query: string): Promise<SearchResult>;
 }
+
+// ---- Product scanner (visual recognition, ADR-0030) ---------------------------------------
+
+/** One photo for the scanner, already checked (type, size) and stripped of metadata. */
+export interface ScanImage {
+  mimeType: "image/jpeg" | "image/png" | "image/webp";
+  data: Buffer;
+}
+
+export interface VisionResponse {
+  /**
+   * The model's answer, parsed from JSON but NOT validated: the caller treats it as untrusted
+   * input and validates it (zod) before using any of it.
+   */
+  raw: unknown;
+  model: string;
+  usage?: { promptTokens?: number; completionTokens?: number };
+}
+
+export interface VisionProvider {
+  readonly name: string;
+  readonly model: string;
+  /**
+   * Describes the products visible in the photos (brand, name, flavor, size, packaging, how
+   * many). It receives only the photos and a fixed instruction: no shop data, no catalog.
+   *
+   * @throws ProviderError (classified) on any provider failure or a non-JSON answer.
+   */
+  recognizeProducts(
+    images: ScanImage[],
+    options: { signal: AbortSignal },
+  ): Promise<VisionResponse>;
+}
