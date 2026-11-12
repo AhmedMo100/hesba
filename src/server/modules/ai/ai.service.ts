@@ -94,9 +94,17 @@ export function assistantProviderInfo(): AssistantProviderInfo {
           process.env.HESBA_GEMINI_MODEL ||
           DEFAULT_ASSISTANT_MODEL,
     dataSharing,
-    // The local mock receives nothing external; an external model only when approved.
+    // An external model only when approved. With no model configured (no key) the server
+    // answers from the tools itself (private mode) instead of a keyword mock; automated tests
+    // keep the local mock model.
     mode:
-      provider === "mock" || dataSharing === "approved" ? "model" : "grounded",
+      provider === "mock"
+        ? process.env.NODE_ENV === "test"
+          ? "model"
+          : "grounded"
+        : dataSharing === "approved"
+          ? "model"
+          : "grounded",
   };
 }
 

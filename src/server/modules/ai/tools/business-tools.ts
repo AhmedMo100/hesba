@@ -365,6 +365,12 @@ export class BusinessToolsService {
       },
       include: {
         storeProduct: { select: { nameAr: true, unit: true } },
+        // Cart / credit lines reference the product through the variant.
+        storeVariant: {
+          select: {
+            storeProduct: { select: { id: true, nameAr: true, unit: true } },
+          },
+        },
       },
     });
 
@@ -374,11 +380,12 @@ export class BusinessToolsService {
     >();
 
     for (const l of lines) {
-      const key = l.storeProductId || l.id;
-      const name = l.storeProduct?.nameAr || "صنف بدون اسم";
+      const product = l.storeProduct ?? l.storeVariant?.storeProduct ?? null;
+      const key = l.storeProductId || l.storeVariant?.storeProduct?.id || l.id;
+      const name = product?.nameAr || "صنف بدون اسم";
       const existing = aggregates.get(key) || {
         name,
-        unit: l.storeProduct?.unit || "piece",
+        unit: product?.unit || "piece",
         totalPiasters: BigInt(0),
         qty: 0,
       };
