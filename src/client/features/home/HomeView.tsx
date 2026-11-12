@@ -14,6 +14,7 @@
  * A failed request leaves that section empty.
  */
 
+import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
 import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useMemo } from "react";
 import {
@@ -36,6 +37,14 @@ import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "./HomeView.module.css";
 
 type PeriodKey = ReportPeriod;
+
+/** A stored base quantity in its selling unit: grams → kg for weighed goods. */
+function formatBaseQuantity(base: number, unit: string): string {
+  if (unit === "kg" || unit === "g") {
+    return `${(base / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`;
+  }
+  return `${base} ${unitWord(unit)}`;
+}
 
 const HOME_PERIODS: ReadonlyArray<readonly [PeriodKey, string]> = [
   ["today", "النهارده"],
@@ -692,6 +701,66 @@ export function HomeView() {
               )}
             </section>
           </div>
+
+          {/* Damaged / lost goods (P4): real waste records of the period */}
+          <section className={styles.sectionCard} data-testid="home-losses">
+            <h2 className={styles.secTitle}>التالف / الفاقد</h2>
+            {!report ? (
+              <div className={styles.mutedText}>—</div>
+            ) : report.losses.count === 0 ? (
+              <div className={styles.mutedText}>
+                مفيش تالف أو فاقد متسجل في الفترة دي
+              </div>
+            ) : (
+              <div className={styles.topList}>
+                <div className={styles.catItem}>
+                  <span>
+                    {report.losses.count} مرة
+                    {report.losses.unknownCostCount > 0
+                      ? ` · ${report.losses.unknownCostCount} من غير تكلفة متسجلة`
+                      : ""}
+                  </span>
+                  <div className={styles.catValues}>
+                    <b data-testid="home-losses-cost">
+                      {formatMoney(report.losses.costPiasters)}
+                    </b>
+                    <small>تكلفة تقريبية بسعر الشراء</small>
+                  </div>
+                </div>
+                {report.losses.byReason.map((r) => (
+                  <div key={r.reason} className={styles.catItem}>
+                    <span>
+                      {WASTE_REASON_LABELS[r.reason as WasteReason] ?? r.reason}{" "}
+                      ({r.count})
+                    </span>
+                    <div className={styles.catValues}>
+                      <b>{formatMoney(r.costPiasters)}</b>
+                    </div>
+                  </div>
+                ))}
+                {report.losses.recent.map((l) => (
+                  <div key={l.id} className={styles.timelineItem}>
+                    <span className={`${styles.tlDot} ${styles.tlDotExp}`} />
+                    <div className={styles.tlBody}>
+                      <b>
+                        {l.name} — {formatBaseQuantity(l.quantityBase, l.unit)}
+                      </b>
+                      <small>
+                        {WASTE_REASON_LABELS[l.reason as WasteReason] ??
+                          l.reason}
+                        {l.note ? ` · ${l.note}` : ""}
+                      </small>
+                    </div>
+                    <span className={`${styles.tlAmt} ${styles.tlAmtNeg}`}>
+                      {l.costPiasters === null
+                        ? "—"
+                        : `−${formatMoney(l.costPiasters)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Store Activity Timeline matching Image 5 */}
           <section className={styles.sectionCard}>

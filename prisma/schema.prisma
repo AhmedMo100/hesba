@@ -1110,12 +1110,17 @@ model WasteRecord {
   batchId        String?  @map("batch_id") @db.Uuid
   quantityBase   BigInt   @map("quantity_base")
   costMinor      BigInt   @map("cost_minor")
+  /// expired | damaged | missing | damaged_return | other (CHECK, P4).
   reason         String   @default("expired") @db.Text
+  note           String?  @db.Text
+  /// Goods returned damaged: the return they came back in.
+  saleReturnId   String?  @map("sale_return_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeVariant StoreVariant @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
 
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_waste_records_store_created")
   @@map("waste_records")
 }
 

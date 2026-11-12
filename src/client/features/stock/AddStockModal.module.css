@@ -1,0 +1,291 @@
+/* Add stock — the shared form look (Field controls, Chip, Button) plus a few layout pieces. */
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.error {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--red) 10%, var(--sf));
+  color: var(--red);
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.product {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--sf2);
+  margin-bottom: 12px;
+}
+
+.product b {
+  display: block;
+  font-size: 16px;
+}
+
+.product small {
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+.picker {
+  position: relative;
+}
+
+.pickerBtn {
+  width: 100%;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf);
+  color: var(--ink2);
+  font-size: 15px;
+  text-align: start;
+}
+
+.pickerBtn[aria-expanded="true"],
+.pickerBtn:focus-visible {
+  border-color: var(--br);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--br) 18%, transparent);
+  outline: 0;
+}
+
+.pickerBtn .chosen {
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.pickerBtn > span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.menu {
+  position: absolute;
+  inset-inline: 0;
+  top: calc(100% + 6px);
+  z-index: 20;
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow: var(--sh2);
+  max-height: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.menuSearch {
+  padding: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.menuSearch input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--sf2);
+  color: var(--ink);
+  font-size: 15px;
+}
+
+.menuList {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.option {
+  width: 100%;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: none;
+  color: var(--ink);
+  font-weight: 700;
+  font-size: 14px;
+  text-align: start;
+}
+
+.option[aria-selected="true"] {
+  background: var(--sf2);
+}
+
+.option small {
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+.option small.has {
+  color: var(--ok);
+}
+
+.menuEmpty {
+  padding: 16px;
+  text-align: center;
+  color: var(--ink2);
+  font-size: 14px;
+}
+
+.menuAdd {
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ok) 10%, var(--sf));
+  color: var(--ok);
+  font-weight: 800;
+}
+
+.now {
+  font-size: 14px;
+  color: var(--ink2);
+  margin-bottom: 8px;
+}
+
+.now b {
+  color: var(--ink);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.row.one {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.total {
+  margin: -6px 0 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--ok);
+  font-weight: 800;
+  font-size: 14px;
+}
+
+.note {
+  display: block;
+  margin: -8px 0 12px;
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+.expected {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: -8px 0 12px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: var(--sf2);
+  font-size: 13px;
+  color: var(--ink2);
+}
+
+.compare {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin: -6px 0 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--line);
+  background: var(--sf2);
+}
+
+.compare.higher {
+  background: var(--yelBg, #fdf6e2);
+  border-color: var(--yelLine, #d9a92e);
+}
+
+.compare.same {
+  background: var(--soft);
+  border-color: var(--ok);
+}
+
+.section {
+  margin: 4px 0 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.sectionTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 800;
+  margin-bottom: 4px;
+}
+
+.sectionHint {
+  color: var(--ink2);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 14px;
+  background: var(--sf2);
+  font-weight: 700;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.check input {
+  width: 22px;
+  height: 22px;
+  accent-color: var(--br);
+  flex: none;
+}
+
+.quickLabel {
+  display: block;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink2);
+  margin: -4px 0 6px;
+}
+
+@media (max-width: 360px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

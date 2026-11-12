@@ -11,6 +11,7 @@ import {
   Icon,
   PeriodFilter,
   ListSkeleton,
+  useToast,
 } from "@/client/shared/ui";
 import {
   cairoDateRange,
@@ -18,10 +19,11 @@ import {
   type DatePreset,
 } from "@/domain/date-range";
 import { toCairoDateString } from "@/domain/time";
+import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
 import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { AddStockModal, type StockProductOption } from "./AddStockModal";
-import { EditStockModal } from "./EditStockModal";
+import { RecordLossModal } from "./RecordLossModal";
 import { ArchiveStockModal } from "./ArchiveStockModal";
 import {
   type PosMachine,
@@ -150,7 +152,25 @@ const STOCK_HISTORY_PERIODS: ReadonlyArray<readonly [DatePreset, string]> = [
   ["custom", "فترة مخصصة"],
 ];
 
+/**
+ * Stock lists goods on the shelf only. Services (transfers, top-ups, bills, cards) have no
+ * stock: they are sold from the Sales screen against a POS machine's balance; the machines and
+ * their balances stay here.
+ */
+function physicalOnly(
+  items: StockInventoryItem[] | undefined,
+): StockInventoryItem[] {
+  return (items ?? []).filter(
+    (i) =>
+      !isServiceProductRule({
+        category: i.category ?? null,
+        unit: i.unit ?? null,
+      }),
+  );
+}
+
 export function StockView() {
+  const toast = useToast();
   const [tab, setTab] = useState<"qty" | "log">("qty");
   const [filter, setFilter] = useState<"all" | "low" | "out" | "nearExpiry">(
     "all",
@@ -160,8 +180,11 @@ export function StockView() {
   const [customTo, setCustomTo] = useState("");
   const [activeItemAction, setActiveItemAction] =
     useState<StockInventoryItem | null>(null);
-  const [editingStockItem, setEditingStockItem] =
-    useState<StockInventoryItem | null>(null);
+  const [lossTarget, setLossTarget] = useState<{
+    item: StockInventoryItem;
+    reason?: "expired" | "damaged" | "missing" | "other";
+    batchId?: string | null;
+  } | null>(null);
   const [archivingItem, setArchivingItem] = useState<StockInventoryItem | null>(
     null,
   );
@@ -226,7 +249,7 @@ export function StockView() {
       ]);
       if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
       const data = await stockRes.json();
-      setInventory(data.inventory || []);
+      setInventory(physicalOnly(data.inventory));
       setMovements(data.movements || []);
 
       if (prodRes && prodRes.ok) {
@@ -252,7 +275,7 @@ export function StockView() {
         if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
         const data = await stockRes.json();
         if (!ignore) {
-          setInventory(data.inventory || []);
+          setInventory(physicalOnly(data.inventory));
           setMovements(data.movements || []);
         }
         if (!ignore && prodRes && prodRes.ok) {
@@ -298,24 +321,6 @@ export function StockView() {
     }, 0);
   }, [inventory]);
 
-  // Scratch cards & digital units valuation at cost
-  const cardsValuationPiasters = useMemo(() => {
-    return inventory.reduce((sum, item) => {
-      if (item.currentStockBase <= 0) return sum;
-      if (
-        item.category === "كروت شحن" ||
-        item.productName.includes("كارت شحن")
-      ) {
-        const unitCost =
-          item.buyPricePiasters && item.buyPricePiasters > 0
-            ? item.buyPricePiasters
-            : item.batches?.[0]?.costPricePiasters || 0;
-        return sum + item.currentStockBase * unitCost;
-      }
-      return sum;
-    }, 0);
-  }, [inventory]);
-
   // Provider balances across all POS machines
   const totalProviderBalancesPiasters = useMemo(() => {
     return machines.reduce(
@@ -326,9 +331,7 @@ export function StockView() {
 
   // Total working capital (physical goods + scratch cards + provider balances)
   const totalWorkingCapitalPiasters =
-    physicalValuationPiasters +
-    cardsValuationPiasters +
-    totalProviderBalancesPiasters;
+    physicalValuationPiasters + totalProviderBalancesPiasters;
 
   // Counts for filter chips
   const counts = useMemo(() => {
@@ -948,24 +951,6 @@ export function StockView() {
 
           <div className={styles.valItemCard}>
             <div className={styles.valItemHeader}>
-              <span className={styles.valItemEmoji}>💳</span>
-              <span className={styles.valRowLabel}>
-                قيمة كروت الشحن والوحدات الرقمية:
-              </span>
-            </div>
-            <div className={styles.valItemValue}>
-              <b className={styles.valRowValue}>
-                {formatMoney(cardsValuationPiasters)}
-              </b>
-              <span className={styles.valCurrencySmall}>ج.م</span>
-            </div>
-            <span className={styles.valItemHint}>
-              كروت الشحن الفيزيائية بالمخزن
-            </span>
-          </div>
-
-          <div className={styles.valItemCard}>
-            <div className={styles.valItemHeader}>
               <span className={styles.valItemEmoji}>📱</span>
               <span className={styles.valRowLabel}>
                 أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):
@@ -1022,22 +1007,6 @@ export function StockView() {
               </b>
             </div>
 
-            {/* 1. Edit Stock / Inventory Adjustment */}
-            <button
-              type="button"
-              className={styles.actionItemBtn}
-              onClick={() => {
-                const itm = activeItemAction;
-                setActiveItemAction(null);
-                setEditingStockItem(itm);
-              }}
-            >
-              <span style={{ fontSize: 16 }}>✏️</span>
-              <span style={{ fontWeight: 700 }}>
-                تعديل كمية المخزون (جرد / تصحيح الرصيد)
-              </span>
-            </button>
-
             {/* 2. Add Stock */}
             <button
               type="button"
@@ -1054,6 +1023,7 @@ export function StockView() {
                     itm.unit || (itm.unitMode === "weight" ? "kg" : "piece"),
                   sell_price_piasters: itm.sellPricePiasters,
                   buy_cost_piasters: itm.buyPricePiasters,
+                  stock_quantity: itm.currentStockBase,
                   is_custom: itm.isCustom ?? false,
                   variants: [
                     {
@@ -1062,6 +1032,7 @@ export function StockView() {
                       pack_qty: itm.packQty,
                       size_unit: itm.packName ?? undefined,
                       sell_price_piasters: itm.sellPricePiasters,
+                      stock_quantity: itm.currentStockBase,
                       buy_cost_piasters: itm.buyPricePiasters,
                     },
                   ],
@@ -1073,6 +1044,21 @@ export function StockView() {
                 +
               </span>
               <span>إضافة بضاعة جديدة للمخزون</span>
+            </button>
+
+            {/* 2. Damaged / lost goods (no free quantity editing, P4) */}
+            <button
+              type="button"
+              className={styles.actionItemBtn}
+              data-testid="stock-action-loss"
+              onClick={() => {
+                const itm = activeItemAction;
+                setActiveItemAction(null);
+                setLossTarget({ item: itm });
+              }}
+            >
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              <span>سجّل تالف / فاقد</span>
             </button>
 
             {/* 3. Archive from active inventory */}
@@ -1163,13 +1149,16 @@ export function StockView() {
         </Modal>
       )}
 
-      {/* Edit Stock Modal */}
-      {editingStockItem && (
-        <EditStockModal
-          item={editingStockItem}
-          onClose={() => setEditingStockItem(null)}
-          onSaved={() => {
-            setEditingStockItem(null);
+      {/* Damaged / lost goods */}
+      {lossTarget && (
+        <RecordLossModal
+          item={lossTarget.item}
+          presetReason={lossTarget.reason}
+          presetBatchId={lossTarget.batchId}
+          onClose={() => setLossTarget(null)}
+          onSaved={(message) => {
+            setLossTarget(null);
+            toast.show({ msg: message, kind: "ok" });
             void loadData();
           }}
         />
@@ -1187,7 +1176,7 @@ export function StockView() {
           onOpenEditQuantity={() => {
             const itm = archivingItem;
             setArchivingItem(null);
-            setEditingStockItem(itm);
+            setLossTarget({ item: itm, reason: "missing" });
           }}
         />
       )}

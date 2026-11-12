@@ -41,8 +41,7 @@ test.describe("App Shell Offline Navigation", () => {
         return;
       }
       await page
-        .locator("nav:visible button:visible")
-        .filter({ hasText: label })
+        .locator(`nav:visible button[aria-label="${label}"]:visible`)
         .first()
         .click({ force: true });
     };

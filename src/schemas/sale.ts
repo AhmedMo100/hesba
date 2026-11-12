@@ -203,6 +203,11 @@ export const saleReturnSchema = z
             .int("الكمية لازم تكون رقم صحيح")
             .positive("الكمية لازم تكون أكبر من صفر")
             .max(MAX_SALE_QUANTITY_BASE, "الكمية كبيرة قوي"),
+          /**
+           * `sellable` (default): back to stock. `damaged`: recorded as a loss
+           * («مرتجع تالف») — the customer is still credited/refunded, stock does not grow.
+           */
+          condition: z.enum(["sellable", "damaged"]).default("sellable"),
         }),
       )
       .min(1, "اختار صنف ترجّعه")
