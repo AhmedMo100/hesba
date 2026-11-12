@@ -132,6 +132,18 @@ export function toSafeErrorResponse(
     }).toResponse(requestId);
   }
 
+  if (
+    error instanceof Error &&
+    (error.name === "PrismaClientInitializationError" ||
+      error.message.includes("Can't reach database server") ||
+      (error as { code?: string }).code === "P1001")
+  ) {
+    logger.error({ err: error, requestId }, "Database connection error");
+    return AppError.serviceUnavailable(
+      "تعذر الاتصال بقاعدة البيانات حالياً. جاري إعادة المحاولة... شغلك محفوظ.",
+    ).toResponse(requestId);
+  }
+
   logger.error({ err: error, requestId }, "Internal API error");
   return AppError.internal().toResponse(requestId);
 }

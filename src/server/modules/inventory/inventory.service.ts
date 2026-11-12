@@ -1,6 +1,7 @@
 import "server-only";
 import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
+import { AppError } from "@/server/platform/error";
 import {
   depleteStockFEFO,
   isNearExpiry,
@@ -24,6 +25,7 @@ export class InventoryService {
       storeVariantId: string;
       receivedQuantityBase: bigint | number;
       costPriceMinor: bigint | number;
+      productionDate?: Date | string | null;
       expiryDate?: Date | string | null;
       batchCode?: string | null;
       supplierId?: string | null;
@@ -33,24 +35,112 @@ export class InventoryService {
     const qtyBase = BigInt(input.receivedQuantityBase);
     const costMinor = BigInt(input.costPriceMinor);
     if (qtyBase <= ZERO) {
-      throw new Error("Received quantity must be positive");
+      throw AppError.badRequest("كمية البضاعة المضافة يجب أن تكون أكبر من صفر");
     }
 
+    const prodDate = input.productionDate
+      ? new Date(input.productionDate)
+      : null;
     const expiry = input.expiryDate ? new Date(input.expiryDate) : null;
+    if (prodDate && expiry && expiry < prodDate) {
+      throw AppError.badRequest(
+        "تاريخ الانتهاء يجب ألا يكون قبل تاريخ الإنتاج",
+      );
+    }
     const now = new Date();
 
     return withTenant(
       storeId,
       userId,
       async (tx) => {
-        // 1. Verify variant belongs to tenant store
-        const variant = await tx.storeVariant.findFirst({
+        // 1. Verify variant belongs to tenant store or resolve from global/store
+        let variant = await tx.storeVariant.findFirst({
           where: { id: input.storeVariantId, storeId },
           select: { id: true, storeProductId: true },
         });
+
         if (!variant) {
-          throw new Error("Variant not found or unauthorized");
+          variant = await tx.storeVariant.findFirst({
+            where: { globalVariantId: input.storeVariantId, storeId },
+            select: { id: true, storeProductId: true },
+          });
         }
+
+        if (!variant) {
+          const productVariant = await tx.storeVariant.findFirst({
+            where: { storeProductId: input.storeVariantId, storeId },
+            select: { id: true, storeProductId: true },
+          });
+          if (productVariant) {
+            variant = productVariant;
+          }
+        }
+
+        if (!variant) {
+          const globalVariant = await tx.globalVariant.findUnique({
+            where: { id: input.storeVariantId },
+            include: { globalProduct: true },
+          });
+
+          if (globalVariant) {
+            let storeProduct = await tx.storeProduct.findFirst({
+              where: {
+                storeId,
+                globalProductId: globalVariant.globalProductId,
+              },
+              select: { id: true },
+            });
+
+            const nowTs = new Date();
+            if (!storeProduct) {
+              storeProduct = await tx.storeProduct.create({
+                data: {
+                  storeId,
+                  globalProductId: globalVariant.globalProductId,
+                  nameAr: globalVariant.globalProduct.nameAr,
+                  nameNorm: globalVariant.globalProduct.nameNorm,
+                  category: globalVariant.globalProduct.category,
+                  unit:
+                    globalVariant.sizeUnit === "kg" ||
+                    globalVariant.sizeUnit === "g"
+                      ? "kg"
+                      : "piece",
+                  sellPricePiasters:
+                    costMinor > ZERO ? costMinor : BigInt(1000),
+                  isCustom: false,
+                  isActive: true,
+                  createdAt: nowTs,
+                  updatedAt: nowTs,
+                },
+                select: { id: true },
+              });
+            }
+
+            variant = await tx.storeVariant.create({
+              data: {
+                storeId,
+                storeProductId: storeProduct.id,
+                productId: globalVariant.globalProductId,
+                globalVariantId: globalVariant.id,
+                flavor: globalVariant.flavor,
+                sizeValue: globalVariant.sizeValue,
+                sizeUnit: globalVariant.sizeUnit,
+                packQty: globalVariant.packQty,
+                sellPricePiasters: costMinor > ZERO ? costMinor : BigInt(1000),
+                isActive: true,
+                createdAt: nowTs,
+                updatedAt: nowTs,
+              },
+              select: { id: true, storeProductId: true },
+            });
+          }
+        }
+
+        if (!variant) {
+          throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
+        }
+
+        const resolvedVariantId = variant.id;
 
         // 2. Check opId idempotency if provided
         if (input.opId) {
@@ -70,13 +160,14 @@ export class InventoryService {
         const batch = await tx.storeStockBatch.create({
           data: {
             storeId,
-            storeVariantId: input.storeVariantId,
+            storeVariantId: resolvedVariantId,
             storeProductId: variant.storeProductId,
             batchCode: input.batchCode ?? null,
             receivedQuantityBase: qtyBase,
             remainingQuantityBase: qtyBase,
             costPriceMinor: costMinor,
             costTotalMinor: costMinor * qtyBase,
+            productionDate: prodDate,
             expiryDate: expiry,
             supplierId: input.supplierId ?? null,
             receivedAt: now,
@@ -91,7 +182,7 @@ export class InventoryService {
           where: {
             storeId_storeVariantId: {
               storeId,
-              storeVariantId: input.storeVariantId,
+              storeVariantId: resolvedVariantId,
             },
           },
         });
@@ -102,7 +193,7 @@ export class InventoryService {
           where: {
             storeId_storeVariantId: {
               storeId,
-              storeVariantId: input.storeVariantId,
+              storeVariantId: resolvedVariantId,
             },
           },
           update: {
@@ -111,7 +202,7 @@ export class InventoryService {
           },
           create: {
             storeId,
-            storeVariantId: input.storeVariantId,
+            storeVariantId: resolvedVariantId,
             quantityBase: newBalance,
             updatedAt: now,
           },
@@ -121,7 +212,7 @@ export class InventoryService {
         const movement = await tx.stockMovement.create({
           data: {
             storeId,
-            storeVariantId: input.storeVariantId,
+            storeVariantId: resolvedVariantId,
             storeProductId: variant.storeProductId,
             batchId: batch.id,
             type: "purchase",
@@ -162,7 +253,9 @@ export class InventoryService {
   ) {
     const qtyBase = BigInt(input.quantityBase);
     if (qtyBase <= ZERO) {
-      throw new Error("Waste quantity must be positive");
+      throw AppError.badRequest(
+        "الكمية المسجلة للهالك يجب أن تكون أكبر من صفر",
+      );
     }
 
     const now = new Date();
@@ -177,7 +270,7 @@ export class InventoryService {
           select: { id: true, storeProductId: true },
         });
         if (!variant) {
-          throw new Error("Variant not found or unauthorized");
+          throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
         }
 
         // 2. Check opId idempotency
@@ -304,7 +397,7 @@ export class InventoryService {
   ) {
     const qtyBase = BigInt(input.quantityBase);
     if (qtyBase <= ZERO) {
-      throw new Error("Sale quantity must be positive");
+      throw AppError.badRequest("كمية البيع يجب أن تكون أكبر من صفر");
     }
 
     const now = new Date();
@@ -318,7 +411,7 @@ export class InventoryService {
           select: { id: true, storeProductId: true },
         });
         if (!variant) {
-          throw new Error("Variant not found or unauthorized");
+          throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
         }
 
         // Check opId idempotency
