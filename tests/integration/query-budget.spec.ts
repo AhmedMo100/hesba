@@ -106,7 +106,7 @@ const BUDGET: Record<string, number> = {
   sales: 15,
   people: 10,
   expenses: 10,
-  home: 21,
+  home: 22, // +1: the losses of the period (P4, waste_records)
 };
 
 beforeAll(async () => {

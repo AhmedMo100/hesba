@@ -15,6 +15,10 @@ const databaseUrl =
   process.env["HESBA_DATABASE_URL"] ??
   "postgres://hesba_app:change-me-local@localhost:5434/hesba";
 
+/** A date some days from now: fixed calendar dates become "expired" and unsellable over time. */
+const daysFromNow = (n: number) =>
+  new Date(Date.now() + n * 24 * 60 * 60 * 1000);
+
 describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
   let migratorPrisma: PrismaClient;
   let appPrisma: PrismaClient;
@@ -179,7 +183,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       storeVariantId: variantAId,
       receivedQuantityBase: 50,
       costTotalMinor: 50 * 500, // 5.00 EGP each; the batch stores the total (ADR-0021)
-      expiryDate: new Date("2026-11-20"),
+      expiryDate: daysFromNow(20),
       batchCode: "BATCH-001",
     });
 
@@ -215,7 +219,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       storeVariantId: variantAId,
       receivedQuantityBase: 20,
       costTotalMinor: 20 * 520, // unit cost × quantity: the batch stores the total (ADR-0021)
-      expiryDate: new Date("2026-11-05"), // Expires BEFORE 2026-11-20!
+      expiryDate: daysFromNow(5), // Expires BEFORE the first batch (and is not expired)
       batchCode: "BATCH-EARLY",
     });
 
