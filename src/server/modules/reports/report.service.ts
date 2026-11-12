@@ -84,6 +84,7 @@ interface SaleRow {
     totalPiasters: bigint;
     costPiasters: bigint | null;
     quantityBaseUnits: number;
+    returnLines: Array<{ quantityBase: number; amountPiasters: bigint }>;
     storeProduct: {
       id: string;
       nameAr: string | null;
@@ -97,6 +98,43 @@ interface SaleRow {
       } | null;
     } | null;
   }>;
+}
+
+/**
+ * A line net of its returns (QA-31, ADR-0027): the returned value is no longer revenue, and the
+ * returned share of the recorded cost is no longer COGS. Counted on the sale's date.
+ */
+function netLine(l: SaleRow["saleLines"][number]): {
+  revenue: number;
+  cost: number | null;
+} {
+  const returnedQty = l.returnLines.reduce((n, r) => n + r.quantityBase, 0);
+  const returned = l.returnLines.reduce(
+    (n, r) => n + Number(r.amountPiasters),
+    0,
+  );
+  const kept = l.quantityBaseUnits - returnedQty;
+  return {
+    revenue: Number(l.totalPiasters) - returned,
+    cost:
+      l.costPiasters === null
+        ? null
+        : l.quantityBaseUnits > 0
+          ? Math.round((Number(l.costPiasters) * kept) / l.quantityBaseUnits)
+          : Number(l.costPiasters),
+  };
+}
+
+/** A sale's revenue net of returns. */
+function netSaleRevenue(s: SaleRow): number {
+  return (
+    Number(s.totalPiasters) -
+    s.saleLines.reduce(
+      (n, l) =>
+        n + l.returnLines.reduce((m, r) => m + Number(r.amountPiasters), 0),
+      0,
+    )
+  );
 }
 
 async function salesInRange(
@@ -125,6 +163,7 @@ async function salesInRange(
           totalPiasters: true,
           costPiasters: true,
           quantityBaseUnits: true,
+          returnLines: { select: { quantityBase: true, amountPiasters: true } },
           storeProduct: product,
           storeVariant: { select: { storeProduct: product } },
         },
@@ -157,15 +196,16 @@ export async function salesFinancialsInTx(
   let knownRevenue = 0;
   let knownCost = 0;
   for (const s of sales) {
-    revenue += Number(s.totalPiasters);
+    revenue += netSaleRevenue(s);
     const lines = s.saleLines;
     const known =
       lines.length > 0 && lines.every((l) => l.costPiasters !== null);
     if (!known) unknownCostCount += 1;
     for (const l of lines) {
-      if (l.costPiasters !== null) {
-        knownRevenue += Number(l.totalPiasters);
-        knownCost += Number(l.costPiasters);
+      const net = netLine(l);
+      if (net.cost !== null) {
+        knownRevenue += net.revenue;
+        knownCost += net.cost;
       }
     }
   }
@@ -225,6 +265,66 @@ export async function getHomeReport(
                         WHERE m.batch_id = b.id
                           AND m.type IN ('purchase', 'initial_stock'))`;
 
+      // Damaged / lost goods (P4): each waste record once, its cost from the batches taken.
+      const lossRows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          created_at: Date;
+          reason: string;
+          note: string | null;
+          quantity_base: bigint;
+          cost_minor: bigint;
+          cost_unknown: boolean;
+          name: string | null;
+          unit: string | null;
+        }>
+      >`SELECT w.id::text AS id, w.created_at, w.reason, w.note, w.quantity_base,
+               w.cost_minor,
+               EXISTS (SELECT 1 FROM stock_movements m
+                        WHERE m.waste_id = w.id AND m.cost_price_minor IS NULL) AS cost_unknown,
+               p.name_ar AS name, p.unit
+          FROM waste_records w
+          JOIN store_variants v ON v.id = w.store_variant_id
+          LEFT JOIN store_products p ON p.id = v.store_product_id
+         WHERE w.store_id = ${storeId}::uuid
+           AND w.created_at < ${to}
+           AND (${from}::timestamptz IS NULL OR w.created_at >= ${from}::timestamptz)
+         ORDER BY w.created_at DESC`;
+      const byReason = new Map<string, { count: number; cost: number }>();
+      let lossCost = 0;
+      let lossUnknown = 0;
+      for (const r of lossRows) {
+        const cost = r.cost_unknown ? 0 : Number(r.cost_minor);
+        if (r.cost_unknown) lossUnknown += 1;
+        lossCost += cost;
+        const g = byReason.get(r.reason) ?? { count: 0, cost: 0 };
+        g.count += 1;
+        g.cost += cost;
+        byReason.set(r.reason, g);
+      }
+      const losses: HomeReport["losses"] = {
+        count: lossRows.length,
+        costPiasters: lossCost,
+        unknownCostCount: lossUnknown,
+        byReason: [...byReason.entries()]
+          .map(([reason, g]) => ({
+            reason,
+            count: g.count,
+            costPiasters: g.cost,
+          }))
+          .sort((a, b) => b.costPiasters - a.costPiasters),
+        recent: lossRows.slice(0, 5).map((r) => ({
+          id: r.id,
+          at: r.created_at.toISOString(),
+          name: r.name ?? "",
+          unit: r.unit ?? "piece",
+          quantityBase: Number(r.quantity_base),
+          reason: r.reason,
+          note: r.note,
+          costPiasters: r.cost_unknown ? null : Number(r.cost_minor),
+        })),
+      };
+
       // Series, products and categories — sums of recorded line values per group.
       const granularity: "hour" | "day" =
         period === "today" || period === "yesterday" ? "hour" : "day";
@@ -259,8 +359,7 @@ export async function getHomeReport(
         }
         for (const l of s.saleLines) {
           const product = l.storeVariant?.storeProduct ?? l.storeProduct;
-          const revenue = Number(l.totalPiasters);
-          const cost = l.costPiasters === null ? null : Number(l.costPiasters);
+          const { revenue, cost } = netLine(l);
           bucket.add(revenue, cost);
 
           const pKey = product?.id ?? "unknown";
@@ -270,7 +369,9 @@ export async function getHomeReport(
             qty: 0,
             money: new Money(),
           };
-          p.qty += l.quantityBaseUnits;
+          p.qty +=
+            l.quantityBaseUnits -
+            l.returnLines.reduce((n, r) => n + r.quantityBase, 0);
           p.money.add(revenue, cost);
           products.set(pKey, p);
 
@@ -325,6 +426,7 @@ export async function getHomeReport(
             0,
           ),
         },
+        losses,
         purchases: {
           totalPiasters: Number(purchaseRow?.total ?? 0),
           count: Number(purchaseRow?.count ?? 0),

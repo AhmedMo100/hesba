@@ -145,9 +145,11 @@ describe("QA-05 — one source of truth for stock quantities", () => {
     }); // void
     await expectReconciled(A, v, 0);
     await f.addStock(A, v, 4, { cost: 400 });
-    await inventory.clearVariantStock(A.storeId, A.userId, {
+    await inventory.adjustStockQuantity(A.storeId, A.userId, {
       storeVariantId: v,
-    }); // clear
+      mode: "set",
+      targetQuantityBase: 0,
+    }); // adjusted to 0
     await expectReconciled(A, v, 0);
   });
 
@@ -171,7 +173,14 @@ describe("QA-05 — one source of truth for stock quantities", () => {
     );
     const s = await f.stockState(A, p.variantId);
     const adj = s.movements.filter((m) => m.type === "adjustment");
-    expect(adj.map((m) => m.quantity)).toEqual([-3, -1]);
+    // Per batch (movements of one transaction share a timestamp, so their order is not fixed):
+    // 3 from the earliest-expiring batch, then 1 from the later one.
+    expect(Object.fromEntries(adj.map((m) => [m.batchId, m.quantity]))).toEqual(
+      {
+        [String(early.batchId)]: -3,
+        [String(late.batchId)]: -1,
+      },
+    );
     await expectReconciled(A, p.variantId, 4);
   });
 

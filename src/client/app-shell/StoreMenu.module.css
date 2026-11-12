@@ -1,0 +1,208 @@
+/* Ported from docs/demo/src/style.css (.smenu, .store-btn, .menu, .mn-*) */
+.smenu {
+  position: relative;
+  min-width: 0;
+}
+
+.storeBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 4px 10px 4px 8px;
+  border-radius: 14px;
+  font-weight: 800;
+  max-width: calc(100vw - 96px);
+  cursor: pointer;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  transition: background 0.15s;
+}
+
+.storeBtn:hover {
+  background: var(--sf2);
+}
+
+.logo {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: var(--sf2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.logo img {
+  display: block;
+  height: 30px;
+  width: auto;
+}
+
+.storeName {
+  font-size: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.offDot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--red);
+  flex: none;
+}
+
+.chev {
+  flex: none;
+  transition: transform 0.2s;
+}
+
+.chev.up {
+  transform: rotate(180deg);
+}
+
+.shield {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  inset-inline-start: 0;
+  width: min(340px, calc(100vw - 24px));
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  box-shadow: var(--sh2);
+  z-index: 41;
+  padding: 8px;
+  transform-origin: top right;
+  animation: menuIn 0.22s var(--ease);
+}
+
+:global(.out).menu {
+  animation: menuOut 0.16s ease forwards;
+  pointer-events: none;
+}
+
+@keyframes menuIn {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+@keyframes menuOut {
+  to {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+.head {
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.head b {
+  font-size: 17px;
+}
+
+.head small {
+  color: var(--ink2);
+  font-size: 13px;
+}
+
+.section {
+  padding: 12px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.label {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-weight: 700;
+  color: var(--ink2);
+  font-size: 14px;
+}
+
+.syncRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.syncBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 0;
+  background: var(--soft);
+  color: var(--br);
+  font-weight: 800;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.syncBtn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.item {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  min-height: 48px;
+  padding: 12px;
+  margin-top: 2px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--ink);
+  font-weight: 800;
+  font-size: 15px;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-align: start;
+}
+
+.item:hover {
+  background: var(--sf2);
+}
+
+.danger {
+  color: var(--red);
+}
+
+@media (min-width: 900px) {
+  .storeBtn {
+    max-width: 360px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu,
+  :global(.out).menu {
+    animation: none;
+  }
+}

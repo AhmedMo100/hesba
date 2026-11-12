@@ -8,6 +8,12 @@ export {
   type SalesOverview,
 } from "./sales.service";
 export {
+  checkoutSale,
+  paySale,
+  returnSale,
+  getSaleInvoice,
+} from "./sales-invoice.service";
+export {
   getSalesViewConfig,
   saveSalesViewConfig,
   type SalesViewConfig,

@@ -7,6 +7,7 @@
  * @usedBy features/home (HomeView)
  */
 
+import { apiGet } from "./read-cache";
 import {
   homeReportSchema,
   type HomeReport,
@@ -24,10 +25,11 @@ export async function fetchHomeReport(
   period: ReportPeriod,
   signal?: AbortSignal,
 ): Promise<HomeReport> {
-  const res = await fetch(
+  // Through the read cache: instant when Home is reopened, re-read after any write.
+  const res = await apiGet(
     `/api/reports/home?period=${encodeURIComponent(period)}`,
-    { signal },
   );
+  if (signal?.aborted) throw new DOMException("aborted", "AbortError");
   if (!res.ok) throw new Error(`report ${res.status}`);
   return parseHomeReport(await res.json());
 }

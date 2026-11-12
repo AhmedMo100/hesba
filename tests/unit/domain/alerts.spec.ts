@@ -163,12 +163,15 @@ describe("buildStoreAlerts", () => {
     expect(weighed.items[0]!.quantityBase).toBe(1000);
     expect(weighed.description).toContain("نهاية اليوم");
 
-    // 40 piasters × 0.75 = 30, raised to the 50-piaster floor.
-    const tiny = r.suggestedPromotions.find(
-      (p) => p.id === "promo_single_t_bt",
-    )!;
-    expect(tiny.promoPricePiasters).toBe(50);
-    expect(tiny.savingsPiasters).toBe(-10);
+    // 40 piasters × 0.75 = 30, raised to the 50-piaster floor: that is above the regular
+    // price, so it is no discount and is not suggested (QA-20).
+    expect(
+      r.suggestedPromotions.find((p) => p.id === "promo_single_t_bt"),
+    ).toBeUndefined();
+    for (const p of r.suggestedPromotions) {
+      expect(p.promoPricePiasters).toBeLessThan(p.originalPricePiasters);
+      expect(p.savingsPiasters).toBeGreaterThan(0);
+    }
   });
 
   it("returns empty lists for an empty store", () => {

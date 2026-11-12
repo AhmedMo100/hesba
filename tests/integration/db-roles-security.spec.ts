@@ -266,5 +266,7 @@ describe("QA-34 — runtime connections use the intended roles", () => {
       }),
     );
     expect(bad.status).toBe(401);
-  });
+    // The cron scans every catalog candidate in the shared test database, which grows with
+    // other suites' data; under the full parallel run it can pass 60 s (seen 2026-11-11).
+  }, 180_000);
 });

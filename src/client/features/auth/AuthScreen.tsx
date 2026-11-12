@@ -7,7 +7,7 @@ import { Button, Field, Icon, Alert } from "@/client/shared/ui";
 import { useTranslation } from "@/client/shared/i18n";
 import { authApi } from "@/client/shared/api";
 import type { SessionState, SignupInput } from "@/client/shared/api";
-import { validatePasswordPolicy } from "@/domain";
+import { MAX_PERSON_NAME_LENGTH, validatePasswordPolicy } from "@/domain";
 import { useTheme } from "@/client/shared/theme";
 
 export const GOVERNORATES = [
@@ -211,6 +211,11 @@ export function AuthScreen({
       signupData.ownerName.trim().length < 2
     ) {
       errs["ownerName"] = t("errors.writeName");
+    } else if (signupData.ownerName.trim().length > MAX_PERSON_NAME_LENGTH) {
+      // QA-58: the same limit as the server; the text is never cut.
+      errs["ownerName"] = t("errors.nameTooLong", {
+        max: MAX_PERSON_NAME_LENGTH,
+      });
     }
     if (!okPhone(signupData.phone)) {
       errs["phone"] = t("errors.invalidPhone");
@@ -250,6 +255,10 @@ export function AuthScreen({
     if (!signupData.storeName.trim()) {
       errs["storeName"] = t("errors.writeStoreName");
     }
+    const referral = (signupData.referralCode ?? "").trim();
+    if (referral && !/^[a-zA-Z0-9_-]{3,32}$/.test(referral)) {
+      errs["referralCode"] = t("auth.referralInvalid");
+    }
 
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
@@ -260,9 +269,16 @@ export function AuthScreen({
         ...signupData,
         phone: normDigits(signupData.phone).replace(/\s|-/g, ""),
         email: signupData.email.trim().toLowerCase(),
+        referralCode: referral || undefined,
       });
 
       if (!res.success || !res.data) {
+        if (res.field === "referralCode") {
+          setFieldErrors({
+            referralCode: res.error || t("auth.referralInvalid"),
+          });
+          return;
+        }
         setGlobalErr(res.error || t("errors.serverError"));
         return;
       }
@@ -790,6 +806,34 @@ export function AuthScreen({
                     </select>
                   </Field>
                 </div>
+
+                <Field
+                  label={t("auth.referralLabel")}
+                  hint={t("auth.referralHint")}
+                  err={fieldErrors["referralCode"]}
+                >
+                  <input
+                    type="text"
+                    dir="ltr"
+                    inputMode="text"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    maxLength={32}
+                    placeholder="mogamal123"
+                    data-testid="signup-referral"
+                    value={signupData.referralCode ?? ""}
+                    onChange={(e) => {
+                      setSignupData({
+                        ...signupData,
+                        referralCode: e.target.value,
+                      });
+                      setFieldErrors((prev) => ({ ...prev, referralCode: "" }));
+                      setGlobalErr("");
+                    }}
+                    disabled={busy}
+                  />
+                </Field>
 
                 <label className={styles.chkDemo}>
                   <input

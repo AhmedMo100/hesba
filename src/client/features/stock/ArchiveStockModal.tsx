@@ -8,14 +8,14 @@ export interface ArchiveStockModalProps {
   item: StockInventoryItem;
   onClose: () => void;
   onArchived: () => void;
-  onOpenClearStock?: () => void;
+  onOpenEditQuantity?: () => void;
 }
 
 export function ArchiveStockModal({
   item,
   onClose,
   onArchived,
-  onOpenClearStock,
+  onOpenEditQuantity,
 }: ArchiveStockModalProps) {
   const isWeight = item.unitMode === "weight";
   const packQty = item.packQty || 1;
@@ -69,15 +69,15 @@ export function ArchiveStockModal({
         <div style={{ display: "flex", gap: 10, width: "100%" }}>
           {hasPositiveStock ? (
             <>
-              {onOpenClearStock && (
+              {onOpenEditQuantity && (
                 <Button
                   kind="primary"
                   size="lg"
                   type="button"
-                  onClick={onOpenClearStock}
+                  onClick={onOpenEditQuantity}
                   style={{ flex: 1 }}
                 >
-                  تصفير المخزون أولاً
+                  سجّل الباقي تالف / فاقد
                 </Button>
               )}
               <Button
@@ -85,7 +85,7 @@ export function ArchiveStockModal({
                 size="lg"
                 type="button"
                 onClick={onClose}
-                style={{ flex: onOpenClearStock ? "none" : 1 }}
+                style={{ flex: onOpenEditQuantity ? "none" : 1 }}
               >
                 إغلاق
               </Button>
@@ -155,8 +155,8 @@ export function ArchiveStockModal({
                 lineHeight: 1.5,
               }}
             >
-              لحماية دقة الجرد وحسابات المحل من فقدان البضاعة أو إخفائها، يجب
-              تصفير رصيد الصنف أولاً قبل حذفه من قائمة المخزون النشطة.
+              لحماية دقة الجرد وحسابات المحل، سجّل الكمية الباقية (تالف أو فاقد
+              أو منتهي) قبل إزالة الصنف من قائمة المخزون النشطة.
             </p>
           </div>
         ) : (
