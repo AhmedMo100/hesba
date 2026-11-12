@@ -12,6 +12,7 @@ export {
   paySale,
   returnSale,
   getSaleInvoice,
+  listCustomerInvoices,
 } from "./sales-invoice.service";
 export {
   getSalesViewConfig,
