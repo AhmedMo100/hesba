@@ -10,6 +10,7 @@
  * 6. Depletion shortfall produces an unbatched negative movement (negative=true).
  */
 
+import { getDaysUntilExpiry } from "../alerts";
 export interface StockBatchCandidate {
   id: string;
   storeVariantId: string;
@@ -172,9 +173,10 @@ export function isNearExpiry(
   thresholdDays = 7,
 ): boolean {
   if (!isValidDate(expiryDate)) return false;
-  const expiryTime = expiryDate.getTime();
-  const nowTime = isValidDate(now) ? now.getTime() : Date.now();
-  if (expiryTime < nowTime) return true; // already expired
-  const diffDays = (expiryTime - nowTime) / (1000 * 60 * 60 * 24);
-  return diffDays <= thresholdDays;
+  // Whole Cairo calendar days, the same rule as the Alerts screen (QA-52); expired counts.
+  const days = getDaysUntilExpiry(
+    expiryDate.toISOString(),
+    isValidDate(now) ? now : new Date(),
+  );
+  return days <= thresholdDays;
 }

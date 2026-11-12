@@ -4,7 +4,7 @@ import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { AIService } from "@/server/modules/ai";
 import { SendMessageSchema } from "@/schemas/ai";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const parsed = SendMessageSchema.parse(body);
 

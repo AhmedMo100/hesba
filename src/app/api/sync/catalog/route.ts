@@ -1,7 +1,8 @@
-import { NextResponse } from "next/server";
 import { createHash } from "node:crypto";
 import { prisma } from "@/server/infra/db/client";
 import { type Prisma } from "@prisma/client";
+import { requireSession } from "@/server/modules/auth";
+import { toSafeErrorResponse } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -37,11 +38,15 @@ function encodeCursor(payload: CursorPayload): string {
  * - Stable cursor based on updated_at + id
  * - ETag support with 304 Not Modified
  * - 204 No Content when cursor is current and no new items exist
- * - Public cache headers
+ * - Signed-in shops only (QA-53); private cache headers
+ * - `next_cursor` is the position reached, also on the last page (QA-53), so the next sync
+ *   asks only for what changed since (204 when nothing did)
  * - Strict secrecy: NEVER returns store prices, store identity, or stock quantities.
  */
 export async function GET(request: Request) {
   try {
+    // The catalog holds no shop data, but it is downloaded by signed-in shops only (QA-53).
+    await requireSession(request);
     const { searchParams } = new URL(request.url);
     const cursorParam = searchParams.get("cursor");
     const limitParam = searchParams.get("limit");
@@ -108,7 +113,7 @@ export async function GET(request: Request) {
       return new Response(null, {
         status: 204,
         headers: {
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+          "Cache-Control": "private, max-age=60",
         },
       });
     }
@@ -129,13 +134,13 @@ export async function GET(request: Request) {
     }
 
     const lastProduct = pageItems[pageItems.length - 1];
-    const nextCursor =
-      hasMore && lastProduct
-        ? encodeCursor({
-            u: lastProduct.updatedAt.toISOString(),
-            id: lastProduct.id,
-          })
-        : null;
+    // The position reached: the client stores it and resumes from it (pages, then updates).
+    const nextCursor = lastProduct
+      ? encodeCursor({
+          u: lastProduct.updatedAt.toISOString(),
+          id: lastProduct.id,
+        })
+      : null;
 
     const payload = {
       brands: Array.from(brandsMap.values()),
@@ -173,7 +178,7 @@ export async function GET(request: Request) {
         status: 304,
         headers: {
           ETag: etag,
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+          "Cache-Control": "private, max-age=60",
         },
       });
     }
@@ -183,12 +188,10 @@ export async function GET(request: Request) {
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         ETag: etag,
-        "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+        "Cache-Control": "private, max-age=60",
       },
     });
   } catch (err: unknown) {
-    const message =
-      err instanceof Error ? err.message : "Internal server error";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return toSafeErrorResponse(err);
   }
 }

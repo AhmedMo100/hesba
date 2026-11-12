@@ -5,7 +5,8 @@ import {
   getSalesViewConfig,
   saveSalesViewConfig,
 } from "@/server/modules/sales";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { readJsonBody, toSafeErrorResponse } from "@/server/platform/error";
+import { salesViewConfigUpdateSchema } from "@/schemas/sales-config";
 
 export const dynamic = "force-dynamic";
 
@@ -24,8 +25,9 @@ export async function GET(req: Request) {
 }
 
 /**
- * POST /api/sales/config
- * Updates and persists the customized sales view configuration for the active supermarket in Postgres.
+ * POST /api/sales/config `{ enabledServiceIds?, enabledProductIds? }`
+ * Partial update (QA-21): only the lists sent change; unknown fields, wrong types or an empty
+ * body are a 400 and the saved config stays as it was. Returns the config as saved.
  */
 export async function POST(req: Request) {
   try {
@@ -33,7 +35,7 @@ export async function POST(req: Request) {
     const config = await saveSalesViewConfig(
       context.store.id,
       context.user.id,
-      await req.json(),
+      salesViewConfigUpdateSchema.parse(await readJsonBody(req)),
     );
     return NextResponse.json({ success: true, config });
   } catch (err: unknown) {

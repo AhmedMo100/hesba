@@ -9,8 +9,8 @@
  * saves the next cursor. Returns `hasMore` — the caller is expected to loop.
  *
  * @remarks
- * Not called by any screen yet (only by unit tests), so the local catalog stays empty in the
- * app.
+ * {@link syncCatalogFully} downloads every page (QA-53). The app shell runs it when a shop is
+ * signed in and when the device is back online (events only, no polling).
  */
 
 import { type HesbaDatabase } from "../db";
@@ -165,4 +165,54 @@ export async function syncCatalog(
       error: message,
     };
   }
+}
+
+/** Most pages one run downloads (500 products each); the next run resumes from the cursor. */
+export const MAX_CATALOG_PAGES_PER_RUN = 40;
+let running: Promise<CatalogSyncResult> | null = null;
+
+/**
+ * Downloads the global catalog into IndexedDB until it is complete (QA-53): the first run
+ * pulls every page, later runs only what changed since the stored cursor (usually a 204).
+ *
+ * - One run at a time: a second call while one runs gets the same promise.
+ * - Each page is written with its cursor in one transaction, so an interrupted download
+ *   resumes from the last saved page and never leaves half a page; `bulkPut` by id makes a
+ *   repeated page harmless (no duplicates).
+ * - Stops at the first error (offline, signed out); the next trigger retries.
+ */
+export function syncCatalogFully(
+  db: HesbaDatabase,
+  options?: { endpoint?: string; fetchFn?: typeof fetch; maxPages?: number },
+): Promise<CatalogSyncResult> {
+  if (running) return running;
+  const maxPages = options?.maxPages ?? MAX_CATALOG_PAGES_PER_RUN;
+  running = (async () => {
+    let total: CatalogSyncResult = {
+      syncedProductsCount: 0,
+      syncedVariantsCount: 0,
+      hasMore: false,
+      nextCursor: null,
+      status: "up_to_date",
+    };
+    for (let page = 0; page < maxPages; page++) {
+      const r = await syncCatalog(db, options);
+      total = {
+        ...r,
+        syncedProductsCount: total.syncedProductsCount + r.syncedProductsCount,
+        syncedVariantsCount: total.syncedVariantsCount + r.syncedVariantsCount,
+        status:
+          r.status === "error"
+            ? "error"
+            : total.syncedProductsCount + r.syncedProductsCount > 0
+              ? "synced"
+              : r.status,
+      };
+      if (r.status !== "synced" || !r.hasMore) break;
+    }
+    return total;
+  })().finally(() => {
+    running = null;
+  });
+  return running;
 }

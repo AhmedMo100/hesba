@@ -12,3 +12,4 @@ export * from "./stock/stock-engine";
 export * from "./stock/batch-cost";
 export * from "./recipe";
 export * from "./sale-pricing";
+export * from "./limits";

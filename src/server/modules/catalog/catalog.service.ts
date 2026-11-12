@@ -23,7 +23,7 @@ import "server-only";
  * `store_products` / `store_variants`.
  */
 
-import { type PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client";
 import { normalizeArabic } from "@/domain/normalize";
 import { matchProducts } from "@/domain/product-matcher";
 import { totalFromUnitCost } from "@/domain/stock/batch-cost";
@@ -81,6 +81,32 @@ function getDefaultTelecomPrice(
     return { sell: 500, buy: 0 };
   }
   return { sell: 0, buy: 0 };
+}
+
+/**
+ * A product used as a sandwich ingredient cannot be hidden (QA-41), the same rule as deleting it:
+ * hiding it would leave a sandwich that sells a hidden product and a recipe the ingredient picker
+ * no longer shows. Remove it from the sandwich first.
+ *
+ * @throws AppError 409 naming the sandwiches.
+ */
+async function assertNotSandwichIngredientInTx(
+  tx: TenantTx,
+  storeId: string,
+  storeProductId: string,
+): Promise<void> {
+  const usedIn = await tx.sandwichIngredient.findMany({
+    where: { storeId, ingredientVariant: { storeProductId } },
+    select: { sandwichProduct: { select: { nameAr: true } } },
+  });
+  if (usedIn.length > 0) {
+    const names = [
+      ...new Set(usedIn.map((u) => u.sandwichProduct.nameAr ?? "")),
+    ].join("، ");
+    throw AppError.conflict(
+      `المنتج ده داخل في ساندوتش (${names}). شيله من الساندوتش الأول`,
+    );
+  }
 }
 
 export class CatalogService {
@@ -165,6 +191,17 @@ export class CatalogService {
         select: { shareCustomProducts: true },
       });
 
+      // A shop holds each global catalog product once (unique store_id + global_product_id).
+      // Adding it again is a clear 409, not a 500 (QA-23). Same-name CUSTOM products are
+      // allowed (e.g. two sizes): names are not unique within a shop.
+      if (globalProductId) {
+        const already = await tx.storeProduct.findFirst({
+          where: { storeId: input.storeId, globalProductId },
+          select: { id: true },
+        });
+        if (already) throw duplicateGlobalProductError();
+      }
+
       const storeProduct = await tx.storeProduct.create({
         data: {
           storeId: input.storeId,
@@ -205,14 +242,28 @@ export class CatalogService {
       };
     };
 
-    const { storeProduct, storeVariant, shareCustomProducts } = options?.tx
-      ? await performTenantInserts(options.tx)
-      : await withTenant(
-          input.storeId,
-          input.userId ?? null,
-          performTenantInserts,
-          this.prisma,
-        );
+    let inserted: Awaited<ReturnType<typeof performTenantInserts>>;
+    try {
+      inserted = options?.tx
+        ? await performTenantInserts(options.tx)
+        : await withTenant(
+            input.storeId,
+            input.userId ?? null,
+            performTenantInserts,
+            this.prisma,
+          );
+    } catch (err) {
+      // Two concurrent adds of the same global product: the unique index decides; the loser
+      // rolled back entirely and gets the same 409.
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        throw duplicateGlobalProductError();
+      }
+      throw err;
+    }
+    const { storeProduct, storeVariant, shareCustomProducts } = inserted;
 
     // 3. If custom product, check store sharing preference
     let candidateId: string | null = null;
@@ -350,6 +401,9 @@ export class CatalogService {
           stock_quantity: number;
           brandName: string | null;
           brand_name: string | null;
+          /** English catalog name and brand, for English search (QA-48); null for custom. */
+          name_en: string | null;
+          brand_name_en: string | null;
           isCustom: boolean;
           is_custom: boolean;
           addedByThisStore: boolean;
@@ -489,6 +543,8 @@ export class CatalogService {
             stock_quantity: productStock,
             brandName: gp.brand?.nameAr || null,
             brand_name: gp.brand?.nameAr || null,
+            name_en: gp.nameEn || null,
+            brand_name_en: gp.brand?.nameEn || null,
             isCustom: false,
             is_custom: false,
             addedByThisStore: false,
@@ -576,6 +632,8 @@ export class CatalogService {
             stock_quantity: customStock,
             brandName: null,
             brand_name: null,
+            name_en: null,
+            brand_name_en: null,
             isCustom: true,
             is_custom: true,
             addedByThisStore: true,
@@ -599,7 +657,10 @@ export class CatalogService {
           filtered = filtered.filter(
             (p) =>
               p.name_norm.includes(normQ) ||
-              (p.brand_name && normalizeArabic(p.brand_name).includes(normQ)),
+              (p.brand_name && normalizeArabic(p.brand_name).includes(normQ)) ||
+              (p.name_en && normalizeArabic(p.name_en).includes(normQ)) ||
+              (p.brand_name_en &&
+                normalizeArabic(p.brand_name_en).includes(normQ)),
           );
         }
         if (options?.category && options.category !== "all") {
@@ -642,6 +703,11 @@ export class CatalogService {
         }
 
         if (actualStoreProductId) {
+          await assertNotSandwichIngredientInTx(
+            tx,
+            storeId,
+            actualStoreProductId,
+          );
           await tx.storeProduct.update({
             where: { id: actualStoreProductId },
             data: { isActive: false, updatedAt: new Date() },
@@ -655,13 +721,14 @@ export class CatalogService {
             where: { id: actualGlobalId },
             include: { globalVariants: true },
           });
-          if (!gp) throw new Error("Global product not found");
+          if (!gp) throw AppError.notFound("المنتج ده مش موجود");
 
           const existing = await tx.storeProduct.findFirst({
             where: { storeId, globalProductId: actualGlobalId },
           });
 
           if (existing) {
+            await assertNotSandwichIngredientInTx(tx, storeId, existing.id);
             await tx.storeProduct.update({
               where: { id: existing.id },
               data: {
@@ -727,10 +794,14 @@ export class CatalogService {
             data: { isActive: true, updatedAt: new Date() },
           });
         } else {
-          await tx.storeProduct.updateMany({
+          const { count } = await tx.storeProduct.updateMany({
             where: { globalProductId: actualId, storeId },
             data: { isActive: true, updatedAt: new Date() },
           });
+          // Nothing of this shop matched: not a success (QA-35).
+          if (count === 0) {
+            throw AppError.notFound("المنتج ده مش موجود في محلك");
+          }
         }
 
         return { success: true };
@@ -811,7 +882,7 @@ export class CatalogService {
             where: { id: storeProductId, storeId },
           });
           if (!existing) {
-            throw new Error("Product not found or unauthorized");
+            throw AppError.notFound("المنتج ده مش موجود في محلك");
           }
           if (existing.kind === "sandwich") {
             // Sandwiches are edited through the sandwiches module (ADR-0018); this path would
@@ -1160,4 +1231,13 @@ export class CatalogService {
   ) {
     return this.hideStoreProduct(storeId, userId, productId);
   }
+}
+
+/** The product is already in the shop (QA-23). */
+function duplicateGlobalProductError(): AppError {
+  return new AppError(
+    "CONFLICT",
+    "المنتج ده موجود عندك بالفعل في المنتجات — عدّل سعره من هناك",
+    409,
+  );
 }

@@ -1,11 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
-import {
-  listRecentSales,
-  recordSale,
-  deleteSale,
-} from "@/server/modules/sales";
+import { listRecentSales, recordSale } from "@/server/modules/sales";
 import {
   AppError,
   readJsonBody,
@@ -57,22 +53,4 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * DELETE /api/sales?id=<saleId>
- * Reverts/deletes a sale record from the store's database on Undo.
- */
-export async function DELETE(req: Request) {
-  try {
-    const context = await requireSession(req);
-    const id = new URL(req.url).searchParams.get("id");
-
-    if (!id) {
-      throw AppError.badRequest("معرّف البيعة مطلوب");
-    }
-
-    await deleteSale(context.store.id, context.user.id, id);
-    return NextResponse.json({ success: true });
-  } catch (err: unknown) {
-    return toSafeErrorResponse(err);
-  }
-}
+// There is no DELETE: sales are append-only. Undo is `POST /api/sales/void` (ADR-0022).

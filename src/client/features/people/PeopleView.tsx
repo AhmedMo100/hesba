@@ -1,5 +1,6 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -8,10 +9,20 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import { Icon, Seg, Empty, Modal } from "@/client/shared/ui";
+import {
+  Icon,
+  Seg,
+  Empty,
+  Modal,
+  useToast,
+  ListSkeleton,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
+import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
+import { PurchasesSheet } from "./PurchasesSheet";
+import { CustomerDebtSheet } from "./CustomerDebtSheet";
 
 interface SuppliedProduct {
   id: string;
@@ -25,7 +36,10 @@ interface PersonItem {
   kind: "customer" | "supplier" | "both";
   name: string;
   phone: string | null;
+  /** Signed, never floored (ADR-0023): < 0 is a credit (paid beyond what was owed). */
   amount_piasters: number;
+  /** The credit of a negative balance (≥ 0). */
+  credit_piasters?: number;
   total_original_piasters?: number;
   total_paid_piasters?: number;
   is_settled?: boolean;
@@ -88,7 +102,10 @@ function getWaUrl(
       : `20${cleanDigits}`;
 
   let text = "";
-  if (sec === "owedToMe") {
+  if (sec !== "suppliers" && amountPiasters <= 0) {
+    // Nothing is owed (or the balance is a credit): no amount to ask about.
+    text = `السلام عليكم يا ${name}.`;
+  } else if (sec === "owedToMe") {
     text = `السلام عليكم يا ${name}، بخصوص الحساب المتبقي وقدره ${formatEgp(amountPiasters)}.`;
   } else if (sec === "iOwe") {
     text = `السلام عليكم يا ${name}، بخصوص المبلغ المستحق لحضرتك وقدره ${formatEgp(amountPiasters)} من طرفنا.`;
@@ -261,6 +278,12 @@ export function PeopleView() {
 
   // Delete dialog state
   const [deleteTarget, setDeleteTarget] = useState<PersonItem | null>(null);
+  const toast = useToast();
+  // QA-30: the supplier whose purchase invoices are open.
+  const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
+  const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
+    null,
+  );
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Payment / Collection Modal state
@@ -279,6 +302,9 @@ export function PeopleView() {
   const [formName, setFormName] = useState("");
   const [formPhone, setFormPhone] = useState("");
   const [formAmount, setFormAmount] = useState("");
+  // The amount the edit form opened with: the balance is sent only when the owner changed
+  // it, so renaming a person never writes a balance entry (QA-12).
+  const [formAmountInitial, setFormAmountInitial] = useState("");
   const [formNote, setFormNote] = useState("");
   const [supplierOwedMoneyNote, setSupplierOwedMoneyNote] = useState("");
   const [supplierProductsNote, setSupplierProductsNote] = useState("");
@@ -314,7 +340,7 @@ export function PeopleView() {
     }));
 
     try {
-      const res = await fetch(`/api/people?section=${targetSection}`);
+      const res = await apiGet(`/api/people?section=${targetSection}`);
       if (!res.ok) {
         throw new Error(t("pages.people.loadError") || "تعذر تحميل البيانات");
       }
@@ -361,7 +387,7 @@ export function PeopleView() {
   // Load store products when opening supplier modal
   const loadStoreProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products");
+      const res = await apiGet("/api/products?scope=store");
       if (res.ok) {
         const data = await res.json();
         const prods = (data.products || []).map(
@@ -401,13 +427,14 @@ export function PeopleView() {
     setFormName(p.name);
     setFormPhone(p.phone || "");
     const egpVal = p.amount_piasters / 100;
-    setFormAmount(
+    const initialAmount =
       p.amount_piasters > 0
         ? p.amount_piasters % 100 === 0
           ? String(egpVal)
           : egpVal.toFixed(2)
-        : "",
-    );
+        : "";
+    setFormAmount(initialAmount);
+    setFormAmountInitial(initialAmount);
     if (p.section === "suppliers") {
       const parsed = parseSupplierNotes(p.note);
       setSupplierOwedMoneyNote(parsed.owedMoneyNote);
@@ -482,8 +509,12 @@ export function PeopleView() {
       );
     }
 
+    // Suppliers' balances are not edited in this form. For the others, an edit sends the
+    // balance only when the owner changed the field (the server then records ONE labelled
+    // owner adjustment); a new person sends their opening balance.
+    const amountChanged = formAmount.trim() !== formAmountInitial.trim();
     const amountNum = isSupplier
-      ? editingPerson?.amount_piasters || 0
+      ? 0
       : formAmount.trim()
         ? parseEgpToPiasters(formAmount)
         : 0;
@@ -505,7 +536,9 @@ export function PeopleView() {
           body: JSON.stringify({
             name: formName.trim(),
             phone: formPhone.trim() || null,
-            amountPiasters: amountNum,
+            ...(!isSupplier && amountChanged
+              ? { amountPiasters: amountNum }
+              : {}),
             note: finalNote,
             supplies: isSupplier ? formSupplies.map((s) => s.id) : [],
           }),
@@ -563,6 +596,8 @@ export function PeopleView() {
     }
   };
 
+  const paymentOp = useRetryOpId();
+
   const handleRecordPayment = async () => {
     if (!paymentTarget) return;
     if (!paymentAmount.trim()) {
@@ -585,12 +620,23 @@ export function PeopleView() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            type: "payment",
-            amountPiasters: amountNum,
-            note: paymentNote.trim() || null,
-            date: paymentDate ? new Date(paymentDate).toISOString() : undefined,
-          }),
+          body: JSON.stringify(
+            (() => {
+              const body = {
+                personId: paymentTarget.person.id,
+                type: "payment",
+                amountPiasters: amountNum,
+                note: paymentNote.trim() || null,
+                date: paymentDate
+                  ? new Date(paymentDate).toISOString()
+                  : undefined,
+              };
+              // Same payment retried → same opId → recorded once (QA-27).
+              const { personId: _person, ...send } = body;
+              void _person;
+              return { ...send, opId: paymentOp.opIdFor(body) };
+            })(),
+          ),
         },
       );
 
@@ -599,6 +645,7 @@ export function PeopleView() {
         throw new Error(errData?.error?.message || "فشل تسجيل العملية");
       }
 
+      paymentOp.reset();
       setPaymentTarget(null);
 
       // Refresh section data
@@ -699,9 +746,7 @@ export function PeopleView() {
           </button>
         </div>
       ) : loading && !currentSectionData.loaded ? (
-        <div className={styles.loadingCard}>
-          <p>{t("common.loading")}</p>
-        </div>
+        <ListSkeleton label={t("common.loading")} />
       ) : people.length === 0 ? (
         <Empty
           icon="users"
@@ -749,34 +794,7 @@ export function PeopleView() {
                           <Icon n="phone" s={13} />
                           <span>{p.phone}</span>
                         </a>
-                        <a
-                          href={getWaUrl(
-                            p.phone,
-                            p.name,
-                            section,
-                            p.amount_piasters,
-                          )}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className={styles.waLinkBadge}
-                          title={t("pages.people.waChat")}
-                          aria-label={`${t("pages.people.waChat")} ${p.name}`}
-                        >
-                          <svg
-                            width={12}
-                            height={12}
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth={2}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            aria-hidden="true"
-                          >
-                            <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                          </svg>
-                          <span>واتساب</span>
-                        </a>
+                        {/* WhatsApp: the card's action button (one link per person, QA-45). */}
                       </div>
                     ) : (
                       <span className={styles.noPhone}>
@@ -896,6 +914,21 @@ export function PeopleView() {
                     );
                   })()}
 
+                {/* «ليك»: record what they took — an amount or products (optional). */}
+                {section === "owedToMe" && (
+                  <button
+                    type="button"
+                    className={styles.purchasesBtn}
+                    data-testid={`customer-debt-${p.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDebtTarget(p);
+                    }}
+                  >
+                    {t("pages.people.recordDebt")}
+                  </button>
+                )}
+
                 {/* Footer / Notes row */}
                 {section === "suppliers" ? (
                   (() => {
@@ -930,6 +963,29 @@ export function PeopleView() {
                             {parsed.generalNote}
                           </span>
                         )}
+                        {p.amount_piasters < 0 && (
+                          <div className={styles.cardFooter}>
+                            <span
+                              className={styles.amountCredit}
+                              data-testid={`person-balance-${p.id}`}
+                            >
+                              {t("pages.people.creditPayable", {
+                                amount: formatEgp(p.credit_piasters ?? 0),
+                              })}
+                            </span>
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className={styles.purchasesBtn}
+                          data-testid={`supplier-purchases-${p.id}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setPurchasesTarget(p);
+                          }}
+                        >
+                          {t("invoice.purchasesTitle")}
+                        </button>
                         {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
                           <div className={styles.cardFooter}>
                             <span className={styles.amountLabel}>
@@ -965,12 +1021,22 @@ export function PeopleView() {
                     )}
                     <span
                       className={
-                        section === "owedToMe"
-                          ? styles.amountPos
-                          : styles.amountNeg
+                        p.amount_piasters < 0
+                          ? styles.amountCredit
+                          : section === "owedToMe"
+                            ? styles.amountPos
+                            : styles.amountNeg
                       }
+                      data-testid={`person-balance-${p.id}`}
                     >
-                      {formatEgp(p.amount_piasters)}
+                      {p.amount_piasters < 0
+                        ? t(
+                            section === "owedToMe"
+                              ? "pages.people.creditCustomer"
+                              : "pages.people.creditPayable",
+                            { amount: formatEgp(p.credit_piasters ?? 0) },
+                          )
+                        : formatEgp(p.amount_piasters)}
                     </span>
                   </div>
                 )}
@@ -1259,6 +1325,17 @@ export function PeopleView() {
                       placeholder="0"
                     />
                   </div>
+                  {editingPerson && (
+                    <small className={styles.fieldHint}>
+                      {(editingPerson.credit_piasters ?? 0) > 0
+                        ? t("pages.people.editBalanceCreditHint", {
+                            amount: formatEgp(
+                              editingPerson.credit_piasters ?? 0,
+                            ),
+                          })
+                        : t("pages.people.editBalanceHint")}
+                    </small>
+                  )}
                 </div>
 
                 {/* Credit products selection for owedToMe */}
@@ -1415,7 +1492,31 @@ export function PeopleView() {
         </Modal>
       )}
 
+      {debtTarget && (
+        <CustomerDebtSheet
+          customer={{ id: debtTarget.id, name: debtTarget.name }}
+          onClose={() => setDebtTarget(null)}
+          onDone={(message) => {
+            setDebtTarget(null);
+            toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData("owedToMe");
+          }}
+        />
+      )}
+
       {/* Delete Confirmation Modal */}
+      {purchasesTarget && (
+        <PurchasesSheet
+          supplierId={purchasesTarget.id}
+          supplierName={purchasesTarget.name}
+          onClose={() => setPurchasesTarget(null)}
+          onChanged={(message) => {
+            toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData("suppliers");
+          }}
+        />
+      )}
+
       {deleteTarget && (
         <Modal
           onClose={() => !isDeleting && setDeleteTarget(null)}
@@ -1504,7 +1605,18 @@ export function PeopleView() {
                 {t("pages.people.currentBalance")}
               </span>
               <span className={styles.currentBalanceValue}>
-                {formatEgp(paymentTarget.person.amount_piasters)}
+                {paymentTarget.person.amount_piasters < 0
+                  ? t(
+                      paymentTarget.isCollection
+                        ? "pages.people.creditCustomer"
+                        : "pages.people.creditPayable",
+                      {
+                        amount: formatEgp(
+                          paymentTarget.person.credit_piasters ?? 0,
+                        ),
+                      },
+                    )
+                  : formatEgp(paymentTarget.person.amount_piasters)}
               </span>
             </div>
 
@@ -1529,6 +1641,26 @@ export function PeopleView() {
                   autoFocus
                 />
               </div>
+              {(() => {
+                // Paying more than is owed is allowed and becomes a visible credit (ADR-0023).
+                const extra =
+                  (paymentAmount.trim()
+                    ? parseEgpToPiasters(paymentAmount)
+                    : 0) - Math.max(paymentTarget.person.amount_piasters, 0);
+                return paymentAmount.trim() && extra > 0 ? (
+                  <small
+                    className={styles.fieldHint}
+                    data-testid="overpay-hint"
+                  >
+                    {t(
+                      paymentTarget.isCollection
+                        ? "pages.people.overpayCustomerHint"
+                        : "pages.people.overpayPayableHint",
+                      { amount: formatEgp(extra) },
+                    )}
+                  </small>
+                ) : null;
+              })()}
             </div>
 
             {/* Date */}

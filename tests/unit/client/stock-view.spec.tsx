@@ -1,10 +1,10 @@
+import { ToastProvider } from "@/client/shared/ui";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { StockView } from "@/client/features/stock/StockView";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import { AddStockModal } from "@/client/features/stock/AddStockModal";
-import { ClearStockModal } from "@/client/features/stock/ClearStockModal";
 import { ArchiveStockModal } from "@/client/features/stock/ArchiveStockModal";
 import { MachineTopupModal } from "@/client/features/stock/MachineTopupModal";
 
@@ -14,7 +14,11 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
   });
 
   it("renders header with 'المخزون' title, subtitle, and '+ إضافة' button matching Image 4", () => {
-    const html = renderToStaticMarkup(<StockView />);
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <StockView />
+      </ToastProvider>,
+    );
     expect(html).toContain('data-testid="page-stock"');
     expect(html).toContain("المخزون");
     expect(html).toContain("الكميات الحالية وسجل اللي دخل");
@@ -23,13 +27,21 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
   });
 
   it("renders segmented control tabs with 'الكميات' and 'سجل الإضافات'", () => {
-    const html = renderToStaticMarkup(<StockView />);
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <StockView />
+      </ToastProvider>,
+    );
     expect(html).toContain("الكميات");
     expect(html).toContain("سجل الإضافات");
   });
 
   it("renders search box and status filter chips on Tab 1 matching Image 1", () => {
-    const html = renderToStaticMarkup(<StockView />);
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <StockView />
+      </ToastProvider>,
+    );
     expect(html).toContain("دوّر في المخزون");
     expect(html).toContain("الكل");
     expect(html).toContain("قرب يخلص (0)");
@@ -37,18 +49,27 @@ describe("StockView Component (Phase 2 Inventory UI)", () => {
   });
 
   it("renders POS payment machines section in Inventory with empty state or provider balances", () => {
-    const html = renderToStaticMarkup(<StockView />);
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <StockView />
+      </ToastProvider>,
+    );
     expect(html).toContain('data-testid="stock-pos-machines-section"');
     expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة");
     expect(html).toContain("لا توجد ماكينات دفع مسجلة لهذا المتجر");
   });
 
   it("renders separated stock valuation card at the bottom of the page", () => {
-    const html = renderToStaticMarkup(<StockView />);
+    const html = renderToStaticMarkup(
+      <ToastProvider>
+        <StockView />
+      </ToastProvider>,
+    );
     expect(html).toContain('data-testid="stock-valuation-card"');
     expect(html).toContain("تقييم إجمالي البضاعة ورؤوس الأموال");
     expect(html).toContain("قيمة بضاعة المخزون المادي (بسعر الشراء):");
-    expect(html).toContain("قيمة كروت الشحن والوحدات الرقمية:");
+    // Services (cards, top-ups, transfers) hold no stock: no separate cards valuation (P4).
+    expect(html).not.toContain("قيمة كروت الشحن والوحدات الرقمية:");
     expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):");
     expect(html).toContain("إجمالي رأس المال والأرصدة:");
   });
@@ -125,7 +146,7 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
     expect(html).toContain("إضافة ✓");
   });
 
-  it("renders auto-calculated expected cost hint based on registered buy price", () => {
+  it("prefills the purchase total from the registered buy price (restock and normal add)", () => {
     const html = renderToStaticMarkup(
       <AddStockModal
         targetProduct={{
@@ -150,10 +171,12 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
       />,
     );
 
-    expect(html).toContain("السعر المتوقع بناءً على سعر الشراء المسجل");
+    // 1 carton of 12 × 15.00 = 180.00, filled in and editable; no second price to define.
+    expect(html).toContain('value="180.00"');
+    expect(html).toContain("محسوب من سعر الشراء المسجل في المنتجات");
   });
 
-  it("renders explicit 'بالكيس' entry mode in AddStockModal", () => {
+  it("reads the selling unit from the product (bags in cartons of 20): no unit picker, no pack field", () => {
     const html = renderToStaticMarkup(
       <AddStockModal
         targetProduct={{
@@ -178,14 +201,77 @@ describe("AddStockModal Component (Phase 2 Modal Enhancements)", () => {
       />,
     );
 
-    expect(html).toContain("بالكيس");
-    expect(html).toContain("كراتين أكياس");
+    expect(html).toContain("بيتباع");
+    expect(html).toContain("بـكيس");
+    expect(html).toContain("الكرتونة 20 كيس");
+    expect(html).toContain("من بيانات المنتج");
+    expect(html).toContain("عدد الكراتين");
     expect(html).toContain("أكياس زيادة");
-    expect(html).toContain("أكياس/كرتونة");
+    // The product's configuration is not edited here.
+    expect(html).not.toContain("طريقة البيع");
+    expect(html).not.toContain("أكياس/كرتونة");
+    expect(html).not.toContain("اكتب طريقة البيع الجديدة");
+  });
+
+  it("weighed product: the weight field only, in its unit", () => {
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={{
+          id: "prod-cheese",
+          name_ar: "جبنة رومي",
+          category: "ألبان",
+          unit: "kg",
+          sell_price_piasters: 30000,
+          buy_cost_piasters: 25000,
+          is_custom: true,
+          variants: [
+            {
+              id: "v-ch",
+              pack_qty: 1,
+              sell_price_piasters: 30000,
+              buy_cost_piasters: 25000,
+            },
+          ],
+        }}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+    expect(html).toContain("بالوزن (كيلو)");
+    expect(html).toContain("الوزن اللي دخل (بالكيلو)");
+    expect(html).not.toContain("عدد الكراتين");
+  });
+
+  it("piece product without a carton: one count field", () => {
+    const html = renderToStaticMarkup(
+      <AddStockModal
+        targetProduct={{
+          id: "prod-pen",
+          name_ar: "قلم",
+          category: "أدوات",
+          unit: "piece",
+          sell_price_piasters: 500,
+          buy_cost_piasters: 300,
+          is_custom: true,
+          variants: [
+            {
+              id: "v-pen",
+              pack_qty: 1,
+              sell_price_piasters: 500,
+              buy_cost_piasters: 300,
+            },
+          ],
+        }}
+        onClose={() => {}}
+        onAdded={() => {}}
+      />,
+    );
+    expect(html).toContain("عدد الـقطع");
+    expect(html).not.toContain("عدد الكراتين");
   });
 });
 
-describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Archiving)", () => {
+describe("ArchiveStockModal (zeroing a product was removed: the quantity is edited)", () => {
   const mockItemWithStock: StockInventoryItem = {
     variantId: "var-100",
     productId: "prod-100",
@@ -207,36 +293,20 @@ describe("ClearStockModal & ArchiveStockModal Components (Separated Zeroing & Ar
     status: "out",
   };
 
-  it("renders ClearStockModal as pure zeroing dialog with warning and confirmation button", () => {
-    const html = renderToStaticMarkup(
-      <ClearStockModal
-        item={mockItemWithStock}
-        onClose={() => {}}
-        onCleared={() => {}}
-      />,
-    );
-
-    expect(html).toContain("تصفير المخزون");
-    expect(html).toContain("تنبيه هام قبل تصفير المخزون");
-    expect(html).toContain("جبنة بيضاء دومتي (فيتا)");
-    expect(html).toContain("2 كرتونة و 4 قطعة");
-    expect(html).toContain("تأكيد تصفير المخزون");
-    expect(html).toContain("سبب تصفير المخزون");
-  });
-
   it("renders ArchiveStockModal with blocker when current balance is positive (> 0)", () => {
     const html = renderToStaticMarkup(
       <ArchiveStockModal
         item={mockItemWithStock}
         onClose={() => {}}
         onArchived={() => {}}
-        onOpenClearStock={() => {}}
+        onOpenEditQuantity={() => {}}
       />,
     );
 
     expect(html).toContain("إزالة الصنف من قائمة المخزون");
     expect(html).toContain("لا يمكن إزالة الصنف لأن رصيده موجب");
-    expect(html).toContain("تصفير المخزون أولاً");
+    expect(html).toContain("سجّل الباقي تالف / فاقد");
+    expect(html).not.toContain("تصفير");
     expect(html).not.toContain("تأكيد الإزالة من المخزون");
   });
 

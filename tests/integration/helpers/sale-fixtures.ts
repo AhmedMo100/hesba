@@ -12,12 +12,14 @@ import { InventoryService } from "@/server/modules/inventory";
 import {
   GET as listSalesRoute,
   POST as postSaleRoute,
-  DELETE as deleteSaleRoute,
 } from "@/app/api/sales/route";
+import { POST as voidSaleRoute } from "@/app/api/sales/void/route";
 
 export const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 export type Json = Record<string, unknown>;
 
@@ -92,8 +94,12 @@ export class SaleFixtures {
       await sql`DELETE FROM "stock_levels" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "waste_records" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_stock_batches" WHERE store_id IN ${sql(ids)}`;
+      await sql`DELETE FROM "sale_voids" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sale_lines" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sales" WHERE store_id IN ${sql(ids)}`;
+      await sql`DELETE FROM "sandwich_ingredients" WHERE store_id IN ${sql(ids)}`;
+      // Purchases first: their lines must keep a product/variant target (chk_purchase_lines_target).
+      await sql`DELETE FROM "purchases" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_variants" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_products" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sessions" WHERE store_id IN ${sql(ids)}`;
@@ -190,7 +196,7 @@ export class SaleFixtures {
 
   async request(
     shop: Shop,
-    method: "GET" | "POST" | "DELETE",
+    method: "GET" | "POST",
     body?: unknown,
     query = "",
     headers: Record<string, string> = {},
@@ -204,13 +210,23 @@ export class SaleFixtures {
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
-    const handler =
-      method === "GET"
-        ? listSalesRoute
-        : method === "POST"
-          ? postSaleRoute
-          : deleteSaleRoute;
+    const handler = method === "GET" ? listSalesRoute : postSaleRoute;
     const res = await handler(req);
+    return { status: res.status, json: (await res.json()) as Json };
+  }
+
+  /** POST /api/sales/void (ADR-0022). */
+  async void(shop: Shop, body: Json): Promise<{ status: number; json: Json }> {
+    const res = await voidSaleRoute(
+      new Request("http://localhost:3000/api/sales/void", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `hesba_session=${await this.token(shop)}`,
+        },
+        body: JSON.stringify(body),
+      }),
+    );
     return { status: res.status, json: (await res.json()) as Json };
   }
 
@@ -253,6 +269,7 @@ export class SaleFixtures {
         movementsSum: movements.reduce((s, m) => s + Number(m.quantityBase), 0),
         movements: movements.map((m) => ({
           type: m.type,
+          batchId: m.batchId,
           quantity: Number(m.quantityBase),
           balanceAfter: Number(m.balanceAfterBase ?? 0),
           saleLineId: m.saleLineId,
@@ -266,7 +283,7 @@ export class SaleFixtures {
     return this.as(shop, (tx) =>
       tx.sale.findMany({
         where: { storeId: shop.storeId },
-        include: { saleLines: true },
+        include: { saleLines: true, saleVoid: true },
         orderBy: { createdAt: "asc" },
       }),
     );

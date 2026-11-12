@@ -5,7 +5,7 @@
  * @description The home dashboard: today's sales, stock and expense summaries and shortcuts.
  *
  * @remarks
- * - "الجرد" (inventory) reads `/api/stock?view=all`.
+ * - "الجرد" (inventory) reads `/api/stock` (inventory only; QA-32).
  * - "التقرير" (report) reads `/api/reports/home?period=…` (ADR-0021): every financial figure —
  *   revenue, cost of goods sold, gross profit, expenses, purchases, the chart, top products,
  *   categories, activity — is computed on the server from recorded data. This screen does no
@@ -14,8 +14,17 @@
  * A failed request leaves that section empty.
  */
 
+import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useMemo } from "react";
-import { Seg, SearchBox, Icon, Empty } from "@/client/shared/ui";
+import {
+  Seg,
+  SearchBox,
+  Icon,
+  Empty,
+  Skeleton,
+  PeriodFilter,
+} from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import {
   fetchHomeReport,
@@ -24,36 +33,55 @@ import {
 } from "@/client/shared/api/reports";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "./HomeView.module.css";
 
 type PeriodKey = ReportPeriod;
+
+/** A stored base quantity in its selling unit: grams → kg for weighed goods. */
+function formatBaseQuantity(base: number, unit: string): string {
+  if (unit === "kg" || unit === "g") {
+    return `${(base / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`;
+  }
+  return `${base} ${unitWord(unit)}`;
+}
+
+const HOME_PERIODS: ReadonlyArray<readonly [PeriodKey, string]> = [
+  ["today", "النهارده"],
+  ["yesterday", "امبارح"],
+  ["week", "الأسبوع"],
+  ["month", "الشهر"],
+  ["all", "الكل"],
+];
 
 /** Money, or "—" when the server could not determine it from recorded data. */
 function moneyOrUnknown(piasters: number | null): string {
   return piasters === null ? "—" : formatMoney(piasters);
 }
 
-function formatQtyText(
+export function formatQtyText(
   unitMode: "piece" | "weight",
   qtyBase: number,
   packQty = 1,
-  unit = "قطعة",
+  unit = "piece",
   packName?: string,
 ): string {
   if (unitMode === "weight") {
     const kg = qtyBase / 1000;
     return `${kg.toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
   }
+  // Arabic words, never the stored codes (QA-43).
+  const word = unitWord(unit);
   if (packQty > 1 && qtyBase >= packQty) {
     const packs = Math.floor(qtyBase / packQty);
     const rem = qtyBase % packQty;
-    const pName = packName || "كرتونة";
+    const pName = packWord(packName, packQty);
     if (rem === 0) {
       return `${packs} ${pName}`;
     }
-    return `${packs} ${pName} و ${rem} ${unit}`;
+    return `${packs} ${pName} و ${rem} ${word}`;
   }
-  return `${qtyBase} ${unit}`;
+  return `${qtyBase} ${word}`;
 }
 
 export function HomeView() {
@@ -63,34 +91,55 @@ export function HomeView() {
   const [showMoreTop, setShowMoreTop] = useState(false);
 
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
-  const [report, setReport] = useState<HomeReport | null>(null);
+  const [loadedReport, setReport] = useState<HomeReport | null>(null);
+  // Only the chosen period's report is shown; another period's is never shown meanwhile.
+  const report = loadedReport?.period === period ? loadedReport : null;
+  const [reportFailed, setReportFailed] = useState(false);
+  const [reportAttempt, setReportAttempt] = useState(0);
+  // The chosen period's report is still on its way (never shown as "—", which means unknown).
+  const reportLoading = report === null && !reportFailed;
 
-  // The report of the chosen period, from the server (ADR-0021)
+  // The report of the chosen period, from the server (ADR-0021). A failed read (offline, or a
+  // request cut off by a page reload) is retried once and can be retried by hand; until a
+  // report arrives the figures show "—", never 0.
   useEffect(() => {
     const controller = new AbortController();
-    const load = () => {
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const load = (retriesLeft: number) => {
       fetchHomeReport(period, controller.signal)
-        .then(setReport)
+        .then((r) => {
+          setReport(r);
+          setReportFailed(false);
+        })
         .catch(() => {
-          if (!controller.signal.aborted) setReport(null);
+          if (controller.signal.aborted) return;
+          if (retriesLeft > 0) {
+            retry = setTimeout(() => load(retriesLeft - 1), 1500);
+          } else {
+            setReportFailed(true);
+          }
         });
     };
-    load();
-    window.addEventListener("hesba_stock_updated", load);
-    window.addEventListener("hesba_sales_config_updated", load);
+    const reload = () => load(1);
+    reload();
+    window.addEventListener("hesba_stock_updated", reload);
+    window.addEventListener("hesba_sales_config_updated", reload);
+    window.addEventListener("online", reload);
     return () => {
       controller.abort();
-      window.removeEventListener("hesba_stock_updated", load);
-      window.removeEventListener("hesba_sales_config_updated", load);
+      if (retry) clearTimeout(retry);
+      window.removeEventListener("hesba_stock_updated", reload);
+      window.removeEventListener("hesba_sales_config_updated", reload);
+      window.removeEventListener("online", reload);
     };
-  }, [period]);
+  }, [period, reportAttempt]);
 
   // Load Inventory
   useEffect(() => {
     let ignore = false;
     const fetchData = async () => {
       try {
-        const stockRes = await fetch("/api/stock?view=all").catch(() => null);
+        const stockRes = await apiGet("/api/stock").catch(() => null);
         if (stockRes && stockRes.ok && !ignore) {
           const sData = await stockRes.json();
           if (sData?.inventory && Array.isArray(sData.inventory)) {
@@ -437,35 +486,37 @@ export function HomeView() {
         /* ===================== TAB: التقرير (Sales & Store Report) ===================== */
         <>
           {/* Period Selector Chips */}
-          <div className={styles.periodBar} role="tablist">
-            {(
-              [
-                ["today", "النهارده"],
-                ["yesterday", "امبارح"],
-                ["week", "الأسبوع"],
-                ["month", "الشهر"],
-                ["all", "الكل"],
-              ] as const
-            ).map(([pKey, label]) => (
+          <PeriodFilter
+            options={HOME_PERIODS}
+            value={period}
+            onChange={setPeriod}
+          />
+
+          {reportFailed && (
+            <div className={styles.reportError} role="alert">
+              <span>{t("home.reportFailed")}</span>
               <button
                 type="button"
-                key={pKey}
-                role="tab"
-                aria-selected={period === pKey}
-                className={`${styles.chip} ${period === pKey ? styles.chipOn : ""}`}
-                onClick={() => setPeriod(pKey)}
+                onClick={() => {
+                  setReportFailed(false);
+                  setReportAttempt((n) => n + 1);
+                }}
               >
-                {label}
+                {t("home.reportRetry")}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
 
           {/* Report KPI Grid matching Image 4 */}
           <div className={styles.kpis}>
             <div className={styles.kpi}>
               <small>المبيعات</small>
               <b data-testid="home-revenue">
-                {moneyOrUnknown(totalRevenuePiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalRevenuePiasters)
+                )}
               </b>
               <em>{saleCount} بيعة</em>
             </div>
@@ -473,7 +524,11 @@ export function HomeView() {
             <div className={styles.kpi}>
               <small>مجمل الربح</small>
               <b data-testid="home-profit">
-                {moneyOrUnknown(grossProfitPiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(grossProfitPiasters)
+                )}
               </b>
               <em>
                 {unknownCostCount > 0
@@ -484,13 +539,23 @@ export function HomeView() {
 
             <div className={styles.kpi}>
               <small>تكلفة البضاعة المباعة</small>
-              <b data-testid="home-cogs">{moneyOrUnknown(totalCogsPiasters)}</b>
+              <b data-testid="home-cogs">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalCogsPiasters)
+                )}
+              </b>
             </div>
 
             <div className={`${styles.kpi} ${styles.kpiNeg}`}>
               <small>المصروفات</small>
               <b data-testid="home-expenses">
-                {moneyOrUnknown(totalExpensesPiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalExpensesPiasters)
+                )}
               </b>
             </div>
 
@@ -500,7 +565,11 @@ export function HomeView() {
             >
               <small>مشتريات دخلت المخزن</small>
               <b data-testid="home-purchases">
-                {moneyOrUnknown(totalPurchasesPiasters)}
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalPurchasesPiasters)
+                )}
               </b>
               <em>
                 مش بتتخصم من الربح
@@ -632,6 +701,66 @@ export function HomeView() {
               )}
             </section>
           </div>
+
+          {/* Damaged / lost goods (P4): real waste records of the period */}
+          <section className={styles.sectionCard} data-testid="home-losses">
+            <h2 className={styles.secTitle}>التالف / الفاقد</h2>
+            {!report ? (
+              <div className={styles.mutedText}>—</div>
+            ) : report.losses.count === 0 ? (
+              <div className={styles.mutedText}>
+                مفيش تالف أو فاقد متسجل في الفترة دي
+              </div>
+            ) : (
+              <div className={styles.topList}>
+                <div className={styles.catItem}>
+                  <span>
+                    {report.losses.count} مرة
+                    {report.losses.unknownCostCount > 0
+                      ? ` · ${report.losses.unknownCostCount} من غير تكلفة متسجلة`
+                      : ""}
+                  </span>
+                  <div className={styles.catValues}>
+                    <b data-testid="home-losses-cost">
+                      {formatMoney(report.losses.costPiasters)}
+                    </b>
+                    <small>تكلفة تقريبية بسعر الشراء</small>
+                  </div>
+                </div>
+                {report.losses.byReason.map((r) => (
+                  <div key={r.reason} className={styles.catItem}>
+                    <span>
+                      {WASTE_REASON_LABELS[r.reason as WasteReason] ?? r.reason}{" "}
+                      ({r.count})
+                    </span>
+                    <div className={styles.catValues}>
+                      <b>{formatMoney(r.costPiasters)}</b>
+                    </div>
+                  </div>
+                ))}
+                {report.losses.recent.map((l) => (
+                  <div key={l.id} className={styles.timelineItem}>
+                    <span className={`${styles.tlDot} ${styles.tlDotExp}`} />
+                    <div className={styles.tlBody}>
+                      <b>
+                        {l.name} — {formatBaseQuantity(l.quantityBase, l.unit)}
+                      </b>
+                      <small>
+                        {WASTE_REASON_LABELS[l.reason as WasteReason] ??
+                          l.reason}
+                        {l.note ? ` · ${l.note}` : ""}
+                      </small>
+                    </div>
+                    <span className={`${styles.tlAmt} ${styles.tlAmtNeg}`}>
+                      {l.costPiasters === null
+                        ? "—"
+                        : `−${formatMoney(l.costPiasters)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Store Activity Timeline matching Image 5 */}
           <section className={styles.sectionCard}>

@@ -5,6 +5,9 @@ import styles from "./AiView.module.css";
 import { Icon, Modal } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 
+/** Client backstop for one reply: the server's 20 s budget (AI_REPLY_TIMEOUT_MS) + margin. */
+const AI_CLIENT_TIMEOUT_MS = 25_000;
+
 export interface AiSource {
   type: "business_tool" | "web_search" | string;
   title: string;
@@ -434,6 +437,9 @@ export function AiView() {
     try {
       const res = await fetch("/api/ai/chat", {
         method: "POST",
+        // A backstop a little past the server's 20 s reply budget (QA-29): the shopkeeper is
+        // never left waiting on a request that hangs.
+        signal: AbortSignal.timeout(AI_CLIENT_TIMEOUT_MS),
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           body_text: text,
@@ -445,10 +451,19 @@ export function AiView() {
         }),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        throw new Error(json.error || json.message || t("pages.ai.sendError"));
+        // The error body is `{ error: { code, message } }`: show its message (it used to show
+        // "[object Object]"). A 503 means busy or too slow: say so (QA-29).
+        const serverMessage =
+          typeof json.error === "string" ? json.error : json.error?.message;
+        throw new Error(
+          serverMessage ||
+            (res.status === 503
+              ? t("pages.ai.slowReply")
+              : t("pages.ai.sendError")),
+        );
       }
 
       const convId =
@@ -491,8 +506,14 @@ export function AiView() {
       }
       void loadConversations();
     } catch (err: unknown) {
-      const errMsg =
-        err instanceof Error ? err.message : t("pages.ai.sendError");
+      const timedOut =
+        err instanceof Error &&
+        (err.name === "TimeoutError" || err.name === "AbortError");
+      const errMsg = timedOut
+        ? t("pages.ai.slowReply")
+        : err instanceof Error
+          ? err.message
+          : t("pages.ai.sendError");
       setError(errMsg);
       setMessages((prev) =>
         prev.map((m) => (m.id === clientMsgId ? { ...m, failed: true } : m)),

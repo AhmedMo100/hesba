@@ -1,13 +1,33 @@
 import { z } from "zod";
+import {
+  MAX_PACK_QTY,
+  MAX_QUANTITY_BASE,
+  MAX_UNIT_PRICE_PIASTERS,
+} from "@/domain/limits";
 
 export const productVariantInputSchema = z.object({
   id: z.string().trim().optional(),
   flavor: z.string().trim().nullable().optional(),
   sizeValue: z.number().positive().nullable().optional(),
   sizeUnit: z.string().trim().nullable().optional(),
-  packQty: z.number().int().positive().default(1),
-  sellPricePiasters: z.number().int().min(0, "سعر البيع يجب ألا يقل عن صفر"),
-  costPricePiasters: z.number().int().min(0).nullable().optional(),
+  packQty: z
+    .number()
+    .int()
+    .positive()
+    .max(MAX_PACK_QTY, "عدد القطع في العبوة كبير قوي")
+    .default(1),
+  sellPricePiasters: z
+    .number()
+    .int()
+    .min(0, "سعر البيع يجب ألا يقل عن صفر")
+    .max(MAX_UNIT_PRICE_PIASTERS, "سعر البيع كبير قوي"),
+  costPricePiasters: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_UNIT_PRICE_PIASTERS, "سعر الشراء كبير قوي")
+    .nullable()
+    .optional(),
   globalVariantId: z.string().uuid().nullable().optional(),
   barcode: z.string().trim().nullable().optional(),
   isActive: z.boolean().default(true),
@@ -21,9 +41,26 @@ export const upsertProductInputSchema = z.object({
   nameAr: z.string().trim().min(2, "اسم المنتج مطلوب (حرفين على الأقل)"),
   category: z.string().trim().min(2, "التصنيف مطلوب"),
   unit: z.string().trim().min(1).default("piece"),
-  sellPricePiasters: z.number().int().min(0, "سعر البيع الأساسي مطلوب"),
-  buyCostPiasters: z.number().int().min(0).nullable().optional(),
-  initialQuantity: z.number().min(0).nullable().optional(),
+  sellPricePiasters: z
+    .number()
+    .int()
+    .min(0, "سعر البيع الأساسي مطلوب")
+    .max(MAX_UNIT_PRICE_PIASTERS, "سعر البيع كبير قوي"),
+  buyCostPiasters: z
+    .number()
+    .int()
+    .min(0)
+    .max(MAX_UNIT_PRICE_PIASTERS, "سعر الشراء كبير قوي")
+    .nullable()
+    .optional(),
+  /** Opening stock in BASE units (pieces, or grams for kg products), new products only. */
+  initialQuantity: z
+    .number()
+    .int("الكمية لازم تكون رقم صحيح (قطع أو جرامات)")
+    .min(0)
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
+    .nullable()
+    .optional(),
   barcode: z.string().trim().nullable().optional(),
   isCustom: z.boolean().default(true),
   globalProductId: z.string().uuid().nullable().optional(),

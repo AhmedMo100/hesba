@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { ExpenseService } from "@/server/modules/expenses";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import {
+  AppError,
+  toSafeErrorResponse,
+  readJsonBody,
+} from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -11,12 +15,28 @@ export const dynamic = "force-dynamic";
  * GET /api/expenses
  * List store expenses for the authenticated session's store with optional date period and category filtering.
  */
+/** The periods `computePeriodDateRange` understands. */
+const EXPENSE_PERIODS = [
+  "today",
+  "yesterday",
+  "7days",
+  "week",
+  "month",
+  "year",
+  "custom",
+  "all",
+];
+
 export async function GET(req: Request) {
   try {
     const context = await requireSession(req);
     const { searchParams } = new URL(req.url);
 
     const period = searchParams.get("period") || "today";
+    // An unknown period is a mistake, not "today" (QA-37).
+    if (!EXPENSE_PERIODS.includes(period)) {
+      throw AppError.badRequest("الفترة غير صحيحة");
+    }
     const from = searchParams.get("from") || undefined;
     const to = searchParams.get("to") || undefined;
     const category = searchParams.get("category") || undefined;
@@ -45,7 +65,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const expenseService = new ExpenseService(prisma);
     const expense = await expenseService.createExpense(
@@ -67,7 +87,8 @@ export async function POST(req: Request) {
 export async function PATCH(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    // The service validates the body with its zod schema.
+    const body = (await readJsonBody(req)) as { id?: string } | null;
     const { searchParams } = new URL(req.url);
     const id = body?.id || searchParams.get("id");
 
@@ -104,8 +125,8 @@ export async function DELETE(req: Request) {
 
     if (!id) {
       try {
-        const body = await req.json();
-        id = body?.id;
+        const body = (await readJsonBody(req)) as { id?: unknown } | null;
+        id = typeof body?.id === "string" ? body.id : null;
       } catch {
         // body not present
       }

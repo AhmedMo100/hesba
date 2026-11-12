@@ -6,6 +6,7 @@
  */
 
 import { costBasisForUnit, ingredientCostPiasters } from "./recipe";
+import { MAX_QUANTITY_BASE } from "./limits";
 
 /**
  * Category names of telecom/payment service products (top-ups, bills, transfers, cards).
@@ -37,8 +38,8 @@ export function isServiceProduct(p: {
   );
 }
 
-/** Largest quantity accepted on one sale line, in base units (fits `sale_lines` int4). */
-export const MAX_SALE_QUANTITY_BASE = 1_000_000_000;
+/** Largest quantity accepted on one sale line, in base units (QA-15: the shared bound). */
+export const MAX_SALE_QUANTITY_BASE = MAX_QUANTITY_BASE;
 
 /**
  * Total of one ordinary sale line in piasters, from the product's registered selling price.

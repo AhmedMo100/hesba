@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
 /**
  * Bodies of the POS-machine money endpoints (ADR-0020). Amounts are integer piasters; a
@@ -9,7 +10,7 @@ import { z } from "zod";
  */
 
 /** Largest single machine operation: 10,000,000 EGP (keeps sums far inside bigint/JS limits). */
-export const MAX_MACHINE_AMOUNT_PIASTERS = 1_000_000_000;
+export const MAX_MACHINE_AMOUNT_PIASTERS = MAX_AMOUNT_PIASTERS;
 
 const piasters = (message: string) =>
   z
@@ -57,3 +58,18 @@ export const machineAdjustSchema = z.object({
 export type MachineTopupInput = z.infer<typeof machineTopupSchema>;
 export type MachineDeductInput = z.infer<typeof machineDeductSchema>;
 export type MachineAdjustInput = z.infer<typeof machineAdjustSchema>;
+
+/**
+ * Body of `POST /api/machines` (create, or update with `id`). A wrong type or a missing name
+ * is a 400, never a 500 (QA-18/QA-19).
+ */
+export const upsertMachineSchema = z.object({
+  id: z.string().uuid("معرف الماكينة غير صحيح").optional(),
+  name: z.string().trim().min(1, "اكتب اسم الماكينة").max(200),
+  provider: z.string().trim().min(1, "اختار نوع الماكينة").max(100),
+  terminalId: z.string().trim().max(100).optional().nullable(),
+  status: z.enum(["active", "inactive", "maintenance"]).optional(),
+  notes: text,
+});
+
+export type UpsertMachineInput = z.infer<typeof upsertMachineSchema>;

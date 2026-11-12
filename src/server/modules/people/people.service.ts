@@ -11,6 +11,7 @@ import "server-only";
  * `src/app/api/people/[id]/transactions/route.ts` (through `./index.ts`).
  */
 import { type PrismaClient } from "@prisma/client";
+import { AppError } from "@/server/platform/error";
 import {
   type CreatePersonInput,
   type UpdatePersonInput,
@@ -79,6 +80,23 @@ export {
 };
 
 /**
+ * A person id is looked up in each section in turn. Only "not in this section" (an AppError
+ * 404) moves on to the next one; any other error — a conflict, a database error — is the
+ * answer and is rethrown (QA-12: it used to be swallowed and reported as a 500).
+ */
+function isNotFound(err: unknown): boolean {
+  return (
+    (err instanceof AppError && err.statusCode === 404) ||
+    // Older services still throw plain errors whose message says "not found".
+    (!(err instanceof AppError) &&
+      err instanceof Error &&
+      err.message.includes("غير موجود"))
+  );
+}
+
+const PERSON_NOT_FOUND = "الشخص أو المورد غير موجود أو تم حذفه";
+
+/**
  * Lists contacts and balances for a given section (owedToMe, iOwe, suppliers).
  * Completely routed to the independent table for that section.
  */
@@ -127,15 +145,21 @@ export async function getPersonDetails(
 ): Promise<PersonDetailsResult> {
   try {
     return await getCustomerDetails(storeId, personId, userId, customPrisma);
-  } catch {}
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
   try {
     return await getPayableDetails(storeId, personId, userId, customPrisma);
-  } catch {}
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
   try {
     return await getSupplierDetails(storeId, personId, userId, customPrisma);
-  } catch {}
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
 
-  throw new Error("الشخص أو المورد غير موجود أو تم حذفه");
+  throw AppError.notFound(PERSON_NOT_FOUND);
 }
 
 /**
@@ -151,28 +175,22 @@ export async function updatePerson(
   try {
     return await updateCustomer(storeId, personId, input, userId, customPrisma);
   } catch (err: unknown) {
-    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
-      throw err;
-    }
+    if (!isNotFound(err)) throw err;
   }
 
   try {
     return await updatePayable(storeId, personId, input, userId, customPrisma);
   } catch (err: unknown) {
-    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
-      throw err;
-    }
+    if (!isNotFound(err)) throw err;
   }
 
   try {
     return await updateSupplier(storeId, personId, input, userId, customPrisma);
   } catch (err: unknown) {
-    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
-      throw err;
-    }
+    if (!isNotFound(err)) throw err;
   }
 
-  throw new Error("الشخص أو المورد غير موجود أو لا تملك صلاحية تعديله");
+  throw AppError.notFound(PERSON_NOT_FOUND);
 }
 
 /**
@@ -187,28 +205,22 @@ export async function deletePerson(
   try {
     return await deleteCustomer(storeId, personId, userId, customPrisma);
   } catch (err: unknown) {
-    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
-      throw err;
-    }
+    if (!isNotFound(err)) throw err;
   }
 
   try {
     return await deletePayable(storeId, personId, userId, customPrisma);
   } catch (err: unknown) {
-    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
-      throw err;
-    }
+    if (!isNotFound(err)) throw err;
   }
 
   try {
     return await deleteSupplier(storeId, personId, userId, customPrisma);
   } catch (err: unknown) {
-    if (!(err instanceof Error && err.message.includes("غير موجود"))) {
-      throw err;
-    }
+    if (!isNotFound(err)) throw err;
   }
 
-  throw new Error("الشخص أو المورد غير موجود أو تم حذفه بالفعل");
+  throw AppError.notFound(PERSON_NOT_FOUND);
 }
 
 /**
@@ -229,7 +241,9 @@ export async function recordDebtTransaction(
       userId,
       customPrisma,
     );
-  } catch {}
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
   try {
     return await recordPayableTransaction(
       storeId,
@@ -238,7 +252,9 @@ export async function recordDebtTransaction(
       userId,
       customPrisma,
     );
-  } catch {}
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
   try {
     return await recordSupplierTransaction(
       storeId,
@@ -247,7 +263,9 @@ export async function recordDebtTransaction(
       userId,
       customPrisma,
     );
-  } catch {}
+  } catch (err) {
+    if (!isNotFound(err)) throw err;
+  }
 
-  throw new Error("الشخص أو المورد غير موجود أو تم حذفه");
+  throw AppError.notFound(PERSON_NOT_FOUND);
 }
