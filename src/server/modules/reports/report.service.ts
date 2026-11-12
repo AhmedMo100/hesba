@@ -265,6 +265,66 @@ export async function getHomeReport(
                         WHERE m.batch_id = b.id
                           AND m.type IN ('purchase', 'initial_stock'))`;
 
+      // Damaged / lost goods (P4): each waste record once, its cost from the batches taken.
+      const lossRows = await tx.$queryRaw<
+        Array<{
+          id: string;
+          created_at: Date;
+          reason: string;
+          note: string | null;
+          quantity_base: bigint;
+          cost_minor: bigint;
+          cost_unknown: boolean;
+          name: string | null;
+          unit: string | null;
+        }>
+      >`SELECT w.id::text AS id, w.created_at, w.reason, w.note, w.quantity_base,
+               w.cost_minor,
+               EXISTS (SELECT 1 FROM stock_movements m
+                        WHERE m.waste_id = w.id AND m.cost_price_minor IS NULL) AS cost_unknown,
+               p.name_ar AS name, p.unit
+          FROM waste_records w
+          JOIN store_variants v ON v.id = w.store_variant_id
+          LEFT JOIN store_products p ON p.id = v.store_product_id
+         WHERE w.store_id = ${storeId}::uuid
+           AND w.created_at < ${to}
+           AND (${from}::timestamptz IS NULL OR w.created_at >= ${from}::timestamptz)
+         ORDER BY w.created_at DESC`;
+      const byReason = new Map<string, { count: number; cost: number }>();
+      let lossCost = 0;
+      let lossUnknown = 0;
+      for (const r of lossRows) {
+        const cost = r.cost_unknown ? 0 : Number(r.cost_minor);
+        if (r.cost_unknown) lossUnknown += 1;
+        lossCost += cost;
+        const g = byReason.get(r.reason) ?? { count: 0, cost: 0 };
+        g.count += 1;
+        g.cost += cost;
+        byReason.set(r.reason, g);
+      }
+      const losses: HomeReport["losses"] = {
+        count: lossRows.length,
+        costPiasters: lossCost,
+        unknownCostCount: lossUnknown,
+        byReason: [...byReason.entries()]
+          .map(([reason, g]) => ({
+            reason,
+            count: g.count,
+            costPiasters: g.cost,
+          }))
+          .sort((a, b) => b.costPiasters - a.costPiasters),
+        recent: lossRows.slice(0, 5).map((r) => ({
+          id: r.id,
+          at: r.created_at.toISOString(),
+          name: r.name ?? "",
+          unit: r.unit ?? "piece",
+          quantityBase: Number(r.quantity_base),
+          reason: r.reason,
+          note: r.note,
+          costPiasters: r.cost_unknown ? null : Number(r.cost_minor),
+        })),
+      };
+
       // Series, products and categories — sums of recorded line values per group.
       const granularity: "hour" | "day" =
         period === "today" || period === "yesterday" ? "hour" : "day";
@@ -366,6 +426,7 @@ export async function getHomeReport(
             0,
           ),
         },
+        losses,
         purchases: {
           totalPiasters: Number(purchaseRow?.total ?? 0),
           count: Number(purchaseRow?.count ?? 0),

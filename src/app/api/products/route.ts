@@ -5,6 +5,7 @@ import { prisma } from "@/server/infra/db/client";
 import { CatalogService } from "@/server/modules/catalog";
 import { upsertProductInputSchema } from "@/schemas/product";
 import { normalizeArabic } from "@/domain/normalize";
+import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
 import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
@@ -21,6 +22,11 @@ export async function GET(req: Request) {
     const filter = searchParams.get("filter"); // "all" | "active" | "hidden" | "custom"
     const search = searchParams.get("search") || undefined;
     const category = searchParams.get("category") || undefined;
+    // QA-55: the catalog rows a shop never added are ~99% of this response. Screens that do
+    // not list the catalog ask for less; without `scope` the response is unchanged.
+    // - `scope=store`: the shop's own products (adopted or custom) — People, offer editor;
+    // - `scope=sale`: those plus the service products (top-ups, bills, cards) — Sales.
+    const scope = searchParams.get("scope");
 
     const catalogService = new CatalogService(prisma);
     const products = await catalogService.getStoreProducts(
@@ -34,6 +40,13 @@ export async function GET(req: Request) {
     );
 
     let displayProducts = products;
+    if (scope === "store" || scope === "sale") {
+      displayProducts = displayProducts.filter(
+        (p) =>
+          !p.id.startsWith("gp_") ||
+          (scope === "sale" && isServiceProductRule(p)),
+      );
+    }
     if (filter === "hidden") {
       displayProducts = displayProducts.filter((p) => p.is_hidden);
     } else if (filter === "custom") {
@@ -43,7 +56,6 @@ export async function GET(req: Request) {
     const formatted = displayProducts.map((p) => ({
       id: p.id,
       name_ar: p.name_ar,
-      name_norm: p.name_norm,
       category: p.category,
       unit: p.unit,
       sell_price_piasters: Number(p.sell_price_piasters),
@@ -68,7 +80,6 @@ export async function GET(req: Request) {
         buy_cost_piasters: Number(v.buy_cost_piasters),
         stock_quantity: Number(v.stock_quantity ?? 0),
         global_variant_id: v.global_variant_id,
-        is_active: v.is_active,
       })),
     }));
 

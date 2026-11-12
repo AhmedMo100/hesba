@@ -44,6 +44,13 @@ describe("Home report — no fabricated money", () => {
       },
       expenses: { count: 1, totalPiasters: 12345 },
       purchases: { totalPiasters: 38000, count: 3, unknownCostCount: 0 },
+      losses: {
+        count: 0,
+        costPiasters: 0,
+        unknownCostCount: 0,
+        byReason: [],
+        recent: [],
+      },
       series: { granularity: "hour", points: [] },
       topProducts: [],
       byCategory: [],

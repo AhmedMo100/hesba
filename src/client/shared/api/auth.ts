@@ -10,6 +10,8 @@ export interface SignupInput {
   openedOn?: string;
   workersCount?: number;
   withDemoData?: boolean;
+  /** Optional influencer/referral code (checked on the server). */
+  referralCode?: string;
 }
 
 export interface LoginInput {
@@ -60,6 +62,8 @@ export interface AuthApiResult<T> {
   success: boolean;
   data?: T;
   error?: string;
+  /** The form field the server's validation error is about, when it names one. */
+  field?: string;
 }
 
 export interface AuthApi {

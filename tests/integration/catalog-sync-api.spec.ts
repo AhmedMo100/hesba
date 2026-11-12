@@ -1,6 +1,18 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { PrismaClient } from "@prisma/client";
 import { GET } from "@/app/api/sync/catalog/route";
+import { createSession } from "@/server/modules/auth";
+import { SaleFixtures } from "./helpers/sale-fixtures";
+
+// The catalog is downloaded by signed-in shops only (QA-53).
+const f = new SaleFixtures();
+let cookie = "";
+function authed(url: string, init: RequestInit = {}): Request {
+  return new Request(url, {
+    ...init,
+    headers: { ...(init.headers as Record<string, string>), cookie },
+  });
+}
 
 const directUrl =
   // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
@@ -16,6 +28,9 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
   let testVariantId: string;
 
   beforeAll(async () => {
+    await f.setup();
+    const session = await createSession(f.shopA.userId, f.shopA.storeId);
+    cookie = `hesba_session=${session.rawToken}`;
     prisma = new PrismaClient({
       datasources: { db: { url: directUrl } },
     });
@@ -80,16 +95,15 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
       where: { id: testBrandId },
     });
     await prisma.$disconnect();
+    await f.teardown();
   });
 
   it("returns 200 with global products, variants, brands, ETag, and Cache-Control", async () => {
-    const request = new Request(
-      "http://localhost:3000/api/sync/catalog?limit=1000",
-    );
+    const request = authed("http://localhost:3000/api/sync/catalog?limit=1000");
     const response = await GET(request);
 
     expect(response.status).toBe(200);
-    expect(response.headers.get("Cache-Control")).toContain("public");
+    expect(response.headers.get("Cache-Control")).toContain("private");
     const etag = response.headers.get("ETag");
     expect(etag).toBeDefined();
 
@@ -112,13 +126,13 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
 
   it("returns 304 Not Modified when client provides matching If-None-Match ETag", async () => {
     // 1. Initial request to obtain ETag
-    const req1 = new Request("http://localhost:3000/api/sync/catalog");
+    const req1 = authed("http://localhost:3000/api/sync/catalog");
     const res1 = await GET(req1);
     const etag = res1.headers.get("ETag");
     expect(etag).toBeTruthy();
 
     // 2. Conditional request with matching If-None-Match
-    const req2 = new Request("http://localhost:3000/api/sync/catalog", {
+    const req2 = authed("http://localhost:3000/api/sync/catalog", {
       headers: { "If-None-Match": etag! },
     });
     const res2 = await GET(req2);
@@ -127,7 +141,7 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
   });
 
   it("supports pagination with limit and stable next_cursor", async () => {
-    const req1 = new Request("http://localhost:3000/api/sync/catalog?limit=1");
+    const req1 = authed("http://localhost:3000/api/sync/catalog?limit=1");
     const res1 = await GET(req1);
     expect(res1.status).toBe(200);
 
@@ -137,7 +151,7 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
     expect(data1.next_cursor).toBeTruthy();
 
     // Query second page using cursor
-    const req2 = new Request(
+    const req2 = authed(
       `http://localhost:3000/api/sync/catalog?limit=1&cursor=${encodeURIComponent(data1.next_cursor)}`,
     );
     const res2 = await GET(req2);
@@ -158,10 +172,57 @@ describe("Catalog Sync Route Handler GET /api/sync/catalog (Phase 3.3 Integratio
       "base64url",
     );
 
-    const req = new Request(
+    const req = authed(
       `http://localhost:3000/api/sync/catalog?cursor=${encodeURIComponent(futureCursor)}`,
     );
     const res = await GET(req);
     expect(res.status).toBe(204);
+  });
+
+  it("QA-53: refuses an anonymous download", async () => {
+    const res = await GET(
+      new Request("http://localhost:3000/api/sync/catalog?limit=5"),
+    );
+    expect(res.status).toBe(401);
+  });
+
+  it("QA-53: the last page carries its position; the next sync gets only what changed", async () => {
+    // Walk every page as the app does.
+    let cursor = "";
+    for (let i = 0; i < 1000; i++) {
+      const res = await GET(
+        authed(
+          `http://localhost:3000/api/sync/catalog?limit=500${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        ),
+      );
+      if (res.status === 204) break;
+      expect(res.status).toBe(200);
+      const page = await res.json();
+      expect(page.next_cursor).toBeTruthy();
+      cursor = page.next_cursor;
+      if (!page.has_more) break;
+    }
+    // Nothing changed since: 204.
+    const same = await GET(
+      authed(
+        `http://localhost:3000/api/sync/catalog?cursor=${encodeURIComponent(cursor)}`,
+      ),
+    );
+    expect(same.status).toBe(204);
+    // A product changes: only it comes back.
+    await prisma.globalProduct.update({
+      where: { id: testProductId2 },
+      data: { nameEn: `Changed ${Date.now()}` },
+    });
+    const changed = await GET(
+      authed(
+        `http://localhost:3000/api/sync/catalog?cursor=${encodeURIComponent(cursor)}`,
+      ),
+    );
+    expect(changed.status).toBe(200);
+    const body = await changed.json();
+    expect(body.products.map((p: { id: string }) => p.id)).toEqual([
+      testProductId2,
+    ]);
   });
 });
