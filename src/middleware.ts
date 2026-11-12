@@ -9,8 +9,9 @@ export function middleware(request: NextRequest) {
     return new NextResponse(null, { status: 404 });
   }
 
-  // Protect /app and /app/* routes on the server
-  if (pathname.startsWith("/app")) {
+  // Protect /app and /admin on the server (a coarse gate: the APIs check the session, and the
+  // admin APIs also check `platform_admins`).
+  if (pathname.startsWith("/app") || pathname.startsWith("/admin")) {
     const sessionCookie = request.cookies.get("hesba_session")?.value;
 
     if (!sessionCookie) {
@@ -24,5 +25,5 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/app/:path*", "/dev/:path*"],
+  matcher: ["/app/:path*", "/admin/:path*", "/admin", "/dev/:path*"],
 };

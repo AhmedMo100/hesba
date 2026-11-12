@@ -11,6 +11,7 @@ import "server-only";
  * can answer (and no message credit is used for it).
  */
 import { normalizeArabic } from "@/domain/normalize";
+import { AI_SUGGESTED_QUESTIONS } from "@/schemas/ai";
 import type { ToolPeriod } from "./tools/business-tools";
 
 export type GroundedIntent =
@@ -25,16 +26,7 @@ export type GroundedIntent =
   | { tool: "getSuppliersPayablesSummary" };
 
 /** Suggested questions: exactly the ones this mode (and the tools) can answer. */
-export const SUGGESTED_QUESTIONS = [
-  "بعت كام النهارده؟",
-  "إيه أكتر المنتجات اللي بتتباع عندي؟",
-  "عندي منتجات قربت تخلص؟",
-  "مين أكتر عميل عليه فلوس؟",
-  "عليّا كام للموردين؟",
-  "مصروفاتي الشهر ده كام؟",
-  "كسبت كام الشهر ده؟",
-  "قارن مبيعات الأسبوع ده بالأسبوع اللي فات.",
-] as const;
+export const SUGGESTED_QUESTIONS = AI_SUGGESTED_QUESTIONS;
 
 function periodOf(q: string): ToolPeriod {
   if (/امبارح|امس\b|إمبارح/.test(q)) return "yesterday";
