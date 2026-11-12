@@ -9,7 +9,10 @@
   border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
   box-shadow: 0 -8px 24px rgba(50, 40, 15, 0.06);
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr)) 68px repeat(
+      3,
+      minmax(0, 1fr)
+    );
 }
 
 .bn {
@@ -17,52 +20,30 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 3px;
   color: var(--ink2);
-  font-size: 11.5px;
-  font-weight: 700;
   position: relative;
   border: 0;
   background: none;
   cursor: pointer;
   transition: color 0.2s;
   min-height: 44px;
+  min-width: 0;
+  padding: 0;
 }
 
+.bn:focus-visible {
+  outline: 2px solid var(--br);
+  outline-offset: -4px;
+  border-radius: 14px;
+}
+
+/* Icons only, so the active state is a soft brand pill, not just a colour. */
 .bn .iconWrapper {
   position: relative;
   display: flex;
-  transition: transform 0.25s var(--ease);
-}
-
-.badge {
-  position: absolute;
-  top: -4px;
-  right: -8px;
-  background: #e27d60;
-  color: #fff;
-  font-size: 10px;
-  font-weight: 800;
-  min-width: 17px;
-  height: 17px;
+  padding: 6px 12px;
   border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 4px;
-  border: 1.5px solid var(--sf, #1e1d1a);
-  box-sizing: border-box;
-  pointer-events: none;
-}
-
-.moreBadgePill {
-  background: #e27d60;
-  color: #fff;
-  font-size: 11px;
-  font-weight: 800;
-  padding: 2px 8px;
-  border-radius: 999px;
-  margin-top: 4px;
+  transition: background 0.2s;
 }
 
 .bn.on {
@@ -70,7 +51,7 @@
 }
 
 .bn.on .iconWrapper {
-  transform: translateY(-2px);
+  background: var(--soft);
 }
 
 /* Sell button special styling */
@@ -95,47 +76,6 @@
 
 .bn.sell:active .sellCircle {
   transform: scale(0.93);
-}
-
-/* More menu grid inside bottom sheet */
-.moreGrid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 12px;
-  padding: 8px 0;
-}
-
-.moreItem {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 10px;
-  padding: 20px 12px;
-  border-radius: 18px;
-  background: var(--sf2);
-  color: var(--ink);
-  font-weight: 800;
-  font-size: 15px;
-  border: 0;
-  cursor: pointer;
-  transition:
-    background 0.15s,
-    transform 0.12s;
-}
-
-.moreItem:active {
-  transform: scale(0.96);
-}
-
-.moreIcon {
-  width: 54px;
-  height: 54px;
-  border-radius: 16px;
-  background: var(--soft);
-  color: var(--br);
-  display: flex;
-  align-items: center;
-  justify-content: center;
 }
 
 @media (min-width: 900px) {

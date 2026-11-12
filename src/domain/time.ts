@@ -102,3 +102,53 @@ export function toCairoDateString(date: Date | string | number): string {
   });
   return formatter.format(d); // Outputs YYYY-MM-DD
 }
+
+/** The hour (0–23) of a timestamp in Cairo local time. */
+export function cairoHour(date: Date | string | number): number {
+  const h = new Intl.DateTimeFormat("en-GB", {
+    timeZone: CAIRO_TIMEZONE,
+    hour: "2-digit",
+    hourCycle: "h23",
+  }).format(ensureDate(date));
+  return Number(h) % 24;
+}
+
+/** Adds `days` calendar days to a `YYYY-MM-DD` date key. */
+export function addDaysToDateKey(dateKey: string, days: number): string {
+  const [y, m, d] = dateKey.split("-").map(Number) as [number, number, number];
+  const t = new Date(Date.UTC(y, m - 1, d + days));
+  return t.toISOString().slice(0, 10);
+}
+
+/**
+ * The UTC instant at which a Cairo calendar day (`YYYY-MM-DD`) starts (00:00 in Cairo),
+ * correct across daylight-saving changes.
+ */
+export function cairoDayStartUtc(dateKey: string): Date {
+  const [y, m, d] = dateKey.split("-").map(Number) as [number, number, number];
+  const guess = Date.UTC(y, m - 1, d);
+  const offsetAt = (t: number) => {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: CAIRO_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(new Date(t));
+    const get = (type: string) =>
+      Number(parts.find((p) => p.type === type)?.value ?? 0);
+    const wall = Date.UTC(
+      get("year"),
+      get("month") - 1,
+      get("day"),
+      get("hour"),
+      get("minute"),
+    );
+    return wall - t;
+  };
+  let start = guess - offsetAt(guess);
+  start = guess - offsetAt(start);
+  return new Date(start);
+}

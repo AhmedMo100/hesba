@@ -33,8 +33,10 @@ import {
 } from "@/app/api/products/route";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 type Json = Record<string, unknown>;
 
@@ -127,7 +129,7 @@ describe("Sandwiches (composite products) — API, sale, stock & tenancy", () =>
     await new InventoryService(appPrisma).addStockBatch(storeAId, userAId, {
       storeVariantId: variantId,
       receivedQuantityBase: qty,
-      costPriceMinor: costPerUnit,
+      costTotalMinor: costPerUnit * qty, // the batch stores the total (ADR-0021)
     });
   }
 
@@ -826,27 +828,39 @@ describe("Sandwiches (composite products) — API, sale, stock & tenancy", () =>
     });
 
     it("a failing insert rolls back the whole sale (atomic)", async () => {
-      // Reuse an existing sale id: the sale insert fails after the stock check.
-      const existing = await asStoreA((tx) =>
-        tx.sale.findFirst({ where: { storeId: storeAId } }),
-      );
+      // The sale line insert fails after the stock was taken (an injected failure; a client
+      // sale id no longer can, the server chooses it since QA-56).
       const breadBefore = await levelOf(bread);
       const movementsBefore = await asStoreA((tx) =>
         tx.stockMovement.count({ where: { storeId: storeAId } }),
       );
-      const res = await call(
-        postSaleRoute as never,
-        "POST",
-        "/api/sales",
-        "A",
-        {
-          id: existing!.id,
+      const salesBefore = await asStoreA((tx) =>
+        tx.sale.count({ where: { storeId: storeAId } }),
+      );
+      const fn = `qa_sandwich_fail_${Math.random().toString(36).slice(2, 8)}`;
+      await migratorClient.unsafe(`
+        CREATE FUNCTION ${fn}() RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+          IF NEW.store_id = '${storeAId}'::uuid THEN
+            RAISE EXCEPTION 'sandwich injected failure';
+          END IF;
+          RETURN NEW;
+        END $$;
+        CREATE TRIGGER ${fn} BEFORE INSERT ON sale_lines
+          FOR EACH ROW EXECUTE FUNCTION ${fn}();`);
+      let res: { status: number };
+      try {
+        res = await call(postSaleRoute as never, "POST", "/api/sales", "A", {
           productId: sandwich,
           quantityBase: 1,
           amountPiasters: 1500,
           opId: crypto.randomUUID(),
-        },
-      );
+        });
+      } finally {
+        await migratorClient.unsafe(
+          `DROP TRIGGER ${fn} ON sale_lines; DROP FUNCTION ${fn}();`,
+        );
+      }
       expect(res.status).toBe(500);
       expect(await levelOf(bread)).toBe(breadBefore);
       expect(
@@ -854,6 +868,9 @@ describe("Sandwiches (composite products) — API, sale, stock & tenancy", () =>
           tx.stockMovement.count({ where: { storeId: storeAId } }),
         ),
       ).toBe(movementsBefore);
+      expect(
+        await asStoreA((tx) => tx.sale.count({ where: { storeId: storeAId } })),
+      ).toBe(salesBefore);
     });
 
     it("two concurrent sales cannot both take the last bread (no negative stock)", async () => {

@@ -22,6 +22,13 @@ export default defineConfig({
       HESBA_DIRECT_URL:
         process.env.HESBA_DIRECT_URL ??
         "postgres://hesba_migrator:change-me-local@localhost:5434/hesba",
+      // Test fixtures only (seed / inspect / clean up), never the code under test (ADR-0024).
+      HESBA_TEST_ADMIN_URL:
+        process.env.HESBA_TEST_ADMIN_URL ??
+        "postgres://postgres:change-me-local-root@localhost:5434/hesba",
+      HESBA_SERVICE_DATABASE_URL:
+        process.env.HESBA_SERVICE_DATABASE_URL ??
+        "postgres://hesba_service:change-me-local@localhost:5434/hesba",
     },
   },
   resolve: {

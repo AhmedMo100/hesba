@@ -8,17 +8,20 @@
   max-width: 960px;
   margin: 0 auto;
   width: 100%;
+  /* QA-44: never wider than the screen, whatever the numbers. */
+  min-width: 0;
+  overflow-x: clip;
 }
 
 .kpis {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
 @media (min-width: 768px) {
   .kpis {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -31,6 +34,7 @@
   flex-direction: column;
   gap: 2px;
   box-shadow: var(--sh, 0 2px 6px rgba(0, 0, 0, 0.08));
+  min-width: 0;
 }
 
 .kpi small {
@@ -43,7 +47,8 @@
   font-size: 21px;
   font-weight: 800;
   color: var(--ink, #fff);
-  white-space: nowrap;
+  /* A very large figure wraps inside its card instead of widening the page (QA-44). */
+  overflow-wrap: anywhere;
 }
 
 .kpi em {
@@ -145,7 +150,7 @@
 
 .invSearch {
   flex: 1;
-  min-width: 170px;
+  min-width: 0;
 }
 
 .exportBtn {
@@ -173,6 +178,8 @@
 
 /* Table card */
 .tblCard {
+  min-width: 0;
+  max-width: 100%;
   background: var(--sf, #23221f);
   border: 1px solid var(--line, #383b34);
   border-radius: 16px;
@@ -516,4 +523,25 @@
   font-weight: 700;
   cursor: pointer;
   padding: 4px 0;
+}
+
+/* The report could not be read: say so, never show 0 (QA-06). */
+.reportError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.reportError button {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--br);
+  background: transparent;
+  color: var(--br);
+  font-weight: 700;
 }

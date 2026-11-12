@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_PERSON_NAME_LENGTH } from "@/domain/limits";
 import {
   PASSWORD_MIN_LENGTH,
   PASSWORD_MAX_LENGTH,
@@ -25,8 +26,19 @@ export const passwordPolicySchema = z
     message: "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
   });
 
+/** Owner name (QA-58): required, at most MAX_PERSON_NAME_LENGTH characters, never truncated. */
+const ownerNameSchema = (required: string) =>
+  z
+    .string()
+    .trim()
+    .min(2, required)
+    .max(
+      MAX_PERSON_NAME_LENGTH,
+      `الاسم طويل قوي (أقصى حاجة ${MAX_PERSON_NAME_LENGTH} حرف)`,
+    );
+
 export const signupInputSchema = z.object({
-  ownerName: z.string().trim().min(2, "اسم صاحب المحل مطلوب"),
+  ownerName: ownerNameSchema("اسم صاحب المحل مطلوب"),
   phone: z
     .string()
     .trim()
@@ -49,6 +61,18 @@ export const signupInputSchema = z.object({
     .optional()
     .default(1),
   withDemoData: z.boolean().optional().default(false),
+  /**
+   * Optional referral (influencer) code, e.g. `mogamal123`. Empty = none. Matched without
+   * case; checked against `referral_codes` on the server (an unknown code is a 400).
+   */
+  referralCode: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .max(32, "كود الدعوة غير صحيح")
+    .regex(/^([a-z0-9_-]{3,32})?$/, "كود الدعوة غير صحيح")
+    .optional()
+    .transform((v) => (v ? v : undefined)),
 });
 
 export type SignupInput = z.input<typeof signupInputSchema>;
@@ -82,7 +106,7 @@ export type ResetPasswordWithCodeInput = z.input<
 >;
 
 export const storeProfileUpdateSchema = z.object({
-  ownerName: z.string().trim().min(2, "اسم المالك مطلوب"),
+  ownerName: ownerNameSchema("اسم المالك مطلوب"),
   phone: z
     .string()
     .trim()

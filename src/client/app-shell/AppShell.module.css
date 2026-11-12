@@ -58,11 +58,6 @@
 }
 
 .viewLoading {
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  padding: 16px 0;
   min-height: 240px;
-  color: var(--ink2);
-  font-size: 15px;
-  font-weight: 500;
 }

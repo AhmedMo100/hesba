@@ -11,6 +11,8 @@
  * - features/products, features/stock, features/sales, features/alerts, features/home
  */
 
+import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
+
 /** A store product with its variants. Money in integer piasters; quantities in base units. */
 export interface StoreProductItem {
   id: string;
@@ -23,6 +25,9 @@ export interface StoreProductItem {
   stock_quantity?: number;
   barcode?: string | null;
   brand_name?: string | null;
+  /** English catalog name and brand (QA-48), for English search. */
+  name_en?: string | null;
+  brand_name_en?: string | null;
   is_custom: boolean;
   added_by_this_store?: boolean;
   is_hidden?: boolean;
@@ -49,17 +54,11 @@ export interface StoreProductItem {
  *
  * @remarks Services have no physical stock: they are sold against a POS machine or wallet
  * balance, so stock screens and the sale flow treat them differently. The check matches the
- * fixed service category names stored on the product (or the `service` unit).
+ * fixed service category names stored on the product (or the `service` unit). The rule lives in
+ * `@/domain/sale-pricing` so the server classifies a sold product the same way.
  */
 export const isServiceProduct = (p: StoreProductItem) =>
-  p.category === "فواتير إنترنت" ||
-  p.category === "شحن رصيد" ||
-  p.category === "تحويل أموال" ||
-  p.category === "خدمات مرافق" ||
-  p.category === "خدمات رقمية" ||
-  p.category === "كروت شحن" ||
-  p.category === "كروت مرافق" ||
-  p.unit === "service";
+  isServiceProductRule(p);
 
 /** One sellable variant's stock position, with its batches (FEFO order is decided server-side). */
 export interface StockInventoryItem {
@@ -84,7 +83,10 @@ export interface StockInventoryItem {
     batchCode?: string | null;
     receivedQty: number;
     remainingQty: number;
-    costPricePiasters: number;
+    /** Unit cost per selling unit (per kg for weighed goods); null = unknown (ADR-0021). */
+    costPricePiasters: number | null;
+    /** What was paid for the whole batch; null = unknown. */
+    costTotalPiasters?: number | null;
     expiryDate?: string | null;
     isNearExpiry: boolean;
     receivedAt: string;

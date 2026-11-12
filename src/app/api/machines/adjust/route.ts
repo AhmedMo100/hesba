@@ -3,56 +3,37 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { MachinesService } from "@/server/modules/machines";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { readJsonBody, toSafeErrorResponse } from "@/server/platform/error";
+import { machineAdjustSchema } from "@/schemas/machine";
 
 export const dynamic = "force-dynamic";
 
 /**
  * POST /api/machines/adjust
- * Sets / adjusts the exact balance of a POS machine (reconciliation / correction).
+ * Sets a POS machine's exact balance (reconciliation). Integer piasters only (400 otherwise); idempotent by `opId`; the machine row is
+ * locked so concurrent operations cannot lose each other's change (ADR-0020).
+ * Returns `{ machine, duplicate }`.
  */
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
-
-    const {
-      machineId,
-      targetBalancePiasters,
-      source,
-      reason,
-      reference,
-      notes,
-    } = body;
-
-    if (!machineId) {
-      return NextResponse.json(
-        { error: { message: "معرف الماكينة مطلوب" } },
-        { status: 400 },
-      );
-    }
-
-    if (
-      targetBalancePiasters === undefined ||
-      targetBalancePiasters === null ||
-      Number(targetBalancePiasters) < 0
-    ) {
-      return NextResponse.json(
-        { error: { message: "رصيد الماكينة يجب ألا يقل عن صفر" } },
-        { status: 400 },
-      );
-    }
-
-    const machinesService = new MachinesService(prisma);
-    const machine = await machinesService.adjustMachineBalance(
+    const input = machineAdjustSchema.parse(await readJsonBody(req));
+    const { duplicate, ...machine } = await new MachinesService(
+      prisma,
+    ).adjustMachineBalance(
       context.store.id,
       context.user.id,
-      machineId,
-      Number(targetBalancePiasters),
-      { source, reason, reference, notes },
+      input.machineId,
+      input.targetBalancePiasters,
+      {
+        opId: input.opId,
+        source: input.source,
+        reference: input.reference,
+        notes: input.notes,
+        reason: input.reason,
+      },
     );
-
-    return NextResponse.json({ machine });
+    return NextResponse.json({ machine, duplicate });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }
