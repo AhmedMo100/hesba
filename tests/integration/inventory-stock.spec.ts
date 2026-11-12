@@ -255,7 +255,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
     const wasteResult = await inventory.recordWaste(storeAId, userAId, {
       storeVariantId: variantAId,
       quantityBase: 5,
-      reason: "damaged_spill",
+      reason: "damaged",
     });
 
     expect(wasteResult.wasteId).toBeDefined();
@@ -268,7 +268,7 @@ describe("Inventory, Batches, Movements & FEFO (Phase 3.5 Integration)", () => {
       WHERE id = ${wasteResult.wasteId!}::uuid
     `;
     expect(BigInt(wasteDb?.quantity_base ?? 0)).toBe(BigInt(5));
-    expect(wasteDb?.reason).toBe("damaged_spill");
+    expect(wasteDb?.reason).toBe("damaged");
   });
 
   it("strictly holds the mathematical invariant: stock_levels == SUM(stock_movements)", async () => {

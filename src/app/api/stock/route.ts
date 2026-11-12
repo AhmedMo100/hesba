@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { wasteReasonSchema } from "@/schemas/inventory";
 import { businessDateSchema, expiryDateSchema } from "@/schemas/dates";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
@@ -56,7 +57,8 @@ const wasteStockSchema = z.object({
     .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
     .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
   batchId: z.string().uuid().optional().nullable(),
-  reason: z.string().trim().default("expired"),
+  reason: wasteReasonSchema.default("expired"),
+  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
   opId: z.string().uuid().optional(),
 });
 
@@ -196,6 +198,7 @@ export async function POST(req: Request) {
           quantityBase: input.quantityBase,
           batchId: input.batchId,
           reason: input.reason,
+          note: input.note ?? null,
           opId: input.opId,
         },
       );

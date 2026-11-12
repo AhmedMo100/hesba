@@ -30,8 +30,7 @@ import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
   depleteVariantFefoInTx,
-  lockStockLevelInTx,
-  lockStockLevelsInTx,
+  lockSellableStockInTx,
   restoreSaleTakesInTx,
 } from "@/server/modules/inventory";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
@@ -552,7 +551,9 @@ async function recordProductSaleInTx(
   }
   const variantId = target.variant.id;
 
-  const available = await lockStockLevelInTx(tx, storeId, variantId);
+  const available =
+    (await lockSellableStockInTx(tx, storeId, [variantId])).get(variantId) ??
+    ZERO;
   const duplicate = await findSaleIdByOpIdInTx(tx, storeId, params.opId);
   if (duplicate) return loadSaleSummaryInTx(tx, storeId, duplicate, true);
 
@@ -831,7 +832,7 @@ async function recordPromotionSaleInTx(
     });
   }
 
-  const levels = await lockStockLevelsInTx(
+  const levels = await lockSellableStockInTx(
     tx,
     storeId,
     items.map((i) => i.variantId),
