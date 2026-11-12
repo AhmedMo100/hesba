@@ -280,7 +280,7 @@ The mobile applies the changes in Dexie and saves the `cursor`.
 |---|---|
 | Editing core data (product name/price) | Last write wins (LWW) by `server_ts` |
 | Inventory movements | **No conflict**: every movement is a new row |
-| Selling a product whose balance is 0 on the server | **Accepted**; the balance may go negative and gets a Flag and an alert (the sale actually happened in the real world, so we cannot reject it) |
+| Selling a product whose balance is 0 on the server | **Accepted**; the balance may go negative and gets a Flag and an alert (the sale actually happened in the real world, so we cannot reject it). *Applies to offline sales once a sync exists; an online sale above the stock is rejected (D31).* |
 | Delete on one device and edit on another | The delete wins, and the edit is recorded in the log |
 | Rejected operation (validation) | Marked `rejected` and shown to the user under "needs review" (محتاج مراجعة) instead of getting lost |
 
@@ -612,7 +612,7 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | D10 | CSS variables + CSS Modules ported from the demo (not Tailwind) | 08, 11 | ✅ (revisable) |
 | D11 | Post-login app is Client-only under `/app` | 02 section 3.1 | ✅ |
 | D12 | AI: numbers from SQL only, 5/day limit enforced on the server | 02, 09 | ✅ |
-| D13 | Negative balance is **allowed** and flagged (the real-world sale actually happened) | 01, 10, 11 | ✅ (revisable) |
+| D13 | Negative balance is **allowed** and flagged (the real-world sale actually happened) | 01, 10, 11 | ✅ (revisable) — superseded for online sales by D31 |
 | D14 | Subscription expiry = read-only, **no data deletion** | 12, 14 | ✅ |
 | D15 | Catalog: store identity hidden, price/stock are not shared | 06 | ✅ (⚖️ lawyer) |
 | D16 | Paid domain from day one | 05 section 4 | ✅ |
@@ -627,6 +627,22 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | D25 | **Product variants**: every sellable item is a product; variants carry flavor, size, unit, pack quantity, barcode, price, stock | ADR-0009 | ✅ Accepted |
 | D26 | **Services and commissions**: serialized cards sold once (PIN encrypted with HESBA_CARD_KEY); bills/transfers non-stock with rule-based fee | ADR-0010 | ✅ Accepted |
 | D27 | **Passkeys (WebAuthn) as primary authentication, single-use email recovery links, and local PIN strictly as on-device screen lock** (SMS OTP, passwords, and server-side PIN reset completely removed) | ADR-0006, 03, 06 | ✅ Accepted |
+| D28 | **Sandwiches are composite products**: a store product of `kind = 'sandwich'` with a recipe of existing stock variants, no stock of its own; selling it consumes the ingredients (FEFO) in the sale transaction; cost is calculated live from purchase prices and snapshotted on each sale line; online only | ADR-0018 | Proposed |
+| D29 | **Shop-created products can be deleted**. A product with no history is removed; a product with sales or stock history is archived (hidden); catalog products can only be hidden; a product used in a sandwich recipe can't be deleted until the recipe changes | `docs/03-data.md` Part 1 §3.2 | Implemented (2026-11-09) |
+| D30 | **"إضافة إلى البيع" for sandwiches is a quantity step, not a cart** (owner's choice, 2026-11-09). It opens Sales with that sandwich and a quantity picker. Confirming saves ONE sale of N sandwiches through the existing sandwich sale (ingredients deducted once, atomically); cancelling saves nothing. A multi-item cart stays a V1.1 item: ordinary products need roadmap Phase 1 (K1/K2) before they can share an atomic checkout | ADR-0018 | Implemented |
+| D31 | **An online sale above the recorded stock is rejected** (owner's instruction, 2026-11-10, task "Fix QA-01 + QA-02"). The server rejects the whole sale with 409 and writes nothing, so a sale never takes stock below zero. Supersedes D13 for online sales; D13 (allow and flag negative) stays the rule for offline sales once a sync exists. Undo is a server-side void (ADR-0022, 2026-11-12): the sale stays recorded and marked void, and its stock comes back | ADR-0019 | Implemented (2026-11-10) |
+| D32 | **A queued (offline) sale that the stock can no longer cover is rejected whole and kept for review**, not applied with negative stock (2026-11-10, task "Fix QA-03 + QA-04"). The docs disagree (D13 and `03-data.md` §4 allow negative and flag; §6 `fefo_depleted` says "flag negative **or** prompt stock intake"; D31 kept D13 for offline sales). Until the owner decides, the safest rule is applied: the same server check as an online sale (409), nothing partially applied, the sale shown in "محتاج مراجعة" with "جرّب تاني" (same `op_id`, e.g. after adding stock) or "إلغاء البيعة". **Needs owner confirmation.** Also open: a queued sale is recorded at the server's time when it syncs (no `client_ts`), and priced at sync time | ADR-0020 | Implemented (2026-11-10), decision pending |
+| D33 | **Upper bounds on money and quantities** (QA-15, assumptions): one money amount ≤ 10,000,000 EGP; one unit price ≤ 1,000,000 EGP; one operation ≤ 1,000,000 base units (pieces or grams); pack size ≤ 10,000. They live in `src/domain/limits.ts` and are mirrored by `NOT VALID` CHECKs. **Owner to confirm.** | ADR-0025 | Implemented (2026-11-12) |
+| D34 | **One AI reply waits at most 20 seconds** (QA-29, assumption): `AI_REPLY_TIMEOUT_MS` = 20 s for all model calls of one reply. Past it, or when the provider is busy (429/5xx), the user gets a 503 "try again" with `Retry-After: 30`, and the message credit comes back. The screen also gives up after 25 s. **Owner to confirm.** | ADR-0026 | Implemented (2026-11-12) |
+| D35 | **Supplier purchases, credit sales, discounts, payment methods and returns** (owner's rules, 2026-11-12, task "final QA pass").
+- **Purchases:** receiving a supplier invoice creates a purchase and raises «عليك» by the invoice total computed by the server. It may be partly paid, and payments are linked to the invoice. Cancelling reverses the stock and the debt, and is refused when its stock was used.
+- **Credit sales:** the invoice and the receivable are created together, payments are linked to the invoice, and revenue counts at invoice time.
+- **Discounts:** validated by the server and kept below the subtotal.
+- **Payment methods:** cash, wallet, card or debt, validated by the server.
+- **Returns:** a return references the sale, is bounded by what was sold minus earlier returns, its value comes from the original line, and repeating it is idempotent.
+- **Cart:** final prices and stock are checked at checkout.
+
+The returned value is taken off the sale's revenue on the sale's date. | ADR-0027 | Implemented (2026-11-12) |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |
@@ -647,6 +663,23 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | O14 | **Plan and pricing** | (from the cost calculation) | After Alpha | Phase 4 |
 | O15 | **Team size/Freelancers** | — | Depends on budget | Phase 0 |
 | O16 | **User reporting system** (support): WhatsApp/Telegram/in-app | — | One simple channel | Phase 6 |
+| O17 | **Defects found in the 2026-11-08 restructuring** (behavior intentionally left unchanged; each is pinned by a test) | Fix / keep | Fix each, in its own change, after approval | Before launch |
+
+### 2.1 Known defects (logged 2026-11-08, ADR-0017 restructuring)
+Each item is pinned by a test so the fix is visible: `it.fails` tests turn red once fixed.
+
+| # | Defect | Impact | Where | Test | Proposed fix |
+|---|---|---|---|---|---|
+| K1 | A sale that resolves to a product **variant** writes both `store_variant_id` and `store_product_id` on the line, violating `chk_sale_lines_exactly_one_target` → 500. The client ignores the error. | Normal sales are **never saved on the server** (dev DB had 0 `sale_lines`). | `src/server/modules/sales/sales.service.ts` | `tests/integration/sales-api.spec.ts` (`it.fails`) | Set only `storeVariantId` when a variant resolves, else only `storeProductId`. **Fixed 2026-11-10 (ADR-0019):** an ordinary line targets only the variant. |
+| K2 | Sales write no stock movement (no FEFO) and the server generates `op_id`, so retries double-post. | Stock and sales drift; not idempotent (rules 6–7). | same | — | Record sale + FEFO takes + movements in one transaction with a client `op_id` (sync engine work). **Fixed 2026-11-10 (ADR-0019):** sale + lines + FEFO movements in one transaction with stock row locks and a client `opId`. |
+| K3 | Undo (`DELETE /api/sales`) hard-deletes, but the app role has no DELETE grant on `sales` → always 500. | Undo never works (the sale is kept — data is safe). | same | `sales-api.spec.ts` | Implement `sale.void` (reversing movements via `takes`), per rule 6. *2026-11-10: the Undo buttons are removed from the Sales screen until this exists (D31).* *2026-11-12: fixed — `POST /api/sales/void` (ADR-0022, QA-10); Undo is back in the sale toast.* |
+| K4 | `PUT /api/auth/profile` updates `stores` outside `withTenant`; FORCE RLS hides the row → 500 and the whole update rolls back. | Owners can never save profile edits. | `src/app/api/auth/profile/route.ts` | `tests/integration/profile-api.spec.ts` (`it.fails`) | Run the store update inside `withTenant`. *2026-11-12: fixed — one `withTenant` transaction, phone normalized (QA-11).* |
+| K5 | `adjustStock` delta mode clamps a negative result to 0, but the integration test expects a rejection. | Code and test disagree; one is wrong. | `src/server/modules/inventory/inventory.service.ts` (~L788) | `tests/integration/inventory-stock.spec.ts` (fails since before the restructuring) | Owner decides: clamp (update test) or reject (update code). |
+| K6 | People supplier lookup validates ids with a UUID v1–5 regex, so **UUID v7** ids (the documented id format) are not recognized. | Latent: all database ids are UUID v4 (`gen_random_uuid()`), so nothing is affected today; v7 ids would be rejected if introduced (re-checked 2026-11-08, see `docs/audits/USER-FACING-ERRORS.md`). | `src/server/modules/people/supplier.service.ts` (`UUID_REGEX`) | — | Accept any RFC 4122 version. |
+| K7 | A near-expiry single offer for an item priced under 0.67 EGP is raised to the 0.50 EGP floor — above its original price (negative savings). | Nonsense "discount" shown for very cheap items. | `src/domain/alerts.ts` | `tests/unit/domain/alerts.spec.ts` | Skip offers whose floor price ≥ original. |
+| K8 | Expiry days use the server's local calendar day, not Cairo. | Off-by-one day near midnight on a UTC server. | `src/domain/alerts.ts` (`getDaysUntilExpiry`) | — | Compute day keys with `domain/time` (Cairo). |
+| K9 | Config: `.env.example`/docs define `HESBA_LLM_PROVIDER`/`HESBA_LLM_KEY`, but code reads `GEMINI_API_KEY`/`HESBA_GEMINI_API_KEY`/`BRAVE_SEARCH_API_KEY` directly. | A deployment following `.env.example` never enables Gemini/Brave. | `src/server/modules/ai/ai.service.ts`, `src/server/infra/ai/*` | — | Choose one name set, add it to `src/server/config/env.ts`. |
+| K10 | Store settings (`promotions`, sales config, custom taxonomy) are read-modify-write without a row lock. | Concurrent edits can lose one write. | `src/server/modules/tenancy/tenancy.service.ts` (`updateStoreSettings`) | — | `SELECT … FOR UPDATE` or a JSONB `jsonb_set` update. |
 
 ## 3. ❓ Verify before relying on it
 | # | Topic | Verify from | Task |
@@ -690,6 +723,8 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 | WebAuthn timeouts & origins | (60s ceremony timeout, RP_ID matching domain) | Browser & testing | `config` |
 | Alert thresholds (3 kg, 2× carton, 10, 7 days) | From the demo | Store feedback | `09` section 8 |
 | Performance targets (p95…) | `01` section 1 (preliminary) | Load test | `01` |
+| Sandwich ingredient cost basis | The ingredient's registered purchase price (per kg / per gram / per piece), not the consumed batch's cost — batch cost semantics are inconsistent (UE-19) | Owner review | ADR-0018 |
+| Sandwich recipe limits | At most 30 ingredients (`MAX_RECIPE_INGREDIENTS`); amounts in whole grams/pieces up to 1,000,000 base units | Usage | `src/domain/recipe.ts` |
 **The Agent:** any new value you guess is added here and flagged in the code with a comment `// ASSUMPTION: see docs/15`.
 
 ### 5.1 Data to be provided by owner before Phase 3
@@ -715,6 +750,8 @@ The owner must provide the following data before Phase 3:
 | 0011 | Local catalog search library | **Open** (O12) | Phase 3 |
 | 0012 | Use Prisma as primary ORM | Accepted | Phase 1 |
 | 0013 | LLM provider | **Open** (O4) | Phase 4 |
+| 0017 | Production folder structure and module shape | Proposed | Restructuring (2026-11-08) |
+| 0018 | Sandwiches as composite products | Proposed | Feature (2026-11-09) |
 The template is in `docs/adr/template.md`. The Agent writes the draft, and you approve.
 
 ## 7. Decision change log
@@ -729,3 +766,4 @@ The template is in `docs/adr/template.md`. The Agent writes the draft, and you a
 | 2026-10-24 | Switched Phase 4 billing to manual renewal (ADR-0008). Task IDs repurposed: P4-B-05 (manual admin activation and audit logging), P4-F-03 (renewal info and WhatsApp link), P4-Q-03 (manual renewal and expiry tests), S-20 (receiving accounts setup) | Owner decision (simplicity, familiar Egyptian transfer methods, zero card data stored) |
 | 2026-10-24 | ADR-0009 (Product variants, accepted), ADR-0010 (Services: prepaid cards, bills and transfers with commissions, accepted) | Phase 0 decisions (P0-D-06) |
 | 2026-10-25 | ADR-0012 (Use Prisma instead of Drizzle, accepted) | Replaced Drizzle with Prisma across the project |
+| 2026-11-08 | ADR-0017 (proposed): client `features/` + `offline/` layout, server module shape, AI adapters in `infra/ai`; sales/promotions/alerts logic moved out of route handlers; defects K1–K10 logged | Production restructuring (owner chose one `features/` layer) |

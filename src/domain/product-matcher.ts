@@ -1,3 +1,13 @@
+/**
+ * @file product-matcher.ts
+ * @description Fuzzy matching of product names (normalized Arabic, trigram similarity, size
+ * comparison) used to detect duplicates and suggest existing catalog items.
+ *
+ * @usedBy
+ * `server/modules/catalog/catalog.service.ts`,
+ * `server/modules/catalog/community-suggestions.service.ts`.
+ */
+
 import { areSizesEqual, normalizeArabic, normalizeSize } from "./normalize";
 
 export interface MatchableProduct {

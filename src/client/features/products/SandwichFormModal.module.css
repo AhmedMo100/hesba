@@ -1,0 +1,579 @@
+/* Sandwich form, ingredient picker and the "add product" type picker (ADR-0018).
+   Colors, radii and motion come from styles/tokens.css. Logical properties keep RTL right. */
+
+/* ---------- "إضافة منتج" type picker ---------- */
+
+.choiceList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.choiceBtn {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 72px;
+  padding: 14px 16px;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  background: var(--sf);
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+  transition:
+    border-color 0.15s,
+    background 0.15s;
+}
+
+.choiceBtn:hover,
+.choiceBtn:focus-visible {
+  border-color: var(--br);
+  background: var(--hov);
+  outline: 0;
+}
+
+.choiceIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--br);
+}
+
+.choiceText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.choiceText b {
+  font-size: 16px;
+}
+
+.choiceText small {
+  font-size: 13px;
+  color: var(--ink2);
+  line-height: 1.4;
+}
+
+/* ---------- Form layout ---------- */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--sf);
+}
+
+.fieldTight {
+  margin-bottom: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cardHead b {
+  font-size: 16px;
+}
+
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 7px;
+  border-radius: 12px;
+  background: var(--soft);
+  color: var(--br);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.cardHint,
+.muted {
+  font-size: 12.5px;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+/* ---------- Ingredient rows ---------- */
+
+.rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--sf2);
+}
+
+.rowBad {
+  border-color: var(--red);
+}
+
+.rowTop,
+.rowBottom {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The open product list wraps onto its own full-width line under the row header. */
+.rowTop {
+  flex-wrap: wrap;
+}
+
+.rowIndex {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--sf);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--ink2);
+}
+
+.removeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--red);
+  cursor: pointer;
+}
+
+.removeBtn:hover,
+.removeBtn:focus-visible {
+  background: color-mix(in srgb, var(--red) 10%, transparent);
+  outline: 0;
+}
+
+.qtyLabel {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.qtyLabel span {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink2);
+}
+
+.qty,
+.unit {
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 16px;
+  min-width: 0;
+}
+
+.qty {
+  width: 72px;
+  text-align: center;
+  font-weight: 700;
+}
+
+.unit {
+  flex-shrink: 0;
+}
+
+.qty:focus,
+.unit:focus {
+  border-color: var(--br);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--br) 16%, transparent);
+  outline: 0;
+}
+
+.unitFixed {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink2);
+  padding-inline: 4px;
+}
+
+.rowCost {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  margin-inline-start: auto;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.rowCost small {
+  font-size: 11px;
+  color: var(--ink2);
+}
+
+.rowCost b {
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.rowErr {
+  display: block;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rowWarn {
+  color: var(--yel);
+  font-size: 12.5px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.addRowBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 48px;
+  border: 1.5px dashed var(--br);
+  border-radius: 14px;
+  background: transparent;
+  color: var(--br);
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.addRowBtn:hover,
+.addRowBtn:focus-visible {
+  background: var(--soft);
+  outline: 0;
+}
+
+.addRowBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- Ingredient picker ---------- */
+
+/* `display: contents` lets the trigger and the list take part in the row's flex layout. */
+.picker {
+  display: contents;
+}
+
+.pickerTrigger {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+}
+
+.pickerTrigger:focus-visible,
+.pickerTrigger[aria-expanded="true"] {
+  border-color: var(--br);
+  outline: 0;
+}
+
+.pickerEmpty {
+  color: var(--ink2);
+  font-weight: 600;
+}
+
+.pickerName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pickerPanel {
+  order: 1;
+  flex-basis: 100%;
+  min-width: 0;
+  border: 1.5px solid var(--br);
+  border-radius: 14px;
+  background: var(--sf);
+  box-shadow: var(--sh);
+  overflow: hidden;
+}
+
+.pickerSearch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--line);
+  color: var(--ink2);
+}
+
+.pickerSearch input {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 16px;
+  outline: 0;
+}
+
+.pickerList {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pickerGroup {
+  padding: 8px 10px 4px;
+  font-size: 11.5px;
+  font-weight: 800;
+  color: var(--ink2);
+}
+
+.pickerOption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink);
+  text-align: start;
+  cursor: pointer;
+}
+
+.pickerOption:hover:not(:disabled),
+.pickerOption:focus-visible {
+  background: var(--hov);
+  outline: 0;
+}
+
+.pickerOptionOn {
+  background: var(--soft);
+}
+
+.pickerOption:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pickerOptionName {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.pickerEn {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink2);
+  direction: ltr;
+  text-align: start;
+}
+
+.pickerMeta {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--ink2);
+}
+
+.pickerNone {
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--ink2);
+}
+
+/* ---------- Money ---------- */
+
+.moneyCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--soft);
+}
+
+.moneyRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.moneyLabel {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.moneyLabel small {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink2);
+}
+
+.moneyValue {
+  font-size: 20px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.priceInput {
+  position: relative;
+}
+
+.priceInput input {
+  font-size: 20px;
+  font-weight: 800;
+  padding-inline-end: 40px;
+}
+
+.priceSuffix {
+  position: absolute;
+  inset-inline-end: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-weight: 800;
+  color: var(--ink2);
+  pointer-events: none;
+}
+
+.profitRow {
+  padding-top: 10px;
+  border-top: 1px dashed color-mix(in srgb, var(--ink2) 35%, transparent);
+}
+
+.profitBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.profitBox b {
+  font-size: 22px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.marginChip {
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--ok) 15%, transparent);
+  color: var(--ok);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.marginChipLoss {
+  background: color-mix(in srgb, var(--red) 15%, transparent);
+  color: var(--red);
+}
+
+.profitValue {
+  color: var(--ok);
+}
+
+.loss {
+  color: var(--red);
+}
+
+/* ---------- Footer ---------- */
+
+.footer {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.saveBtn {
+  flex: 1;
+}
+
+/* Product-card details for sandwiches (ProductsView). */
+.cardRecipe {
+  font-size: 12.5px;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+@media (max-width: 340px) {
+  .qtyLabel span {
+    display: none;
+  }
+  .card,
+  .moneyCard {
+    padding: 12px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .choiceBtn {
+    transition: none;
+  }
+}

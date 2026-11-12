@@ -1,4 +1,16 @@
 import "server-only";
+
+/**
+ * @file card-encryption.ts
+ * @description AES-256-GCM encryption for prepaid card serials/PINs stored by the store.
+ *
+ * @remarks
+ * - Key: `HESBA_CARD_KEY` — 32 bytes as 64 hex chars, base64, or a raw 32-byte string. When it
+ *   is not in the environment the module tries `.env.local` then `.env`; without a key every
+ *   call throws.
+ * - Each value gets a random 96-bit nonce and a 128-bit authentication tag, so tampering is
+ *   detected on decryption.
+ */
 import crypto from "node:crypto";
 
 const ALGORITHM = "aes-256-gcm";

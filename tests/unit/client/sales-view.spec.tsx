@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { SalesView } from "@/client/app-shell/views/SalesView";
+import { SalesView } from "@/client/features/sales/SalesView";
 
 describe("SalesView Client Component", () => {
   const STAGED_KEY = "hesba_staged_sale_item";
@@ -42,14 +42,36 @@ describe("SalesView Client Component", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders empty state when there are no sales recorded", () => {
+  it("before the server answered, shows no sales and no total (never a local figure, QA-09)", () => {
     const html = renderToStaticMarkup(<SalesView />);
     expect(html).toContain('data-testid="page-sales"');
     expect(html).toContain("مبيعات النهارده");
-    expect(html).toContain("لسه مفيش مبيعات اتسجلت النهارده");
+    expect(html).toContain("جاري التحميل...");
+    expect(html).toMatch(/data-testid="today-sales-total"[^>]*>—</);
+    expect(html).not.toContain('data-testid="recent-sale-row"');
   });
 
-  it("ingests staged sale item from sessionStorage and records it into sales list", () => {
+  it("ignores and removes the old local copy of the sales list (QA-09)", () => {
+    // What older versions stored: a sale the server rejected, shown as if it were recorded.
+    const stale = JSON.stringify([
+      {
+        id: "rejected-sale",
+        name: "كولا مرفوضة",
+        amountPiasters: 1000,
+        quantity: 1,
+        category: "مشروبات",
+        unit: "piece",
+        timestamp: Date.now(),
+      },
+    ]);
+    localStorage.setItem("hesba_sales_records_default", stale);
+    const html = renderToStaticMarkup(<SalesView />);
+    expect(html).not.toContain("كولا مرفوضة");
+    expect(html).not.toContain("10 ج.م");
+    expect(localStorage.getItem("hesba_sales_records_default")).toBeNull();
+  });
+
+  it("shows a staged service as a tile without recording a sale (ADR-0019)", () => {
     // Stage an item as if user clicked 'إضافة إلى البيع' on a card/service
     const stagedItem = {
       id: "prod-service-1",
@@ -62,10 +84,14 @@ describe("SalesView Client Component", () => {
 
     const html = renderToStaticMarkup(<SalesView />);
 
-    // Check that the staged item is displayed
+    // The staged item is displayed as a tile…
     expect(html).toContain("شحن كارت كهرباء مسبق الدفع");
-    expect(html).toContain("50 ج.م");
+    expect(html).toContain('aria-label="بيع شحن كارت كهرباء مسبق الدفع"');
+    expect(html).toContain("عمولة 50 ج");
     expect(html).toContain("آخر البيعات");
+    // …but nothing was sold: no sale exists until the server records one.
+    expect(html).not.toContain('data-testid="recent-sale-row"');
+    expect(localStorage.getItem("hesba_sales_records_default")).toBeNull();
 
     // Check that sessionStorage item was consumed
     expect(sessionStorage.getItem(STAGED_KEY)).toBeNull();

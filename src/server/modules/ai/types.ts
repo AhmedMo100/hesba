@@ -1,47 +1,15 @@
 import "server-only";
 
-export type Role = "user" | "assistant" | "system" | "tool";
-
-export interface ChatMessage {
-  role: Role;
-  content: string;
-  name?: string;
-  toolCallId?: string;
-}
-
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  parameters: {
-    type: "object";
-    properties: Record<string, unknown>;
-    required?: string[];
-  };
-}
-
-export interface ToolCall {
-  id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-}
-
-export interface SearchCitation {
-  title: string;
-  url: string;
-  snippet?: string;
-  publishedDate?: string;
-}
-
-export interface ProviderResponse {
-  text: string;
-  toolCalls?: ToolCall[];
-  citations?: SearchCitation[];
-  usage?: {
-    promptTokens?: number;
-    completionTokens?: number;
-    totalTokens?: number;
-  };
-}
+// Model/search contract types are owned by the vendor adapters in infra/ai and re-exported
+// here so the AI module's public API is unchanged.
+export type {
+  Role,
+  ChatMessage,
+  ToolDefinition,
+  ToolCall,
+  SearchCitation,
+  ProviderResponse,
+} from "@/server/infra/ai";
 
 export interface AIQuotaStatus {
   used: number;

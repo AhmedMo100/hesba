@@ -68,13 +68,12 @@
 ### 3.2 Code layers (`src/client`)
 ```
 src/client/
-  app-shell/   Shell, Header, BottomNav, SyncBar, router
-  pages/       one screen per Route (composes features)
-  features/    sell-item, add-stock, add-product, add-expense, suggestions, ...
-  entities/    product, batch, sale, person, store
-  shared/      ui, hooks, lib, i18n, db (Dexie), sync (engine), auth-client
+  app-shell/   Shell, Header, SideNav, BottomNav, SyncBar, lazy view registry
+  features/    one folder per screen: home, sales, products, stock, people, expenses, alerts, ai, auth
+  offline/     db (Dexie), catalog sync/search; the outbox + sync engine will live here
+  shared/      ui, styles, hooks, i18n, theme, api
 ```
-**Import rule (ESLint):** `pages → features → entities → shared`. And `src/client` is **forbidden** from importing from `src/server` (we also add `client-only`/`server-only` as a safeguard).
+**Import rule:** `app-shell → features → (shared, offline)`; a feature never imports another feature's internals; `offline` never imports `features`/`app-shell`. And `src/client` is **forbidden** from importing from `src/server`. (ADR-0017 replaced the earlier `pages → features → entities → shared` plan.)
 
 ### 3.3 Data and state
 | Type | Tool |
@@ -118,18 +117,18 @@ Button, Field, SearchBox, Seg (animated thumb), Modal/Sheet (ghost exit), Toast,
 
 ### 4.1 Layers in each Module
 ```
-src/server/modules/<module>/
-  actions.ts    Server Actions (check the session and call a use-case)  — if there is an online flow
-  handlers.ts   handlers for Sync operations (op type → handler)
-  app/          Use-cases (one Transaction, a verb: RecordSale, AddStock, VoidSale)
-  domain/       pure rules (no Next/DB) — or shared from src/domain
-  infra/        Repositories (SQL via Prisma) + external clients
-  index.ts      the module's only Public API
+src/server/modules/<module>/        (ADR-0017)
+  index.ts            the module's only Public API
+  <name>.service.ts   use-cases; owns the transaction boundary (withTenant)
+  <name>.repo.ts      optional — Prisma queries, extracted when a service outgrows one responsibility
+  domain/ or *.ts     optional — pure module-private rules; shared rules go to src/domain
 ```
+Vendor adapters (Prisma client, crypto, email, AI model + web search) live in `src/server/infra/<capability>/`. A sync `handlers.ts` registry is added to a module when the sync engine is built.
+
 **Rules:**
 1. `domain` doesn't import from `infra` or from Next.
 2. A module doesn't read another module's tables — it calls that module's Public API.
-3. Server Actions and Route Handlers are **thin**: validation (zod) + session + use-case + response.
+3. Route Handlers are **thin**: validation (zod) + session + one module call + response. (All server entry points are Route Handlers today; whether to adopt Server Actions for online-only flows is an open decision.)
 4. Every file in `src/server` starts with `import 'server-only'`.
 
 ### 4.2 The modules
@@ -374,81 +373,57 @@ src/app/
 
 ## 3. `src/client`
 
+Per ADR-0017. Items marked *(planned)* do not exist yet.
+
 ```
 src/client/
-├── app-shell/
-│   ├── index.tsx               # Shell entry point
-│   ├── router.tsx              # internal Router + lazy pages
-│   ├── Shell.tsx  Header.tsx  BottomNav.tsx  SyncBar.tsx
-│   └── providers/              # Theme, Auth, Sync, Toast
-├── pages/
-│   ├── home/HomePage.tsx
-│   ├── products/ProductsPage.tsx          # + "اقتراحات" (Suggestions) tab
-│   ├── stock/StockPage.tsx
-│   ├── sales/SalesPage.tsx                # prefetch (most used)
-│   ├── expenses/ExpensesPage.tsx
-│   ├── people/PeoplePage.tsx
-│   ├── alerts/AlertsPage.tsx              # + suggestion cards
-│   └── ai/AiPage.tsx
-├── features/
-│   ├── sell-item/              # SellTile, WeightPopover, QuickQty, undo
-│   ├── add-product/            # ProductFormModal + local matching against the catalog
-│   ├── catalog-search/         # offline search in global_products
-│   ├── suggestions/            # SuggestionCard: [إضافة] (Add) [مش محتاج] (Not needed) [بلّغ] (Report)
-│   ├── add-stock/  add-expense/  manage-person/
-│   ├── export-inventory/       # CSV (dynamic import)
-│   ├── ai-chat/                # (dynamic import)
-│   ├── profile/                # ProfileModal + the "مشاركة المنتجات المخصصة" (Share custom products) setting
-│   └── review-rejected-ops/    # "محتاج مراجعة" (Needs review)
-├── entities/
-│   └── product/ batch/ sale/ person/ store/   { ui/, model/ }
-└── shared/
-    ├── ui/                     # Button, Field, SearchBox, Seg, Modal, Toast, Combobox, Chips, Stepper
-    ├── styles/                 # tokens.css, themes.css, animations.css
-    ├── hooks/                  # useGhost, useTheme, useOnline, useDebounce
-    ├── lib/                    # format, uuid7, money
-    ├── i18n/                   # ar.json
-    ├── db/
-    │   ├── dexie.ts            # tables + versions + migrations
-    │   └── repositories/
-    ├── sync/
-    │   ├── engine.ts           # event-driven (no polling) + backoff/jitter
-    │   ├── outbox.ts  apply-changes.ts  catalog-sync.ts  status.ts
-    └── auth-client/            # session state + PIN lock
+├── app-shell/                  # AppShell (lazy view registry + online/offline state), Header, SideNav, BottomNav, SyncBar
+├── features/                   # one folder per screen; a feature owns its view, modals and API client
+│   ├── home/                   # HomeView
+│   ├── sales/                  # SalesView (prefetched — most used)
+│   ├── products/               # ProductsView, ProductFormModal, ServiceFormModal, MachinesModal
+│   ├── stock/                  # StockView + Add/Edit/Adjust/Archive/Clear stock modals, MachineTopupModal
+│   ├── people/                 # PeopleView
+│   ├── expenses/               # ExpensesView
+│   ├── alerts/                 # AlertsView, EditPromoModal
+│   ├── ai/                     # AiView
+│   └── auth/                   # AuthScreen, ProfileModal
+├── offline/
+│   ├── db/                     # Dexie tables + versions + migrations
+│   ├── catalog/                # catalog-sync (cursor + ETag), catalog-search
+│   └── outbox/  sync/          # (planned) event-driven engine, no polling
+└── shared/                     # used by two or more features
+    ├── api/                    # HTTP clients: auth (real + fixture), machines, custom-taxonomy
+    ├── auth/                   # AuthProvider / useAuth (session state)
+    ├── store-items.ts          # StoreProductItem, StockInventoryItem, isServiceProduct
+    ├── ui/                     # Button, Field, SearchBox, Seg, Modal, Toast, Chips, Alert, Empty, Icon
+    ├── styles/                 # tokens.css, fonts.css, ViewLayout.module.css
+    ├── hooks/                  # useGhost
+    ├── i18n/                   # ar.json + t()
+    └── theme/                  # useTheme
 ```
+A feature may render another feature's public modal by file path (see ADR-0017); shared types and API clients never live inside a feature.
 
 ---
 
 ## 4. `src/server`
 
+Per ADR-0017. Items marked *(planned)* do not exist yet.
+
 ```
 src/server/
-├── config/env.ts               # zod for HESBA_* variables
-├── platform/                   # logging, errors, audit, flags (maintenance), health
+├── config/env.ts               # zod for HESBA_* variables — the only reader of process.env
+├── platform/                   # logger, AppError + safe error responses
 ├── infra/
-│   ├── db/
-│   │   ├── client.ts           # Prisma + pooled URL
-│   │   ├── tenant.ts           # withTenant(): set_config(app.store_id) inside tx
-│   ├── storage/                # S3-compatible interface ✱
-│   ├── email/                  # interface + providers/* (transactional verification & recovery)
-│   ├── payments/               # interface + providers/*
-│   └── llm/                    # interface + provider
-└── modules/
-    ├── auth/        { actions.ts, app/, domain/, infra/, index.ts }
-    ├── tenancy/
-    ├── catalog/
-    │   ├── app/  { upsert-product, suggest-candidate, accept-suggestion, promote-candidate }
-    │   ├── domain/ { match.ts, filters.ts }          # matching + automatic filters
-    │   └── infra/  { products.repo, global-products.repo, candidates.repo, suggestions.repo }
-    ├── inventory/   { domain/{fefo.ts,stock-level.ts}, app/, infra/ }
-    ├── sales/       { domain/, app/{record-sale,void-sale}, infra/ }
-    ├── expenses/  people/  alerts/
-    ├── sync/        { handlers.ts (registry), push.ts, pull.ts, catalog.ts, infra/{sync-ops,change-log}.repo }
-    ├── reports/
-    ├── ai/          { tools/*.tool.ts, app/{ask,quota}, actions.ts }
-    ├── billing/
-    ├── jobs/        { queue.ts, tick.ts, handlers/*.job.ts }
-    └── admin/
+│   ├── db/                     # client.ts (Prisma + pooled URL), tenant.ts (withTenant)
+│   ├── crypto/                 # card-serial encryption
+│   ├── email/                  # interface + resend/mock providers
+│   └── ai/                     # contracts.ts (LLM + web-search interfaces) + gemini/brave/mock adapters
+└── modules/                    # each: index.ts (public API) + *.service.ts (+ optional *.repo.ts, domain/)
+    ├── auth/  tenancy/  catalog/  inventory/  people/  expenses/  machines/  ai/
+    ├── sales/  promotions/  alerts/        # extracted from src/app/api route handlers
+    ├── sandwiches/                         # composite products: recipes, live cost (ADR-0018)
+    └── sync/  reports/  billing/  jobs/  admin/   # (planned)
 ```
 
 **Rules (enforced by ESLint boundaries):**
@@ -551,7 +526,7 @@ docs/
 
 ## 10. Order of creating the structure
 1. **Phase 1:** the root + `src/app` (health + empty Shell) + `src/schemas`/`domain` (basics) + CI + Dockerfile.
-2. **Phase 2:** `auth` + `tenancy` + `sync` (skeleton) + `(auth)` + `shared/db` + `shared/sync`.
+2. **Phase 2:** `auth` + `tenancy` + `sync` (skeleton) + `(auth)` + `offline/db` + `offline/sync` (paths per ADR-0017).
 3. **Phase 3:** the eight pages + `catalog` (the public catalog and custom products), one by one.
 4. **Phase 4+:** suggestions, reports, AI, payments, admin.
 

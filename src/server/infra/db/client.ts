@@ -1,4 +1,26 @@
 import "server-only";
+
+/**
+ * @file client.ts
+ * @description Prisma clients for the server runtime.
+ *
+ * @responsibility
+ * - `prisma`: the application client on `HESBA_DATABASE_URL` (role `hesba_app`, no RLS
+ *   bypass). Use it only through `withTenant` for store data, or directly for identity tables
+ *   (`users`, `sessions`, ...).
+ * - `servicePrisma`: the catalog-promotion cron's client on `HESBA_SERVICE_DATABASE_URL`
+ *   (role `hesba_service`, narrow cross-store grants, ADR-0024); null when not configured.
+ *   The migration role (`HESBA_DIRECT_URL`) is never used at runtime.
+ * - `createDb`: builds a standalone client for scripts.
+ *
+ * @remarks
+ * - When `HESBA_DATABASE_URL` is not in the process environment, the module tries to load
+ *   `.env.local` then `.env`, and finally falls back to the local docker-compose URL.
+ * - `connect_timeout` and `pool_timeout` default to 30 seconds unless the URL sets them.
+ * - Outside production the `prisma` instance is cached on `globalThis` so hot reload does not
+ *   open a new pool on every edit.
+ */
+
 import { PrismaClient } from "@prisma/client";
 
 if (!process.env["HESBA_DATABASE_URL"]) {
@@ -38,26 +60,36 @@ const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined;
 };
 
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    datasources: {
-      db: {
-        url: databaseUrl,
-      },
-    },
-  });
+/**
+ * Opt-in query events (QA-32): with `HESBA_PRISMA_QUERY_EVENTS=1` every statement, including
+ * a transaction's BEGIN / COMMIT, is emitted as a `query` event, so a test can count the
+ * database round trips one request makes. Off by default; nothing is logged.
+ */
+const queryEvents = process.env["HESBA_PRISMA_QUERY_EVENTS"] === "1";
 
-const rawDirectUrl = process.env["HESBA_DIRECT_URL"];
-export const systemPrisma = rawDirectUrl
+function createAppClient(): PrismaClient {
+  return queryEvents
+    ? new PrismaClient({
+        datasources: { db: { url: databaseUrl } },
+        log: [{ emit: "event", level: "query" }],
+      })
+    : new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+}
+
+export const prisma = globalForPrisma.prisma ?? createAppClient();
+
+/**
+ * The ONLY cross-store runtime connection: the catalog-promotion cron, as the least-privilege
+ * `hesba_service` role (ADR-0024, QA-34). It is never the migrator (`HESBA_DIRECT_URL` is for
+ * migrations only) and never used for a user's request. Null when not configured: the cron
+ * then refuses to run instead of falling back to a privileged connection.
+ */
+const rawServiceUrl = process.env["HESBA_SERVICE_DATABASE_URL"];
+export const servicePrisma: PrismaClient | null = rawServiceUrl
   ? new PrismaClient({
-      datasources: {
-        db: {
-          url: ensureConnectionTimeouts(rawDirectUrl),
-        },
-      },
+      datasources: { db: { url: ensureConnectionTimeouts(rawServiceUrl) } },
     })
-  : prisma;
+  : null;
 
 if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;

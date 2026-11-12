@@ -567,7 +567,14 @@ Neon Free keeps only 6 hours of history ✔, so we need:
   - `hesba_app`: Application runtime pool user (`LOGIN` enabled; `NOSUPERUSER`, `NOCREATEDB`, `NOCREATEROLE`, `NOBYPASSRLS`). Has `USAGE` on `public` schema, `SELECT, INSERT, UPDATE, DELETE` on existing tables, and default privileges on future objects created by `hesba_migrator`.
 - **Connection Configuration:**
   - `HESBA_DATABASE_URL`: Pooled connection string with role `hesba_app`. The test pool size is explicitly configured to `connection_limit=5` to match `appPoolClient` pool max.
-  - `HESBA_DIRECT_URL`: Direct connection string with role `hesba_migrator`.
+  - `HESBA_DIRECT_URL`: Direct connection string with role `hesba_migrator`. **Migrations only, never used at runtime** (ADR-0024).
+  - `HESBA_SERVICE_DATABASE_URL`: role `hesba_service`, used ONLY by the catalog-promotion cron (ADR-0024). Not set = that cron returns 503.
+- **Providing `hesba_service` (authorized manual step, not automated):**
+  1. As the database owner (Neon: `neondb_owner`), create the role: `CREATE ROLE hesba_service LOGIN PASSWORD '<secret>' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE;`. If the `public` schema is not owned by the database owner, also run `GRANT USAGE ON SCHEMA public TO hesba_service;`.
+  2. As `hesba_migrator`, run `scripts/sql/10-service-role-grants.sql`. It is re-runnable.
+  3. Set `HESBA_SERVICE_DATABASE_URL` in the deployment secrets.
+  4. Check: `POST /api/cron/catalog-promotion` (with the cron secret) returns 200.
+- **HSTS:** sent in production builds as `max-age=31536000`. Set `HESBA_HSTS_INCLUDE_SUBDOMAINS=1` only after confirming that every subdomain serves HTTPS.
 - **Secrets Policy:** Zero connection strings and zero passwords committed or logged; stored strictly in deployment environment / secret manager.
 
 ---

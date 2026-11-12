@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { AuthScreen, ProfileModal } from "@/client/shared/auth";
+import { AuthScreen } from "@/client/features/auth/AuthScreen";
+import { ProfileModal } from "@/client/features/auth/ProfileModal";
 import { ToastProvider, Button } from "@/client/shared/ui";
 
 export default function DevAuthClient() {

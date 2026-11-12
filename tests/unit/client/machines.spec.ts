@@ -5,7 +5,7 @@ import {
   addMachineTopup,
   setMachineExactBalance,
   deductMachineBalance,
-} from "@/client/shared/machines";
+} from "@/client/shared/api/machines";
 
 describe("POS Machines Storage and Topup", () => {
   let mockStorage: Map<string, string>;
