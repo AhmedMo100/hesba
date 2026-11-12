@@ -27,7 +27,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/infra/db/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
-import { lockStockLevelsInTx } from "@/server/modules/inventory";
+import { lockSellableStockInTx } from "@/server/modules/inventory";
 import { normalizeArabic } from "@/domain/normalize";
 import {
   SANDWICH_CATEGORY,
@@ -518,6 +518,18 @@ export async function prepareSandwichSaleInTx(
   if (row.sandwichIngredients.length === 0) {
     throw AppError.badRequest("الساندوتش ده مالوش مكونات");
   }
+  // A hidden ingredient is never sold through a sandwich (QA-41; hiding one is refused now,
+  // this covers ingredients hidden before that rule).
+  const hidden = row.sandwichIngredients.find(
+    (l) =>
+      !l.ingredientVariant.isActive ||
+      l.ingredientVariant.storeProduct?.isActive === false,
+  );
+  if (hidden) {
+    throw AppError.badRequest(
+      `«${variantName(hidden.ingredientVariant)}» من مكونات الساندوتش مخفي، أظهره أو شيله من الساندوتش الأول`,
+    );
+  }
 
   const needs = scaleRecipe(
     row.sandwichIngredients.map((l) => ({
@@ -527,7 +539,7 @@ export async function prepareSandwichSaleInTx(
     count,
   );
   // The shared stock lock (ADR-0019): every stock writer takes the same row locks, in id order.
-  const available = await lockStockLevelsInTx(tx, storeId, [...needs.keys()]);
+  const available = await lockSellableStockInTx(tx, storeId, [...needs.keys()]);
 
   const shortages: IngredientShortage[] = [];
   for (const line of row.sandwichIngredients) {

@@ -4,7 +4,7 @@ import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { recordDebtTransaction } from "@/server/modules/people";
 import { recordDebtTransactionInputSchema } from "@/schemas/people";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -20,7 +20,7 @@ export async function POST(req: Request, { params }: RouteParams) {
   try {
     const context = await requireSession(req);
     const { id } = await params;
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const validated = recordDebtTransactionInputSchema.parse(body);
 

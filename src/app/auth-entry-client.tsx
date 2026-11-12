@@ -1,5 +1,7 @@
 "use client";
 
+import "@/client/shared/zod-csp";
+
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AuthScreen } from "@/client/features/auth/AuthScreen";

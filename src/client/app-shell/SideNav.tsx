@@ -21,8 +21,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { route: "home", labelKey: "nav.home", icon: "home" },
   { route: "sales", labelKey: "nav.sales", icon: "cart", isKey: true },
-  { route: "products", labelKey: "nav.products", icon: "box" },
-  { route: "stock", labelKey: "nav.stock", icon: "layers" },
+  { route: "products", labelKey: "nav.products", icon: "basket" },
+  { route: "stock", labelKey: "nav.stock", icon: "warehouse" },
   { route: "expenses", labelKey: "nav.expenses", icon: "wallet" },
   { route: "people", labelKey: "nav.people", icon: "users" },
   { route: "alerts", labelKey: "nav.alerts", icon: "bell" },
@@ -33,7 +33,8 @@ export function SideNav({ activeRoute, onNavigate }: SideNavProps) {
   return (
     <aside className={styles.side} aria-label={t("common.menu")}>
       <div className={styles.logoSection}>
-        <Icon n="store" s={28} />
+        {/* eslint-disable-next-line @next/next/no-img-element -- static asset, precached for offline */}
+        <img src="/logo.png" alt="" width={28} height={40} />
         <span>{t("common.appName")}</span>
       </div>
 

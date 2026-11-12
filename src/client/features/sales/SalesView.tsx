@@ -13,17 +13,21 @@
  * sale. A rejection (not enough stock, offline, server error) is shown as an error toast and
  * nothing changes. The screen never deducts stock with a separate request.
  *
- * There is no Undo: a recorded sale can only be reversed by a server-side void, which is not
- * built yet (audit QA-10).
+ * Undo (تراجع, in the success toast) is a server-side void (`POST /api/sales/void`, ADR-0022):
+ * the sale stays recorded and is shown as voided, and its stock comes back only after the
+ * server confirmed the void.
  *
  * @remarks
- * - The sales list is kept in `localStorage` per store; on load it is replaced by the
- *   server's list when the server returns at least one sale (audit QA-09, not changed here).
+ * - Recorded sales — the list, today's total and count — come ONLY from the server
+ *   (`GET /api/sales`), re-read after every recorded sale or void (QA-09). Sales the server
+ *   has not recorded yet are the outbox's, shown apart as waiting and never counted. While
+ *   the list is loading or unreachable the total is "—", never a stale or local figure.
  * - Services: the POS-machine balance is deducted before the sale request; if the sale is
  *   rejected, the deduction is refunded (audit QA-03 covers making this server-side).
  * - Money is integer piasters; quantities are base units (pieces or grams).
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -33,10 +37,19 @@ import React, {
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
-import { Empty, SearchBox, Icon } from "@/client/shared/ui";
+import {
+  Button,
+  Empty,
+  SearchBox,
+  Icon,
+  Modal,
+  Skeleton,
+} from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
+import { saleLineTotalPiasters } from "@/domain/sale-pricing";
+import { stockLevel } from "@/domain/alerts";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StockInventoryItem,
@@ -58,7 +71,15 @@ import {
   readStagedSandwich,
   type Sandwich,
 } from "@/client/shared/api/sandwiches";
-import type { RecordedSale, SaleRequest } from "@/client/shared/api/sales";
+import {
+  fetchSalesOverview,
+  voidSale,
+  type ListedSale,
+  type RecordedSale,
+  type SaleRequest,
+  type SalesOverview,
+  type VoidedSale,
+} from "@/client/shared/api/sales";
 import {
   dismissSaleOp,
   enqueueSale,
@@ -74,22 +95,16 @@ import {
 } from "@/client/offline/outbox";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
-
-export interface SaleRecord {
-  id: string;
-  productId: string;
-  name: string;
-  amountPiasters: number;
-  quantity: number;
-  category: string;
-  unit: string;
-  isCarton?: boolean;
-  commissionPiasters?: number;
-  timestamp: number;
-  machineId?: string;
-  machineDeductPiasters?: number;
-  machineName?: string;
-}
+import {
+  CartSheet,
+  EMPTY_CART_DRAFT,
+  type CartDraft,
+  type CartLine,
+  type CartOpId,
+  type CreditCustomer,
+} from "./CartSheet";
+import { CreditCustomerForm } from "./CreditCustomerForm";
+import { SaleInvoiceModal } from "./SaleInvoiceModal";
 
 interface DisplaySaleItem {
   id: string;
@@ -110,11 +125,23 @@ interface DisplaySaleItem {
   isSandwich?: boolean;
 }
 
-const STORAGE_KEY_PREFIX = "hesba_sales_records";
+/**
+ * Older versions kept a copy of the sales list in `localStorage` under this prefix and showed
+ * it as recorded sales — including sales the server had rejected (QA-09). The server's list is
+ * now the only source, so the old copy is removed instead of read.
+ */
+const LEGACY_SALES_KEY_PREFIX = "hesba_sales_records";
 const STAGED_KEY = "hesba_staged_sale_item";
 
-function getSalesStorageKey(storeId?: string): string {
-  return `${STORAGE_KEY_PREFIX}_${storeId || "default"}`;
+function removeLegacySalesCopy(storeId?: string): void {
+  try {
+    localStorage.removeItem(
+      `${LEGACY_SALES_KEY_PREFIX}_${storeId || "default"}`,
+    );
+    localStorage.removeItem(`${LEGACY_SALES_KEY_PREFIX}_default`);
+  } catch {
+    // Storage unavailable: nothing to remove.
+  }
 }
 
 function getServicesStorageKey(storeId?: string): string {
@@ -216,23 +243,14 @@ function formatStockText(item: DisplaySaleItem): string {
 }
 
 function loadInitialData(storeId?: string): {
-  initialSales: SaleRecord[];
   initialEnabledServices: string[];
   stagedSaleItem: DisplaySaleItem | null;
 } {
-  let initialSales: SaleRecord[] = [];
   let initialEnabledServices: string[] = [];
   let stagedSaleItem: DisplaySaleItem | null = null;
 
   if (typeof window !== "undefined" || typeof localStorage !== "undefined") {
-    try {
-      const rawSales = localStorage.getItem(getSalesStorageKey(storeId));
-      if (rawSales) {
-        initialSales = JSON.parse(rawSales);
-      }
-    } catch {
-      // Ignore
-    }
+    removeLegacySalesCopy(storeId);
 
     try {
       const rawServices = localStorage.getItem(getServicesStorageKey(storeId));
@@ -283,10 +301,15 @@ function loadInitialData(storeId?: string): {
     }
   }
 
-  return { initialSales, initialEnabledServices, stagedSaleItem };
+  return { initialEnabledServices, stagedSaleItem };
 }
 
-export function SalesView() {
+export function SalesView({
+  onNavigate,
+}: {
+  /** After a credit sale the owner lands on People → «ليك» (the customer's balance). */
+  onNavigate?: (route: "people") => void;
+} = {}) {
   const { session } = useAuth();
   const storeId = session?.store?.id;
   // The shop that owns the sales queue: the signed-in shop, or — while the session is not
@@ -294,8 +317,29 @@ export function SalesView() {
   const queueStoreId = storeId ?? lastOutboxStore();
 
   const initial = useMemo(() => loadInitialData(storeId), [storeId]);
-  const [sales, setSales] = useState<SaleRecord[]>(initial.initialSales);
+  // The server's recorded sales (QA-09). null = not loaded yet.
+  const [salesOverview, setSalesOverview] = useState<SalesOverview | null>(
+    null,
+  );
+  const [salesLoadFailed, setSalesLoadFailed] = useState(false);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
+  // QA-31: the cart (several items, one invoice) and the invoice details (returns, credit).
+  // The first load of the tiles is still on its way: show placeholders, never "no products".
+  const [tilesLoaded, setTilesLoaded] = useState(false);
+  const [cartMode, setCartMode] = useState(false);
+  const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  // A credit sale (آجل): the customer is chosen once, then every item goes on one invoice.
+  const [creditCustomer, setCreditCustomer] = useState<CreditCustomer | null>(
+    null,
+  );
+  const [creditFormOpen, setCreditFormOpen] = useState(false);
+  // The invoice and the offers open in sheets, not as big blocks on the screen.
+  const [cartOpen, setCartOpen] = useState(false);
+  const [promosOpen, setPromosOpen] = useState(false);
+  // The invoice draft (discount, payment, customer) and its opId outlive the sheet.
+  const [cartDraft, setCartDraft] = useState<CartDraft>(EMPTY_CART_DRAFT);
+  const cartOpIdRef = useRef<CartOpId | null>(null);
+  const [detailsSaleId, setDetailsSaleId] = useState<string | null>(null);
   const [services, setServices] = useState<StoreProductItem[]>([]);
   const [enabledServiceIds, setEnabledServiceIds] = useState<string[]>(
     initial.initialEnabledServices,
@@ -319,9 +363,13 @@ export function SalesView() {
 
   useEffect(() => {
     let isMounted = true;
-    fetchStoreMachines(storeId).then((remote) => {
-      if (isMounted) setMachines(remote);
-    });
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (storeId) {
+      fetchStoreMachines(storeId).then((remote) => {
+        if (isMounted) setMachines(remote);
+      });
+    }
     // The event means the local machines cache was just updated (fetchStoreMachines saves
     // and dispatches it), so read the cache. Fetching again here re-dispatched the event and
     // looped forever (UE-20), starving the screen's other requests.
@@ -372,19 +420,28 @@ export function SalesView() {
       ? userSelectedMachineId
       : linkedServiceMachines[0]?.id || "";
 
-  // Bottom toast. There is no Undo: a recorded sale can only be reversed by a server-side
-  // void, which does not exist yet (audit QA-10, ADR-0019).
+  // Bottom toast. A sale the server recorded gets "تراجع" (undo): a server-side void
+  // (ADR-0022) — nothing changes on screen until the server confirmed it.
   const [activeToast, setActiveToast] = useState<{
     msg: string;
     type?: "success" | "error" | "pending";
+    undoSale?: { id: string; name: string };
   } | null>(null);
   const toastTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const [voidingSaleId, setVoidingSaleId] = useState<string | null>(null);
 
   const showToast = useCallback(
-    (msg: string, type: "success" | "error" | "pending") => {
+    (
+      msg: string,
+      type: "success" | "error" | "pending",
+      undoSale?: { id: string; name: string },
+    ) => {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setActiveToast({ msg, type });
-      toastTimerRef.current = setTimeout(() => setActiveToast(null), 4500);
+      setActiveToast({ msg, type, undoSale });
+      toastTimerRef.current = setTimeout(
+        () => setActiveToast(null),
+        undoSale ? 6000 : 4500,
+      );
     },
     [],
   );
@@ -415,21 +472,21 @@ export function SalesView() {
 
   // Load Inventory, Products, and Sales from server asynchronously
   useEffect(() => {
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (!storeId) return;
     let isMounted = true;
     void Promise.all([
-      fetch("/api/stock?view=all")
+      apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/products?filter=all")
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
-      fetch("/api/sales")
+      apiGet("/api/products?filter=all&scope=sale")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
         err instanceof Error ? err : new Error(t("sandwich.loadFailed")),
       ),
-    ]).then(([stockData, prodData, salesData, sandwichList]) => {
+    ]).then(([stockData, prodData, sandwichList]) => {
       if (!isMounted) return;
       if (sandwichList instanceof Error) {
         // Shown, not hidden: without this list the sandwich tiles are missing.
@@ -444,26 +501,16 @@ export function SalesView() {
       if (stockData?.inventory) {
         setInventory(stockData.inventory);
       }
+      setTilesLoaded(true);
       if (prodData?.products) {
         const allProds: StoreProductItem[] = prodData.products;
         setAllProducts(allProds);
         setServices(allProds.filter((p) => isServiceProduct(p)));
       }
-      if (salesData?.sales && Array.isArray(salesData.sales)) {
-        if (salesData.sales.length > 0) {
-          setSales(salesData.sales);
-          try {
-            localStorage.setItem(
-              getSalesStorageKey(storeId),
-              JSON.stringify(salesData.sales),
-            );
-          } catch {}
-        }
-      }
     });
 
     const syncRemoteSalesConfig = () => {
-      fetch("/api/sales/config")
+      apiGet("/api/sales/config")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -488,7 +535,7 @@ export function SalesView() {
     };
 
     const loadPromotions = () => {
-      fetch("/api/promotions")
+      apiGet("/api/promotions")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -517,15 +564,49 @@ export function SalesView() {
     };
   }, [storeId]);
 
-  // Calculate today's sales and total
-  const todaySales = useMemo(() => {
-    const today = new Date().toDateString();
-    return sales.filter((s) => new Date(s.timestamp).toDateString() === today);
-  }, [sales]);
+  /**
+   * Reads the recorded sales from the server — the only source of what was sold (QA-09). An
+   * empty list is shown as empty; a failed read keeps the last server answer and says so.
+   */
+  const reloadSales = useCallback(async () => {
+    try {
+      const overview = await fetchSalesOverview();
+      setSalesOverview(overview);
+      setSalesLoadFailed(false);
+    } catch {
+      setSalesLoadFailed(true);
+    }
+  }, []);
 
-  const todayTotalPiasters = useMemo(() => {
-    return todaySales.reduce((sum, s) => sum + s.amountPiasters, 0);
-  }, [todaySales]);
+  useEffect(() => {
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (!storeId) return;
+    let alive = true;
+    const load = () => {
+      fetchSalesOverview()
+        .then((overview) => {
+          if (!alive) return;
+          setSalesOverview(overview);
+          setSalesLoadFailed(false);
+        })
+        .catch(() => {
+          if (alive) setSalesLoadFailed(true);
+        });
+    };
+    load();
+    window.addEventListener("online", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", load);
+    };
+  }, [storeId]);
+
+  // Today's sales (Cairo day) and the total of those not voided, both as the server computed.
+  const todaySales: ListedSale[] = salesOverview?.todaySales ?? [];
+  const todayActiveCount = salesOverview?.todayCount ?? 0;
+  const todayTotalPiasters: number | null =
+    salesOverview?.todayTotalPiasters ?? null;
 
   // Prepare combined items for the Sales Grid
   const displayItems = useMemo<DisplaySaleItem[]>(() => {
@@ -604,26 +685,6 @@ export function SalesView() {
     });
   }, [displayItems, query]);
 
-  /** Adds a recorded sale to today's list (and its local copy). A sale already listed is kept once. */
-  const addSaleRecord = useCallback(
-    (record: SaleRecord) => {
-      setSales((prev) => {
-        if (prev.some((s) => s.id === record.id)) return prev;
-        const updated = [record, ...prev];
-        try {
-          localStorage.setItem(
-            getSalesStorageKey(storeId),
-            JSON.stringify(updated),
-          );
-        } catch {
-          // Ignore quota error
-        }
-        return updated;
-      });
-    },
-    [storeId],
-  );
-
   /** Shows the server's stock balance after a sale on the tiles (matched by variant). */
   const applyRecordedStock = useCallback((recorded: RecordedSale) => {
     const after = new Map<string, number>();
@@ -640,7 +701,7 @@ export function SalesView() {
         return {
           ...inv,
           currentStockBase: stock,
-          status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+          status: stockLevel(inv.unitMode, inv.packQty, stock),
         };
       }),
     );
@@ -657,34 +718,18 @@ export function SalesView() {
   );
 
   // A queued sale the server has now recorded — right after the tap, or later by a background
-  // sync: list it with the server's total and show the server's stock, exactly once.
+  // sync: show the server's stock, and re-read the recorded sales from the server.
   useEffect(() => {
     const onSynced = (e: Event) => {
       const d = (e as CustomEvent<SaleSyncedDetail>).detail;
       if (!d || d.storeId !== queueStoreId) return;
       applyRecordedStock(d.recorded);
-      addSaleRecord({
-        id: d.recorded.id,
-        productId:
-          d.payload.productId ||
-          d.payload.variantId ||
-          d.payload.promotionId ||
-          "sale",
-        name: d.summary.name,
-        amountPiasters: d.recorded.totalPiasters,
-        quantity: d.summary.quantity,
-        category: d.summary.category || "عام",
-        unit: d.summary.unit || "piece",
-        timestamp: Date.now(),
-        machineId: d.payload.machineId,
-        machineDeductPiasters: d.payload.machineDeductPiasters,
-        machineName: d.payload.machineName,
-      });
+      void reloadSales();
       if (d.recorded.machine) void reloadMachines();
     };
     window.addEventListener(SALE_SYNCED_EVENT, onSynced);
     return () => window.removeEventListener(SALE_SYNCED_EVENT, onSynced);
-  }, [queueStoreId, applyRecordedStock, addSaleRecord, reloadMachines]);
+  }, [queueStoreId, applyRecordedStock, reloadSales, reloadMachines]);
 
   /**
    * The one way a sale is submitted (ADR-0020). The sale is first written to the outbox
@@ -812,10 +857,63 @@ export function SalesView() {
           amount: formatMoney(outcome.recorded.totalPiasters),
         }),
         "success",
+        { id: outcome.recorded.id, name: item.name },
       );
       return true;
     },
     [submitSale, showToast],
+  );
+
+  /**
+   * Undo (تراجع): asks the server to void the sale (ADR-0022). The server keeps the sale,
+   * marks it void and puts its stock back in one transaction; only then does the screen show
+   * the server's stock and re-read the sales list. Offline or refused → an error, nothing
+   * changes. The same `opId` is used if the cashier taps again while it is being sent.
+   */
+  const voidOpRef = useRef<{ saleId: string; opId: string } | null>(null);
+  const handleUndoSale = useCallback(
+    async (target: { id: string; name: string }) => {
+      if (voidingSaleId) return;
+      if (voidOpRef.current?.saleId !== target.id) {
+        voidOpRef.current = { saleId: target.id, opId: generateUuid() };
+      }
+      setVoidingSaleId(target.id);
+      let voided: VoidedSale;
+      try {
+        voided = await voidSale(target.id, voidOpRef.current.opId);
+      } catch (err) {
+        setVoidingSaleId(null);
+        showToast(
+          err instanceof Error ? err.message : t("sale.voidFailed"),
+          "error",
+        );
+        return;
+      }
+      setVoidingSaleId(null);
+      voidOpRef.current = null;
+      const after = new Map(
+        voided.stock.map((s) => [s.variantId, s.stockAfterBase]),
+      );
+      setInventory((prev) =>
+        prev.map((inv) => {
+          const stock = after.get(inv.variantId);
+          if (stock === undefined) return inv;
+          return {
+            ...inv,
+            currentStockBase: stock,
+            status: stockLevel(inv.unitMode, inv.packQty, stock),
+          };
+        }),
+      );
+      showToast(t("sale.voided", { name: target.name }), "success");
+      void reloadSales();
+      if (voided.machine) void reloadMachines();
+      // Sandwich tiles show how many their ingredients can make: read them again.
+      void fetchSandwiches()
+        .then(setSandwiches)
+        .catch(() => undefined);
+    },
+    [voidingSaleId, showToast, reloadSales, reloadMachines],
   );
 
   // Sell a published offer (bundle or single clearance offer). The server reads the offer's
@@ -860,6 +958,7 @@ export function SalesView() {
             amount: formatMoney(outcome.recorded.totalPiasters),
           }),
           "success",
+          { id: outcome.recorded.id, name: promo.title },
         );
       }
     },
@@ -875,7 +974,8 @@ export function SalesView() {
           method: "DELETE",
         },
       );
-      if (res.ok) {
+      // 404: the offer is already gone (QA-35) — remove it from the list all the same.
+      if (res.ok || res.status === 404) {
         setActivePromotions((prev) => prev.filter((p) => p.id !== promoId));
         window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -911,16 +1011,22 @@ export function SalesView() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(promo),
         });
-        if (res.ok) {
+        const json = (await res.json().catch(() => null)) as {
+          promotion?: PublishedPromotion;
+          error?: { message?: string };
+        } | null;
+        if (res.ok && json?.promotion) {
+          // Keep the offer as the server priced it, not the client's copy (QA-20).
+          const saved = json.promotion;
           setEditingPromo(null);
           setActivePromotions((prev) => {
-            const idx = prev.findIndex((p) => p.id === promo.id);
+            const idx = prev.findIndex((p) => p.id === saved.id);
             if (idx >= 0) {
               const updated = [...prev];
-              updated[idx] = promo as PublishedPromotion;
+              updated[idx] = saved;
               return updated;
             }
-            return [...prev, promo as PublishedPromotion];
+            return [...prev, saved];
           });
           window.dispatchEvent(new CustomEvent("hesba_promotions_updated"));
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -932,7 +1038,8 @@ export function SalesView() {
         } else {
           if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
           setActiveToast({
-            msg: "تعذر حفظ التعديلات، حاول مرة أخرى",
+            // The server's reason (e.g. the price is not below the original), QA-20.
+            msg: json?.error?.message || "تعذر حفظ التعديلات، حاول مرة أخرى",
             type: "error",
           });
           toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
@@ -1003,11 +1110,12 @@ export function SalesView() {
                 amount: formatMoney(amountPiasters),
               }),
           "success",
+          { id: outcome.recorded.id, name: item.name },
         );
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
         void Promise.all([
-          fetch("/api/stock?view=all")
+          apiGet("/api/stock")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
@@ -1053,8 +1161,87 @@ export function SalesView() {
     }
   };
 
+  /**
+   * Adds one unit (1 kg for a weighed product) of a stocked product to the invoice draft.
+   * Services and sandwiches are sold on their own. The server prices and checks the stock at
+   * checkout; here the quantity is only capped at the shown stock.
+   */
+  const addToCart = (item: DisplaySaleItem, units?: number): boolean => {
+    if (item.isService || item.isSandwich || !item.variantId) {
+      showToast(
+        t("invoice.cartServiceNotAllowed", { name: item.name }),
+        "error",
+      );
+      return false;
+    }
+    const variantId = item.variantId;
+    const weighed = item.unit === "kg" || item.unit === "g";
+    const step = units ?? (weighed ? Math.min(1000, item.currentStockBase) : 1);
+    if (step <= 0) {
+      showToast(`«${item.name}» خلصان`, "error");
+      return false;
+    }
+    if (creditCustomer) {
+      showToast(
+        t("credit.added", { customer: creditCustomer.name, name: item.name }),
+        "success",
+      );
+    }
+    setCartLines((prev) => {
+      const found = prev.find((l) => l.variantId === variantId);
+      if (found) {
+        return prev.map((l) =>
+          l.variantId === variantId
+            ? {
+                ...l,
+                quantityBase: Math.min(
+                  l.quantityBase + step,
+                  item.currentStockBase,
+                ),
+              }
+            : l,
+        );
+      }
+      return [
+        ...prev,
+        {
+          variantId,
+          name: item.name,
+          unit: item.unit ?? "piece",
+          quantityBase: step,
+          sellPricePiasters: item.sellPricePiasters,
+          stockBase: item.currentStockBase,
+        },
+      ];
+    });
+    return true;
+  };
+
+  /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
+  const startCreditSale = (customer: CreditCustomer) => {
+    setCreditCustomer(customer);
+    setCreditFormOpen(false);
+    setCartMode(true);
+    setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
+    showToast(t("credit.started", { name: customer.name }), "success");
+  };
+
+  /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
+  const cancelCreditSale = () => {
+    setCreditCustomer(null);
+    setCartLines([]);
+    setCartMode(false);
+    setCartOpen(false);
+    setCartDraft(EMPTY_CART_DRAFT);
+  };
+
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
+    // QA-31: in cart mode a stocked product goes into the cart; the server prices it at checkout.
+    if (cartMode) {
+      addToCart(item);
+      return;
+    }
     // 0. Sandwich: the server checks and deducts the ingredients
     if (item.isSandwich) {
       const outcome = await handleSellSandwich(item);
@@ -1169,6 +1356,18 @@ export function SalesView() {
     e.stopPropagation();
     const packQty = item.packQty || 1;
     const packLabel = getPackLabel(item.packName, item.packQty);
+    // In an invoice (credit or not) a whole pack joins the draft as its pieces.
+    if (cartMode) {
+      if (item.currentStockBase < packQty) {
+        showToast(
+          `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
+          "error",
+        );
+        return;
+      }
+      addToCart(item, packQty);
+      return;
+    }
 
     if (item.currentStockBase < packQty) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1317,8 +1516,10 @@ export function SalesView() {
         <div className={styles.sBar}>
           <div className={styles.sTotal} data-testid="today-sales-pill">
             <span className={styles.sTotalLabel}>مبيعات النهارده</span>
-            <b className={styles.sTotalAmount}>
-              {formatMoney(todayTotalPiasters)}
+            <b className={styles.sTotalAmount} data-testid="today-sales-total">
+              {todayTotalPiasters === null
+                ? "—"
+                : formatMoney(todayTotalPiasters)}
             </b>
           </div>
 
@@ -1334,81 +1535,62 @@ export function SalesView() {
           </div>
         </div>
 
-        {/* Promotional Offers from Expiry Alerts */}
-        {activePromotions.length > 0 && (
-          <div className={styles.promoSection}>
-            <div className={styles.promoHeader}>
-              <div className={styles.promoTitle}>
-                <Icon n="sparkle" s={16} />
-                <span>
-                  عروض التوفير وتصفية الصلاحية ({activePromotions.length})
-                </span>
-              </div>
-              <span className={styles.promoBadgeNotice}>اضغط لبيع العرض</span>
-            </div>
-            <div className={styles.promoGrid}>
-              {activePromotions.map((promo) => (
-                <div
-                  key={promo.id}
-                  className={styles.promoCard}
-                  onClick={() => void handleSellPromotion(promo)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      void handleSellPromotion(promo);
-                    }
-                  }}
-                >
-                  <div className={styles.promoCardTopRow}>
-                    <div className={styles.promoTag}>
-                      {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
-                    </div>
-                    <div className={styles.promoCardActions}>
-                      <button
-                        type="button"
-                        className={styles.promoActionBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingPromo(promo);
-                        }}
-                        title="تعديل تفاصيل العرض"
-                      >
-                        <Icon n="edit" s={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.promoActionBtn} ${styles.promoActionDeleteBtn}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDeletePromotion(promo.id);
-                        }}
-                        title="حذف العرض من البيع"
-                      >
-                        <Icon n="trash" s={13} />
-                      </button>
-                    </div>
-                  </div>
-                  <span className={styles.promoCardTitle}>{promo.title}</span>
-                  <span className={styles.promoCardDesc}>
-                    {promo.description}
-                  </span>
-                  <div className={styles.promoCardPricing}>
-                    <span className={styles.promoPrice}>
-                      {formatMoney(promo.promoPricePiasters)}
-                    </span>
-                    <span className={styles.promoOriginalPrice}>
-                      {formatMoney(promo.originalPricePiasters)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Offers and the multi-item invoice: two small controls, opened in sheets */}
+        <div className={styles.salesTools}>
+          {activePromotions.length > 0 && (
+            <Button
+              kind="ghost"
+              size="sm"
+              icon="sparkle"
+              data-testid="promos-toggle"
+              onClick={() => setPromosOpen(true)}
+            >
+              {t("invoice.promos")} ({activePromotions.length})
+            </Button>
+          )}
+          {!creditCustomer && (
+            <Button
+              kind={cartMode ? "primary" : "ghost"}
+              size="sm"
+              icon="plus"
+              data-testid="cart-toggle"
+              aria-pressed={cartMode}
+              onClick={() => setCartMode((v) => !v)}
+            >
+              {t("invoice.cartToggle")}
+              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            </Button>
+          )}
+          {/* The credit-sale entry point: the customer first, then the items */}
+          <Button
+            kind={creditCustomer ? "primary" : "ghost"}
+            size="sm"
+            icon="users"
+            data-testid="credit-start"
+            aria-pressed={!!creditCustomer}
+            onClick={() =>
+              creditCustomer ? setCartOpen(true) : setCreditFormOpen(true)
+            }
+          >
+            {creditCustomer
+              ? t("credit.sessionLabel", { name: creditCustomer.name })
+              : t("credit.start")}
+          </Button>
+        </div>
 
         {/* Product & Services Tiles Grid matching Image 1 */}
-        {filteredItems.length === 0 ? (
+        {!tilesLoaded && displayItems.length === 0 ? (
+          <div
+            className={styles.tgrid}
+            role="status"
+            aria-label={t("common.loading")}
+            data-testid="sales-tiles-loading"
+          >
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} height={96} radius={16} />
+            ))}
+          </div>
+        ) : filteredItems.length === 0 ? (
           <div className={viewStyles.card}>
             <Empty
               icon="search"
@@ -1475,23 +1657,61 @@ export function SalesView() {
                     <span className={styles.tS}>{formatStockText(item)}</span>
                   </button>
 
-                  {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
+                  {/* Credit sales start from «آجل» above the grid, never from a card. */}
                   {hasCartonBtn && (
-                    <button
-                      type="button"
-                      className={styles.tPack}
-                      onClick={(e) => handleSellCarton(e, item)}
-                      title={`بيع ${getPackLabel(item.packName, item.packQty)} (${item.packQty} قطعة)`}
-                      aria-label={`بيع ${getPackLabel(item.packName, item.packQty)} ${item.name}`}
-                    >
-                      <Icon n="box" s={16} />
-                      <span>{getPackLabel(item.packName, item.packQty)}</span>
-                    </button>
+                    <div className={styles.tActions}>
+                      {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
+                      {hasCartonBtn && (
+                        <button
+                          type="button"
+                          className={styles.tPack}
+                          onClick={(e) => handleSellCarton(e, item)}
+                          title={`بيع ${getPackLabel(item.packName, item.packQty)} (${item.packQty} قطعة)`}
+                          aria-label={`بيع ${getPackLabel(item.packName, item.packQty)} ${item.name}`}
+                        >
+                          <Icon n="box" s={16} />
+                          <span>
+                            {getPackLabel(item.packName, item.packQty)}
+                          </span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
+        )}
+
+        {/* QA-31 invoice: a small summary that opens the invoice sheet */}
+        {(cartMode || cartLines.length > 0) && (
+          <button
+            type="button"
+            className={styles.cartSummary}
+            data-testid="cart-summary"
+            aria-label={t("invoice.cartOpen")}
+            onClick={() => setCartOpen(true)}
+          >
+            <Icon n="list" s={16} />
+            <span>
+              {creditCustomer ? `${t("credit.start")} · ` : ""}
+              {t("invoice.cartSummary", {
+                count: cartLines.length,
+                total: formatMoney(
+                  cartLines.reduce(
+                    (sum, l) =>
+                      sum +
+                      saleLineTotalPiasters(
+                        l.unit,
+                        l.sellPricePiasters,
+                        l.quantityBase,
+                      ),
+                    0,
+                  ),
+                ),
+              })}
+            </span>
+          </button>
         )}
 
         {/* Recent Sales List matching Image 3 */}
@@ -1584,12 +1804,12 @@ export function SalesView() {
                 آخر البيعات
               </h3>
               <span style={{ fontSize: 12, color: "var(--ink2)" }}>
-                {todaySales.length === 0
+                {todayActiveCount === 0
                   ? "مفيش بيعات اتسجلت لسه"
-                  : `${todaySales.length} ${todaySales.length === 1 ? "عملية بيع اليوم" : "عمليات بيع اليوم"}`}
+                  : `${todayActiveCount} ${todayActiveCount === 1 ? "عملية بيع اليوم" : "عمليات بيع اليوم"}`}
               </span>
             </div>
-            {todaySales.length > 0 && (
+            {todayTotalPiasters !== null && todayActiveCount > 0 && (
               <div style={{ textAlign: "left" }}>
                 <span
                   style={{
@@ -1613,7 +1833,31 @@ export function SalesView() {
             )}
           </div>
 
-          {todaySales.length === 0 ? (
+          {salesLoadFailed && (
+            <div className={styles.salesLoadError} role="alert">
+              <span>{t("sale.listFailed")}</span>
+              <button
+                type="button"
+                className={styles.queueBtn}
+                onClick={() => void reloadSales()}
+              >
+                {t("sale.listRetry")}
+              </button>
+            </div>
+          )}
+          {salesOverview === null ? (
+            !salesLoadFailed && (
+              <div
+                style={{
+                  color: "var(--ink2)",
+                  fontSize: 13.5,
+                  padding: "10px 2px",
+                }}
+              >
+                {t("common.loading")}
+              </div>
+            )
+          ) : todaySales.length === 0 ? (
             <div
               style={{
                 color: "var(--ink2)",
@@ -1627,10 +1871,23 @@ export function SalesView() {
             <div
               className={styles.recentList}
               style={{ maxHeight: 380, overflowY: "auto" }}
+              data-testid="recent-sales"
             >
               {todaySales.map((sale) => (
-                <div key={sale.id} className={styles.rcRow}>
-                  <span className={styles.rcName}>{sale.name}</span>
+                <div
+                  key={sale.id}
+                  className={`${styles.rcRow} ${sale.voided ? styles.rcVoided : ""}`}
+                  data-testid="recent-sale-row"
+                  data-voided={sale.voided ? "true" : "false"}
+                >
+                  <span className={styles.rcName}>
+                    {sale.name}
+                    {sale.voided && (
+                      <small className={styles.rcVoidBadge}>
+                        {t("sale.voidedBadge")}
+                      </small>
+                    )}
+                  </span>
                   <div className={styles.rcMeta}>
                     <span className={styles.rcTime}>
                       {formatCairoTime(sale.timestamp)}
@@ -1638,6 +1895,17 @@ export function SalesView() {
                     <b className={styles.rcAmount}>
                       {formatMoney(sale.amountPiasters)}
                     </b>
+                    {!sale.voided && (
+                      <button
+                        type="button"
+                        className={styles.rcDetails}
+                        data-testid="sale-details"
+                        aria-label={`${t("invoice.details")} ${sale.name}`}
+                        onClick={() => setDetailsSaleId(sale.id)}
+                      >
+                        {t("invoice.details")}
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -1645,6 +1913,21 @@ export function SalesView() {
           )}
         </div>
       </div>
+
+      {detailsSaleId && (
+        <SaleInvoiceModal
+          saleId={detailsSaleId}
+          onClose={() => setDetailsSaleId(null)}
+          onChanged={(message) => {
+            showToast(message, "success");
+            void reloadSales();
+            void apiGet("/api/stock")
+              .then((r) => (r.ok ? r.json() : null))
+              .then((d) => d?.inventory && setInventory(d.inventory))
+              .catch(() => undefined);
+          }}
+        />
+      )}
 
       {/* Weight Modal Popup matching Image 2 */}
       {weightModalItem && (
@@ -1962,6 +2245,136 @@ export function SalesView() {
         </>
       )}
 
+      {/* Credit sale: who is the customer? */}
+      {creditFormOpen && (
+        <CreditCustomerForm
+          onClose={() => setCreditFormOpen(false)}
+          onChosen={startCreditSale}
+        />
+      )}
+
+      {/* The invoice (cart) sheet */}
+      {cartOpen && (
+        <Modal
+          title={t("invoice.cartTitle")}
+          onClose={() => setCartOpen(false)}
+        >
+          <CartSheet
+            lines={cartLines}
+            onChange={setCartLines}
+            draft={cartDraft}
+            onDraftChange={setCartDraft}
+            opIdRef={cartOpIdRef}
+            creditCustomer={creditCustomer}
+            onCancelCredit={cancelCreditSale}
+            onDone={(invoice) => {
+              const credited = creditCustomer;
+              setCartLines([]);
+              setCartMode(false);
+              setCartOpen(false);
+              setCartDraft(EMPTY_CART_DRAFT);
+              setCreditCustomer(null);
+              showToast(
+                credited
+                  ? t("credit.done", {
+                      name: credited.name,
+                      total: formatMoney(invoice.totalPiasters),
+                    })
+                  : t("invoice.checkoutDone", {
+                      total: formatMoney(invoice.totalPiasters),
+                    }),
+                "success",
+              );
+              // A credit sale: straight to People → «ليك», where the new balance shows.
+              if (credited && onNavigate) {
+                onNavigate("people");
+                return;
+              }
+              void reloadSales();
+              void apiGet("/api/stock")
+                .then((r) => (r.ok ? r.json() : null))
+                .then((d) => d?.inventory && setInventory(d.inventory))
+                .catch(() => undefined);
+            }}
+          />
+        </Modal>
+      )}
+
+      {/* Offers sheet: sell, edit or remove an offer */}
+      {promosOpen && activePromotions.length > 0 && (
+        <Modal
+          title={t("invoice.promosTitle")}
+          onClose={() => setPromosOpen(false)}
+        >
+          <p className={styles.promoBadgeNotice}>{t("invoice.promosHint")}</p>
+          <div className={styles.promoGrid} data-testid="promos-sheet">
+            {activePromotions.map((promo) => (
+              <div
+                key={promo.id}
+                className={styles.promoCard}
+                onClick={() => {
+                  setPromosOpen(false);
+                  void handleSellPromotion(promo);
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    setPromosOpen(false);
+                    void handleSellPromotion(promo);
+                  }
+                }}
+              >
+                <div className={styles.promoCardTopRow}>
+                  <div className={styles.promoTag}>
+                    {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
+                  </div>
+                  <div className={styles.promoCardActions}>
+                    <button
+                      type="button"
+                      className={styles.promoActionBtn}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPromosOpen(false);
+                        setEditingPromo(promo);
+                      }}
+                      title="تعديل تفاصيل العرض"
+                      aria-label={`تعديل العرض ${promo.title}`}
+                    >
+                      <Icon n="edit" s={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.promoActionBtn} ${styles.promoActionDeleteBtn}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeletePromotion(promo.id);
+                      }}
+                      title="حذف العرض من البيع"
+                      aria-label={`حذف العرض ${promo.title}`}
+                    >
+                      <Icon n="trash" s={13} />
+                    </button>
+                  </div>
+                </div>
+                <span className={styles.promoCardTitle}>{promo.title}</span>
+                <span className={styles.promoCardDesc}>
+                  {promo.description}
+                </span>
+                <div className={styles.promoCardPricing}>
+                  <span className={styles.promoPrice}>
+                    {formatMoney(promo.promoPricePiasters)}
+                  </span>
+                  <span className={styles.promoOriginalPrice}>
+                    {formatMoney(promo.originalPricePiasters)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
+      )}
+
       {/* Edit Promotion Modal in SalesView */}
       {editingPromo && (
         <EditPromoModal
@@ -2029,6 +2442,25 @@ export function SalesView() {
             />
             <span>{activeToast.msg}</span>
           </div>
+          {activeToast.undoSale && (
+            <button
+              type="button"
+              className={styles.toastUndoBtn}
+              data-testid="sale-undo"
+              disabled={voidingSaleId !== null}
+              onClick={() => {
+                const target = activeToast.undoSale;
+                if (target) void handleUndoSale(target);
+              }}
+            >
+              <Icon n="undo" s={14} />
+              <span>
+                {voidingSaleId === activeToast.undoSale.id
+                  ? t("sale.voiding")
+                  : t("sale.undo")}
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>

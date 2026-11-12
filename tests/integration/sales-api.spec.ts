@@ -37,10 +37,11 @@ describe("QA-01 — atomic ordinary sale", () => {
       expect(res.status).toBe(200);
       const data = res.json.data as Record<string, unknown>;
       expect(data).toMatchObject({
-        id: saleId,
         totalPiasters: 3750,
         duplicate: false,
       });
+      // The server chooses the sale id; a client id is ignored (QA-56).
+      expect(data.id).not.toBe(saleId);
       expect(data.lines).toEqual([
         {
           productId: cola.productId,
@@ -51,7 +52,7 @@ describe("QA-01 — atomic ordinary sale", () => {
         },
       ]);
 
-      const [sale] = (await f.salesOf(A)).filter((s) => s.id === saleId);
+      const [sale] = (await f.salesOf(A)).filter((s) => s.id === data.id);
       expect(Number(sale!.totalPiasters)).toBe(3750);
       expect(Math.abs(sale!.createdAt.getTime() - Date.now())).toBeLessThan(
         60_000,
@@ -86,9 +87,11 @@ describe("QA-01 — atomic ordinary sale", () => {
       expect(state.batches).toEqual([0, 4]);
       expect(state.level).toBe(4);
       const moves = state.movements.filter((m) => m.type === "sale");
-      // The second sale drew 1 from the early batch and 2 from the late one.
-      expect(moves.slice(-2).map((m) => m.quantity)).toEqual([-1, -2]);
-      expect(moves.slice(-1)[0]!.balanceAfter).toBe(4);
+      // The second sale drew 1 from the early batch and 2 from the late one (state.batches
+      // above proves the FEFO order; the two movements share a timestamp, so compare as a set).
+      const last = moves.slice(-2);
+      expect(last.map((m) => m.quantity).sort()).toEqual([-1, -2].sort());
+      expect(Math.min(...last.map((m) => m.balanceAfter))).toBe(4);
     });
 
     it("lists the sale in GET /api/sales with the server total", async () => {
@@ -541,21 +544,12 @@ describe("QA-01 — atomic ordinary sale", () => {
     });
   });
 
-  // Undo is out of scope (audit QA-10): sales are append-only, so a hard delete is refused.
-  describe("undo (unchanged)", () => {
-    it("DELETE is refused by the append-only grants and the sale survives", async () => {
-      const p = await f.product(A, { name: "تراجع", sell: 100 });
-      await f.addStock(A, p.variantId, 2);
-      const sale = await f.sell(A, p.variantId, 1);
-      const id = (sale.json.data as { id: string }).id;
-      const res = await f.request(A, "DELETE", undefined, `?id=${id}`);
-      expect(res.status).toBe(500);
-      expect((await f.salesOf(A)).some((s) => s.id === id)).toBe(true);
-    });
-
-    it("DELETE without an id is a 400", async () => {
-      const res = await f.request(A, "DELETE");
-      expect(res.status).toBe(400);
+  // Undo is a reversing void (ADR-0022, QA-10), covered by `sales-void.spec.ts`. Sales are
+  // append-only: there is no hard delete to call.
+  describe("no hard delete", () => {
+    it("the sales route exports no DELETE handler", async () => {
+      const route = await import("@/app/api/sales/route");
+      expect("DELETE" in route).toBe(false);
     });
   });
 });

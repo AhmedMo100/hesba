@@ -36,7 +36,11 @@ async function signup(api: APIRequestContext, tag: string): Promise<string> {
     },
   });
   expect(res.ok()).toBe(true);
-  return (await res.json()).data.sessionToken as string;
+  // The token is only in the HttpOnly cookie (QA-40), never in the body.
+  const cookie = res.headers()["set-cookie"] ?? "";
+  const token = /hesba_session=([^;]+)/.exec(cookie)?.[1];
+  expect(token).toBeTruthy();
+  return token!;
 }
 
 async function product(
@@ -216,13 +220,15 @@ test.describe("Offline sales (outbox)", () => {
     // ---- 7. Two tabs sync at the same time: still one sale ------------------------------
     const page3 = await context.newPage();
     await openSales(page3);
-    await Promise.all([
-      page2.getByTestId("sale-queue-sync").click(),
-      page3
+    // Opening a tab syncs waiting sales by itself, so the queue (and its "sync now" button)
+    // may already be gone when the clicks arrive: the clicks are best-effort, and the checks
+    // below — one sale, stock taken once, both queues empty — are what this step proves.
+    const syncNow = (p: typeof page2) =>
+      p
         .getByTestId("sale-queue-sync")
-        .click()
-        .catch(() => undefined),
-    ]);
+        .click({ timeout: 5_000 })
+        .catch(() => undefined);
+    await Promise.all([syncNow(page2), syncNow(page3)]);
     await expect(rows2).toHaveCount(0, SERVER);
     await expect(page3.getByTestId("sale-queue-row")).toHaveCount(0, SERVER);
     expect(await serverSales(api, colaName)).toBe(5);

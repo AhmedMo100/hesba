@@ -258,7 +258,7 @@ describe("ProductFormModal Component", () => {
 });
 
 describe("AddStockModal Component", () => {
-  it("renders quantity mode choice (carton/piece vs weight) and total purchase cost input", () => {
+  it("shows the product's unit (no unit choice) and the total purchase cost input", () => {
     const sampleProduct = {
       id: "prod-sample",
       name_ar: "بيبسي 1 لتر",
@@ -286,16 +286,12 @@ describe("AddStockModal Component", () => {
     );
 
     expect(html).toContain("إضافة للمخزون: بيبسي 1 لتر");
-    expect(html).toContain("طريقة البيع والكمية المدخلة:");
-    expect(html).toContain("قطعة");
-    expect(html).toContain("علبة");
-    expect(html).toContain("برطمان");
-    expect(html).toContain("كيس");
-    expect(html).toContain("كرتونة");
-    expect(html).toContain("وزن");
-    expect(html).toContain("كراتين");
+    expect(html).not.toContain("طريقة البيع والكمية المدخلة:");
+    expect(html).toContain("بـقطعة");
+    expect(html).toContain("الكرتونة 12 قطعة");
+    expect(html).toContain("عدد الكراتين");
     expect(html).toContain("قطع زيادة");
-    expect(html).toContain("قطع/كرتونة");
+    expect(html).not.toContain("قطع/كرتونة");
     expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
     expect(html).toContain("تاريخ الإنتاج / البداية (اختياري)");
     expect(html).toContain("تاريخ الانتهاء");
@@ -340,7 +336,7 @@ describe("AddStockModal Component", () => {
     expect(html).toContain("إضافة ✓");
   });
 
-  it("renders bag-specific labels when adding stock for a product sold in bags", () => {
+  it("uses bag labels for a product sold in bags (from the product, not chosen)", () => {
     const bagProduct = {
       id: "prod-bag-stock",
       name_ar: "سكر الأسرة 1 كجم",
@@ -369,7 +365,8 @@ describe("AddStockModal Component", () => {
     );
 
     expect(html).toContain("أكياس زيادة");
-    expect(html).toContain("أكياس/كرتونة");
+    expect(html).toContain("بـكيس");
+    expect(html).not.toContain("أكياس/كرتونة");
   });
 });
 
