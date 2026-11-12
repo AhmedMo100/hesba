@@ -6,7 +6,8 @@ import { test, expect, type APIRequestContext } from "@playwright/test";
  *      and the stock went down once; after a reload the sale is still listed.
  *   B. Another device sold the last piece while this screen still shows stock → the tap is
  *      rejected (409): an error toast, no sale in the list, nothing deducted.
- *   C. Offline → the tap is refused with an error, nothing is recorded.
+ *   C. Offline → the sale is queued and shown as waiting (never as done), nothing reaches
+ *      the server; back online it is recorded once (ADR-0020, QA-04).
  *   D. Two fast taps with one piece left → exactly one sale, stock 0, never negative.
  *
  * Needs a server whose database is safe to write to (the test signs up a new store).
@@ -133,13 +134,13 @@ test.describe("Atomic sale on the sales screen", () => {
     expect(await salesOf(api, name)).toHaveLength(2); // A + the other device, no third
     await expect(recent.getByText(name)).toHaveCount(1); // the rejected tap added nothing
 
-    // ---- C. Offline -------------------------------------------------------------------
+    // ---- C. Offline: queued and shown as waiting, recorded once when back online --------
     await api.post("/api/stock", {
       data: {
         action: "add",
         storeVariantId: variantId,
-        quantityBase: 1,
-        costPricePiasters: 900,
+        quantityBase: 2,
+        costPricePiasters: 1800,
       },
     });
     await page.reload();
@@ -147,20 +148,28 @@ test.describe("Atomic sale on the sales screen", () => {
     const postsBeforeOffline = salePosts.length;
     await page.context().setOffline(true);
     await tile.click();
-    await expect(page.getByText("البيع محتاج إنترنت")).toBeVisible(SERVER);
-    await page.context().setOffline(false);
+    await expect(page.getByTestId("sale-toast")).toHaveAttribute(
+      "data-kind",
+      "pending",
+    );
+    await expect(page.getByTestId("sale-queue-row")).toHaveCount(1);
+    await expect(page.getByText(`تم تسجيل بيع: ${name}`)).toHaveCount(0);
     expect(salePosts.length).toBe(postsBeforeOffline);
+    expect(await stockOf(api, variantId)).toBe(2);
+    await page.context().setOffline(false); // "online" starts the sync
+    await expect(page.getByTestId("sale-queue-row")).toHaveCount(0, SERVER);
+    expect(salePosts.slice(postsBeforeOffline)).toEqual([200]);
     expect(await stockOf(api, variantId)).toBe(1);
-    expect(await salesOf(api, name)).toHaveLength(2);
+    expect(await salesOf(api, name)).toHaveLength(3);
 
     // ---- D. Two fast taps on the last piece -------------------------------------------
     await tile.click();
     await tile.click({ force: true });
     await expect
       .poll(() => salePosts.length, SERVER)
-      .toBe(postsBeforeOffline + 2);
+      .toBe(postsBeforeOffline + 3);
     expect(salePosts.slice(-2).sort()).toEqual([200, 409]);
     expect(await stockOf(api, variantId)).toBe(0);
-    expect(await salesOf(api, name)).toHaveLength(3);
+    expect(await salesOf(api, name)).toHaveLength(4);
   });
 });

@@ -346,27 +346,6 @@
   border-radius: 6px;
 }
 
-.rowEditBtn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border-radius: 7px;
-  border: 1px solid var(--line);
-  background: var(--sf2, #fbf7ef);
-  color: var(--ink2);
-  cursor: pointer;
-  transition: all 0.15s ease;
-  margin-right: 4px;
-}
-
-.rowEditBtn:hover {
-  background: var(--br, #5a7d5a);
-  color: #fff;
-  border-color: var(--br, #5a7d5a);
-}
-
 /* Tab 2: Movements Log matching Image 7 */
 .summaryRow {
   display: flex;

@@ -13,13 +13,200 @@ import "server-only";
  * `src/app/api/machines/{route,topup,adjust,deduct}/route.ts`.
  *
  * @remarks
- * The balance is a stored column updated read-then-write inside `withTenant`. Money is integer
- * piasters. There is no idempotency key on balance operations.
+ * Money safety (ADR-0020, audit QA-03):
+ * - Every balance change goes through `changeMachineBalanceInTx`: it locks the machine row
+ *   (`SELECT … FOR UPDATE`), computes the new balance from the LOCKED value, and writes the
+ *   ledger row and the new balance in the same transaction. Concurrent operations on one
+ *   machine run one after the other, so none is lost.
+ * - An operation may carry an `opId`; the same `opId` is applied at most once per store
+ *   (unique `(store_id, op_id)` on the ledger, checked after the lock).
+ * - A balance never goes below zero (rejected with 400; also a database check).
+ * - A service sale deducts the machine inside the sale transaction (`modules/sales`).
+ * Money is integer piasters.
  */
 
+import { Prisma } from "@prisma/client";
 import { type DatabaseInstance } from "@/server/infra/db/client";
-import { withTenant } from "@/server/infra/db/tenant";
+import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+
+/** A balance change: add/subtract an amount, or set an exact balance (reconciliation). */
+export type BalanceChange =
+  | { kind: "delta"; amountPiasters: number }
+  | { kind: "set"; targetPiasters: number };
+
+export interface BalanceOperationMeta {
+  opId?: string | null;
+  source?: string | null;
+  reference?: string | null;
+  notes?: string | null;
+}
+
+export interface MachineBalanceResult {
+  machineId: string;
+  machineName: string;
+  balanceBeforePiasters: number;
+  balanceAfterPiasters: number;
+  /** The signed amount recorded in the ledger. */
+  amountPiasters: number;
+  ledgerId: string;
+  /** True when this `opId` was already applied: nothing changed this time. */
+  duplicate: boolean;
+}
+
+const MONEY_LIMIT = BigInt(Number.MAX_SAFE_INTEGER);
+
+function formatEgp(piasters: bigint): string {
+  return (Number(piasters) / 100).toFixed(2);
+}
+
+/**
+ * Applies one balance change to a machine inside the caller's tenant transaction (ADR-0020):
+ * 1. locks the machine row (`FOR UPDATE`) — a concurrent operation waits here;
+ * 2. returns the earlier result when `opId` was already applied (after the lock, so a
+ *    concurrent retry sees the first attempt's committed row);
+ * 3. rejects a resulting balance below zero (400) — nothing is written;
+ * 4. writes the ledger row and the new balance, both computed from the locked balance.
+ *
+ * @throws AppError 404 (no such machine in this store, or deleted), 400 (insufficient
+ *   balance / invalid amount), 409 (the `opId` belongs to an operation on another machine).
+ */
+export async function changeMachineBalanceInTx(
+  tx: TenantTx,
+  storeId: string,
+  machineId: string,
+  change: BalanceChange,
+  meta: BalanceOperationMeta = {},
+): Promise<MachineBalanceResult> {
+  const amount =
+    change.kind === "delta" ? change.amountPiasters : change.targetPiasters;
+  if (!Number.isSafeInteger(amount)) {
+    throw AppError.badRequest("المبلغ لازم يكون بالقروش (رقم صحيح)");
+  }
+
+  const rows = await tx.$queryRaw<
+    Array<{ id: string; name: string; current_balance_piasters: bigint }>
+  >`SELECT id::text AS id, name, current_balance_piasters
+      FROM pos_machines
+     WHERE id = ${machineId}::uuid
+       AND store_id = ${storeId}::uuid
+       AND deleted_at IS NULL
+       FOR UPDATE`;
+  const machine = rows[0];
+  if (!machine) {
+    throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
+  }
+  const before = BigInt(machine.current_balance_piasters);
+
+  if (meta.opId) {
+    const existing = await tx.posMachineTopup.findFirst({
+      where: { storeId, opId: meta.opId },
+    });
+    if (existing) {
+      if (existing.machineId !== machineId) {
+        throw AppError.conflict("العملية دي اتسجلت قبل كده على ماكينة تانية");
+      }
+      return {
+        machineId,
+        machineName: machine.name,
+        balanceBeforePiasters: Number(
+          existing.balanceAfterPiasters - existing.amountPiasters,
+        ),
+        balanceAfterPiasters: Number(existing.balanceAfterPiasters),
+        amountPiasters: Number(existing.amountPiasters),
+        ledgerId: existing.id,
+        duplicate: true,
+      };
+    }
+  }
+
+  const delta =
+    change.kind === "delta"
+      ? BigInt(change.amountPiasters)
+      : BigInt(change.targetPiasters) - before;
+  if (change.kind === "delta" && delta === BigInt(0)) {
+    throw AppError.badRequest("المبلغ لازم يكون أكبر من صفر");
+  }
+  const after = before + delta;
+  if (after < BigInt(0)) {
+    throw AppError.badRequest(
+      change.kind === "set"
+        ? "رصيد الماكينة لا يمكن أن يكون سالباً"
+        : `رصيد ماكينة ${machine.name} غير كافٍ. المتاح: ${formatEgp(before)} ج.م والمطلوب: ${formatEgp(-delta)} ج.م`,
+    );
+  }
+  if (after > MONEY_LIMIT) {
+    throw AppError.badRequest("المبلغ كبير قوي");
+  }
+
+  const ledger = await tx.posMachineTopup.create({
+    data: {
+      storeId,
+      machineId,
+      amountPiasters: delta,
+      balanceAfterPiasters: after,
+      source:
+        meta.source?.trim() ||
+        (change.kind === "set"
+          ? delta >= BigInt(0)
+            ? "تصحيح رصيد (زيادة)"
+            : "تصحيح رصيد (تخفيض)"
+          : null),
+      reference: meta.reference?.trim() || null,
+      notes: meta.notes?.trim() || null,
+      opId: meta.opId ?? null,
+    },
+    select: { id: true },
+  });
+  await tx.posMachine.update({
+    where: { id: machineId },
+    data: { currentBalancePiasters: after },
+  });
+
+  return {
+    machineId,
+    machineName: machine.name,
+    balanceBeforePiasters: Number(before),
+    balanceAfterPiasters: Number(after),
+    amountPiasters: Number(delta),
+    ledgerId: ledger.id,
+    duplicate: false,
+  };
+}
+
+async function loadMachineDtoInTx(
+  tx: TenantTx,
+  storeId: string,
+  machineId: string,
+): Promise<PosMachineDto> {
+  const m = await tx.posMachine.findFirstOrThrow({
+    where: { id: machineId, storeId },
+    include: { topups: { orderBy: { createdAt: "desc" }, take: 20 } },
+  });
+  return {
+    id: m.id,
+    name: m.name,
+    provider: m.provider,
+    terminalId: m.terminalId,
+    status: m.status as "active" | "inactive" | "maintenance",
+    notes: m.notes,
+    currentBalancePiasters: Number(m.currentBalancePiasters),
+    balanceTransactions: m.topups.map((t) => ({
+      id: t.id,
+      type:
+        Number(t.amountPiasters) >= 0
+          ? ("deposit" as const)
+          : ("withdrawal" as const),
+      amountPiasters: Number(t.amountPiasters),
+      balanceAfterPiasters: Number(t.balanceAfterPiasters),
+      source: t.source,
+      reference: t.reference,
+      notes: t.notes,
+      createdAt: t.createdAt.toISOString(),
+    })),
+    createdAt: m.createdAt.toISOString(),
+  };
+}
 
 export interface PosMachineDto {
   id: string;
@@ -180,178 +367,43 @@ export class MachinesService {
   }
 
   /**
-   * Adds a topup / balance deposit to a POS machine.
+   * Adds a top-up (deposit) to a machine. Locked and idempotent by `opId` (ADR-0020).
    */
   async topupMachine(
     storeId: string,
     userId: string | null,
     machineId: string,
     amountPiasters: number,
-    params?: {
-      source?: string | null;
-      reference?: string | null;
-      notes?: string | null;
-    },
-  ): Promise<PosMachineDto> {
-    if (amountPiasters <= 0) {
-      throw AppError.badRequest("قيمة الشحن يجب أن تكون أكبر من صفر");
-    }
-
-    return await withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        const machine = await tx.posMachine.findFirst({
-          where: { id: machineId, storeId, deletedAt: null },
-        });
-
-        if (!machine) {
-          throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
-        }
-
-        const newBalance =
-          Number(machine.currentBalancePiasters) + amountPiasters;
-
-        await tx.posMachineTopup.create({
-          data: {
-            storeId,
-            machineId,
-            amountPiasters: BigInt(amountPiasters),
-            balanceAfterPiasters: BigInt(newBalance),
-            source: params?.source?.trim() || "إيداع رصيد ماكينة",
-            reference: params?.reference?.trim() || null,
-            notes: params?.notes?.trim() || null,
-          },
-        });
-
-        const updated = await tx.posMachine.update({
-          where: { id: machineId },
-          data: {
-            currentBalancePiasters: BigInt(newBalance),
-          },
-          include: {
-            topups: {
-              orderBy: { createdAt: "desc" },
-              take: 20,
-            },
-          },
-        });
-
-        return {
-          id: updated.id,
-          name: updated.name,
-          provider: updated.provider,
-          terminalId: updated.terminalId,
-          status: updated.status as "active" | "inactive" | "maintenance",
-          notes: updated.notes,
-          currentBalancePiasters: Number(updated.currentBalancePiasters),
-          balanceTransactions: updated.topups.map((t) => ({
-            id: t.id,
-            type: "deposit" as const,
-            amountPiasters: Number(t.amountPiasters),
-            balanceAfterPiasters: Number(t.balanceAfterPiasters),
-            source: t.source,
-            reference: t.reference,
-            notes: t.notes,
-            createdAt: t.createdAt.toISOString(),
-          })),
-          createdAt: updated.createdAt.toISOString(),
-        };
+    params?: BalanceOperationMeta,
+  ): Promise<PosMachineDto & { duplicate: boolean }> {
+    return this.runBalanceOperation(storeId, userId, machineId, {
+      change: { kind: "delta", amountPiasters },
+      meta: {
+        ...params,
+        source: params?.source?.trim() || "إيداع رصيد ماكينة",
       },
-      this.db,
-    );
+    });
   }
 
   /**
-   * Adjusts / sets the exact balance of a POS machine (correction / audit).
+   * Sets the exact balance of a machine (reconciliation). The ledger row records the
+   * difference from the locked current balance. Locked and idempotent by `opId`.
    */
   async adjustMachineBalance(
     storeId: string,
     userId: string | null,
     machineId: string,
     targetBalancePiasters: number,
-    params?: {
-      source?: string | null;
-      reason?: string | null;
-      reference?: string | null;
-      notes?: string | null;
-    },
-  ): Promise<PosMachineDto> {
-    if (targetBalancePiasters < 0) {
-      throw AppError.badRequest("رصيد الماكينة لا يمكن أن يكون سالباً");
-    }
-
-    return await withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        const machine = await tx.posMachine.findFirst({
-          where: { id: machineId, storeId, deletedAt: null },
-        });
-
-        if (!machine) {
-          throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
-        }
-
-        const currentBalance = Number(machine.currentBalancePiasters);
-        const delta = targetBalancePiasters - currentBalance;
-
-        await tx.posMachineTopup.create({
-          data: {
-            storeId,
-            machineId,
-            amountPiasters: BigInt(delta),
-            balanceAfterPiasters: BigInt(targetBalancePiasters),
-            source:
-              params?.source?.trim() ||
-              (delta >= 0 ? "تصحيح رصيد (زيادة)" : "تصحيح رصيد (تخفيض)"),
-            reference: params?.reference?.trim() || null,
-            notes:
-              params?.notes?.trim() ||
-              params?.reason?.trim() ||
-              "تعديل رصيد يدوي",
-          },
-        });
-
-        const updated = await tx.posMachine.update({
-          where: { id: machineId },
-          data: {
-            currentBalancePiasters: BigInt(targetBalancePiasters),
-          },
-          include: {
-            topups: {
-              orderBy: { createdAt: "desc" },
-              take: 20,
-            },
-          },
-        });
-
-        return {
-          id: updated.id,
-          name: updated.name,
-          provider: updated.provider,
-          terminalId: updated.terminalId,
-          status: updated.status as "active" | "inactive" | "maintenance",
-          notes: updated.notes,
-          currentBalancePiasters: Number(updated.currentBalancePiasters),
-          balanceTransactions: updated.topups.map((t) => ({
-            id: t.id,
-            type:
-              Number(t.amountPiasters) >= 0
-                ? ("deposit" as const)
-                : ("withdrawal" as const),
-            amountPiasters: Number(t.amountPiasters),
-            balanceAfterPiasters: Number(t.balanceAfterPiasters),
-            source: t.source,
-            reference: t.reference,
-            notes: t.notes,
-            createdAt: t.createdAt.toISOString(),
-          })),
-          createdAt: updated.createdAt.toISOString(),
-        };
+    params?: BalanceOperationMeta & { reason?: string | null },
+  ): Promise<PosMachineDto & { duplicate: boolean }> {
+    return this.runBalanceOperation(storeId, userId, machineId, {
+      change: { kind: "set", targetPiasters: targetBalancePiasters },
+      meta: {
+        ...params,
+        notes:
+          params?.notes?.trim() || params?.reason?.trim() || "تعديل رصيد يدوي",
       },
-      this.db,
-    );
+    });
   }
 
   /**
@@ -384,99 +436,61 @@ export class MachinesService {
   }
 
   /**
-   * Deducts balance from a POS machine upon executing a bill or service sale.
-   * Checks the balance and writes the history row and new balance in one tenant transaction
-   * (read-then-write: concurrent deductions are not serialized by a row lock).
+   * Deducts from a machine (a bill or service paid through it). Rejects an amount above the
+   * balance (no overdraft). Locked and idempotent by `opId` (ADR-0020).
    *
-   * @throws AppError (400) for a non-positive amount or insufficient balance; (404) when the
-   * machine does not exist or was deleted.
+   * @throws AppError 400 (insufficient balance), 404 (unknown or deleted machine).
    */
   async deductMachineBalance(
     storeId: string,
     userId: string | null,
     machineId: string,
     amountPiasters: number,
-    params?: {
-      source?: string | null;
-      reference?: string | null;
-      notes?: string | null;
-    },
-  ): Promise<PosMachineDto> {
-    if (amountPiasters <= 0) {
-      throw AppError.badRequest("قيمة الخصم يجب أن تكون أكبر من صفر");
-    }
+    params?: BalanceOperationMeta,
+  ): Promise<PosMachineDto & { duplicate: boolean }> {
+    return this.runBalanceOperation(storeId, userId, machineId, {
+      change: { kind: "delta", amountPiasters: -amountPiasters },
+      meta: {
+        ...params,
+        source: params?.source?.trim() || "تنفيذ عملية بيع خدمة / شحن",
+      },
+    });
+  }
 
-    return await withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        const machine = await tx.posMachine.findFirst({
-          where: { id: machineId, storeId, deletedAt: null },
-        });
-
-        if (!machine) {
-          throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها");
-        }
-
-        const currentBalance = Number(machine.currentBalancePiasters);
-        if (currentBalance < amountPiasters) {
-          throw AppError.badRequest(
-            `رصيد ماكينة ${machine.name} غير كافٍ. المتاح: ${(currentBalance / 100).toFixed(2)} ج.م والمطلوب: ${(amountPiasters / 100).toFixed(2)} ج.م`,
-          );
-        }
-
-        const newBalance = currentBalance - amountPiasters;
-
-        await tx.posMachineTopup.create({
-          data: {
+  private async runBalanceOperation(
+    storeId: string,
+    userId: string | null,
+    machineId: string,
+    op: { change: BalanceChange; meta: BalanceOperationMeta },
+  ): Promise<PosMachineDto & { duplicate: boolean }> {
+    try {
+      return await withTenant(
+        storeId,
+        userId,
+        async (tx) => {
+          const result = await changeMachineBalanceInTx(
+            tx,
             storeId,
             machineId,
-            amountPiasters: BigInt(-amountPiasters),
-            balanceAfterPiasters: BigInt(newBalance),
-            source: params?.source?.trim() || "تنفيذ عملية بيع خدمة / شحن",
-            reference: params?.reference?.trim() || null,
-            notes: params?.notes?.trim() || null,
-          },
-        });
-
-        const updated = await tx.posMachine.update({
-          where: { id: machineId },
-          data: {
-            currentBalancePiasters: BigInt(newBalance),
-          },
-          include: {
-            topups: {
-              orderBy: { createdAt: "desc" },
-              take: 20,
-            },
-          },
-        });
-
-        return {
-          id: updated.id,
-          name: updated.name,
-          provider: updated.provider,
-          terminalId: updated.terminalId,
-          status: updated.status as "active" | "inactive" | "maintenance",
-          notes: updated.notes,
-          currentBalancePiasters: Number(updated.currentBalancePiasters),
-          balanceTransactions: updated.topups.map((t) => ({
-            id: t.id,
-            type:
-              Number(t.amountPiasters) >= 0
-                ? ("deposit" as const)
-                : ("withdrawal" as const),
-            amountPiasters: Number(t.amountPiasters),
-            balanceAfterPiasters: Number(t.balanceAfterPiasters),
-            source: t.source,
-            reference: t.reference,
-            notes: t.notes,
-            createdAt: t.createdAt.toISOString(),
-          })),
-          createdAt: updated.createdAt.toISOString(),
-        };
-      },
-      this.db,
-    );
+            op.change,
+            op.meta,
+          );
+          const dto = await loadMachineDtoInTx(tx, storeId, machineId);
+          return { ...dto, duplicate: result.duplicate };
+        },
+        this.db,
+      );
+    } catch (err) {
+      // The same opId was committed by a concurrent request on another machine row: report
+      // a conflict instead of a 500 (on the same machine the lock already serializes them).
+      if (
+        op.meta.opId &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === "P2002"
+      ) {
+        throw AppError.conflict("العملية دي اتسجلت قبل كده");
+      }
+      throw err;
+    }
   }
 }

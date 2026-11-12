@@ -27,8 +27,10 @@ import { POST as sandwichesPost } from "@/app/api/sandwiches/route";
 import { GET as salesGet } from "@/app/api/sales/route";
 
 const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 type Json = Record<string, unknown>;
 
@@ -237,7 +239,7 @@ describe("Delete a shop-created product — safety and isolation", () => {
     await new InventoryService(appPrisma).addStockBatch(storeA, userA, {
       storeVariantId: p.variantId,
       receivedQuantityBase: 7,
-      costPriceMinor: 300,
+      costTotalMinor: 7 * 300, // unit cost × quantity: the batch stores the total (ADR-0021)
     });
 
     const res = await del(p.productId);

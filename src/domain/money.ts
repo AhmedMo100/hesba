@@ -148,3 +148,32 @@ export function parseEgpToPiasters(input: string | number): number {
 
   return integerPart * 100 + fractionalPart;
 }
+
+/**
+ * Strict pounds → piasters for API input (QA-22). One rule for every form: `50`, `"50"`,
+ * `"50.00"` and `"٥٠"` are all 50.00 EGP (5000 piasters); `"50.5"` is 50.50 EGP. Never rounds,
+ * truncates or guesses: a negative, NaN, Infinity, an empty string, more than 2 decimals or
+ * any other text returns null (the caller rejects it).
+ */
+export function parseEgpStrict(input: number | string): number | null {
+  let text: string;
+  if (typeof input === "number") {
+    if (!Number.isFinite(input) || input < 0) return null;
+    text = String(input); // e.g. 0.30000000000000004 → rejected (more than 2 decimals)
+  } else if (typeof input === "string") {
+    text = input
+      .trim()
+      .replace(/[٠-٩]/g, (d) => String(d.charCodeAt(0) - 0x0660))
+      .replace(/[۰-۹]/g, (d) => String(d.charCodeAt(0) - 0x06f0))
+      .replace(/٫/g, ".")
+      .replace(/[٬,]/g, "");
+  } else {
+    return null;
+  }
+  const m = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
+  if (!m) return null;
+  const whole = Number(m[1]);
+  const frac = Number((m[2] ?? "").padEnd(2, "0"));
+  const piasters = whole * 100 + frac;
+  return Number.isSafeInteger(piasters) ? piasters : null;
+}

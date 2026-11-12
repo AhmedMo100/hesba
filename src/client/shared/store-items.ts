@@ -25,6 +25,9 @@ export interface StoreProductItem {
   stock_quantity?: number;
   barcode?: string | null;
   brand_name?: string | null;
+  /** English catalog name and brand (QA-48), for English search. */
+  name_en?: string | null;
+  brand_name_en?: string | null;
   is_custom: boolean;
   added_by_this_store?: boolean;
   is_hidden?: boolean;
@@ -80,7 +83,10 @@ export interface StockInventoryItem {
     batchCode?: string | null;
     receivedQty: number;
     remainingQty: number;
-    costPricePiasters: number;
+    /** Unit cost per selling unit (per kg for weighed goods); null = unknown (ADR-0021). */
+    costPricePiasters: number | null;
+    /** What was paid for the whole batch; null = unknown. */
+    costTotalPiasters?: number | null;
     expiryDate?: string | null;
     isNearExpiry: boolean;
     receivedAt: string;

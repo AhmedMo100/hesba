@@ -35,9 +35,11 @@ export async function withTenant<T>(
 ): Promise<T> {
   return await customDb.$transaction(
     async (tx) => {
-      await tx.$executeRaw`SELECT set_config('app.store_id', ${storeId}, true)`;
+      // One statement for both settings: on Neon every round trip costs ~63 ms (QA-32).
       if (userId) {
-        await tx.$executeRaw`SELECT set_config('app.user_id', ${userId}, true)`;
+        await tx.$executeRaw`SELECT set_config('app.store_id', ${storeId}, true), set_config('app.user_id', ${userId}, true)`;
+      } else {
+        await tx.$executeRaw`SELECT set_config('app.store_id', ${storeId}, true)`;
       }
       return await fn(tx);
     },

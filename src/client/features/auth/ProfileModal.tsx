@@ -3,10 +3,21 @@
 import React, { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./ProfileModal.module.css";
-import { Modal, Button, Field, useToast, Alert } from "@/client/shared/ui";
+import {
+  Modal,
+  Button,
+  Field,
+  useToast,
+  Alert,
+  Chip,
+  Chips,
+  Icon,
+} from "@/client/shared/ui";
 import { useTranslation } from "@/client/shared/i18n";
 import { authApi } from "@/client/shared/api";
 import type { StoreProfile } from "@/client/shared/api";
+import { useAuth } from "@/client/shared/auth";
+import { MAX_PERSON_NAME_LENGTH } from "@/domain/limits";
 import {
   GOVERNORATES,
   SHOP_TYPES,
@@ -20,10 +31,19 @@ export interface ProfileModalProps {
   onProfileUpdated?: (profile: StoreProfile) => void;
 }
 
+/**
+ * The stored phone is canonical `+20…` (what login looks up); the form shows and validates
+ * the local `01…` form the owner types. The server normalizes it back (QA-11).
+ */
+function toLocalPhone(phone: string): string {
+  return phone.startsWith("+20") ? `0${phone.slice(3)}` : phone;
+}
+
 export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
   const router = useRouter();
   const { t } = useTranslation();
   const toast = useToast();
+  const { setSession } = useAuth();
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -45,7 +65,7 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
       if (session) {
         setProfile({
           ownerName: session.user.name,
-          phone: session.user.phone,
+          phone: toLocalPhone(session.user.phone),
           email: session.user.email,
           emailVerified: session.user.emailVerified ?? true,
           storeName: session.store.name,
@@ -69,6 +89,8 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
     const errs: Record<string, string> = {};
     if (profile.ownerName.trim().length < 2) {
       errs["owner"] = t("errors.writeName");
+    } else if (profile.ownerName.trim().length > MAX_PERSON_NAME_LENGTH) {
+      errs["owner"] = t("errors.nameTooLong", { max: MAX_PERSON_NAME_LENGTH });
     }
     if (!okPhone(profile.phone)) {
       errs["phone"] = t("errors.invalidPhone");
@@ -100,6 +122,11 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
         return;
       }
 
+      // Show what the server saved (e.g. the phone in its +20… form) everywhere the session
+      // is used, such as the header's store name (QA-11).
+      setProfile({ ...res.data, phone: toLocalPhone(res.data.phone) });
+      const refreshed = await authApi.getSession();
+      if (refreshed) setSession(refreshed);
       toast.show({ msg: t("profile.saveSuccess") });
       onProfileUpdated?.(res.data);
       onClose();
@@ -135,199 +162,194 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
   return (
     <Modal
       title={t("profile.title")}
-      onClose={onClose}
+      onClose={busy ? () => {} : onClose}
       footer={
         <>
-          <Button kind="ghost" onClick={onClose}>
+          <Button kind="ghost" onClick={onClose} disabled={busy}>
             {t("common.cancel")}
           </Button>
-          <Button icon="check" disabled={busy} onClick={handleSave}>
-            {t("common.save")}
+          <Button
+            icon="check"
+            disabled={busy}
+            busy={busy}
+            onClick={handleSave}
+            data-testid="profile-save"
+          >
+            {busy ? t("common.saving") : t("common.save")}
           </Button>
         </>
       }
     >
-      {serverError && (
-        <Alert kind="error" onClose={() => setServerError("")}>
-          {serverError}
-        </Alert>
-      )}
+      <div className={styles.form} data-testid="profile-form">
+        {serverError && (
+          <Alert kind="error" onClose={() => setServerError("")}>
+            {serverError}
+          </Alert>
+        )}
 
-      <div className={styles.secMini}>{t("profile.ownerSection")}</div>
-      <Field label={t("auth.ownerLabel")} err={fieldErrors["owner"]}>
-        <input
-          value={profile.ownerName}
-          onChange={(e) => update({ ownerName: e.target.value })}
-        />
-      </Field>
-
-      <div className={styles.row2}>
-        <Field label={t("auth.phoneLabel")} err={fieldErrors["phone"]}>
-          <input
-            dir="ltr"
-            className="ltr"
-            inputMode="tel"
-            value={profile.phone}
-            onChange={(e) => update({ phone: e.target.value })}
-          />
-        </Field>
-        <Field label={t("auth.emailLabel")} err={fieldErrors["email"]}>
-          <div style={{ position: "relative" }}>
+        <section className={styles.card}>
+          <h3 className={styles.cardTitle}>
+            <Icon n="users" s={17} />
+            {t("profile.ownerSection")}
+          </h3>
+          <Field label={t("auth.ownerLabel")} err={fieldErrors["owner"]}>
             <input
-              dir="ltr"
-              className="ltr"
-              inputMode="email"
-              value={profile.email}
-              onChange={(e) => update({ email: e.target.value })}
+              autoComplete="name"
+              value={profile.ownerName}
+              onChange={(e) => update({ ownerName: e.target.value })}
             />
-            <span
-              style={{
-                position: "absolute",
-                left: "8px",
-                top: "50%",
-                transform: "translateY(-50%)",
-                fontSize: "11px",
-                padding: "2px 6px",
-                borderRadius: "6px",
-                background: profile.emailVerified
-                  ? "color-mix(in srgb, var(--green, #2ecc71) 15%, var(--sf))"
-                  : "var(--sf2)",
-                color: profile.emailVerified
-                  ? "var(--green, #2ecc71)"
-                  : "var(--ink2)",
-              }}
+          </Field>
+          <div className={styles.row2}>
+            <Field label={t("auth.phoneLabel")} err={fieldErrors["phone"]}>
+              <input
+                dir="ltr"
+                className="ltr"
+                inputMode="tel"
+                autoComplete="tel"
+                value={profile.phone}
+                onChange={(e) => update({ phone: e.target.value })}
+              />
+            </Field>
+            <Field
+              label={t("auth.emailLabel")}
+              err={fieldErrors["email"]}
+              hint={
+                profile.emailVerified
+                  ? `✓ ${t("profile.verifiedEmailBadge")}`
+                  : t("profile.unverifiedEmailBadge")
+              }
             >
-              {profile.emailVerified
-                ? t("profile.verifiedEmailBadge")
-                : t("profile.unverifiedEmailBadge")}
-            </span>
+              <input
+                dir="ltr"
+                className="ltr"
+                inputMode="email"
+                autoComplete="email"
+                value={profile.email}
+                onChange={(e) => update({ email: e.target.value })}
+              />
+            </Field>
           </div>
-        </Field>
-      </div>
+        </section>
 
-      <div className={styles.secMini}>{t("profile.securitySection")}</div>
-      <div
-        style={{
-          background: "var(--sf2)",
-          border: "1px solid var(--line)",
-          borderRadius: "14px",
-          padding: "12px 14px",
-          marginBottom: "16px",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <div>
-          <b style={{ display: "block", fontSize: "13.5px" }}>
-            {t("profile.revokeOtherSessions")}
-          </b>
-          <small style={{ color: "var(--ink2)", fontSize: "11.5px" }}>
-            {t("profile.revokeOtherSessionsDesc")}
-          </small>
-        </div>
-        <Button
-          size="sm"
-          kind="ghost"
-          disabled={busy}
-          onClick={handleRevokeOtherSessions}
-        >
-          {t("common.confirm")}
-        </Button>
-      </div>
-
-      <div className={styles.secMini}>{t("profile.storeSection")}</div>
-      <Field label={t("auth.storeNameLabel")} err={fieldErrors["storeName"]}>
-        <input
-          value={profile.storeName}
-          onChange={(e) => update({ storeName: e.target.value })}
-        />
-      </Field>
-
-      <div>
-        <div className={styles.fieldLabel}>{t("auth.shopTypeLabel")}</div>
-        <div className={styles.chipsWrap}>
-          {SHOP_TYPES.map((type) => (
-            <button
-              type="button"
-              key={type}
-              className={`${styles.chip} ${profile.shopType === type ? styles.on : ""}`}
-              onClick={() => update({ shopType: type })}
-            >
-              {type}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <div className={styles.row2}>
-        <Field label={t("auth.governorateLabel")}>
-          <select
-            value={profile.governorate}
-            onChange={(e) => update({ governorate: e.target.value })}
+        <section className={styles.card}>
+          <h3 className={styles.cardTitle}>
+            <Icon n="store" s={17} />
+            {t("profile.storeSection")}
+          </h3>
+          <Field
+            label={t("auth.storeNameLabel")}
+            err={fieldErrors["storeName"]}
           >
-            {GOVERNORATES.map((gov) => (
-              <option key={gov} value={gov}>
-                {gov}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label={t("auth.areaLabel")}>
-          <input
-            value={profile.area}
-            onChange={(e) => update({ area: e.target.value })}
-          />
-        </Field>
-      </div>
+            <input
+              value={profile.storeName}
+              onChange={(e) => update({ storeName: e.target.value })}
+            />
+          </Field>
 
-      <div className={styles.row2}>
-        <Field label={t("auth.openedDateLabel")} err={fieldErrors["opened"]}>
-          <input
-            type="date"
-            value={profile.openedOn}
-            onChange={(e) => update({ openedOn: e.target.value })}
-          />
-        </Field>
-
-        <Field label={t("auth.workersCountLabel")}>
-          <div className={styles.stepper}>
-            <button
-              type="button"
-              aria-label="أقل"
-              onClick={() =>
-                update({
-                  workersCount: Math.max(0, profile.workersCount - 1),
-                })
-              }
-            >
-              −
-            </button>
-            <b>{profile.workersCount}</b>
-            <button
-              type="button"
-              aria-label="أكتر"
-              onClick={() =>
-                update({
-                  workersCount: Math.min(99, profile.workersCount + 1),
-                })
-              }
-            >
-              +
-            </button>
+          <div
+            className={styles.group}
+            role="group"
+            aria-label={t("auth.shopTypeLabel")}
+          >
+            <span className={styles.groupLabel}>{t("auth.shopTypeLabel")}</span>
+            <Chips tight>
+              {SHOP_TYPES.map((type) => (
+                <Chip
+                  key={type}
+                  active={profile.shopType === type}
+                  onClick={() => update({ shopType: type })}
+                >
+                  {type}
+                </Chip>
+              ))}
+            </Chips>
           </div>
-        </Field>
-      </div>
 
-      <div
-        style={{
-          marginTop: "20px",
-          paddingTop: "16px",
-          borderTop: "1px solid var(--line)",
-          textAlign: "center",
-        }}
-      >
-        <Button kind="ghost" onClick={handleLogout}>
+          <div className={styles.row2}>
+            <Field label={t("auth.governorateLabel")}>
+              <select
+                value={profile.governorate}
+                onChange={(e) => update({ governorate: e.target.value })}
+              >
+                {GOVERNORATES.map((gov) => (
+                  <option key={gov} value={gov}>
+                    {gov}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label={t("auth.areaLabel")}>
+              <input
+                value={profile.area}
+                onChange={(e) => update({ area: e.target.value })}
+              />
+            </Field>
+          </div>
+
+          <div className={styles.row2}>
+            <Field
+              label={t("auth.openedDateLabel")}
+              err={fieldErrors["opened"]}
+            >
+              <input
+                type="date"
+                value={profile.openedOn}
+                onChange={(e) => update({ openedOn: e.target.value })}
+              />
+            </Field>
+            {/* A div, not a label: a label would press the first stepper button on tap. */}
+            <Field label={t("auth.workersCountLabel")} div>
+              <div className={styles.stepper}>
+                <button
+                  type="button"
+                  aria-label="أقل"
+                  onClick={() =>
+                    update({
+                      workersCount: Math.max(1, profile.workersCount - 1),
+                    })
+                  }
+                >
+                  −
+                </button>
+                <b aria-live="polite">{profile.workersCount}</b>
+                <button
+                  type="button"
+                  aria-label="أكتر"
+                  onClick={() =>
+                    update({
+                      workersCount: Math.min(99, profile.workersCount + 1),
+                    })
+                  }
+                >
+                  +
+                </button>
+              </div>
+            </Field>
+          </div>
+        </section>
+
+        <section className={styles.card}>
+          <h3 className={styles.cardTitle}>
+            <Icon n="lock" s={17} />
+            {t("profile.securitySection")}
+          </h3>
+          <div className={styles.securityRow}>
+            <div>
+              <b>{t("profile.revokeOtherSessions")}</b>
+              <small>{t("profile.revokeOtherSessionsDesc")}</small>
+            </div>
+            <Button
+              size="sm"
+              kind="soft"
+              disabled={busy}
+              onClick={handleRevokeOtherSessions}
+            >
+              {t("common.confirm")}
+            </Button>
+          </div>
+        </section>
+
+        <Button kind="dangerghost" wide onClick={handleLogout} disabled={busy}>
           {t("profile.logout")}
         </Button>
       </div>

@@ -1,11 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
-import {
-  listRecentSales,
-  recordSale,
-  deleteSale,
-} from "@/server/modules/sales";
+import { listRecentSales, recordSale } from "@/server/modules/sales";
 import {
   AppError,
   readJsonBody,
@@ -38,6 +34,17 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
+    // A queued (offline) sale says which shop it was made in. If another shop is signed in
+    // now, refuse it so the client keeps it for its own shop (ADR-0020). This header can only
+    // cause a refusal: the shop that records a sale is always the session's.
+    const queuedFor = req.headers.get("x-hesba-store-id");
+    if (queuedFor && queuedFor !== context.store.id) {
+      throw new AppError(
+        "STORE_MISMATCH",
+        "البيعة دي من محل تاني — هتتبعت لما تدخل بحساب المحل ده",
+        403,
+      );
+    }
     const input = createSaleSchema.parse(await readJsonBody(req));
     const recorded = await recordSale(context.store.id, context.user.id, input);
     return NextResponse.json({ success: true, data: recorded });
@@ -46,22 +53,4 @@ export async function POST(req: Request) {
   }
 }
 
-/**
- * DELETE /api/sales?id=<saleId>
- * Reverts/deletes a sale record from the store's database on Undo.
- */
-export async function DELETE(req: Request) {
-  try {
-    const context = await requireSession(req);
-    const id = new URL(req.url).searchParams.get("id");
-
-    if (!id) {
-      throw AppError.badRequest("معرّف البيعة مطلوب");
-    }
-
-    await deleteSale(context.store.id, context.user.id, id);
-    return NextResponse.json({ success: true });
-  } catch (err: unknown) {
-    return toSafeErrorResponse(err);
-  }
-}
+// There is no DELETE: sales are append-only. Undo is `POST /api/sales/void` (ADR-0022).
