@@ -5,5 +5,6 @@ export {
   lockLedgerOwnerInTx,
   writeInvoiceEntryInTx,
   invoiceOutstanding,
+  customerAllocationInTx,
   type LedgerOwner,
 } from "./ledger";

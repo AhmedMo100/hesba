@@ -643,6 +643,8 @@ At every **phase end** (Alpha, Beta, every 500 shops): we review the priorities,
 - **Cart:** final prices and stock are checked at checkout.
 
 The returned value is taken off the sale's revenue on the sale's date. | ADR-0027 | Implemented (2026-11-12) |
+| D36 | **AI defaults are assumptions, editable in `/admin`** (Prompt 2, 2026-11-12). Per shop: 10 scans/day, 200/month, 6 photos per scan, 3 AI requests/minute, one scan at a time. Platform: 10 requests/minute and 4 concurrent per feature, budget $0 with cost estimates 0 (free tier), breaker after 5 consecutive failures for 60 s. One submitted batch of photos = one scan; a scan counts only when the model returns a valid answer; bonus credits are used once a daily or monthly limit is reached. Assistant stays 5 messages/day. **Owner to confirm the numbers.** | ADR-0030 | Implemented (2026-11-12) |
+| D37 | **Shop data never goes to an unpaid AI tier** (Prompt 2). The assistant sends tool results to a model only with `HESBA_AI_ASSISTANT_DATA_SHARING=approved` (a paid / no-training tier); otherwise it answers common questions itself from the tools (private mode) and says what it cannot answer. The scanner sends photos only. General «ليك» payments settle the oldest invoices first, so invoice balances always match the customer balance. Credit sales stay online-only. **Owner to approve the provider and keys.** | ADR-0030 | Implemented (2026-11-12) |
 
 ## 2. Open decisions (need your input)
 | # | Decision | Options | My recommendation | Needed before |
@@ -650,7 +652,7 @@ The returned value is taken off the sale's revenue on the sale's date. | ADR-002
 | O1 | **Hosting** | A: Vercel Pro · D: VM + Docker · C: Cloudflare | After verifying the ❓ points in `05`: A for simplicity, or D if you are sure of the terms | Phase 1 |
 | O2 | **Transactional Email Provider (Verification & Recovery)** | Unresolved dependency: Resend, Postmark, AWS SES, Brevo | Select based on inbox deliverability in Egypt, API simplicity, and dedicated IP options. Documented as explicit dependency for Phase 2.2. | Phase 2.2 |
 | O3 | **Subscription renewal** | Settled (D24 / ADR-0008: Manual renewal via Vodafone Cash & InstaPay) | Manual transfer + WhatsApp confirmation; activated by owner | Settled ✅ |
-| O4 | **LLM provider** | (compare cost and quality in Arabic) | Behind an interface; start with the cheapest that is good enough | Phase 4 |
+| O4 | **LLM provider** | Evaluated in ADR-0030: scanner `gemini-3.5-flash-lite` (free tier, photos only); assistant `gemini-3.6-flash` on the **paid** tier for shop data | Approve the scanner free tier now; the assistant stays in private mode until a paid key is approved | Before live AI |
 | O5 | **Hesba name/brand** | Check domain and trademark availability ⚖️ | Before any marketing spend | Phase 0 |
 | O6 | **Catalog values:** daily suggestion cap, size of the first wave, N for promotion, K for reports | (06 section 1) | Start with small, conservative values and adjust by measurement | Phase 4 |
 | O7 | **Default sharing:** enabled (opt-out) or disabled (opt-in)? | opt-out / opt-in | opt-out with full transparency, **after lawyer approval ⚖️** | Phase 2 (sign-up) |

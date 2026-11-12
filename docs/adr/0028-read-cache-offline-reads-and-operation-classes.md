@@ -45,7 +45,7 @@ device while offline, and returned stale money/stock when the network was merely
 |---|---|
 | **Offline-supported** (queued in the outbox, synced on reconnect / tab visible / a tap on the sync bar, `opId` once-only) | a sale tapped on the Sales screen (stocked products; services not charged to a POS machine) |
 | **Read-only cached** | products, stock, sales list, people (ليك/عليك/الموردين), alerts, home report, expenses, POS machines, shop name; the catalog search |
-| **Requires network** (clear error, nothing recorded) | sign-up / login, product create/edit/delete, stock add / adjust / void, expenses, people create / payments / «سجّل عليه», cart checkout and credit sales (invoices), supplier purchases, services charged to a POS machine, promotions, sandwiches, AI assistant |
+| **Requires network** (clear error, nothing recorded) | sign-up / login, product create/edit/delete, stock add / adjust / void, expenses, people create / payments / «سجّل عليه», cart checkout and credit sales (invoices), supplier purchases, services charged to a POS machine, promotions, sandwiches, AI assistant, AI product scanner (photos stay on the screen offline; no credit is used) |
 
 ## Consequences
 

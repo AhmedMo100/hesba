@@ -39,7 +39,7 @@ import {
   recordWasteInTx,
 } from "@/server/modules/inventory";
 import {
-  invoiceOutstanding,
+  customerAllocationInTx,
   lockLedgerOwnerInTx,
   writeInvoiceEntryInTx,
   type LedgerOwner,
@@ -55,8 +55,11 @@ import {
   toSafeNumber,
   type SaleShortage,
 } from "./sales.service";
+import { invoiceNumberOf } from "@/schemas/sale";
 import type {
   CheckoutInput,
+  CustomerInvoicesView,
+  InvoiceStatus,
   PaymentMethod,
   SaleInvoice,
   SalePaymentInput,
@@ -94,14 +97,15 @@ const invoiceInclude = {
   },
 } satisfies Prisma.SaleInclude;
 
-type InvoiceRow = Prisma.SaleGetPayload<{ include: typeof invoiceInclude }>;
+type InvoiceRow = Prisma.SaleGetPayload<{ include: typeof invoiceInclude }> & {
+  /** What the invoice still owes after the customer's general payments (oldest first). */
+  allocatedOutstanding?: bigint;
+};
 
 function toInvoice(s: InvoiceRow, duplicate?: boolean): SaleInvoice {
   const voided = s.saleVoid !== null;
   const outstanding =
-    s.paymentMethod === "debt"
-      ? invoiceOutstanding("receivable", s.debtEntries)
-      : ZERO;
+    s.paymentMethod === "debt" ? (s.allocatedOutstanding ?? ZERO) : ZERO;
   return {
     id: s.id,
     createdAt: s.createdAt.toISOString(),
@@ -144,10 +148,18 @@ async function loadInvoiceInTx(
   storeId: string,
   saleId: string,
 ): Promise<InvoiceRow | null> {
-  return tx.sale.findFirst({
+  const s = await tx.sale.findFirst({
     where: { id: saleId, storeId },
     include: invoiceInclude,
   });
+  if (s && s.paymentMethod === "debt" && s.customerId) {
+    const allocation = await customerAllocationInTx(tx, storeId, s.customerId);
+    return {
+      ...s,
+      allocatedOutstanding: allocation.remaining.get(s.id) ?? ZERO,
+    };
+  }
+  return s;
 }
 
 function mergeLines(lines: CheckoutInput["lines"]): Map<string, number> {
@@ -441,7 +453,9 @@ export async function paySale(
       }
       const s = (await loadInvoiceInTx(tx, storeId, saleId))!;
       if (s.saleVoid) throw AppError.conflict("البيعة دي اتلغت");
-      const outstanding = invoiceOutstanding("receivable", s.debtEntries);
+      // What this invoice still owes after the customer's general payments too, so paying it
+      // can never push the customer into a hidden credit.
+      const outstanding = s.allocatedOutstanding ?? ZERO;
       const amount = BigInt(input.amountPiasters);
       if (amount > outstanding) {
         throw AppError.badRequest("المبلغ أكبر من الباقي على الفاتورة", {
@@ -668,6 +682,126 @@ export async function getSaleInvoice(
       const s = await loadInvoiceInTx(tx, storeId, saleId);
       if (!s) throw AppError.notFound("البيعة دي مش موجودة");
       return toInvoice(s);
+    },
+    prisma,
+  );
+}
+
+/**
+ * A customer's credit invoices with products, payments and what each still owes (see
+ * `CustomerInvoicesView`). @throws AppError 404 when the customer is not in this shop.
+ */
+export async function listCustomerInvoices(
+  storeId: string,
+  userId: string,
+  customerId: string,
+): Promise<CustomerInvoicesView> {
+  return withTenant(
+    storeId,
+    userId,
+    async (tx) => {
+      const customer = await tx.customer.findFirst({
+        where: { id: customerId, storeId, deletedAt: null },
+        select: { id: true, nameAr: true, phone: true },
+      });
+      if (!customer) throw AppError.notFound("الزبون ده مش موجود");
+      const entries = await tx.debtEntry.findMany({
+        where: { storeId, customerId },
+        orderBy: { createdAt: "asc" },
+        select: {
+          id: true,
+          direction: true,
+          amountPiasters: true,
+          saleId: true,
+          entryKind: true,
+          noteAr: true,
+          createdAt: true,
+        },
+      });
+      const allocation = await customerAllocationInTx(tx, storeId, customerId);
+      const sales = await tx.sale.findMany({
+        where: { storeId, customerId, paymentMethod: "debt" },
+        orderBy: { createdAt: "desc" },
+        take: 200,
+        include: invoiceInclude,
+      });
+      let balance = ZERO;
+      for (const e of entries) {
+        balance +=
+          e.direction === "owed_to_me" ? e.amountPiasters : -e.amountPiasters;
+      }
+      const invoices = sales.map((s) => {
+        const linked = entries.filter((e) => e.saleId === s.id);
+        const debt = linked
+          .filter((e) => e.direction === "owed_to_me")
+          .reduce((n, e) => n + e.amountPiasters, ZERO);
+        const payments = linked.filter(
+          (e) => e.direction === "i_owe" && e.entryKind !== "reversal",
+        );
+        const paid = payments.reduce((n, e) => n + e.amountPiasters, ZERO);
+        const returnedOrVoided = linked
+          .filter((e) => e.direction === "i_owe" && e.entryKind === "reversal")
+          .reduce((n, e) => n + e.amountPiasters, ZERO);
+        const owedOwn = debt - paid - returnedOrVoided;
+        const remaining = allocation.remaining.get(s.id) ?? ZERO;
+        const byGeneral = owedOwn > remaining ? owedOwn - remaining : ZERO;
+        const voided = s.saleVoid !== null;
+        const view = toInvoice(s);
+        const status: InvoiceStatus = voided
+          ? "voided"
+          : remaining === ZERO
+            ? "paid"
+            : remaining < debt - returnedOrVoided
+              ? "partial"
+              : "unpaid";
+        return {
+          id: s.id,
+          number: invoiceNumberOf(s.id),
+          createdAt: s.createdAt.toISOString(),
+          totalPiasters: Number(s.totalPiasters),
+          returnedPiasters: view.returnedPiasters,
+          paidPiasters: Number(paid),
+          settledByGeneralPiasters: Number(byGeneral),
+          remainingPiasters: voided ? 0 : Number(remaining),
+          status,
+          lines: view.lines.map((l) => ({
+            name: l.name,
+            unit: l.unit,
+            quantityBase: l.quantityBase,
+            returnedQuantityBase: l.returnedQuantityBase,
+            unitPricePiasters: l.unitPricePiasters,
+            totalPiasters: l.totalPiasters,
+          })),
+          payments: linked
+            .filter((e) => e.direction === "i_owe")
+            .map((e) => ({
+              amountPiasters: Number(e.amountPiasters),
+              createdAt: e.createdAt.toISOString(),
+              kind: (e.entryKind === "reversal" ? "return" : "payment") as
+                "payment" | "return",
+            })),
+        };
+      });
+      return {
+        customer: {
+          id: customer.id,
+          name: customer.nameAr,
+          phone: customer.phone,
+        },
+        balancePiasters: Number(balance),
+        outstandingPiasters: Number(balance > ZERO ? balance : ZERO),
+        creditPiasters: Number(balance < ZERO ? -balance : ZERO),
+        otherDebtPiasters: Number(allocation.unlinkedRemaining),
+        invoices,
+        generalPayments: entries
+          .filter((e) => !e.saleId && e.direction === "i_owe")
+          .map((e) => ({
+            amountPiasters: Number(e.amountPiasters),
+            createdAt: e.createdAt.toISOString(),
+            note: e.noteAr,
+          }))
+          .reverse(),
+      };
     },
     prisma,
   );

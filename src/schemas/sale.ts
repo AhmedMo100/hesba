@@ -247,3 +247,56 @@ export interface SaleInvoice {
     returnable: boolean;
   }>;
 }
+
+/** A short, human invoice number derived from the sale id (the id stays the reference). */
+export function invoiceNumberOf(saleId: string): string {
+  return saleId.replace(/-/g, "").slice(0, 8).toUpperCase();
+}
+
+export type InvoiceStatus = "paid" | "partial" | "unpaid" | "voided";
+
+/**
+ * `GET /api/people/:id/invoices` (Prompt 2): a customer's «ليك» explained — every credit
+ * invoice with its products, what was paid on it and what it still owes, plus payments that
+ * were not tied to one invoice (they settle the oldest debts first).
+ */
+export interface CustomerInvoicesView {
+  customer: { id: string; name: string; phone: string | null };
+  /** Signed balance: > 0 the customer owes the shop; < 0 the shop holds their credit. */
+  balancePiasters: number;
+  outstandingPiasters: number;
+  creditPiasters: number;
+  /** Debt not from an invoice (opening balance, «سجّل عليه») still unpaid. */
+  otherDebtPiasters: number;
+  invoices: Array<{
+    id: string;
+    number: string;
+    createdAt: string;
+    totalPiasters: number;
+    returnedPiasters: number;
+    /** Paid on this invoice directly (at the sale or later from the invoice). */
+    paidPiasters: number;
+    /** Covered by general payments («ليك» without choosing an invoice). */
+    settledByGeneralPiasters: number;
+    remainingPiasters: number;
+    status: InvoiceStatus;
+    lines: Array<{
+      name: string;
+      unit: string;
+      quantityBase: number;
+      returnedQuantityBase: number;
+      unitPricePiasters: number;
+      totalPiasters: number;
+    }>;
+    payments: Array<{
+      amountPiasters: number;
+      createdAt: string;
+      kind: "payment" | "return";
+    }>;
+  }>;
+  generalPayments: Array<{
+    amountPiasters: number;
+    createdAt: string;
+    note: string | null;
+  }>;
+}

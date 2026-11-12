@@ -433,6 +433,12 @@ CREATE TABLE alert_dismissals (store_id uuid NOT NULL, kind text NOT NULL, ref_i
 - `ai_messages`: Append-only messages linked to daily conversation, cascading upon conversation deletion.
 - `ai_usage`: atomic check `INSERT … ON CONFLICT (store_id, day) DO UPDATE SET count = ai_usage.count + 1 WHERE ai_usage.count < 5 RETURNING count` (if no row is returned = the limit is reached). The limit of 5 is a constant in `constants.ts`. Never purged by retention to preserve daily billing/quota auditing.
 
+**AI scanner, quotas and platform limits (ADR-0030, migration `20261119000000_ai_scanner_quotas_and_usage`):**
+- Shop tables (FORCE RLS by `store_id`, plus read for a listed platform admin): `ai_scanner_shop_quotas` (daily / monthly override, enabled, bonus credits), `ai_scan_operations` (one per submitted batch; `reserved` → `succeeded` | `failed`, unique `(store_id, op_id)`, Cairo `day` / `month`; only `succeeded` and recent `reserved` count; `result` = recognized descriptions, cleared after 7 days; no images), `ai_usage_events` (every provider request or refusal: feature, provider, model, status, error category, tokens, images, estimated cost micro-USD, latency — no prompt/answer/image).
+- Global: `platform_admins` (staff SQL only; app reads its own row), `ai_platform_settings` (one row; admin-only update), `ai_admin_audit` (append-only, admin-only), and counters with no shop data that every request updates: `ai_capacity_minutes`, `ai_inflight` (expiring leases), `ai_budget_months`, `ai_provider_health` (circuit breaker).
+- `hesba_is_platform_admin()` is true only when `app.platform_admin = 'on'` AND `app.user_id` is in `platform_admins`.
+- Credit invoices: no schema change — general «ليك» payments are allocated to the oldest open debts at read time (`allocateLedgerToInvoices`).
+
 ## 8. Subscriptions and Reports
 
 ```sql

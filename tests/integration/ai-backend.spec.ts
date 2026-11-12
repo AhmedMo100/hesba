@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import postgres from "postgres";
 import { PrismaClient } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
@@ -65,6 +65,16 @@ describe("AI Assistant Backend Integration Tests (Quota, Tenancy, Retention, API
       migratorPrisma,
     );
   }
+
+  // The circuit breaker is platform-wide (ADR-0030): one test's provider failures must not
+  // open it for the next test.
+  beforeEach(async () => {
+    const admin = postgres(directUrl, { max: 1 });
+    await admin`DELETE FROM ai_provider_health`;
+    await admin`DELETE FROM ai_inflight`;
+    await admin`DELETE FROM ai_capacity_minutes`;
+    await admin.end();
+  });
 
   beforeAll(async () => {
     migratorClient = postgres(directUrl, { max: 1 });
