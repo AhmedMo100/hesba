@@ -32,4 +32,17 @@
   min-height: 44px;
   width: 100%;
   box-sizing: border-box;
+  border: 1.5px solid var(--line);
+  border-radius: var(--r, 14px);
+  background: var(--bg);
+  color: var(--ink);
+  padding: 0 12px;
+  font: inherit;
+  font-size: 14px;
+}
+
+.date input:focus {
+  outline: none;
+  border-color: var(--br);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--br) 20%, transparent);
 }

@@ -965,7 +965,7 @@ export function AddStockModal({
                 {!noExpiry && (
                   <>
                     <div className={f.row}>
-                      <Field label="تاريخ الإنتاج / البداية (اختياري)">
+                      <Field label="تاريخ الإنتاج / البداية">
                         <input
                           type="date"
                           value={prodDate}
@@ -1000,7 +1000,7 @@ export function AddStockModal({
 
               <div className={f.section}>
                 <div className={f.row}>
-                  <Field label="كود التشغيلة / الباتش (اختياري)">
+                  <Field label="كود التشغيلة / الباتش">
                     <input
                       type="text"
                       value={batchCode}

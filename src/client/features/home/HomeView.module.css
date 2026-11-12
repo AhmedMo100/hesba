@@ -60,12 +60,12 @@
 
 .kpiBig {
   grid-column: 1 / -1;
-  background: var(--br, #8db68a) !important;
-  border-color: var(--br, #8db68a) !important;
-  color: #122112 !important;
+  background: var(--sf);
+  border-color: var(--line);
+  color: var(--ink);
   padding: 18px 20px;
   border-radius: 16px;
-  box-shadow: 0 4px 14px rgba(141, 182, 138, 0.25);
+  box-shadow: var(--sh);
 }
 
 @media (min-width: 768px) {
@@ -75,8 +75,7 @@
 }
 
 .kpiBig small {
-  color: #122112 !important;
-  opacity: 0.88;
+  color: var(--ink2);
   font-size: 13.5px;
   font-weight: 800;
 }
@@ -84,14 +83,13 @@
 .kpiBig b {
   font-size: 32px;
   font-weight: 900;
-  color: #122112 !important;
+  color: var(--br);
   margin: 4px 0;
   letter-spacing: -0.5px;
 }
 
 .kpiBig em {
-  color: #122112 !important;
-  opacity: 0.88;
+  color: var(--ink2);
   font-size: 13px;
   font-style: normal;
   font-weight: 700;
@@ -135,7 +133,7 @@
 .chipOn {
   background: var(--br, #8db68a);
   border-color: var(--br, #8db68a);
-  color: #122112;
+  color: var(--brInk);
   font-weight: 800;
 }
 

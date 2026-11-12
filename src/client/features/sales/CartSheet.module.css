@@ -189,6 +189,15 @@
   }
 }
 
+.returnInfo {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink2, var(--ink));
+  line-height: 1.4;
+  margin-bottom: 4px;
+}
+
 /* Returns: mark a returned line as damaged (recorded as a loss, not put back on sale). */
 .damaged {
   display: inline-flex;

@@ -56,7 +56,13 @@ export function reportRange(
         from: cairoDayStartUtc(addDaysToDateKey(today, -29)),
         to: tomorrowStart,
       };
+    case "year":
+      return {
+        from: cairoDayStartUtc(addDaysToDateKey(today, -364)),
+        to: tomorrowStart,
+      };
     case "all":
+    case "custom":
       return { from: null, to: tomorrowStart };
   }
 }
@@ -226,9 +232,16 @@ export async function getHomeReport(
   storeId: string,
   userId: string,
   period: ReportPeriod,
-  now: Date = new Date(),
+  opts: { now?: Date; customFrom?: string; customTo?: string } = {},
 ): Promise<HomeReport> {
-  const { from, to } = reportRange(period, now);
+  const now = opts.now ?? new Date();
+  let { from, to } = reportRange(period, now);
+  if (period === "custom" && opts.customFrom) {
+    from = cairoDayStartUtc(opts.customFrom);
+    to = cairoDayStartUtc(
+      addDaysToDateKey(opts.customTo || opts.customFrom, 1),
+    );
+  }
   return withTenant(
     storeId,
     userId,

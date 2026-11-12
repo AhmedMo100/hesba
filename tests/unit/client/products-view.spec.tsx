@@ -293,7 +293,7 @@ describe("AddStockModal Component", () => {
     expect(html).toContain("قطع زيادة");
     expect(html).not.toContain("قطع/كرتونة");
     expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
-    expect(html).toContain("تاريخ الإنتاج / البداية (اختياري)");
+    expect(html).toContain("تاريخ الإنتاج / البداية");
     expect(html).toContain("تاريخ الانتهاء");
     expect(html).toContain(
       "المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)",

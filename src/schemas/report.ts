@@ -14,7 +14,9 @@ export const REPORT_PERIODS = [
   "yesterday",
   "week",
   "month",
+  "year",
   "all",
+  "custom",
 ] as const;
 export type ReportPeriod = (typeof REPORT_PERIODS)[number];
 

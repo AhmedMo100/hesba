@@ -62,6 +62,12 @@ export const ICONS = {
   eye: "M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z",
   eyeoff:
     "M9.88 9.88a3 3 0 1 0 4.24 4.24 M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68 M6.61 6.61A13.526 13.526 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61 M2 2l20 20",
+  camera:
+    "M14.5 4h-5L7.5 6.5H4a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-10a1 1 0 0 0-1-1h-3.5zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z",
+  /** Products (the shop's catalog): a tag / price tag. */
+  tag: "M3 6v5.7a1 1 0 0 0 .3.7l8.5 8.5a1 1 0 0 0 1.4 0l5.6-5.6a1 1 0 0 0 0-1.4L10.3 5.3a1 1 0 0 0-.7-.3H4a1 1 0 0 0-1 1zM7 9v.01",
+  /** Stock / inventory: stacked boxes. */
+  boxes: "M3 8h8v8H3zM13 12h8v8h-8zM7 3h10v5H7z",
 } as const;
 
 export type IconName = keyof typeof ICONS;

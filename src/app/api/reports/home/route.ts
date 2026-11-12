@@ -16,14 +16,18 @@ export const dynamic = "force-dynamic";
 export async function GET(req: Request) {
   try {
     const context = await requireSession(req);
+    const url = new URL(req.url);
     const period = z
       .enum(REPORT_PERIODS)
       .catch("today")
-      .parse(new URL(req.url).searchParams.get("period") ?? "today");
+      .parse(url.searchParams.get("period") ?? "today");
+    const customFrom = url.searchParams.get("from") ?? undefined;
+    const customTo = url.searchParams.get("to") ?? undefined;
     const report = await getHomeReport(
       context.store.id,
       context.user.id,
       period,
+      { customFrom, customTo },
     );
     return NextResponse.json(homeReportSchema.parse(report));
   } catch (err: unknown) {

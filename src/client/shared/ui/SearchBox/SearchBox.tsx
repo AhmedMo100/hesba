@@ -13,6 +13,8 @@ export interface SearchBoxProps {
   sampleVoiceText?: string;
   className?: string;
   autoFocus?: boolean;
+  /** When set, a camera icon button is shown beside the mic; clicking it calls this callback. */
+  onCamera?: () => void;
 }
 
 export function SearchBox({
@@ -23,6 +25,7 @@ export function SearchBox({
   sampleVoiceText,
   className = "",
   autoFocus = false,
+  onCamera,
 }: SearchBoxProps) {
   const [isRecording, setIsRecording] = useState(false);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -137,6 +140,18 @@ export function SearchBox({
           onClick={() => onChange("")}
         >
           <Icon n="x" s={16} />
+        </button>
+      )}
+      {onCamera && (
+        <button
+          type="button"
+          className={styles.micBtn}
+          aria-label="اسكان بالكاميرا"
+          title="اسكان بالكاميرا"
+          onClick={onCamera}
+          data-testid="search-camera-btn"
+        >
+          <Icon n="camera" s={18} />
         </button>
       )}
       {voice && (

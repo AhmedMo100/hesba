@@ -29,8 +29,8 @@ type Item = { route: NavRoute; icon: IconName };
  */
 const START: Item[] = [
   { route: "home", icon: "home" },
-  { route: "products", icon: "basket" },
-  { route: "stock", icon: "warehouse" },
+  { route: "products", icon: "tag" },
+  { route: "stock", icon: "boxes" },
 ];
 const END: Item[] = [
   { route: "expenses", icon: "wallet" },

@@ -24,11 +24,14 @@ export function parseHomeReport(json: unknown): HomeReport {
 export async function fetchHomeReport(
   period: ReportPeriod,
   signal?: AbortSignal,
+  opts?: { from?: string; to?: string },
 ): Promise<HomeReport> {
-  // Through the read cache: instant when Home is reopened, re-read after any write.
-  const res = await apiGet(
-    `/api/reports/home?period=${encodeURIComponent(period)}`,
-  );
+  const params = new URLSearchParams({ period });
+  if (period === "custom" && opts?.from) {
+    params.set("from", opts.from);
+    if (opts.to) params.set("to", opts.to);
+  }
+  const res = await apiGet(`/api/reports/home?${params.toString()}`);
   if (signal?.aborted) throw new DOMException("aborted", "AbortError");
   if (!res.ok) throw new Error(`report ${res.status}`);
   return parseHomeReport(await res.json());

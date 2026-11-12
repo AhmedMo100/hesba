@@ -51,7 +51,8 @@ const HOME_PERIODS: ReadonlyArray<readonly [PeriodKey, string]> = [
   ["yesterday", "امبارح"],
   ["week", "الأسبوع"],
   ["month", "الشهر"],
-  ["all", "الكل"],
+  ["year", "السنة"],
+  ["custom", "فترة مخصصة"],
 ];
 
 /** Money, or "—" when the server could not determine it from recorded data. */
@@ -87,6 +88,9 @@ export function formatQtyText(
 export function HomeView() {
   const [tab, setTab] = useState<"rep" | "inv">("inv");
   const [period, setPeriod] = useState<PeriodKey>("today");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+  const todayStr = new Date().toISOString().slice(0, 10);
   const [query, setQuery] = useState("");
   const [showMoreTop, setShowMoreTop] = useState(false);
 
@@ -106,7 +110,11 @@ export function HomeView() {
     const controller = new AbortController();
     let retry: ReturnType<typeof setTimeout> | null = null;
     const load = (retriesLeft: number) => {
-      fetchHomeReport(period, controller.signal)
+      fetchHomeReport(
+        period,
+        controller.signal,
+        period === "custom" ? { from: customFrom, to: customTo } : undefined,
+      )
         .then((r) => {
           setReport(r);
           setReportFailed(false);
@@ -132,7 +140,7 @@ export function HomeView() {
       window.removeEventListener("hesba_sales_config_updated", reload);
       window.removeEventListener("online", reload);
     };
-  }, [period, reportAttempt]);
+  }, [period, customFrom, customTo, reportAttempt]);
 
   // Load Inventory
   useEffect(() => {
@@ -490,6 +498,14 @@ export function HomeView() {
             options={HOME_PERIODS}
             value={period}
             onChange={setPeriod}
+            customKey="custom"
+            from={customFrom}
+            to={customTo}
+            max={todayStr}
+            onRangeChange={(f, t) => {
+              setCustomFrom(f);
+              setCustomTo(t);
+            }}
           />
 
           {reportFailed && (
