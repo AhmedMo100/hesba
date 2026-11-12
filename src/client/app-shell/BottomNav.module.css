@@ -30,6 +30,8 @@
   cursor: pointer;
   transition: color 0.2s;
   min-height: 44px;
+  min-width: 0; /* grid items may shrink below their label width */
+  padding: 0 1px;
 }
 
 .bn .iconWrapper {
@@ -77,15 +79,28 @@
   text-overflow: ellipsis;
 }
 
-@media (max-width: 360px) {
+@media (max-width: 400px) {
   .bnav {
-    grid-template-columns: repeat(3, minmax(0, 1fr)) 62px repeat(
-        3,
-        minmax(0, 1fr)
-      );
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr))
+      60px
+      repeat(3, minmax(0, 1fr));
   }
   .bn {
     font-size: 10.5px;
+    letter-spacing: -0.2px;
+  }
+}
+
+@media (max-width: 340px) {
+  .bnav {
+    grid-template-columns:
+      repeat(3, minmax(0, 1fr))
+      52px
+      repeat(3, minmax(0, 1fr));
+  }
+  .bn {
+    font-size: 9.5px;
   }
 }
 
