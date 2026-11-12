@@ -7,11 +7,7 @@
  * Real route handlers, real sessions, real Postgres; the app client emits query events only
  * because HESBA_PRISMA_QUERY_EVENTS is set before it is created.
  */
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-
-vi.hoisted(() => {
-  process.env["HESBA_PRISMA_QUERY_EVENTS"] = "1";
-});
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { prisma } from "@/server/infra/db/client";
 import { createSession } from "@/server/modules/auth";
