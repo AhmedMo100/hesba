@@ -1023,6 +1023,7 @@ export function StockView() {
                     itm.unit || (itm.unitMode === "weight" ? "kg" : "piece"),
                   sell_price_piasters: itm.sellPricePiasters,
                   buy_cost_piasters: itm.buyPricePiasters,
+                  stock_quantity: itm.currentStockBase,
                   is_custom: itm.isCustom ?? false,
                   variants: [
                     {
@@ -1031,6 +1032,7 @@ export function StockView() {
                       pack_qty: itm.packQty,
                       size_unit: itm.packName ?? undefined,
                       sell_price_piasters: itm.sellPricePiasters,
+                      stock_quantity: itm.currentStockBase,
                       buy_cost_piasters: itm.buyPricePiasters,
                     },
                   ],

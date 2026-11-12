@@ -114,8 +114,11 @@ test("bottom navigation: six screens around «البيع», alerts from the bell
   await signup(page.request, "محل التنقل");
   await open(page, "/app", "page-home");
   const nav = page.locator("nav[aria-label]").last();
-  const labels = await nav.locator("button").allInnerTexts();
-  expect(labels.map((l) => l.trim())).toEqual([
+  // Icons only: the names are the accessible labels (and tooltips), no visible text.
+  const labels = await nav
+    .locator("button")
+    .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")));
+  expect(labels).toEqual([
     "الرئيسية",
     "المنتجات",
     "المخزون",
@@ -124,6 +127,7 @@ test("bottom navigation: six screens around «البيع», alerts from the bell
     "الناس",
     "المساعد",
   ]);
+  expect((await nav.innerText()).trim()).toBe("");
   // RTL: الرئيسية on the right, المساعد on the left, البيع in the middle.
   const box = async (id: string) => (await page.getByTestId(id).boundingBox())!;
   const home = await box("bnav-home");
@@ -133,7 +137,7 @@ test("bottom navigation: six screens around «البيع», alerts from the bell
   expect(sales.x).toBeGreaterThan(ai.x);
   const width = page.viewportSize()!.width;
   expect(Math.abs(sales.x + sales.width / 2 - width / 2)).toBeLessThan(4);
-  await expect(nav.getByText("المزيد")).toHaveCount(0);
+  await expect(nav.getByRole("button", { name: "المزيد" })).toHaveCount(0);
 
   for (const [id, screen] of [
     ["bnav-expenses", "page-expenses"],
@@ -253,4 +257,63 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   expect(inv.find((i) => i.variantId === tea)!.currentStockBase).toBe(30 - 21);
   const p = (await (await api.get(`/api/people/${customerId}`)).json()).person;
   expect(p.amount_piasters).toBe(21000);
+});
+
+test("P4: record a loss from Stock; Home shows it under «التالف / الفاقد»; no «آجل» on cards; mic stays in the search box", async ({
+  page,
+}) => {
+  test.setTimeout(240_000);
+  const api = page.request;
+  await signup(api, "محل التالف");
+  const run = Math.random().toString(36).slice(2, 6);
+  const juice = await product(api, `عصير تالف ${run}`, {
+    price: 1500,
+    stock: 12,
+  });
+
+  await open(page, "/app/stock", "page-stock");
+  await page.getByTestId(`stock-row-${juice}`).click();
+  await page.getByRole("dialog").getByTestId("stock-action-loss").click();
+  const form = page.getByRole("dialog").getByTestId("record-loss");
+  await form.getByTestId("loss-reason-damaged").click();
+  await form.getByTestId("loss-units").fill("2");
+  await page.getByRole("dialog").getByTestId("loss-submit").click();
+  await expect
+    .poll(
+      async () =>
+        (
+          (await (await api.get("/api/stock")).json()).inventory as Array<{
+            variantId: string;
+            currentStockBase: number;
+          }>
+        ).find((i) => i.variantId === juice)?.currentStockBase,
+      SERVER,
+    )
+    .toBe(10);
+
+  await open(page, "/app", "page-home");
+  await page.getByRole("tab", { name: /التقرير/ }).click();
+  const losses = page.getByTestId("home-losses");
+  await expect(losses).toContainText(`عصير تالف ${run}`, SERVER);
+  await expect(losses).toContainText("تالف");
+
+  // The stocktake search: the mic is inside the search box, not under Export.
+  await page.getByRole("tab", { name: /الجرد/ }).click();
+  const mic = page.getByRole("button", { name: "بحث بالصوت" }).first();
+  const box = await mic.evaluate((el) => {
+    const sb = el.parentElement!.getBoundingClientRect();
+    const m = el.getBoundingClientRect();
+    return (
+      m.left >= sb.left - 1 &&
+      m.right <= sb.right + 1 &&
+      m.top >= sb.top - 1 &&
+      m.bottom <= sb.bottom + 1
+    );
+  });
+  expect(box).toBe(true);
+
+  // Sales cards: no «آجل» on any card.
+  await open(page, "/app/sales", "page-sales");
+  await expect(page.getByTestId("tile-credit")).toHaveCount(0);
+  await expect(page.getByTestId("credit-start")).toBeVisible();
 });
