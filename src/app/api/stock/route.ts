@@ -1,6 +1,7 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { wasteReasonSchema } from "@/schemas/inventory";
 import { businessDateSchema, expiryDateSchema } from "@/schemas/dates";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
@@ -56,7 +57,8 @@ const wasteStockSchema = z.object({
     .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
     .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
   batchId: z.string().uuid().optional().nullable(),
-  reason: z.string().trim().default("expired"),
+  reason: wasteReasonSchema.default("expired"),
+  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
   opId: z.string().uuid().optional(),
 });
 
@@ -87,14 +89,6 @@ const adjustStockSchema = z.object({
   opId: z.string().uuid().optional(),
 });
 
-const clearStockSchema = z.object({
-  action: z.literal("clear"),
-  storeVariantId: z.string().uuid(),
-  reason: z.string().trim().optional(),
-  removeFromView: z.boolean().optional(),
-  opId: z.string().uuid().optional(),
-});
-
 const archiveStockSchema = z.object({
   action: z.literal("archive"),
   storeVariantId: z.string().uuid(),
@@ -106,7 +100,6 @@ const stockActionSchema = z.discriminatedUnion("action", [
   wasteStockSchema,
   voidStockSchema,
   adjustStockSchema,
-  clearStockSchema,
   archiveStockSchema,
 ]);
 
@@ -205,6 +198,7 @@ export async function POST(req: Request) {
           quantityBase: input.quantityBase,
           batchId: input.batchId,
           reason: input.reason,
+          note: input.note ?? null,
           opId: input.opId,
         },
       );
@@ -241,18 +235,6 @@ export async function POST(req: Request) {
         },
       );
       return NextResponse.json({ success: true, data: result });
-    } else if (input.action === "clear") {
-      const result = await inventoryService.clearVariantStock(
-        context.store.id,
-        context.user.id,
-        {
-          storeVariantId: input.storeVariantId,
-          reason: input.reason,
-          removeFromView: input.removeFromView,
-          opId: input.opId,
-        },
-      );
-      return NextResponse.json({ success: true, data: result });
     } else {
       const result = await inventoryService.archiveVariantFromView(
         context.store.id,
@@ -270,16 +252,15 @@ export async function POST(req: Request) {
 }
 
 /**
- * DELETE /api/stock?batchId=<uuid> OR /api/stock?variantId=<uuid>
- * Voids an added stock batch OR clears all stock for a variant under tenant isolation.
+ * DELETE /api/stock?batchId=<uuid>
+ * Voids an added stock batch under tenant isolation. (Zeroing a whole product was removed:
+ * a quantity is changed with `action: "adjust"`, which records the movement.)
  */
 export async function DELETE(req: Request) {
   try {
     const context = await requireSession(req);
     const { searchParams } = new URL(req.url);
     const batchId = searchParams.get("batchId");
-    const variantId = searchParams.get("variantId");
-    const removeFromView = searchParams.get("removeFromView") === "true";
 
     const inventoryService = new InventoryService(prisma);
 
@@ -290,17 +271,8 @@ export async function DELETE(req: Request) {
         { batchId },
       );
       return NextResponse.json({ success: true, data: result });
-    } else if (variantId) {
-      const result = await inventoryService.clearVariantStock(
-        context.store.id,
-        context.user.id,
-        { storeVariantId: variantId, removeFromView },
-      );
-      return NextResponse.json({ success: true, data: result });
     } else {
-      throw AppError.badRequest(
-        "معرّف الإضافة (batchId) أو معرّف الصنف (variantId) مطلوب",
-      );
+      throw AppError.badRequest("معرّف الإضافة (batchId) مطلوب");
     }
   } catch (err: unknown) {
     return toSafeErrorResponse(err);

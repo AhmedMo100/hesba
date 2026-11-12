@@ -178,15 +178,28 @@ export async function validateSession(
     );
   }
 
-  // Load store inside its tenant context
+  // Load the store inside its tenant context, only while the user is still a member of it
+  // (QA-51): a member removed from the shop loses access on the next request, not at expiry.
+  // One query — the membership is a condition of the store lookup that already runs.
   const store = await withTenant(record.storeId, record.userId, async (tx) => {
-    return await tx.store.findUnique({
-      where: { id: record.storeId },
+    return await tx.store.findFirst({
+      where: {
+        id: record.storeId,
+        members: { some: { userId: record.userId } },
+      },
     });
   });
 
   if (!store) {
-    logger.warn({ storeId: record.storeId }, "Store not found for session");
+    // The shop is gone or the user is no longer its member: this session is over for good.
+    await prisma.session.updateMany({
+      where: { idHash, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    logger.warn(
+      { userId: record.userId, storeId: record.storeId },
+      "Session refused: no membership in its store; revoked",
+    );
     return null;
   }
 

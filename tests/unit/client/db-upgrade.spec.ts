@@ -145,7 +145,7 @@ describe("Dexie Database Schema & Version 1 -> Version 2 Upgrade (P2-F-03)", () 
     const upgradedDb = new HesbaDatabase(DB_NAME);
     await upgradedDb.open();
 
-    expect(upgradedDb.verno).toBe(4);
+    expect(upgradedDb.verno).toBe(5); // v5: api_cache (ADR-0028)
 
     // v4 (ADR-0020): a queued operation from an older version survives the upgrade, and the
     // new store_id index answers (an op without a shop is simply not listed for any shop).

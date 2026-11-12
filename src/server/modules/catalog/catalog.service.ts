@@ -401,6 +401,9 @@ export class CatalogService {
           stock_quantity: number;
           brandName: string | null;
           brand_name: string | null;
+          /** English catalog name and brand, for English search (QA-48); null for custom. */
+          name_en: string | null;
+          brand_name_en: string | null;
           isCustom: boolean;
           is_custom: boolean;
           addedByThisStore: boolean;
@@ -540,6 +543,8 @@ export class CatalogService {
             stock_quantity: productStock,
             brandName: gp.brand?.nameAr || null,
             brand_name: gp.brand?.nameAr || null,
+            name_en: gp.nameEn || null,
+            brand_name_en: gp.brand?.nameEn || null,
             isCustom: false,
             is_custom: false,
             addedByThisStore: false,
@@ -627,6 +632,8 @@ export class CatalogService {
             stock_quantity: customStock,
             brandName: null,
             brand_name: null,
+            name_en: null,
+            brand_name_en: null,
             isCustom: true,
             is_custom: true,
             addedByThisStore: true,
@@ -650,7 +657,10 @@ export class CatalogService {
           filtered = filtered.filter(
             (p) =>
               p.name_norm.includes(normQ) ||
-              (p.brand_name && normalizeArabic(p.brand_name).includes(normQ)),
+              (p.brand_name && normalizeArabic(p.brand_name).includes(normQ)) ||
+              (p.name_en && normalizeArabic(p.name_en).includes(normQ)) ||
+              (p.brand_name_en &&
+                normalizeArabic(p.brand_name_en).includes(normQ)),
           );
         }
         if (options?.category && options.category !== "all") {

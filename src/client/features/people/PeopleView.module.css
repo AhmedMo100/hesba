@@ -226,6 +226,7 @@
 .personPhone {
   display: inline-flex;
   align-items: center;
+  min-height: 44px; /* QA-46 */
   gap: 5px;
   font-size: 13px;
   color: var(--ink2);
@@ -244,37 +245,6 @@
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
-}
-
-.waLinkBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #25d366;
-  background: color-mix(in srgb, #25d366 12%, var(--sf2));
-  border: 1px solid color-mix(in srgb, #25d366 25%, transparent);
-  border-radius: 999px;
-  padding: 2px 8px;
-  text-decoration: none;
-  transition: all 0.15s ease;
-}
-
-.waLinkBadge:hover {
-  background: color-mix(in srgb, #25d366 22%, var(--sf2));
-  transform: translateY(-1px);
-}
-
-.waLinkBadge:active {
-  transform: scale(0.95);
-}
-
-:global([data-theme="dark"]) .waLinkBadge,
-:global([data-theme="auto"]) .waLinkBadge {
-  background: rgba(37, 211, 102, 0.15);
-  border-color: rgba(37, 211, 102, 0.3);
-  color: #25d366;
 }
 
 .noPhone {
@@ -301,7 +271,7 @@
   cursor: pointer;
   font-family: inherit;
   transition: opacity 0.15s ease;
-  min-height: 32px;
+  min-height: 44px; /* QA-46 */
 }
 
 .collectBtn {
@@ -323,8 +293,8 @@
 }
 
 .cardDeleteBtn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px; /* QA-46 */
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -347,8 +317,8 @@
 }
 
 .cardWaBtn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px; /* QA-46 */
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -392,8 +362,8 @@
 }
 
 .editBtn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px; /* QA-46 */
   border-radius: 8px;
   border: none;
   background: transparent;

@@ -27,6 +27,7 @@
  * - Money is integer piasters; quantities are base units (pieces or grams).
  */
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, {
   useState,
   useEffect,
@@ -36,10 +37,19 @@ import React, {
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
-import { Button, Empty, SearchBox, Icon, Skeleton } from "@/client/shared/ui";
+import {
+  Button,
+  Empty,
+  SearchBox,
+  Icon,
+  Modal,
+  Skeleton,
+} from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
+import { saleLineTotalPiasters } from "@/domain/sale-pricing";
+import { stockLevel } from "@/domain/alerts";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StockInventoryItem,
@@ -85,7 +95,15 @@ import {
 } from "@/client/offline/outbox";
 import { useLiveQuery } from "dexie-react-hooks";
 import { SandwichQuantitySheet } from "./SandwichQuantitySheet";
-import { CartSheet, type CartLine } from "./CartSheet";
+import {
+  CartSheet,
+  EMPTY_CART_DRAFT,
+  type CartDraft,
+  type CartLine,
+  type CartOpId,
+  type CreditCustomer,
+} from "./CartSheet";
+import { CreditCustomerForm } from "./CreditCustomerForm";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
 
 interface DisplaySaleItem {
@@ -286,7 +304,12 @@ function loadInitialData(storeId?: string): {
   return { initialEnabledServices, stagedSaleItem };
 }
 
-export function SalesView() {
+export function SalesView({
+  onNavigate,
+}: {
+  /** After a credit sale the owner lands on People → «ليك» (the customer's balance). */
+  onNavigate?: (route: "people") => void;
+} = {}) {
   const { session } = useAuth();
   const storeId = session?.store?.id;
   // The shop that owns the sales queue: the signed-in shop, or — while the session is not
@@ -305,6 +328,17 @@ export function SalesView() {
   const [tilesLoaded, setTilesLoaded] = useState(false);
   const [cartMode, setCartMode] = useState(false);
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
+  // A credit sale (آجل): the customer is chosen once, then every item goes on one invoice.
+  const [creditCustomer, setCreditCustomer] = useState<CreditCustomer | null>(
+    null,
+  );
+  const [creditFormOpen, setCreditFormOpen] = useState(false);
+  // The invoice and the offers open in sheets, not as big blocks on the screen.
+  const [cartOpen, setCartOpen] = useState(false);
+  const [promosOpen, setPromosOpen] = useState(false);
+  // The invoice draft (discount, payment, customer) and its opId outlive the sheet.
+  const [cartDraft, setCartDraft] = useState<CartDraft>(EMPTY_CART_DRAFT);
+  const cartOpIdRef = useRef<CartOpId | null>(null);
   const [detailsSaleId, setDetailsSaleId] = useState<string | null>(null);
   const [services, setServices] = useState<StoreProductItem[]>([]);
   const [enabledServiceIds, setEnabledServiceIds] = useState<string[]>(
@@ -443,10 +477,10 @@ export function SalesView() {
     if (!storeId) return;
     let isMounted = true;
     void Promise.all([
-      fetch("/api/stock")
+      apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
-      fetch("/api/products?filter=all")
+      apiGet("/api/products?filter=all&scope=sale")
         .then((r) => (r.ok ? r.json() : null))
         .catch(() => null),
       fetchSandwiches().catch((err: unknown) =>
@@ -476,7 +510,7 @@ export function SalesView() {
     });
 
     const syncRemoteSalesConfig = () => {
-      fetch("/api/sales/config")
+      apiGet("/api/sales/config")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -501,7 +535,7 @@ export function SalesView() {
     };
 
     const loadPromotions = () => {
-      fetch("/api/promotions")
+      apiGet("/api/promotions")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
@@ -667,7 +701,7 @@ export function SalesView() {
         return {
           ...inv,
           currentStockBase: stock,
-          status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+          status: stockLevel(inv.unitMode, inv.packQty, stock),
         };
       }),
     );
@@ -867,7 +901,7 @@ export function SalesView() {
           return {
             ...inv,
             currentStockBase: stock,
-            status: stock <= 0 ? "out" : stock <= 5 ? "low" : "ok",
+            status: stockLevel(inv.unitMode, inv.packQty, stock),
           };
         }),
       );
@@ -1081,7 +1115,7 @@ export function SalesView() {
         // Refresh ingredient stock and "can make N" counts from the server in the background:
         // the sale is already recorded, so the caller (e.g. the quantity step) can close now.
         void Promise.all([
-          fetch("/api/stock")
+          apiGet("/api/stock")
             .then((r) => (r.ok ? r.json() : null))
             .catch(() => null),
           fetchSandwiches().catch(() => null),
@@ -1127,51 +1161,85 @@ export function SalesView() {
     }
   };
 
+  /**
+   * Adds one unit (1 kg for a weighed product) of a stocked product to the invoice draft.
+   * Services and sandwiches are sold on their own. The server prices and checks the stock at
+   * checkout; here the quantity is only capped at the shown stock.
+   */
+  const addToCart = (item: DisplaySaleItem, units?: number): boolean => {
+    if (item.isService || item.isSandwich || !item.variantId) {
+      showToast(
+        t("invoice.cartServiceNotAllowed", { name: item.name }),
+        "error",
+      );
+      return false;
+    }
+    const variantId = item.variantId;
+    const weighed = item.unit === "kg" || item.unit === "g";
+    const step = units ?? (weighed ? Math.min(1000, item.currentStockBase) : 1);
+    if (step <= 0) {
+      showToast(`«${item.name}» خلصان`, "error");
+      return false;
+    }
+    if (creditCustomer) {
+      showToast(
+        t("credit.added", { customer: creditCustomer.name, name: item.name }),
+        "success",
+      );
+    }
+    setCartLines((prev) => {
+      const found = prev.find((l) => l.variantId === variantId);
+      if (found) {
+        return prev.map((l) =>
+          l.variantId === variantId
+            ? {
+                ...l,
+                quantityBase: Math.min(
+                  l.quantityBase + step,
+                  item.currentStockBase,
+                ),
+              }
+            : l,
+        );
+      }
+      return [
+        ...prev,
+        {
+          variantId,
+          name: item.name,
+          unit: item.unit ?? "piece",
+          quantityBase: step,
+          sellPricePiasters: item.sellPricePiasters,
+          stockBase: item.currentStockBase,
+        },
+      ];
+    });
+    return true;
+  };
+
+  /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
+  const startCreditSale = (customer: CreditCustomer) => {
+    setCreditCustomer(customer);
+    setCreditFormOpen(false);
+    setCartMode(true);
+    setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
+    showToast(t("credit.started", { name: customer.name }), "success");
+  };
+
+  /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
+  const cancelCreditSale = () => {
+    setCreditCustomer(null);
+    setCartLines([]);
+    setCartMode(false);
+    setCartOpen(false);
+    setCartDraft(EMPTY_CART_DRAFT);
+  };
+
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
     // QA-31: in cart mode a stocked product goes into the cart; the server prices it at checkout.
     if (cartMode) {
-      if (item.isService || item.isSandwich || !item.variantId) {
-        showToast(
-          t("invoice.cartServiceNotAllowed", { name: item.name }),
-          "error",
-        );
-        return;
-      }
-      const variantId = item.variantId;
-      const weighed = item.unit === "kg" || item.unit === "g";
-      const step = weighed ? Math.min(1000, item.currentStockBase) : 1;
-      if (step <= 0) {
-        showToast(`«${item.name}» خلصان`, "error");
-        return;
-      }
-      setCartLines((prev) => {
-        const found = prev.find((l) => l.variantId === variantId);
-        if (found) {
-          return prev.map((l) =>
-            l.variantId === variantId
-              ? {
-                  ...l,
-                  quantityBase: Math.min(
-                    l.quantityBase + step,
-                    item.currentStockBase,
-                  ),
-                }
-              : l,
-          );
-        }
-        return [
-          ...prev,
-          {
-            variantId,
-            name: item.name,
-            unit: item.unit ?? "piece",
-            quantityBase: step,
-            sellPricePiasters: item.sellPricePiasters,
-            stockBase: item.currentStockBase,
-          },
-        ];
-      });
+      addToCart(item);
       return;
     }
     // 0. Sandwich: the server checks and deducts the ingredients
@@ -1288,6 +1356,18 @@ export function SalesView() {
     e.stopPropagation();
     const packQty = item.packQty || 1;
     const packLabel = getPackLabel(item.packName, item.packQty);
+    // In an invoice (credit or not) a whole pack joins the draft as its pieces.
+    if (cartMode) {
+      if (item.currentStockBase < packQty) {
+        showToast(
+          `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
+          "error",
+        );
+        return;
+      }
+      addToCart(item, packQty);
+      return;
+    }
 
     if (item.currentStockBase < packQty) {
       if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
@@ -1455,122 +1535,48 @@ export function SalesView() {
           </div>
         </div>
 
-        {/* Promotional Offers from Expiry Alerts */}
-        {activePromotions.length > 0 && (
-          <div className={styles.promoSection}>
-            <div className={styles.promoHeader}>
-              <div className={styles.promoTitle}>
-                <Icon n="sparkle" s={16} />
-                <span>
-                  عروض التوفير وتصفية الصلاحية ({activePromotions.length})
-                </span>
-              </div>
-              <span className={styles.promoBadgeNotice}>اضغط لبيع العرض</span>
-            </div>
-            <div className={styles.promoGrid}>
-              {activePromotions.map((promo) => (
-                <div
-                  key={promo.id}
-                  className={styles.promoCard}
-                  onClick={() => void handleSellPromotion(promo)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      void handleSellPromotion(promo);
-                    }
-                  }}
-                >
-                  <div className={styles.promoCardTopRow}>
-                    <div className={styles.promoTag}>
-                      {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
-                    </div>
-                    <div className={styles.promoCardActions}>
-                      <button
-                        type="button"
-                        className={styles.promoActionBtn}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingPromo(promo);
-                        }}
-                        title="تعديل تفاصيل العرض"
-                      >
-                        <Icon n="edit" s={13} />
-                      </button>
-                      <button
-                        type="button"
-                        className={`${styles.promoActionBtn} ${styles.promoActionDeleteBtn}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void handleDeletePromotion(promo.id);
-                        }}
-                        title="حذف العرض من البيع"
-                      >
-                        <Icon n="trash" s={13} />
-                      </button>
-                    </div>
-                  </div>
-                  <span className={styles.promoCardTitle}>{promo.title}</span>
-                  <span className={styles.promoCardDesc}>
-                    {promo.description}
-                  </span>
-                  <div className={styles.promoCardPricing}>
-                    <span className={styles.promoPrice}>
-                      {formatMoney(promo.promoPricePiasters)}
-                    </span>
-                    <span className={styles.promoOriginalPrice}>
-                      {formatMoney(promo.originalPricePiasters)}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* QA-31: sell several items as one invoice (cart), with discount and payment method */}
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            margin: "0 0 10px",
-          }}
-        >
+        {/* Offers and the multi-item invoice: two small controls, opened in sheets */}
+        <div className={styles.salesTools}>
+          {activePromotions.length > 0 && (
+            <Button
+              kind="ghost"
+              size="sm"
+              icon="sparkle"
+              data-testid="promos-toggle"
+              onClick={() => setPromosOpen(true)}
+            >
+              {t("invoice.promos")} ({activePromotions.length})
+            </Button>
+          )}
+          {!creditCustomer && (
+            <Button
+              kind={cartMode ? "primary" : "ghost"}
+              size="sm"
+              icon="plus"
+              data-testid="cart-toggle"
+              aria-pressed={cartMode}
+              onClick={() => setCartMode((v) => !v)}
+            >
+              {t("invoice.cartToggle")}
+              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            </Button>
+          )}
+          {/* The credit-sale entry point: the customer first, then the items */}
           <Button
-            kind={cartMode ? "primary" : "ghost"}
+            kind={creditCustomer ? "primary" : "ghost"}
             size="sm"
-            icon="plus"
-            data-testid="cart-toggle"
-            aria-pressed={cartMode}
-            onClick={() => setCartMode((v) => !v)}
+            icon="users"
+            data-testid="credit-start"
+            aria-pressed={!!creditCustomer}
+            onClick={() =>
+              creditCustomer ? setCartOpen(true) : setCreditFormOpen(true)
+            }
           >
-            {t("invoice.cartToggle")}
-            {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+            {creditCustomer
+              ? t("credit.sessionLabel", { name: creditCustomer.name })
+              : t("credit.start")}
           </Button>
         </div>
-        {cartMode && (
-          <div style={{ marginBottom: 12 }}>
-            <CartSheet
-              lines={cartLines}
-              onChange={setCartLines}
-              onDone={(invoice) => {
-                setCartLines([]);
-                setCartMode(false);
-                showToast(
-                  t("invoice.checkoutDone", {
-                    total: formatMoney(invoice.totalPiasters),
-                  }),
-                  "success",
-                );
-                void reloadSales();
-                void fetch("/api/stock")
-                  .then((r) => (r.ok ? r.json() : null))
-                  .then((d) => d?.inventory && setInventory(d.inventory))
-                  .catch(() => undefined);
-              }}
-            />
-          </div>
-        )}
 
         {/* Product & Services Tiles Grid matching Image 1 */}
         {!tilesLoaded && displayItems.length === 0 ? (
@@ -1651,23 +1657,61 @@ export function SalesView() {
                     <span className={styles.tS}>{formatStockText(item)}</span>
                   </button>
 
-                  {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
+                  {/* Credit sales start from «آجل» above the grid, never from a card. */}
                   {hasCartonBtn && (
-                    <button
-                      type="button"
-                      className={styles.tPack}
-                      onClick={(e) => handleSellCarton(e, item)}
-                      title={`بيع ${getPackLabel(item.packName, item.packQty)} (${item.packQty} قطعة)`}
-                      aria-label={`بيع ${getPackLabel(item.packName, item.packQty)} ${item.name}`}
-                    >
-                      <Icon n="box" s={16} />
-                      <span>{getPackLabel(item.packName, item.packQty)}</span>
-                    </button>
+                    <div className={styles.tActions}>
+                      {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
+                      {hasCartonBtn && (
+                        <button
+                          type="button"
+                          className={styles.tPack}
+                          onClick={(e) => handleSellCarton(e, item)}
+                          title={`بيع ${getPackLabel(item.packName, item.packQty)} (${item.packQty} قطعة)`}
+                          aria-label={`بيع ${getPackLabel(item.packName, item.packQty)} ${item.name}`}
+                        >
+                          <Icon n="box" s={16} />
+                          <span>
+                            {getPackLabel(item.packName, item.packQty)}
+                          </span>
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               );
             })}
           </div>
+        )}
+
+        {/* QA-31 invoice: a small summary that opens the invoice sheet */}
+        {(cartMode || cartLines.length > 0) && (
+          <button
+            type="button"
+            className={styles.cartSummary}
+            data-testid="cart-summary"
+            aria-label={t("invoice.cartOpen")}
+            onClick={() => setCartOpen(true)}
+          >
+            <Icon n="list" s={16} />
+            <span>
+              {creditCustomer ? `${t("credit.start")} · ` : ""}
+              {t("invoice.cartSummary", {
+                count: cartLines.length,
+                total: formatMoney(
+                  cartLines.reduce(
+                    (sum, l) =>
+                      sum +
+                      saleLineTotalPiasters(
+                        l.unit,
+                        l.sellPricePiasters,
+                        l.quantityBase,
+                      ),
+                    0,
+                  ),
+                ),
+              })}
+            </span>
+          </button>
         )}
 
         {/* Recent Sales List matching Image 3 */}
@@ -1877,7 +1921,7 @@ export function SalesView() {
           onChanged={(message) => {
             showToast(message, "success");
             void reloadSales();
-            void fetch("/api/stock")
+            void apiGet("/api/stock")
               .then((r) => (r.ok ? r.json() : null))
               .then((d) => d?.inventory && setInventory(d.inventory))
               .catch(() => undefined);
@@ -2199,6 +2243,136 @@ export function SalesView() {
             </button>
           </div>
         </>
+      )}
+
+      {/* Credit sale: who is the customer? */}
+      {creditFormOpen && (
+        <CreditCustomerForm
+          onClose={() => setCreditFormOpen(false)}
+          onChosen={startCreditSale}
+        />
+      )}
+
+      {/* The invoice (cart) sheet */}
+      {cartOpen && (
+        <Modal
+          title={t("invoice.cartTitle")}
+          onClose={() => setCartOpen(false)}
+        >
+          <CartSheet
+            lines={cartLines}
+            onChange={setCartLines}
+            draft={cartDraft}
+            onDraftChange={setCartDraft}
+            opIdRef={cartOpIdRef}
+            creditCustomer={creditCustomer}
+            onCancelCredit={cancelCreditSale}
+            onDone={(invoice) => {
+              const credited = creditCustomer;
+              setCartLines([]);
+              setCartMode(false);
+              setCartOpen(false);
+              setCartDraft(EMPTY_CART_DRAFT);
+              setCreditCustomer(null);
+              showToast(
+                credited
+                  ? t("credit.done", {
+                      name: credited.name,
+                      total: formatMoney(invoice.totalPiasters),
+                    })
+                  : t("invoice.checkoutDone", {
+                      total: formatMoney(invoice.totalPiasters),
+                    }),
+                "success",
+              );
+              // A credit sale: straight to People → «ليك», where the new balance shows.
+              if (credited && onNavigate) {
+                onNavigate("people");
+                return;
+              }
+              void reloadSales();
+              void apiGet("/api/stock")
+                .then((r) => (r.ok ? r.json() : null))
+                .then((d) => d?.inventory && setInventory(d.inventory))
+                .catch(() => undefined);
+            }}
+          />
+        </Modal>
+      )}
+
+      {/* Offers sheet: sell, edit or remove an offer */}
+      {promosOpen && activePromotions.length > 0 && (
+        <Modal
+          title={t("invoice.promosTitle")}
+          onClose={() => setPromosOpen(false)}
+        >
+          <p className={styles.promoBadgeNotice}>{t("invoice.promosHint")}</p>
+          <div className={styles.promoGrid} data-testid="promos-sheet">
+            {activePromotions.map((promo) => (
+              <div
+                key={promo.id}
+                className={styles.promoCard}
+                onClick={() => {
+                  setPromosOpen(false);
+                  void handleSellPromotion(promo);
+                }}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    setPromosOpen(false);
+                    void handleSellPromotion(promo);
+                  }
+                }}
+              >
+                <div className={styles.promoCardTopRow}>
+                  <div className={styles.promoTag}>
+                    {promo.type === "bundle" ? "كومبو مجمّع" : "تخفيض سريع"}
+                  </div>
+                  <div className={styles.promoCardActions}>
+                    <button
+                      type="button"
+                      className={styles.promoActionBtn}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPromosOpen(false);
+                        setEditingPromo(promo);
+                      }}
+                      title="تعديل تفاصيل العرض"
+                      aria-label={`تعديل العرض ${promo.title}`}
+                    >
+                      <Icon n="edit" s={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.promoActionBtn} ${styles.promoActionDeleteBtn}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void handleDeletePromotion(promo.id);
+                      }}
+                      title="حذف العرض من البيع"
+                      aria-label={`حذف العرض ${promo.title}`}
+                    >
+                      <Icon n="trash" s={13} />
+                    </button>
+                  </div>
+                </div>
+                <span className={styles.promoCardTitle}>{promo.title}</span>
+                <span className={styles.promoCardDesc}>
+                  {promo.description}
+                </span>
+                <div className={styles.promoCardPricing}>
+                  <span className={styles.promoPrice}>
+                    {formatMoney(promo.promoPricePiasters)}
+                  </span>
+                  <span className={styles.promoOriginalPrice}>
+                    {formatMoney(promo.originalPricePiasters)}
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
       )}
 
       {/* Edit Promotion Modal in SalesView */}

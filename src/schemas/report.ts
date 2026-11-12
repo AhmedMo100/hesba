@@ -78,6 +78,36 @@ export const homeReportSchema = z.object({
       grossProfitPiasters: maybePiasters,
     }),
   ),
+  /**
+   * Damaged / lost goods in the period (P4), from `waste_records`. Quantities stay per record
+   * in their own unit (grams vs pieces cannot be added up); the cost is the batches' recorded
+   * cost of what was taken, null-free: records with an unknown cost are counted apart.
+   */
+  losses: z.object({
+    count: z.number().int().min(0),
+    costPiasters: piasters,
+    unknownCostCount: z.number().int().min(0),
+    byReason: z.array(
+      z.object({
+        reason: z.string(),
+        count: z.number().int().min(0),
+        costPiasters: piasters,
+      }),
+    ),
+    recent: z.array(
+      z.object({
+        id: z.string(),
+        at: z.string(),
+        name: z.string(),
+        unit: z.string(),
+        quantityBase: z.number().int(),
+        reason: z.string(),
+        note: z.string().nullable(),
+        /** null = the batch cost is not recorded. */
+        costPiasters: maybePiasters,
+      }),
+    ),
+  }),
   activity: z.array(
     z.object({
       id: z.string(),

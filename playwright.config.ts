@@ -2,6 +2,10 @@ import { defineConfig, devices } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  // QA-54: compiles every page and API route once before the workers start. A `next dev`
+  // server compiles a route on its first request and reloads the open pages, which used to
+  // reload other workers' pages mid-test (random failures on a cold server).
+  globalSetup: "./tests/e2e/global-setup.ts",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
