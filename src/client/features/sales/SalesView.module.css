@@ -554,8 +554,8 @@
 }
 
 .wpSegBtn.active {
-  background: rgba(141, 182, 138, 0.2);
-  color: var(--br, #8db68a);
+  background: color-mix(in srgb, var(--br) 20%, transparent);
+  color: var(--br);
   font-weight: 800;
 }
 
@@ -582,15 +582,15 @@
 }
 
 .wpChip:active {
-  background: var(--br, #7fa37c);
-  color: #122112;
+  background: var(--br);
+  color: var(--sf);
 }
 
 /* Action Button in Pop-up */
 .wpActionBtn {
   width: 100%;
-  background: var(--br, #7fa37c);
-  color: #122112;
+  background: var(--br);
+  color: var(--sf);
   border: none;
   border-radius: 14px;
   font-size: 15px;

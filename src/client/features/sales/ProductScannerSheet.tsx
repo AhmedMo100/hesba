@@ -11,7 +11,13 @@
  * Offline the photos stay in this sheet and manual search keeps working; nothing is sent and no
  * credit is used.
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Button, Icon, Modal } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
@@ -24,7 +30,7 @@ import {
   type ScanResultView,
   type ScannerQuotaView,
 } from "@/client/shared/api/scanner";
-import { preparePhoto, type PreparedPhoto } from "./scan-images";
+import { prepareFrame, type PreparedPhoto } from "./scan-images";
 import styles from "./ProductScannerSheet.module.css";
 
 /** A shop product the user can pick by hand (from the Sales screen's own list). */
@@ -92,9 +98,10 @@ export function ProductScannerSheet({
   const [choices, setChoices] = useState<Record<string, Choice>>({});
   const [quota, setQuota] = useState<ScannerQuotaView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [preparing, setPreparing] = useState(false);
-  const cameraRef = useRef<HTMLInputElement>(null);
-  const galleryRef = useRef<HTMLInputElement>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const op = useRetryOpId();
 
   useEffect(() => {
@@ -125,28 +132,94 @@ export function ProductScannerSheet({
         ? "لقد وصلت إلى الحد الشهري المسموح لاستخدام اسكان المنتجات."
         : "لقد وصلت إلى الحد اليومي المسموح لاستخدام اسكان المنتجات. يمكنك الاستمرار في البحث عن المنتجات وإضافتها يدويًا.";
 
-  const addFiles = async (files: FileList | null) => {
-    if (!files || files.length === 0) return;
-    setError(null);
-    const room = maxImages - photos.length;
-    if (room <= 0) {
-      setError(`أقصى عدد ${maxImages} صور في الاسكان الواحد`);
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    }
+    setCameraActive(false);
+  }, []);
+
+  const startCamera = useCallback(async () => {
+    setCameraError(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("المتصفح ده مش بيدعم الكاميرا");
       return;
     }
-    setPreparing(true);
-    const next: PreparedPhoto[] = [];
-    for (const f of Array.from(files).slice(0, room)) {
-      try {
-        next.push(await preparePhoto(f));
-      } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : "مقدرناش نفتح الصورة");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: { ideal: "environment" },
+          width: { ideal: 1280 },
+          height: { ideal: 960 },
+        },
+        audio: false,
+      });
+      streamRef.current = stream;
+      setCameraActive(true);
+      // Attach to video element after render
+      requestAnimationFrame(() => {
+        if (videoRef.current && streamRef.current) {
+          videoRef.current.srcObject = streamRef.current;
+        }
+      });
+    } catch (e: unknown) {
+      const name = e instanceof DOMException ? e.name : "";
+      if (name === "NotAllowedError") {
+        setCameraError(
+          "محتاجين إذن الكاميرا. فعّل الكاميرا من إعدادات المتصفح وجرّب تاني.",
+        );
+      } else if (name === "NotFoundError" || name === "NotReadableError") {
+        setCameraError("مفيش كاميرا متاحة أو الكاميرا مشغولة.");
+      } else {
+        setCameraError("مقدرناش نفتح الكاميرا. جرّب تاني.");
       }
     }
-    if (files.length > room)
-      setError(`اتضاف ${room} بس — أقصى عدد ${maxImages} صور`);
-    setPhotos((p) => [...p, ...next]);
-    setPreparing(false);
-  };
+  }, []);
+
+  const captureFrame = useCallback(() => {
+    if (!videoRef.current || videoRef.current.readyState < 2) return;
+    setPhotos((prev) => {
+      if (prev.length >= maxImages) {
+        setError(`أقصى عدد ${maxImages} صور في الاسكان الواحد`);
+        return prev;
+      }
+      try {
+        return [...prev, prepareFrame(videoRef.current!)];
+      } catch {
+        setError("مقدرناش ناخد الصورة، جرّب تاني");
+        return prev;
+      }
+    });
+  }, [maxImages]);
+
+  // Stop camera on unmount
+  useEffect(() => {
+    return () => {
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, []);
+
+  // Stop camera when leaving capture phase — synchronizes camera with phase changes
+  useEffect(() => {
+    if (phase !== "capture") {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- synchronizing external resource (camera stream) with phase
+      stopCamera();
+    }
+  }, [phase, stopCamera]);
+
+  // Auto-start camera on mount (the scanner opened from the camera icon)
+  const didAutoStart = useRef(false);
+  useEffect(() => {
+    if (!didAutoStart.current && !blocked) {
+      didAutoStart.current = true;
+      void startCamera();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [blocked]);
 
   const startChoices = (r: ScanResultView) => {
     const c: Record<string, Choice> = {};
@@ -263,12 +336,7 @@ export function ProductScannerSheet({
         size="lg"
         wide
         busy={phase === "processing"}
-        disabled={
-          phase === "processing" ||
-          preparing ||
-          photos.length === 0 ||
-          !!blocked
-        }
+        disabled={phase === "processing" || photos.length === 0 || !!blocked}
         onClick={() => void process()}
         data-testid="scan-process"
       >
@@ -287,6 +355,7 @@ export function ProductScannerSheet({
     ) {
       return;
     }
+    stopCamera();
     onClose();
   };
 
@@ -327,70 +396,76 @@ export function ProductScannerSheet({
               صوّر المنتجات بوضوح (ممكن أكتر من منتج في الصورة، ولحد {maxImages}{" "}
               صور). بنبعت الصور بس — من غير أسعار ولا بيانات محلك — ومش بنحفظها.
             </p>
-            <div className={styles.thumbs} data-testid="scan-photos">
-              {photos.map((p, i) => (
-                <figure key={p.id} className={styles.thumb}>
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.previewUrl} alt={`صورة ${i + 1}`} />
-                  <button
-                    type="button"
-                    className={styles.thumbX}
-                    aria-label={`شيل صورة ${i + 1}`}
-                    onClick={() =>
-                      setPhotos((ps) => ps.filter((x) => x.id !== p.id))
-                    }
-                    disabled={phase === "processing"}
-                  >
-                    <Icon n="x" s={16} />
-                  </button>
-                  <figcaption>{i + 1}</figcaption>
-                </figure>
-              ))}
-            </div>
-            <div className={styles.actions}>
-              <Button
-                kind="ghost"
-                icon="plus"
-                onClick={() => cameraRef.current?.click()}
-                disabled={phase === "processing" || photos.length >= maxImages}
-                data-testid="scan-camera"
+            {cameraError && (
+              <div
+                className={styles.error}
+                role="alert"
+                data-testid="scan-camera-error"
               >
-                {photos.length ? "صوّر تاني" : "افتح الكاميرا"}
-              </Button>
-              <Button
-                kind="ghost"
-                icon="layers"
-                onClick={() => galleryRef.current?.click()}
-                disabled={phase === "processing" || photos.length >= maxImages}
-                data-testid="scan-gallery"
-              >
-                من الصور
-              </Button>
-            </div>
-            <input
-              ref={cameraRef}
-              type="file"
-              accept="image/*"
-              capture="environment"
-              hidden
-              data-testid="scan-camera-input"
-              onChange={(e) => {
-                void addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
-            <input
-              ref={galleryRef}
-              type="file"
-              accept="image/*"
-              multiple
-              hidden
-              data-testid="scan-file-input"
-              onChange={(e) => {
-                void addFiles(e.target.files);
-                e.target.value = "";
-              }}
-            />
+                {cameraError}
+              </div>
+            )}
+            {cameraActive && (
+              <div className={styles.viewfinder} data-testid="scan-viewfinder">
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  muted
+                  className={styles.video}
+                />
+                <button
+                  type="button"
+                  className={styles.captureBtn}
+                  onClick={captureFrame}
+                  disabled={
+                    phase === "processing" || photos.length >= maxImages
+                  }
+                  aria-label="التقط صورة"
+                  data-testid="scan-capture"
+                >
+                  <span className={styles.captureDot} />
+                </button>
+              </div>
+            )}
+            {!cameraActive && !cameraError && (
+              <div className={styles.actions}>
+                <Button
+                  kind="ghost"
+                  icon="camera"
+                  onClick={() => void startCamera()}
+                  disabled={phase === "processing"}
+                  data-testid="scan-camera"
+                >
+                  افتح الكاميرا
+                </Button>
+              </div>
+            )}
+            {photos.length > 0 && (
+              <>
+                <p className={styles.hint}>{photos.length} صورة</p>
+                <div className={styles.thumbs} data-testid="scan-photos">
+                  {photos.map((p, i) => (
+                    <figure key={p.id} className={styles.thumb}>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.previewUrl} alt={`صورة ${i + 1}`} />
+                      <button
+                        type="button"
+                        className={styles.thumbX}
+                        aria-label={`شيل صورة ${i + 1}`}
+                        onClick={() =>
+                          setPhotos((ps) => ps.filter((x) => x.id !== p.id))
+                        }
+                        disabled={phase === "processing"}
+                      >
+                        <Icon n="x" s={16} />
+                      </button>
+                      <figcaption>{i + 1}</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
 
@@ -564,6 +639,7 @@ export function ProductScannerSheet({
                 setPhase("capture");
                 setResult(null);
                 setPhotos([]);
+                setCameraError(null);
               }}
               data-testid="scan-again"
             >

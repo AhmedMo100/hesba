@@ -91,6 +91,55 @@
   cursor: pointer;
 }
 
+.viewfinder {
+  position: relative;
+  border-radius: 14px;
+  overflow: hidden;
+  background: #000;
+  aspect-ratio: 4/3;
+}
+
+.video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.captureBtn {
+  position: absolute;
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 3px solid #fff;
+  background: transparent;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.captureBtn:disabled {
+  opacity: 0.4;
+}
+
+.captureDot {
+  display: block;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.1s;
+}
+
+.captureBtn:active .captureDot {
+  transform: scale(0.85);
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

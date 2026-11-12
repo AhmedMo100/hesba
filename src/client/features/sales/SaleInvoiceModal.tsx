@@ -56,8 +56,6 @@ export function SaleInvoiceModal({
   const [loadError, setLoadError] = useState(false);
   // Typed in the product's own unit: kilograms for weighed goods, units otherwise.
   const [qty, setQty] = useState<Record<string, string>>({});
-  // Lines whose returned goods are damaged (recorded as a loss, not put back on sale).
-  const [damaged, setDamaged] = useState<Record<string, boolean>>({});
   const [collect, setCollect] = useState("");
   const [busy, setBusy] = useState<"return" | "pay" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +97,7 @@ export function SaleInvoiceModal({
       lines.push({
         saleLineId: l.id,
         quantityBase: base,
-        condition: damaged[l.id] ? "damaged" : "sellable",
+        condition: "sellable",
       });
     }
     if (lines.length === 0) {
@@ -114,7 +112,6 @@ export function SaleInvoiceModal({
       returnOp.current = crypto.randomUUID();
       setInvoice(next);
       setQty({});
-      setDamaged({});
       onChanged(
         t("invoice.returnDone", {
           amount: formatMoney(next.returnedPiasters - before),
@@ -193,6 +190,12 @@ export function SaleInvoiceModal({
                     <div className={styles.qty}>
                       {l.returnable && left > 0 && !invoice.voided ? (
                         <>
+                          <small className={styles.returnInfo}>
+                            الأصلي {showQty(l.quantityBase, l.unit)}
+                            {l.returnedQuantityBase > 0 &&
+                              ` · مرتجع ${showQty(l.returnedQuantityBase, l.unit)}`}
+                            {` · باقي ${showQty(left, l.unit)}`}
+                          </small>
                           <input
                             type="text"
                             inputMode={
@@ -200,7 +203,9 @@ export function SaleInvoiceModal({
                             }
                             aria-label={`${t("invoice.returnQty")} ${l.name} (${isWeighed(l.unit) ? "كيلو" : unitWord(l.unit)})`}
                             placeholder={
-                              isWeighed(l.unit) ? "كجم" : unitWord(l.unit)
+                              isWeighed(l.unit)
+                                ? `حد أقصى ${(left / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`
+                                : `حد أقصى ${left} ${unitWord(l.unit)}`
                             }
                             data-testid="invoice-return-qty"
                             value={qty[l.id] ?? ""}
@@ -208,20 +213,6 @@ export function SaleInvoiceModal({
                               setQty((q) => ({ ...q, [l.id]: e.target.value }))
                             }
                           />
-                          <label className={styles.damaged}>
-                            <input
-                              type="checkbox"
-                              data-testid="invoice-return-damaged"
-                              checked={!!damaged[l.id]}
-                              onChange={(e) =>
-                                setDamaged((d) => ({
-                                  ...d,
-                                  [l.id]: e.target.checked,
-                                }))
-                              }
-                            />
-                            <span>تالف</span>
-                          </label>
                         </>
                       ) : null}
                     </div>

@@ -37,6 +37,25 @@ export function scaledSize(
   return { w: Math.round(w * k), h: Math.round(h * k) };
 }
 
+/** Capture a frame from a live video element (getUserMedia stream). */
+export function prepareFrame(video: HTMLVideoElement): PreparedPhoto {
+  const { w, h } = scaledSize(video.videoWidth, video.videoHeight);
+  const canvas = document.createElement("canvas");
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) throw new Error("مقدرناش نجهز الصورة");
+  ctx.drawImage(video, 0, 0, w, h);
+  const dataUrl = canvas.toDataURL("image/jpeg", QUALITY);
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return {
+    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    base64,
+    previewUrl: dataUrl,
+    bytes: Math.floor((base64.length * 3) / 4),
+  };
+}
+
 export async function preparePhoto(file: File): Promise<PreparedPhoto> {
   if (file.type && !file.type.startsWith("image/")) {
     throw new Error("الملف ده مش صورة");

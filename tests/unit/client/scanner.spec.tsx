@@ -13,7 +13,7 @@ describe("scanner photo preparation", () => {
 });
 
 describe("ProductScannerSheet", () => {
-  it("offers the camera (rear, image/*) and the gallery (several images) and explains what is sent", () => {
+  it("renders the scanner with a camera button and privacy note, process button disabled without photos", () => {
     const html = renderToString(
       <ProductScannerSheet
         catalog={[]}
@@ -22,8 +22,10 @@ describe("ProductScannerSheet", () => {
       />,
     );
     expect(html).toContain('data-testid="product-scanner"');
-    expect(html).toMatch(/accept="image\/\*"[^>]*capture="environment"/);
-    expect(html).toMatch(/accept="image\/\*"[^>]*multiple=""/);
+    // Live camera button (replaces file input)
+    expect(html).toContain('data-testid="scan-camera"');
+    expect(html).toContain("افتح الكاميرا");
+    // Privacy note about what is sent
     expect(html).toContain("من غير أسعار ولا بيانات محلك");
     // «تم» is disabled until a photo is taken.
     expect(html).toMatch(

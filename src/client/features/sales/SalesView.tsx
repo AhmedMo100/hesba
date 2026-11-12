@@ -1552,6 +1552,7 @@ export function SalesView({
             onChange={setQuery}
             placeholder="دوّر على صنف..."
             voice={true}
+            onCamera={() => setScannerOpen(true)}
           />
         </div>
 
@@ -1618,15 +1619,6 @@ export function SalesView({
             {creditCustomer
               ? t("credit.sessionLabel", { name: creditCustomer.name })
               : t("credit.start")}
-          </Button>
-          <Button
-            kind="ghost"
-            size="sm"
-            icon="sparkle"
-            data-testid="scan-start"
-            onClick={() => setScannerOpen(true)}
-          >
-            اسكان المنتجات بالذكاء الاصطناعي
           </Button>
         </div>
 
