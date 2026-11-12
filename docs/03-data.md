@@ -37,6 +37,11 @@ CREATE POLICY tenant_isolation ON <t>
 ```
 The application user (`hesba_app`) is not the owner, not a superuser, and does not have `BYPASSRLS`. Migrations run as a different user (`hesba_migrator`). Admin roles/jobs that need to bypass RLS use a separate role, `hesba_service`, with a specific list of tables (section 9).
 
+**As built (ADR-0024, 2026-11-12).**
+- **Migrator:** `hesba_migrator` has no bypass policy on tenant tables. It sees a shop's rows only with `app.store_id` set, and it is never used at runtime.
+- **Service role:** `hesba_service` exists for the catalog-promotion cron only. Its grants are narrow (see ADR-0024), and it never touches sales, stock, money, people or identity.
+- **Identity tables** (`users`, `sessions`, …) are read by the server on `hesba_app`, before any shop is known.
+
 ### Enums
 ```sql
 CREATE TYPE product_kind    AS ENUM ('piece','weight');
@@ -239,6 +244,19 @@ CREATE TABLE sandwich_ingredients (
 - The sum is computed exactly in milli-piasters and rounded **once**, half up.
 - The current cost is computed on read and never stored. Each sale stores its own snapshot in `sale_lines.cost_piasters`.
 
+### 3.2 Deleting a product the shop created (as built, 2026-11-09)
+
+`DELETE /api/products?id=…&action=delete` calls `CatalogService.deleteShopProduct`. A plain `DELETE` (no `action`) still only hides the product.
+
+- **Which products:** only rows with `global_product_id IS NULL` (created by this shop, sandwiches included).
+  - A catalog product, or a `gp_…` id, is refused with 400; the shop can only hide it.
+  - `global_products` is never written.
+- **Scope:** everything runs in `withTenant`, so another shop's id is simply not found (404).
+- **No history** (no sale lines, stock movements, batches, purchase lines, waste records or supplier links): the product is removed together with its variants and any zero `stock_levels` rows. For a sandwich, its recipe lines are removed too.
+- **Any history:** the product is **archived** with the existing hide flag (`is_active = false` on the product and its variants). Invoices, movements and reports keep their references.
+- **Used as a sandwich ingredient:** refused (409), naming the sandwiches. The recipe must be changed first.
+- **Afterwards:** deleted or archived products leave the normal lists and the sandwich ingredient options.
+
 ---
 
 ## 4. Inventory (Batches + Movements)
@@ -293,7 +311,7 @@ CREATE TABLE waste_records (
 - `stock_levels.qty_base = SUM(stock_movements.qty_base)` for the product.
 - `batches.remaining_base = qty_base + SUM(the batch's movements)`.
 - `stock_movements` is never modified or deleted (a trigger prevents it).
-- A product's balance can go negative (a sale actually happened); it is flagged `negative=true` and shows up in alerts.
+- A product's balance can go negative (a sale actually happened); it is flagged `negative=true` and shows up in alerts. *As built (D31): an online sale above the stock is rejected, so sales never take the balance below zero; this rule stays for offline sales once a sync exists.*
 
 ---
 
@@ -323,19 +341,42 @@ CREATE INDEX ON sale_lines (store_id, product_id);
 - **Undo (void):** sets `voided_at` and adds reversing `type='void'` movements according to `takes`. Nothing is deleted.
 - Reports ignore rows where `voided_at IS NOT NULL`.
 
-**As built (2026-11-09).** The tables are `sales` / `sale_lines` (Prisma `Sale` / `SaleLine`), with these differences from the design above:
+**As built (2026-11-10, ADR-0019).** The tables are `sales` / `sale_lines` (Prisma `Sale` / `SaleLine`), with these differences from the design above:
 
-- There is no `voided_at` or `takes` yet.
+- There is no `voided_at` or `takes` column: a void is a `sale_voids` row, and the takes are the sale lines' `type='sale'` stock movements (ADR-0022).
 - `sale_lines.cost_piasters` (nullable) is the line's cost at sale time. Today only **sandwich** lines set it.
-- **Selling a sandwich (ADR-0018)** goes through `POST /api/sales` with a client `opId`. In one transaction it:
-  - locks the ingredients' `stock_levels` rows;
-  - rejects the whole sale (409) if any ingredient is short;
-  - writes one line targeting only the sandwich product;
-  - FEFO-depletes every ingredient with `type='sale'` movements linked to that line.
-- A repeated `opId` returns the first sale.
-- Sandwich sales have no undo until `sale.void` exists.
+- **Every sale is one `POST /api/sales` transaction** owned by the server. The client never deducts stock itself. In one `withTenant` transaction the server:
+  1. resolves the sold item in **this** store (ids of another store are not found → 404);
+  2. locks the stock rows it will change (`lockStockLevelInTx`, see §4 below);
+  3. returns the first sale when the client's `opId` was already recorded (`(store_id, op_id)` is unique, so a concurrent duplicate also ends with one sale);
+  4. rejects the whole sale with **409** (`details.shortages`) when the stock is not enough — nothing is written (decision D31);
+  5. writes the sale and its lines, priced by the server;
+  6. FEFO-depletes the stock with `type='sale'` movements linked to each line.
+  Any failure rolls back all of it.
+- **Kinds of sale and their lines** (exactly one target per line, `chk_sale_lines_exactly_one_target`):
+
+  | Sale | Line target | Price |
+  |---|---|---|
+  | Ordinary product | the variant | registered selling price × quantity; `kg` products: price per kg × grams ÷ 1000, rounded half up once |
+  | Sandwich (ADR-0018) | the sandwich product | the sandwich price × count; ingredients are deducted |
+  | Promotion | one line per item (its variant) | the shop's saved offer price, split across the lines by regular value (lines add up exactly); `unit_price` = the item's regular price |
+  | Service (top-up, bill, card) | the variant, or the product when it has no variant | the amount the cashier entered (it varies per transaction); no stock |
+
+- The client's amount and timestamp are ignored for goods; the sale time is the server's clock.
+- **Undo is a reversing void (ADR-0022), never a delete.** `POST /api/sales/void` writes one immutable `sale_voids` row (unique per sale and per `op_id`; app role: SELECT/INSERT only). In the same transaction, it puts back exactly the sale's recorded `type='sale'` takes, to the same batches, as `type='sale_void'` movements, and refunds any POS-machine charge. Voided sales stay listed (flagged), and every reader leaves them out of revenue and COGS. `sale_voids` replaces the planned `sales.voided_at`, so `sales` keeps no UPDATE grant.
+
+**POS-machine money (ADR-0020).** `pos_machines.current_balance_piasters` changes only through `changeMachineBalanceInTx`: the machine row is locked (`FOR UPDATE`), the ledger row (`pos_machine_topups`, with the client `op_id`, unique per store) and the new balance are computed from the locked value in one transaction, and a balance below zero is rejected (also `CHECK … >= 0`). A service sale paid through a machine charges it inside the sale transaction.
+
+**Stock truth and batch cost (ADR-0021).** The movement ledger is the source of truth for quantities: the stock lock returns Σ `stock_movements.quantity_base` and every writer stores it into `stock_levels` (a cache). Every decrease (sale, waste, decreasing adjustment, clear) takes from batches through one path, so `stock_levels = Σ batch remaining = Σ ledger` (checked by `GET /api/stock?view=reconcile`). A batch's `cost_total_minor` is what was paid (the authority; NULL = unknown) and `cost_price_minor` is the unit cost per selling unit derived from it (per kg for `kg`). Sale lines record their cost (`cost_piasters`) from the batches they consumed; the Home report (`GET /api/reports/home`) sums recorded costs only and reports unknown instead of estimating.
+
+**Stock concurrency (ADR-0019).** Every operation that changes a variant's stock — a sale, add, waste, void, adjust, clear, archive — first locks that variant's `stock_levels` row (`SELECT … FOR UPDATE`, creating it at 0 when missing; several variants are locked in id order). The new balance, the batch updates and each movement's `balance_after_base` are computed from the locked value. Concurrent operations on the same variant therefore run one after the other and none is lost; different variants do not wait for each other.
 
 ## 6. Expenses and People
+
+**People ledgers as built (ADR-0023).**
+- **Signed balances:** customer, payable and supplier balances are the signed sum of their `debt_entries`, never floored. For customers, a negative balance means the shop owes the customer (credit). For payables and suppliers, a negative balance means the shop paid ahead.
+- **Entry kinds:** `debt_entries.entry_kind` is `opening` (the person's starting balance), `transaction` (a real debt or payment) or `adjustment` (the owner set the balance by hand, labelled as such, and not counted as a debt or payment).
+- **Writes:** every write locks the person's row, and an `op_id` is applied once.
 
 ```sql
 CREATE TABLE expenses (
@@ -788,6 +829,14 @@ Every rejected operation is assigned a canonical reason and must appear in the "
 
 ## 7. Client Outbox Lifecycle & Trigger Events
 
+**As built (2026-11-10, ADR-0020).** The outbox is in use for **sales** (`src/client/offline/outbox`). It follows the states and triggers below, with these specifics:
+
+- Transport: each op is sent to `POST /api/sales` (the same transaction as an online sale, ADR-0019) rather than the batched `/api/sync/push`. The `op_id` is the sale's `opId`.
+- Every sale is enqueued before it is sent; a sale sent right after the tap and rejected then is shown as an error and removed, not kept for review.
+- `401` and `403 STORE_MISMATCH` (the op belongs to another shop than the one signed in) keep the op `pending` without counting an attempt; after 8 transient failures an op is `quarantined`.
+- A queued sale rejected for stock (`409`) is kept for review ("جرّب تاني" / "إلغاء البيعة"): decision D32.
+
+
 ### 7.1 Operation States
 ```text
 [pending] ──(network send)──> [sending] ──(server 200 applied)──> [applied] (deleted from outbox)
@@ -1178,3 +1227,9 @@ Note: Barcode is completely eliminated per ADR-0016; matching relies on Arabic n
 - The button name: **"إضافة" (Add)**. ("وصلت" means "the message arrived"; the most suitable for the user is one clear word.)
 - After acceptance: a short message "اتضاف. حط سعرك" (Added. Enter your price) with automatic focus on the price field.
 - The main products page: a "اقتراحات" (Suggestions) tab next to "المنتجات" (Products) instead of cramming everything into the alerts (possibly an ADR later).
+
+## 10. Signup referral codes (2026-11-12)
+
+- `referral_codes` (global, FORCE RLS): `code` (lower-case, `^[a-z0-9_-]{3,32}$`, unique), `label` (whose code — internal, never returned to users), `is_active`. The app role can only read active codes; codes are added by Hesba staff (migrator / SQL), e.g. `INSERT INTO referral_codes (code, label) VALUES ('mogamal123', 'Mostafa Gamal');`.
+- `store_referrals` (tenant table, FORCE RLS, one row per shop): written in the signup transaction only; append-only for the app role (no UPDATE/DELETE), so the attribution is permanent. A code that brought shops cannot be deleted (`ON DELETE RESTRICT`); deactivate it instead.
+- Signup: the code is optional; an unknown, inactive or malformed code is a 400 on `referralCode` and nothing is created. Migration `20261117000000_referral_codes` (additive; `stores` unchanged).

@@ -10,9 +10,12 @@ import "server-only";
 
 import { hash, verify } from "@node-rs/argon2";
 
-// Precomputed dummy Argon2id hash used to prevent timing attacks when account does not exist
+// A REAL Argon2id hash with the same parameters as {@link hashPassword} (QA-38): verifying
+// against it costs exactly what a wrong password on an existing account costs. The previous
+// placeholder was not valid base64, so verify failed in ~0.1 ms and "unknown phone" answered
+// faster than "wrong password" (measured 0.11 ms vs 12.9 ms locally).
 const DUMMY_ARGON2_HASH =
-  "$argon2id$v=19$m=65536,t=3,p=4$dummySalt12345678$dummyHashResultValuePlaceholderForTimingProtection";
+  "$argon2id$v=19$m=19456,t=2,p=1$dAK6PkyaF/cA6rrDt4EQtg$5s8HBhCua8jzM1BkXBF77Bs2qNzqdtc2W8arqx5tHpY";
 
 /** Hashes a password with Argon2id (19 MiB memory, 2 iterations, 1 lane). */
 export async function hashPassword(password: string): Promise<string> {

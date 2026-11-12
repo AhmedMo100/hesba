@@ -98,6 +98,44 @@
   }
 }
 
+/* The small controls above the tiles: offers and the multi-item invoice */
+.salesTools {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 10px;
+}
+
+/* The invoice summary: a small pill that stays in view and opens the invoice sheet */
+.cartSummary {
+  position: sticky;
+  bottom: calc(var(--nav, 64px) + env(safe-area-inset-bottom, 0px) + 10px);
+  z-index: 20;
+  align-self: center;
+  margin: 10px auto 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 999px;
+  border: 0;
+  background: var(--br);
+  color: var(--brInk);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 6px 18px rgba(50, 40, 15, 0.18);
+  cursor: pointer;
+}
+
+@media (min-width: 900px) {
+  .cartSummary {
+    bottom: 16px;
+  }
+}
+
 /* Promotional Clearance Offers in Sales View */
 .promoSection {
   background: rgba(245, 158, 11, 0.08);
@@ -136,7 +174,8 @@
 }
 
 .promoCard {
-  background: var(--bg-card, #23221f);
+  /* QA-47: the theme surface, so the title (--ink) is readable in light and dark. */
+  background: var(--sf2);
   border: 1px solid rgba(245, 158, 11, 0.35);
   border-radius: 12px;
   padding: 10px 12px;
@@ -214,11 +253,12 @@
 }
 
 .promoActionBtn {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--sf);
   border: 1px solid var(--line, #383b34);
   color: var(--ink2, #a0a8a0);
-  width: 26px;
-  height: 26px;
+  width: 44px; /* QA-46 */
+  height: 44px;
+  flex-shrink: 0;
   border-radius: 6px;
   display: flex;
   align-items: center;
@@ -375,6 +415,28 @@
   transition:
     background 0.15s ease,
     transform 0.1s ease;
+}
+
+/* The card's unit button and «آجل» side by side */
+.tActions {
+  display: flex;
+  border-top: 1.5px dashed var(--line, #2c352c);
+}
+
+.tActions .tPack {
+  border-top: 0;
+  flex: 1;
+  min-height: 44px; /* QA-46 */
+}
+
+.tActions .tPack + .tPack {
+  border-inline-start: 1.5px dashed var(--line, #2c352c);
+}
+
+.tCredit {
+  color: var(--ink2, #a0a8a0);
+  background: transparent;
+  font-size: 12.5px;
 }
 
 .tPack:active {
@@ -735,24 +797,41 @@
   color: var(--ink, #ffffff);
 }
 
-.rcUndoBtn {
-  background: transparent;
-  border: 1px solid var(--line, #2c352c);
+/* A voided (undone) sale stays in the list for the record, clearly not counted (ADR-0022). */
+.rcVoided .rcName,
+.rcVoided .rcAmount {
   color: var(--ink2, #a0a8a0);
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 3px 8px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.15s ease;
 }
 
-.rcUndoBtn:hover {
-  border-color: #f87171;
-  color: #f87171;
+.rcVoided .rcAmount {
+  text-decoration: line-through;
+}
+
+.rcVoidBadge {
+  margin-inline-start: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--line, #2c352c);
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--ink2, #a0a8a0);
+}
+
+.salesLoadError {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 2px;
+  font-size: 13px;
+  color: var(--red);
+}
+
+.salesLoadError button {
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 10px;
+  font-weight: 700;
 }
 
 /* Top Toast Banner with Undo Button */
@@ -819,6 +898,12 @@
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+  min-height: 44px;
+}
+
+.toastUndoBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
 
 .toastUndoBtn:active {
@@ -833,4 +918,121 @@
   to {
     opacity: 1;
   }
+}
+
+/* Sales waiting for the server (outbox, ADR-0020) */
+.queueSection {
+  margin: 14px 0 4px;
+  padding: 12px 14px;
+  border: 1.5px dashed var(--yel, #d4a017);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--yel, #d4a017) 8%, transparent);
+}
+
+.queueHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.queueHead b {
+  display: block;
+  font-size: 14.5px;
+  color: var(--ink);
+}
+
+.queueHead small {
+  display: block;
+  font-size: 12px;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+.queueSyncBtn,
+.queueBtn,
+.queueBtnGhost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.queueSyncBtn,
+.queueBtn {
+  border: 1.5px solid var(--br);
+  background: transparent;
+  color: var(--br);
+}
+
+.queueBtnGhost {
+  border: 1.5px solid var(--line);
+  background: transparent;
+  color: var(--ink2);
+}
+
+.queueList {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.queueRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+
+.queueRowBad .queueStatus {
+  color: var(--red);
+}
+
+.queueInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.queueStatus {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--yel, #b8860b);
+}
+
+.queueActions {
+  display: flex;
+  gap: 6px;
+}
+
+.toastPending {
+  background: #2a2412 !important;
+  border-color: #d4a017 !important;
+}
+
+.toastPending .toastMsg {
+  color: #fde68a !important;
+}
+
+/* QA-31: the invoice details link on a recent sale (touch target ≥ 44px). */
+.rcDetails {
+  min-height: 44px;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--br);
+  font-weight: 700;
+  font-size: 13px;
+  cursor: pointer;
 }

@@ -5,66 +5,83 @@
  * @description The home dashboard: today's sales, stock and expense summaries and shortcuts.
  *
  * @remarks
- * Data comes from the server only (`/api/stock?view=all`, `/api/sales`,
- * `/api/expenses?period=all`); it does not read the sales kept in `localStorage` by the sales
- * screen. A failed request leaves that section empty.
+ * - "الجرد" (inventory) reads `/api/stock` (inventory only; QA-32).
+ * - "التقرير" (report) reads `/api/reports/home?period=…` (ADR-0021): every financial figure —
+ *   revenue, cost of goods sold, gross profit, expenses, purchases, the chart, top products,
+ *   categories, activity — is computed on the server from recorded data. This screen does no
+ *   financial arithmetic; a cost or profit the server reports as unknown is shown as "—",
+ *   never estimated (audit QA-06 / QA-07).
+ * A failed request leaves that section empty.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Seg, SearchBox, Icon, Empty } from "@/client/shared/ui";
-import { formatMoney } from "@/client/shared/i18n";
+import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
+import { apiGet } from "@/client/shared/api/read-cache";
+import React, { useState, useEffect, useMemo } from "react";
+import {
+  Seg,
+  SearchBox,
+  Icon,
+  Empty,
+  Skeleton,
+  PeriodFilter,
+} from "@/client/shared/ui";
+import { formatMoney, t } from "@/client/shared/i18n";
+import {
+  fetchHomeReport,
+  type HomeReport,
+  type ReportPeriod,
+} from "@/client/shared/api/reports";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 import styles from "./HomeView.module.css";
 
-interface SaleTransactionItem {
-  productName: string;
-  categoryName?: string;
-  quantityBase: number;
-  unitMode: string;
-  unitPriceMinor: number;
-  totalMinor: number;
+type PeriodKey = ReportPeriod;
+
+/** A stored base quantity in its selling unit: grams → kg for weighed goods. */
+function formatBaseQuantity(base: number, unit: string): string {
+  if (unit === "kg" || unit === "g") {
+    return `${(base / 1000).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`;
+  }
+  return `${base} ${unitWord(unit)}`;
 }
 
-interface SaleRecord {
-  id: string;
-  totalPiasters: number;
-  paymentMethod: string;
-  createdAt: string;
-  items: SaleTransactionItem[];
+const HOME_PERIODS: ReadonlyArray<readonly [PeriodKey, string]> = [
+  ["today", "النهارده"],
+  ["yesterday", "امبارح"],
+  ["week", "الأسبوع"],
+  ["month", "الشهر"],
+  ["all", "الكل"],
+];
+
+/** Money, or "—" when the server could not determine it from recorded data. */
+function moneyOrUnknown(piasters: number | null): string {
+  return piasters === null ? "—" : formatMoney(piasters);
 }
 
-interface ExpenseRecord {
-  id: string;
-  amountPiasters: number;
-  category: string;
-  notes?: string;
-  createdAt: string;
-}
-
-type PeriodKey = "today" | "yesterday" | "week" | "month" | "all";
-
-function formatQtyText(
+export function formatQtyText(
   unitMode: "piece" | "weight",
   qtyBase: number,
   packQty = 1,
-  unit = "قطعة",
+  unit = "piece",
   packName?: string,
 ): string {
   if (unitMode === "weight") {
     const kg = qtyBase / 1000;
     return `${kg.toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
   }
+  // Arabic words, never the stored codes (QA-43).
+  const word = unitWord(unit);
   if (packQty > 1 && qtyBase >= packQty) {
     const packs = Math.floor(qtyBase / packQty);
     const rem = qtyBase % packQty;
-    const pName = packName || "كرتونة";
+    const pName = packWord(packName, packQty);
     if (rem === 0) {
       return `${packs} ${pName}`;
     }
-    return `${packs} ${pName} و ${rem} ${unit}`;
+    return `${packs} ${pName} و ${rem} ${word}`;
   }
-  return `${qtyBase} ${unit}`;
+  return `${qtyBase} ${word}`;
 }
 
 export function HomeView() {
@@ -74,38 +91,59 @@ export function HomeView() {
   const [showMoreTop, setShowMoreTop] = useState(false);
 
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
-  const [sales, setSales] = useState<SaleRecord[]>([]);
-  const [expenses, setExpenses] = useState<ExpenseRecord[]>([]);
+  const [loadedReport, setReport] = useState<HomeReport | null>(null);
+  // Only the chosen period's report is shown; another period's is never shown meanwhile.
+  const report = loadedReport?.period === period ? loadedReport : null;
+  const [reportFailed, setReportFailed] = useState(false);
+  const [reportAttempt, setReportAttempt] = useState(0);
+  // The chosen period's report is still on its way (never shown as "—", which means unknown).
+  const reportLoading = report === null && !reportFailed;
 
-  // Load Inventory, Sales and Expenses
+  // The report of the chosen period, from the server (ADR-0021). A failed read (offline, or a
+  // request cut off by a page reload) is retried once and can be retried by hand; until a
+  // report arrives the figures show "—", never 0.
+  useEffect(() => {
+    const controller = new AbortController();
+    let retry: ReturnType<typeof setTimeout> | null = null;
+    const load = (retriesLeft: number) => {
+      fetchHomeReport(period, controller.signal)
+        .then((r) => {
+          setReport(r);
+          setReportFailed(false);
+        })
+        .catch(() => {
+          if (controller.signal.aborted) return;
+          if (retriesLeft > 0) {
+            retry = setTimeout(() => load(retriesLeft - 1), 1500);
+          } else {
+            setReportFailed(true);
+          }
+        });
+    };
+    const reload = () => load(1);
+    reload();
+    window.addEventListener("hesba_stock_updated", reload);
+    window.addEventListener("hesba_sales_config_updated", reload);
+    window.addEventListener("online", reload);
+    return () => {
+      controller.abort();
+      if (retry) clearTimeout(retry);
+      window.removeEventListener("hesba_stock_updated", reload);
+      window.removeEventListener("hesba_sales_config_updated", reload);
+      window.removeEventListener("online", reload);
+    };
+  }, [period, reportAttempt]);
+
+  // Load Inventory
   useEffect(() => {
     let ignore = false;
     const fetchData = async () => {
       try {
-        const [stockRes, salesRes, expRes] = await Promise.all([
-          fetch("/api/stock?view=all").catch(() => null),
-          fetch("/api/sales").catch(() => null),
-          fetch("/api/expenses?period=all").catch(() => null),
-        ]);
-
+        const stockRes = await apiGet("/api/stock").catch(() => null);
         if (stockRes && stockRes.ok && !ignore) {
           const sData = await stockRes.json();
           if (sData?.inventory && Array.isArray(sData.inventory)) {
             setInventory(sData.inventory);
-          }
-        }
-
-        if (salesRes && salesRes.ok && !ignore) {
-          const slData = await salesRes.json();
-          if (slData?.sales && Array.isArray(slData.sales)) {
-            setSales(slData.sales);
-          }
-        }
-
-        if (expRes && expRes.ok && !ignore) {
-          const eData = await expRes.json();
-          if (eData?.expenses && Array.isArray(eData.expenses)) {
-            setExpenses(eData.expenses);
           }
         }
       } catch {}
@@ -170,223 +208,67 @@ export function HomeView() {
     [inventory],
   );
 
-  // Period Date Range Helper
-  const isDateInPeriod = useCallback((dateStr: string, p: PeriodKey) => {
-    const d = new Date(dateStr);
-    const now = new Date();
-    const todayStart = new Date(
-      now.getFullYear(),
-      now.getMonth(),
-      now.getDate(),
-    ).getTime();
-    const t = d.getTime();
+  // Report values — all computed by the server (ADR-0021); only labels are built here.
+  // No report yet (loading, offline or failed) → "—", never a misleading 0 (QA-06).
+  const totalRevenuePiasters = report?.sales.revenuePiasters ?? null;
+  const saleCount = report?.sales.count ?? 0;
+  const totalCogsPiasters = report?.sales.cogsPiasters ?? null;
+  const grossProfitPiasters = report?.sales.grossProfitPiasters ?? null;
+  const unknownCostCount = report?.sales.unknownCostCount ?? 0;
+  const totalExpensesPiasters = report?.expenses.totalPiasters ?? null;
+  const totalPurchasesPiasters = report?.purchases.totalPiasters ?? null;
+  const purchasesUnknownCount = report?.purchases.unknownCostCount ?? 0;
 
-    if (p === "today") {
-      return t >= todayStart;
-    }
-    if (p === "yesterday") {
-      const yStart = todayStart - 86400000;
-      return t >= yStart && t < todayStart;
-    }
-    if (p === "week") {
-      return t >= todayStart - 7 * 86400000;
-    }
-    if (p === "month") {
-      return t >= todayStart - 30 * 86400000;
-    }
-    return true; // "all"
-  }, []);
-
-  // Filtered Sales & Expenses for "التقرير" Tab
-  const periodSales = useMemo(() => {
-    return sales.filter((s) => isDateInPeriod(s.createdAt, period));
-  }, [sales, period, isDateInPeriod]);
-
-  const periodExpenses = useMemo(() => {
-    return expenses.filter((e) => isDateInPeriod(e.createdAt, period));
-  }, [expenses, period, isDateInPeriod]);
-
-  // Report Metrics
-  const totalRevenuePiasters = useMemo(() => {
-    return periodSales.reduce((sum, s) => sum + (s.totalPiasters || 0), 0);
-  }, [periodSales]);
-
-  // COGS estimate: calculate cost from items or default ~75%
-  const totalCogsPiasters = useMemo(() => {
-    let cogs = 0;
-    for (const s of periodSales) {
-      if (s.items && s.items.length > 0) {
-        for (const it of s.items) {
-          const invMatch = inventory.find(
-            (inv) => inv.productName === it.productName,
-          );
-          if (invMatch && invMatch.buyPricePiasters) {
-            const factor = it.unitMode === "weight" ? 1000 : 1;
-            cogs += Math.round(
-              (it.quantityBase / factor) * invMatch.buyPricePiasters,
-            );
-          } else {
-            cogs += Math.round((it.totalMinor || 0) * 0.75);
-          }
-        }
-      } else {
-        cogs += Math.round((s.totalPiasters || 0) * 0.75);
-      }
-    }
-    return cogs;
-  }, [periodSales, inventory]);
-
-  const grossProfitPiasters = totalRevenuePiasters - totalCogsPiasters;
-
-  const totalExpensesPiasters = useMemo(() => {
-    return periodExpenses.reduce((sum, e) => sum + (e.amountPiasters || 0), 0);
-  }, [periodExpenses]);
-
-  // Purchases added to warehouse during period (from batch creations)
-  const totalPurchasesPiasters = useMemo(() => {
-    let total = 0;
-    for (const inv of inventory) {
-      if (inv.batches) {
-        for (const b of inv.batches) {
-          const bDate = b.receivedAt || new Date().toISOString();
-          if (isDateInPeriod(bDate, period)) {
-            const factor = inv.unitMode === "weight" ? 1000 : 1;
-            total += Math.round(
-              (b.remainingQty / factor) * (b.costPricePiasters || 0),
-            );
-          }
-        }
-      }
-    }
-    return total;
-  }, [inventory, period, isDateInPeriod]);
-
-  // Hourly or Daily Bar Series for Chart
   const chartSeries = useMemo(() => {
-    if (periodSales.length === 0) return [];
-
-    if (period === "today" || period === "yesterday") {
-      // 24 Hours series
-      const hoursMap: Record<number, { rev: number; gross: number }> = {};
-      for (let h = 8; h <= 23; h++) {
-        hoursMap[h] = { rev: 0, gross: 0 };
+    if (!report || report.sales.count === 0) return [];
+    return report.series.points.map((p) => {
+      let label = p.key;
+      if (report.series.granularity === "hour") {
+        const h = Number(p.key);
+        label = `${h % 12 || 12} ${h >= 12 ? "م" : "ص"}`;
+      } else {
+        const [, m, d] = p.key.split("-");
+        label = `${Number(d)}/${Number(m)}`;
       }
+      return { k: p.key, label, rev: p.revenuePiasters };
+    });
+  }, [report]);
 
-      for (const s of periodSales) {
-        const h = new Date(s.createdAt).getHours();
-        if (!hoursMap[h]) hoursMap[h] = { rev: 0, gross: 0 };
-        hoursMap[h].rev += s.totalPiasters;
-        hoursMap[h].gross += Math.round(s.totalPiasters * 0.25);
-      }
+  const topProducts = useMemo(
+    () =>
+      (report?.topProducts ?? []).map((p) => ({
+        key: p.productId ?? p.name,
+        name: p.name,
+        rev: p.revenuePiasters,
+        profit: p.grossProfitPiasters,
+      })),
+    [report],
+  );
 
-      return Object.entries(hoursMap).map(([hStr, data]) => {
-        const h = parseInt(hStr, 10);
-        const label = `${h % 12 || 12} ${h >= 12 ? "م" : "ص"}`;
-        return {
-          k: hStr,
-          label,
-          rev: data.rev,
-          gross: data.gross,
-        };
-      });
-    }
+  const salesByCat = useMemo(
+    () =>
+      (report?.byCategory ?? []).map((c) => ({
+        cat: c.category,
+        rev: c.revenuePiasters,
+        profit: c.grossProfitPiasters,
+      })),
+    [report],
+  );
 
-    // Days series for week / month
-    const daysMap: Record<
-      string,
-      { rev: number; gross: number; label: string }
-    > = {};
-    for (const s of periodSales) {
-      const d = new Date(s.createdAt);
-      const key = d.toLocaleDateString("en-CA");
-      const label = `${d.getDate()}/${d.getMonth() + 1}`;
-      if (!daysMap[key]) daysMap[key] = { rev: 0, gross: 0, label };
-      daysMap[key].rev += s.totalPiasters;
-      daysMap[key].gross += Math.round(s.totalPiasters * 0.25);
-    }
-
-    return Object.entries(daysMap).map(([k, d]) => ({
-      k,
-      label: d.label,
-      rev: d.rev,
-      gross: d.gross,
-    }));
-  }, [periodSales, period]);
-
-  // Top Selling Products
-  const topProducts = useMemo(() => {
-    const map: Record<
-      string,
-      { name: string; rev: number; profit: number; qty: number }
-    > = {};
-
-    for (const s of periodSales) {
-      if (s.items && s.items.length > 0) {
-        for (const it of s.items) {
-          const key = it.productName;
-          if (!map[key]) {
-            map[key] = { name: key, rev: 0, profit: 0, qty: 0 };
-          }
-          map[key].rev += it.totalMinor;
-          map[key].qty += it.quantityBase;
-          map[key].profit += Math.round(it.totalMinor * 0.25);
-        }
-      }
-    }
-
-    return Object.values(map).sort((a, b) => b.rev - a.rev);
-  }, [periodSales]);
-
-  // Sales by Category
-  const salesByCat = useMemo(() => {
-    const map: Record<string, { rev: number; profit: number }> = {};
-    for (const s of periodSales) {
-      if (s.items && s.items.length > 0) {
-        for (const it of s.items) {
-          const cat = it.categoryName || "متفرقات";
-          if (!map[cat]) map[cat] = { rev: 0, profit: 0 };
-          map[cat].rev += it.totalMinor;
-          map[cat].profit += Math.round(it.totalMinor * 0.25);
-        }
-      }
-    }
-    return Object.entries(map)
-      .map(([cat, val]) => ({ cat, ...val }))
-      .sort((a, b) => b.rev - a.rev);
-  }, [periodSales]);
-
-  // Activity Timeline (مبيعات ومصروفات)
-  const timelineEvents = useMemo(() => {
-    const list: Array<{
-      ts: number;
-      type: "sale" | "exp";
-      title: string;
-      meta?: string;
-      amountPiasters: number;
-    }> = [];
-
-    for (const s of periodSales) {
-      list.push({
-        ts: new Date(s.createdAt).getTime(),
-        type: "sale",
-        title: `عملية بيع #${s.id.slice(0, 5)}`,
-        meta: s.items?.map((it) => it.productName).join(" · "),
-        amountPiasters: s.totalPiasters,
-      });
-    }
-
-    for (const e of periodExpenses) {
-      list.push({
-        ts: new Date(e.createdAt).getTime(),
-        type: "exp",
-        title: `مصروف: ${e.category}`,
-        meta: e.notes || undefined,
-        amountPiasters: -e.amountPiasters,
-      });
-    }
-
-    return list.sort((a, b) => b.ts - a.ts);
-  }, [periodSales, periodExpenses]);
+  const timelineEvents = useMemo(
+    () =>
+      (report?.activity ?? []).map((a) => ({
+        ts: Date.parse(a.at),
+        type: a.kind === "sale" ? ("sale" as const) : ("exp" as const),
+        title:
+          a.kind === "sale"
+            ? t("home.activitySale", { id: a.id.slice(0, 5) })
+            : t("home.activityExpense", { category: a.label }),
+        meta: a.kind === "sale" ? a.label : a.note || undefined,
+        amountPiasters: a.amountPiasters,
+      })),
+    [report],
+  );
 
   // Export Inventory CSV matching Image 1
   const exportToExcel = () => {
@@ -604,51 +486,77 @@ export function HomeView() {
         /* ===================== TAB: التقرير (Sales & Store Report) ===================== */
         <>
           {/* Period Selector Chips */}
-          <div className={styles.periodBar} role="tablist">
-            {(
-              [
-                ["today", "النهارده"],
-                ["yesterday", "امبارح"],
-                ["week", "الأسبوع"],
-                ["month", "الشهر"],
-                ["all", "الكل"],
-              ] as const
-            ).map(([pKey, label]) => (
+          <PeriodFilter
+            options={HOME_PERIODS}
+            value={period}
+            onChange={setPeriod}
+          />
+
+          {reportFailed && (
+            <div className={styles.reportError} role="alert">
+              <span>{t("home.reportFailed")}</span>
               <button
                 type="button"
-                key={pKey}
-                role="tab"
-                aria-selected={period === pKey}
-                className={`${styles.chip} ${period === pKey ? styles.chipOn : ""}`}
-                onClick={() => setPeriod(pKey)}
+                onClick={() => {
+                  setReportFailed(false);
+                  setReportAttempt((n) => n + 1);
+                }}
               >
-                {label}
+                {t("home.reportRetry")}
               </button>
-            ))}
-          </div>
+            </div>
+          )}
 
           {/* Report KPI Grid matching Image 4 */}
           <div className={styles.kpis}>
             <div className={styles.kpi}>
               <small>المبيعات</small>
-              <b>{formatMoney(totalRevenuePiasters)}</b>
-              <em>{periodSales.length} بيعة</em>
+              <b data-testid="home-revenue">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalRevenuePiasters)
+                )}
+              </b>
+              <em>{saleCount} بيعة</em>
             </div>
 
             <div className={styles.kpi}>
               <small>مجمل الربح</small>
-              <b>{formatMoney(grossProfitPiasters)}</b>
-              <em>المبيعات − تكلفة البضاعة</em>
+              <b data-testid="home-profit">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(grossProfitPiasters)
+                )}
+              </b>
+              <em>
+                {unknownCostCount > 0
+                  ? t("home.unknownCost", { count: unknownCostCount })
+                  : "المبيعات − تكلفة البضاعة"}
+              </em>
             </div>
 
             <div className={styles.kpi}>
               <small>تكلفة البضاعة المباعة</small>
-              <b>{formatMoney(totalCogsPiasters)}</b>
+              <b data-testid="home-cogs">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalCogsPiasters)
+                )}
+              </b>
             </div>
 
             <div className={`${styles.kpi} ${styles.kpiNeg}`}>
               <small>المصروفات</small>
-              <b>{formatMoney(totalExpensesPiasters)}</b>
+              <b data-testid="home-expenses">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalExpensesPiasters)
+                )}
+              </b>
             </div>
 
             <div
@@ -656,15 +564,25 @@ export function HomeView() {
               style={{ gridColumn: "1 / -1", width: "100%" }}
             >
               <small>مشتريات دخلت المخزن</small>
-              <b>{formatMoney(totalPurchasesPiasters)}</b>
-              <em>مش بتتخصم من الربح</em>
+              <b data-testid="home-purchases">
+                {reportLoading ? (
+                  <Skeleton width={72} height={22} />
+                ) : (
+                  moneyOrUnknown(totalPurchasesPiasters)
+                )}
+              </b>
+              <em>
+                مش بتتخصم من الربح
+                {purchasesUnknownCount > 0 &&
+                  ` · ${t("home.purchasesUnknown", { count: purchasesUnknownCount })}`}
+              </em>
             </div>
           </div>
 
           {/* Sales Chart Section */}
           <section className={styles.sectionCard}>
             <h2 className={styles.secTitle}>المبيعات</h2>
-            {totalRevenuePiasters > 0 ? (
+            {(totalRevenuePiasters ?? 0) > 0 ? (
               <div className={styles.chartContainer}>
                 <svg
                   viewBox="0 0 600 180"
@@ -734,7 +652,7 @@ export function HomeView() {
                       const maxRev = topProducts[0]?.rev || 1;
                       const pct = Math.round((item.rev / maxRev) * 100);
                       return (
-                        <div key={item.name} className={styles.topItem}>
+                        <div key={item.key} className={styles.topItem}>
                           <span className={styles.topRank}>{idx + 1}</span>
                           <div className={styles.topNameGroup}>
                             <b>{item.name}</b>
@@ -745,7 +663,7 @@ export function HomeView() {
                           </div>
                           <div className={styles.topValues}>
                             <b>{formatMoney(item.rev)}</b>
-                            <small>ربح {formatMoney(item.profit)}</small>
+                            <small>ربح {moneyOrUnknown(item.profit)}</small>
                           </div>
                         </div>
                       );
@@ -775,7 +693,7 @@ export function HomeView() {
                       <span>{cat.cat}</span>
                       <div className={styles.catValues}>
                         <b>{formatMoney(cat.rev)}</b>
-                        <small>ربح {formatMoney(cat.profit)}</small>
+                        <small>ربح {moneyOrUnknown(cat.profit)}</small>
                       </div>
                     </div>
                   ))}
@@ -783,6 +701,66 @@ export function HomeView() {
               )}
             </section>
           </div>
+
+          {/* Damaged / lost goods (P4): real waste records of the period */}
+          <section className={styles.sectionCard} data-testid="home-losses">
+            <h2 className={styles.secTitle}>التالف / الفاقد</h2>
+            {!report ? (
+              <div className={styles.mutedText}>—</div>
+            ) : report.losses.count === 0 ? (
+              <div className={styles.mutedText}>
+                مفيش تالف أو فاقد متسجل في الفترة دي
+              </div>
+            ) : (
+              <div className={styles.topList}>
+                <div className={styles.catItem}>
+                  <span>
+                    {report.losses.count} مرة
+                    {report.losses.unknownCostCount > 0
+                      ? ` · ${report.losses.unknownCostCount} من غير تكلفة متسجلة`
+                      : ""}
+                  </span>
+                  <div className={styles.catValues}>
+                    <b data-testid="home-losses-cost">
+                      {formatMoney(report.losses.costPiasters)}
+                    </b>
+                    <small>تكلفة تقريبية بسعر الشراء</small>
+                  </div>
+                </div>
+                {report.losses.byReason.map((r) => (
+                  <div key={r.reason} className={styles.catItem}>
+                    <span>
+                      {WASTE_REASON_LABELS[r.reason as WasteReason] ?? r.reason}{" "}
+                      ({r.count})
+                    </span>
+                    <div className={styles.catValues}>
+                      <b>{formatMoney(r.costPiasters)}</b>
+                    </div>
+                  </div>
+                ))}
+                {report.losses.recent.map((l) => (
+                  <div key={l.id} className={styles.timelineItem}>
+                    <span className={`${styles.tlDot} ${styles.tlDotExp}`} />
+                    <div className={styles.tlBody}>
+                      <b>
+                        {l.name} — {formatBaseQuantity(l.quantityBase, l.unit)}
+                      </b>
+                      <small>
+                        {WASTE_REASON_LABELS[l.reason as WasteReason] ??
+                          l.reason}
+                        {l.note ? ` · ${l.note}` : ""}
+                      </small>
+                    </div>
+                    <span className={`${styles.tlAmt} ${styles.tlAmtNeg}`}>
+                      {l.costPiasters === null
+                        ? "—"
+                        : `−${formatMoney(l.costPiasters)}`}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
 
           {/* Store Activity Timeline matching Image 5 */}
           <section className={styles.sectionCard}>

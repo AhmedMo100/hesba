@@ -3,6 +3,12 @@ import React from "react";
 export const ICONS = {
   home: "M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z",
   box: "M21 8 12 3 3 8v8l9 5 9-5zM3 8l9 5 9-5M12 13v8",
+  /** Products (the shop's catalog): a shopping basket. */
+  basket:
+    "M3 10h18M5.5 10l1.4 9.1a1 1 0 0 0 1 .9h8.2a1 1 0 0 0 1-.9L18.5 10M9 10l3-6 3 6M10 14v3M14 14v3",
+  /** Stock (stored goods): a warehouse. */
+  warehouse: "M3 21V9l9-5 9 5v12M3 21h18M7 21v-8h10v8M7 17h10",
+  lock: "M6 11h12v9H6zM8.5 11V8a3.5 3.5 0 0 1 7 0v3",
   cart: "M3 4h2l2.4 11h10.2L20 7H6M9 20.2v.01M17 20.2v.01",
   layers: "M12 3 3 8l9 5 9-5-9-5zM3 12.5l9 5 9-5M3 17l9 5 9-5",
   wallet:

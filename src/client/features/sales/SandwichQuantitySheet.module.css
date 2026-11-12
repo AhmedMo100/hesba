@@ -1,0 +1,124 @@
+/* "How many sandwiches?" step on the sales screen. Tokens from styles/tokens.css. */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.name {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.price {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ok);
+}
+
+.available {
+  font-size: 13px;
+  color: var(--ink2);
+}
+
+.stepper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+}
+
+.stepBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  background: var(--sf);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.stepBtn:focus-visible {
+  border-color: var(--br);
+  outline: 0;
+}
+
+.stepBtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.minus {
+  width: 16px;
+  height: 2.5px;
+  border-radius: 2px;
+  background: currentColor;
+}
+
+.qty {
+  width: 96px;
+  min-height: 52px;
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.qty:focus {
+  border-color: var(--br);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--br) 16%, transparent);
+  outline: 0;
+}
+
+.total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--soft);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.total b {
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.warn {
+  margin: 0;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.note {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink2);
+  line-height: 1.5;
+}
+
+.footer {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+}
+
+.confirm {
+  flex: 1;
+}

@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { ExpenseService } from "@/server/modules/expenses";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,7 @@ export async function PATCH(req: Request, { params }: RouteParams) {
   try {
     const context = await requireSession(req);
     const { id } = await params;
-    const body = await req.json();
+    const body = await readJsonBody(req);
 
     const expenseService = new ExpenseService(prisma);
     const expense = await expenseService.updateExpense(

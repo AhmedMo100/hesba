@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MAX_UNIT_PRICE_PIASTERS } from "@/domain/limits";
 import { MAX_RECIPE_INGREDIENTS } from "@/domain/recipe";
 
 /**
@@ -36,7 +37,7 @@ export const sandwichInputSchema = z
       .number({ message: "اكتب سعر البيع" })
       .int("سعر البيع غير صحيح")
       .positive("سعر البيع لازم يكون أكبر من صفر")
-      .max(100_000_000, "سعر البيع كبير قوي"),
+      .max(MAX_UNIT_PRICE_PIASTERS, "سعر البيع كبير قوي"),
     ingredients: z
       .array(sandwichIngredientInputSchema)
       .min(1, "ضيف مكوّن واحد على الأقل")

@@ -3,7 +3,9 @@ import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
   buildSandwichInput,
+  ingredientPriority,
   previewSandwich,
+  searchIngredientOptions,
   rowsFromSandwich,
   type IngredientRow,
 } from "@/client/features/products/sandwich-form";
@@ -208,5 +210,102 @@ describe("sandwich UI", () => {
   it("always shows the Sandwiches filter chip on the Products screen", () => {
     const html = renderToStaticMarkup(<ProductsView />);
     expect(html).toContain("ساندوتشات");
+  });
+});
+
+describe("ingredient search and priority ordering", () => {
+  const opt = (
+    id: string,
+    name: string,
+    nameEn: string | null = null,
+  ): SandwichIngredientOption => ({
+    variantId: id,
+    productId: `p-${id}`,
+    name,
+    nameEn,
+    unit: "piece",
+    isWeight: false,
+    buyPricePiasters: 100,
+    stockBase: 10,
+  });
+  const all = [
+    opt("bread", "عيش بلدي", "Baladi bread"),
+    opt("cola", "بيبسي كانز", "Pepsi Can"),
+    opt("mayo", "مايونيز هاينز", "Heinz Mayonnaise"),
+    opt("chips", "شيبسي ملح", "Chipsy Salt"),
+    opt("roumy", "جبنة رومي", "Roumy Cheese"),
+    opt("biscuit", "بسكويت بالجبنة", "Cheese crackers"),
+    opt("ketchup", "كاتشب هاينز", "Heinz Ketchup"),
+    opt("luncheon", "لانشن بقري", "Beef Luncheon"),
+    opt("white", "الجبنه البيضاء", null),
+    opt("halawa", "حلاوة طحينية", "Halawa"),
+  ];
+  const ids = (list: Array<{ variantId: string }>) =>
+    list.map((o) => o.variantId);
+
+  it("puts cheese/luncheon first, then chips, then ketchup/mayonnaise, then the rest", () => {
+    const sorted = searchIngredientOptions(all, "");
+    const groups = sorted.map((o) => o.priority);
+    expect(groups).toEqual([...groups].sort((a, b) => a - b));
+    expect(ingredientPriority(opt("x", "جبنة رومي"))).toBe(0);
+    expect(ingredientPriority(opt("x", "الجبنه البيضاء"))).toBe(0); // ة/ه and "ال"
+    expect(ingredientPriority(opt("x", "لانشن بقري"))).toBe(0); // spelling variant
+    expect(ingredientPriority(opt("x", "شيبسي ملح"))).toBe(1);
+    expect(ingredientPriority(opt("x", "كاتشب هاينز"))).toBe(2);
+    expect(ingredientPriority(opt("x", "مايونيز هاينز"))).toBe(2);
+    expect(ingredientPriority(opt("x", "عيش بلدي"))).toBe(3);
+    expect(new Set(ids(sorted.slice(0, 3)))).toEqual(
+      new Set(["roumy", "white", "luncheon"]),
+    );
+  });
+
+  it("does not treat a cheese-flavoured biscuit as cheese", () => {
+    expect(ingredientPriority(opt("x", "بسكويت بالجبنة"))).toBe(3);
+    // ...even though its English catalog name says "Cheese"
+    expect(
+      ingredientPriority(opt("x", "بسكويت بالجبنة", "Cheese crackers")),
+    ).toBe(3);
+    // a product whose own name is English is ranked by it
+    expect(ingredientPriority(opt("x", "Cheddar cheese"))).toBe(0);
+  });
+
+  it("keeps every option exactly once with its original id", () => {
+    const sorted = searchIngredientOptions(all, "");
+    expect(sorted).toHaveLength(all.length);
+    expect(new Set(ids(sorted))).toEqual(new Set(ids(all)));
+    expect(all[0]).not.toHaveProperty("priority"); // inputs are not mutated
+  });
+
+  it("searches Arabic names ignoring letter variants and diacritics", () => {
+    expect(ids(searchIngredientOptions(all, "جبنة"))).toEqual(
+      expect.arrayContaining(["roumy", "white", "biscuit"]),
+    );
+    expect(ids(searchIngredientOptions(all, "الجبنة البيضاء"))).toEqual([
+      "white",
+    ]);
+    expect(ids(searchIngredientOptions(all, "حلاوه"))).toEqual(["halawa"]);
+  });
+
+  it("searches English names case-insensitively", () => {
+    expect(ids(searchIngredientOptions(all, "heinz"))).toEqual([
+      "ketchup",
+      "mayo",
+    ]);
+    expect(ids(searchIngredientOptions(all, "CHIPSY"))).toEqual(["chips"]);
+    expect(ids(searchIngredientOptions(all, "beef lunch"))).toEqual([
+      "luncheon",
+    ]);
+  });
+
+  it("applies priority ordering to search results", () => {
+    // "هاينز" matches ketchup and mayonnaise (both group 3), "بيبسي" nothing else
+    const res = searchIngredientOptions(all, "ن");
+    const groups = res.map((o) => o.priority);
+    expect(groups).toEqual([...groups].sort((a, b) => a - b));
+    expect(res[0]?.priority).toBe(0);
+  });
+
+  it("returns an empty list when nothing matches", () => {
+    expect(searchIngredientOptions(all, "زيتون")).toEqual([]);
   });
 });

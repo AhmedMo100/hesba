@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Modal, Button, Field, Icon } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import {
   type PosMachine,
-  addMachineTopup,
   addRemoteMachineTopup,
-  setMachineExactBalance,
   setRemoteMachineExactBalance,
 } from "@/client/shared/api/machines";
 import { normalizeNumberString, parseEgpToPiasters } from "@/domain/money";
@@ -48,6 +46,16 @@ export function MachineTopupModal({
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // One opId per intended operation (ADR-0020): retrying the same amount after a failed or
+  // unanswered request reuses it, so the server applies the operation at most once. Changing
+  // the mode or amount means a new operation and a new opId.
+  const opRef = useRef<{ key: string; opId: string } | null>(null);
+  const opIdFor = (key: string): string => {
+    if (opRef.current?.key !== key) {
+      opRef.current = { key, opId: crypto.randomUUID() };
+    }
+    return opRef.current.opId;
+  };
 
   // Adjust calculations
   const targetNum = parseFloat(normalizeNumberString(targetBalanceEgp)) || 0;
@@ -87,26 +95,21 @@ export function MachineTopupModal({
             notes: notes.trim() || undefined,
           },
           storeId,
+          opIdFor(`topup:${machine.id}:${amountPiasters}`),
         );
         const target = updatedList.find((m) => m.id === machine.id) || machine;
+        opRef.current = null;
         onSuccess(target);
-      } catch {
-        const localList = addMachineTopup(
-          machine.id,
-          amountPiasters,
-          {
-            source: resolvedSource,
-            reference: reference.trim() || undefined,
-            notes: notes.trim() || undefined,
-          },
-          storeId,
+        onClose();
+      } catch (err: unknown) {
+        // Nothing changed: the server did not confirm the top-up. Keep the form open.
+        setError(
+          err instanceof Error
+            ? err.message
+            : "فشل شحن رصيد الماكينة، جرّب تاني",
         );
-        const localTarget =
-          localList.find((m) => m.id === machine.id) || machine;
-        onSuccess(localTarget);
       } finally {
         setIsSubmitting(false);
-        onClose();
       }
     } else {
       // mode === "adjust"
@@ -133,28 +136,21 @@ export function MachineTopupModal({
             notes: notes.trim() || undefined,
           },
           storeId,
+          opIdFor(`adjust:${machine.id}:${targetPiasters}`),
         );
         const target = updatedList.find((m) => m.id === machine.id) || machine;
+        opRef.current = null;
         onSuccess(target);
-      } catch {
-        const localList = setMachineExactBalance(
-          machine.id,
-          targetPiasters,
-          {
-            source:
-              deltaPiasters >= 0 ? "تصحيح رصيد (زيادة)" : "تصحيح رصيد (تخفيض)",
-            reason: resolvedReason,
-            reference: reference.trim() || undefined,
-            notes: notes.trim() || undefined,
-          },
-          storeId,
+        onClose();
+      } catch (err: unknown) {
+        // Nothing changed: the server did not confirm the adjustment. Keep the form open.
+        setError(
+          err instanceof Error
+            ? err.message
+            : "فشل تعديل رصيد الماكينة، جرّب تاني",
         );
-        const localTarget =
-          localList.find((m) => m.id === machine.id) || machine;
-        onSuccess(localTarget);
       } finally {
         setIsSubmitting(false);
-        onClose();
       }
     }
   };

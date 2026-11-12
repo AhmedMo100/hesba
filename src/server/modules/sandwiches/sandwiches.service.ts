@@ -27,6 +27,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/infra/db/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+import { lockSellableStockInTx } from "@/server/modules/inventory";
 import { normalizeArabic } from "@/domain/normalize";
 import {
   SANDWICH_CATEGORY,
@@ -48,6 +49,8 @@ export interface IngredientOption {
   variantId: string;
   productId: string;
   name: string;
+  /** English name of the catalog product this item comes from (search only), if any. */
+  nameEn: string | null;
   unit: string;
   isWeight: boolean;
   /** Registered purchase price: per kg for `kg`, per gram for `g`, per unit otherwise. */
@@ -191,7 +194,12 @@ export async function listIngredientOptions(
             unit: { not: "service" },
           },
         },
-        include: { storeProduct: true, stockLevels: true },
+        include: {
+          storeProduct: {
+            include: { globalProduct: { select: { nameEn: true } } },
+          },
+          stockLevels: true,
+        },
       }),
     prisma,
   );
@@ -203,6 +211,7 @@ export async function listIngredientOptions(
         variantId: v.id,
         productId: v.storeProductId ?? "",
         name: variantName(v),
+        nameEn: v.storeProduct?.globalProduct?.nameEn ?? null,
         unit,
         isWeight: isWeightUnit(unit),
         buyPricePiasters: resolveBuyPrice(v),
@@ -509,6 +518,18 @@ export async function prepareSandwichSaleInTx(
   if (row.sandwichIngredients.length === 0) {
     throw AppError.badRequest("الساندوتش ده مالوش مكونات");
   }
+  // A hidden ingredient is never sold through a sandwich (QA-41; hiding one is refused now,
+  // this covers ingredients hidden before that rule).
+  const hidden = row.sandwichIngredients.find(
+    (l) =>
+      !l.ingredientVariant.isActive ||
+      l.ingredientVariant.storeProduct?.isActive === false,
+  );
+  if (hidden) {
+    throw AppError.badRequest(
+      `«${variantName(hidden.ingredientVariant)}» من مكونات الساندوتش مخفي، أظهره أو شيله من الساندوتش الأول`,
+    );
+  }
 
   const needs = scaleRecipe(
     row.sandwichIngredients.map((l) => ({
@@ -517,19 +538,8 @@ export async function prepareSandwichSaleInTx(
     })),
     count,
   );
-  const ids = [...needs.keys()].sort();
-
-  const locked = await tx.$queryRaw<
-    Array<{ store_variant_id: string; quantity_base: bigint }>
-  >`SELECT store_variant_id::text AS store_variant_id, quantity_base
-      FROM stock_levels
-     WHERE store_id = ${storeId}::uuid
-       AND store_variant_id = ANY(${ids}::uuid[])
-     ORDER BY store_variant_id
-       FOR UPDATE`;
-  const available = new Map(
-    locked.map((r) => [r.store_variant_id, BigInt(r.quantity_base)]),
-  );
+  // The shared stock lock (ADR-0019): every stock writer takes the same row locks, in id order.
+  const available = await lockSellableStockInTx(tx, storeId, [...needs.keys()]);
 
   const shortages: IngredientShortage[] = [];
   for (const line of row.sandwichIngredients) {

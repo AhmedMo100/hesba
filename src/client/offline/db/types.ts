@@ -145,7 +145,7 @@ export interface LocalAlert {
 }
 
 export interface LocalOutboxOp {
-  op_id: string; // UUID v7
+  op_id: string; // stable for the operation's whole life: every retry sends the same op_id
   type: string;
   payload: unknown;
   client_ts: string;
@@ -159,6 +159,23 @@ export interface LocalOutboxOp {
   attempts: number;
   last_error?: string | null;
   created_at: string;
+  /** The shop the operation belongs to: it is only ever sent while that shop is signed in. */
+  store_id?: string;
+  /** The user who created it (shown in review; not used for authorization). */
+  user_id?: string;
+  /** Earliest time of the next automatic attempt (exponential backoff with jitter). */
+  next_attempt_at?: string;
+  /** HTTP status of the last attempt (0 = no answer). */
+  last_status?: number | null;
+  /** What the cashier saw, for the pending / review list (not sent to the server). */
+  summary?: {
+    name: string;
+    label: string;
+    amountPiasters: number;
+    quantity: number;
+    category?: string;
+    unit?: string;
+  };
 }
 
 export interface LocalSyncMeta {
@@ -192,4 +209,15 @@ export interface LocalGlobalVariant {
   size_unit?: string | null;
   pack_qty: number;
   name_norm: string;
+}
+
+/** One cached read answer (`offline/read-cache`): the JSON body of a GET, for one shop. */
+export interface LocalApiCacheEntry {
+  /** `${store_id} ${url}` */
+  key: string;
+  store_id: string;
+  url: string;
+  status: number;
+  body: string;
+  saved_at: number;
 }

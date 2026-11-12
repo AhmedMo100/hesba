@@ -1,7 +1,17 @@
 "use client";
 
+import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, SearchBox, Button, Icon, Modal } from "@/client/shared/ui";
+import {
+  Chip,
+  Chips,
+  Empty,
+  SearchBox,
+  Button,
+  Icon,
+  Modal,
+  ListSkeleton,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { SANDWICH_CATEGORY } from "@/domain/recipe";
@@ -17,7 +27,11 @@ import {
   fetchStoreMachines,
   setServiceLinkedMachineIds,
 } from "@/client/shared/api/machines";
-import { fetchSandwiches, type Sandwich } from "@/client/shared/api/sandwiches";
+import {
+  fetchSandwiches,
+  stageSandwichForSale,
+  type Sandwich,
+} from "@/client/shared/api/sandwiches";
 import { useAuth } from "@/client/shared/auth";
 import {
   type StoreProductItem,
@@ -290,11 +304,15 @@ export function ProductsView() {
   // Check online status listeners & fetch POS machines from DB
   useEffect(() => {
     let isMounted = true;
-    void fetchStoreMachines(storeId).then((remote) => {
-      if (isMounted && remote) {
-        setPosMachines(remote);
-      }
-    });
+    // Wait for the signed-in shop: running first without it and again with it loaded
+    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
+    if (storeId) {
+      void fetchStoreMachines(storeId).then((remote) => {
+        if (isMounted && remote) {
+          setPosMachines(remote);
+        }
+      });
+    }
 
     if (typeof window !== "undefined") {
       const onOn = () => setIsOnline(true);
@@ -343,7 +361,7 @@ export function ProductsView() {
 
   const loadProducts = useCallback(async () => {
     try {
-      const res = await fetch("/api/products?filter=all");
+      const res = await apiGet("/api/products?filter=all");
       if (!res.ok) {
         throw new Error("فشل تحميل قائمة المنتجات");
       }
@@ -369,7 +387,7 @@ export function ProductsView() {
 
   useEffect(() => {
     let ignore = false;
-    fetch("/api/products?filter=all")
+    apiGet("/api/products?filter=all")
       .then((res) => {
         if (!res.ok) throw new Error("فشل تحميل قائمة المنتجات");
         return res.json();
@@ -447,6 +465,72 @@ export function ProductsView() {
     }
     setEditingProduct(p);
   };
+
+  // Deleting a product the shop created (never a catalog product; server-enforced too).
+  const [deleteTarget, setDeleteTarget] = useState<StoreProductItem | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const isShopCreated = (p: StoreProductItem) =>
+    p.is_custom && !p.global_product_id;
+
+  const handleDeleteShopProduct = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      const res = await fetch(
+        `/api/products?id=${encodeURIComponent(target.id)}&action=delete`,
+        { method: "DELETE" },
+      );
+      const body = (await res.json().catch(() => ({}))) as {
+        result?: "deleted" | "archived";
+        error?: { message?: string };
+      };
+      if (!res.ok || !body.result) {
+        throw new Error(body.error?.message || t("productDelete.failed"));
+      }
+      if (body.result === "deleted") {
+        setProducts((prev) => prev.filter((x) => x.id !== target.id));
+        setSummary((prev) => ({
+          ...prev,
+          total: Math.max(0, prev.total - 1),
+          customCount: Math.max(0, prev.customCount - 1),
+        }));
+      } else {
+        setProducts((prev) =>
+          prev.map((x) => (x.id === target.id ? { ...x, is_hidden: true } : x)),
+        );
+        setSummary((prev) => ({
+          ...prev,
+          hiddenCount: target.is_hidden
+            ? prev.hiddenCount
+            : prev.hiddenCount + 1,
+        }));
+      }
+      if (target.kind === "sandwich") {
+        setSandwiches((prev) => prev.filter((sw) => sw.id !== target.id));
+      }
+      setNotice(t(`productDelete.${body.result}`, { name: target.name_ar }));
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      setDeleteError(
+        err instanceof Error ? err.message : t("productDelete.failed"),
+      );
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!notice) return;
+    const timer = setTimeout(() => setNotice(null), 4500);
+    return () => clearTimeout(timer);
+  }, [notice]);
 
   const handleToggleHide = async (product: StoreProductItem) => {
     const isNowHidden = !product.is_hidden;
@@ -572,11 +656,16 @@ export function ProductsView() {
       const normCat = normalizeArabic(p.category || "");
       const normBrand = normalizeArabic(p.brand_name || "");
       const normBarcode = normalizeArabic(p.barcode || "");
+      // English catalog names (QA-48): "pepsi" finds بيبسي.
+      const normEn = normalizeArabic(
+        `${p.name_en || ""} ${p.brand_name_en || ""}`,
+      );
       return (
         normName.includes(normQ) ||
         normCat.includes(normQ) ||
         normBrand.includes(normQ) ||
-        normBarcode.includes(normQ)
+        normBarcode.includes(normQ) ||
+        normEn.includes(normQ)
       );
     });
   }, [physicalProducts, filterMode, activeCategory, query]);
@@ -857,22 +946,20 @@ export function ProductsView() {
         /* ================= TAB 1: المنتجات الفيزيائية ================= */
         <>
           {/* Physical Filter Chips */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${filterMode === "all" && activeCategory === "all" ? styles.active : ""}`}
+          <Chips>
+            <Chip
+              active={filterMode === "all" && activeCategory === "all"}
               onClick={() => {
                 setFilterMode("all");
                 setActiveCategory("all");
               }}
             >
               الكل ({physicalProducts.filter((p) => !p.is_hidden).length})
-            </button>
+            </Chip>
 
             {summary.customCount > 0 && (
-              <button
-                type="button"
-                className={`${styles.chip} ${filterMode === "custom" ? styles.active : ""}`}
+              <Chip
+                active={filterMode === "custom"}
                 onClick={() => {
                   setFilterMode((prev) =>
                     prev === "custom" ? "all" : "custom",
@@ -880,23 +967,32 @@ export function ProductsView() {
                 }}
               >
                 أضافه المحل ({summary.customCount})
-              </button>
+              </Chip>
             )}
 
             {physicalCategories.map((cat) => (
-              <button
+              <Chip
                 key={cat}
-                type="button"
-                className={`${styles.chip} ${activeCategory === cat && filterMode === "all" ? styles.active : ""}`}
+                active={activeCategory === cat && filterMode === "all"}
                 onClick={() => {
                   setFilterMode("all");
                   setActiveCategory((prev) => (prev === cat ? "all" : cat));
                 }}
               >
                 {cat}
-              </button>
+              </Chip>
             ))}
-          </div>
+          </Chips>
+
+          {notice && (
+            <div
+              role="status"
+              data-testid="product-notice"
+              style={{ color: "var(--ok)", fontSize: 13, fontWeight: 700 }}
+            >
+              {notice}
+            </div>
+          )}
 
           {/* Sandwich load failure (cost/profit cannot be shown without the server) */}
           {sandwichError && (
@@ -928,15 +1024,7 @@ export function ProductsView() {
 
           {/* Physical Products Grid */}
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل المنتجات...
-            </div>
+            <ListSkeleton label="بيحمّل المنتجات…" />
           ) : filteredPhysicalProducts.length === 0 ? (
             <div className={styles.pcard}>
               <Empty
@@ -1050,6 +1138,30 @@ export function ProductsView() {
                               <Icon n="edit" s={14} />
                               <span>تعديل الأسعار</span>
                             </button>
+                            {isSandwich(p) && !p.is_hidden && (
+                              <button
+                                type="button"
+                                className={styles.menuItem}
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  // Opens the Sales screen with a quantity step; nothing is
+                                  // sold until the user confirms there.
+                                  stageSandwichForSale(p.id);
+                                  window.history.pushState(
+                                    null,
+                                    "",
+                                    "/app/sales",
+                                  );
+                                  window.dispatchEvent(
+                                    new PopStateEvent("popstate"),
+                                  );
+                                }}
+                                data-testid={`add-to-sale-${p.id}`}
+                              >
+                                <Icon n="cart" s={14} />
+                                <span>{t("sandwich.addToSale")}</span>
+                              </button>
+                            )}
                             {!isSandwich(p) && (
                               <button
                                 type="button"
@@ -1091,6 +1203,21 @@ export function ProductsView() {
                               >
                                 <Icon n="eyeoff" s={14} />
                                 <span>إخفاء من المحل</span>
+                              </button>
+                            )}
+                            {isShopCreated(p) && (
+                              <button
+                                type="button"
+                                className={`${styles.menuItem} ${styles.danger}`}
+                                onClick={() => {
+                                  setMenuOpenId(null);
+                                  setDeleteError(null);
+                                  setDeleteTarget(p);
+                                }}
+                                data-testid={`delete-product-${p.id}`}
+                              >
+                                <Icon n="trash" s={14} />
+                                <span>{t("productDelete.menu")}</span>
                               </button>
                             )}
                           </div>
@@ -1138,251 +1265,200 @@ export function ProductsView() {
         /* ================= TAB 2: الفواتير والشحن والخدمات ================= */
         <>
           {/* Exactly 5 Main Service Category Chips in a single scrollable row */}
-          <div className={styles.chips}>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "utilities" ? styles.active : ""}`}
+          <Chips>
+            <Chip
+              active={serviceCategory === "utilities"}
               onClick={() => {
                 setServiceCategory("utilities");
                 setCompanyFilter("all");
               }}
             >
               شحن المرافق
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "internet" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "internet"}
               onClick={() => {
                 setServiceCategory("internet");
                 setCompanyFilter("all");
               }}
             >
               فواتير الإنترنت
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "cards" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "cards"}
               onClick={() => {
                 setServiceCategory("cards");
                 setCompanyFilter("all");
               }}
             >
               كروت الشحن
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "transfer" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "transfer"}
               onClick={() => {
                 setServiceCategory("transfer");
                 setCompanyFilter("all");
               }}
             >
               تحويل الأموال
-            </button>
-            <button
-              type="button"
-              className={`${styles.chip} ${serviceCategory === "airtime" ? styles.active : ""}`}
+            </Chip>
+            <Chip
+              active={serviceCategory === "airtime"}
               onClick={() => {
                 setServiceCategory("airtime");
                 setCompanyFilter("all");
               }}
             >
               شحن الرصيد
-            </button>
-          </div>
+            </Chip>
+          </Chips>
 
           {/* Contextual Subcategory / Company Chips based on active service category */}
-          <div className={styles.chips} style={{ marginTop: -4 }}>
-            <button
-              type="button"
-              className={`${styles.chip} ${companyFilter === "all" ? styles.active : ""}`}
-              style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+          <Chips>
+            <Chip
+              active={companyFilter === "all"}
               onClick={() => setCompanyFilter("all")}
             >
               الكل
-            </button>
+            </Chip>
 
             {serviceCategory === "utilities" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "electricity" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "electricity"}
                   onClick={() => setCompanyFilter("electricity")}
                 >
                   الكهرباء
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "water" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "water"}
                   onClick={() => setCompanyFilter("water")}
                 >
                   المياه
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "gas" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "gas"}
                   onClick={() => setCompanyFilter("gas")}
                 >
                   الغاز الطبيعي
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "internet" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "we"}
                   onClick={() => setCompanyFilter("we")}
                 >
                   وي (WE)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "orange"}
                   onClick={() => setCompanyFilter("orange")}
                 >
                   أورانج
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "etisalat"}
                   onClick={() => setCompanyFilter("etisalat")}
                 >
                   اتصالات (e&)
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "cards" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "orange"}
                   onClick={() => setCompanyFilter("orange")}
                 >
                   أورانج
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "etisalat"}
                   onClick={() => setCompanyFilter("etisalat")}
                 >
                   اتصالات (e&)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "we"}
                   onClick={() => setCompanyFilter("we")}
                 >
                   وي (WE)
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "transfer" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "instapay" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "instapay"}
                   onClick={() => setCompanyFilter("instapay")}
                 >
                   إنستاباي (InstaPay)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون كاش
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "fawry" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "fawry"}
                   onClick={() => setCompanyFilter("fawry")}
                 >
                   فوري (Fawry)
-                </button>
+                </Chip>
               </>
             )}
 
             {serviceCategory === "airtime" && (
               <>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "vodafone" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                <Chip
+                  active={companyFilter === "vodafone"}
                   onClick={() => setCompanyFilter("vodafone")}
                 >
                   فودافون
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "orange" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "orange"}
                   onClick={() => setCompanyFilter("orange")}
                 >
                   أورانج
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "etisalat" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "etisalat"}
                   onClick={() => setCompanyFilter("etisalat")}
                 >
                   اتصالات (e&)
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${companyFilter === "we" ? styles.active : ""}`}
-                  style={{ fontSize: 12, padding: "4px 12px", minHeight: 32 }}
+                </Chip>
+                <Chip
+                  active={companyFilter === "we"}
                   onClick={() => setCompanyFilter("we")}
                 >
                   وي (WE)
-                </button>
+                </Chip>
               </>
             )}
-          </div>
+          </Chips>
 
           {/* Services Grid */}
           {loading ? (
-            <div
-              style={{
-                textAlign: "center",
-                padding: "40px 0",
-                color: "var(--ink2)",
-              }}
-            >
-              جارٍ تحميل الخدمات وكروت الشحن...
-            </div>
+            <ListSkeleton label="بيحمّل الخدمات…" />
           ) : filteredServiceProducts.length === 0 ? (
             <div className={styles.pcard}>
               <Empty
@@ -1581,6 +1657,65 @@ export function ProductsView() {
             </div>
           )}
         </>
+      )}
+
+      {/* Delete a shop-created product: confirmation */}
+      {deleteTarget && (
+        <Modal
+          title={t("productDelete.title")}
+          onClose={() => !deleting && setDeleteTarget(null)}
+          footer={
+            <div style={{ display: "flex", gap: 10, width: "100%" }}>
+              <Button
+                kind="ghost"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+              >
+                {t("productDelete.cancel")}
+              </Button>
+              <Button
+                kind="danger"
+                icon="trash"
+                style={{ flex: 1 }}
+                busy={deleting}
+                onClick={() => void handleDeleteShopProduct()}
+                data-testid="confirm-delete-product"
+              >
+                {t("productDelete.confirmBtn")}
+              </Button>
+            </div>
+          }
+        >
+          <div
+            style={{ fontSize: 15, lineHeight: 1.6, color: "var(--ink)" }}
+            data-testid="delete-product-dialog"
+          >
+            <b>{t("productDelete.confirm", { name: deleteTarget.name_ar })}</b>
+            <p
+              style={{ margin: "8px 0 0", color: "var(--ink2)", fontSize: 13 }}
+            >
+              {t("productDelete.note")}
+            </p>
+            <p
+              style={{ margin: "6px 0 0", color: "var(--ink2)", fontSize: 13 }}
+            >
+              {t("productDelete.historyNote")}
+            </p>
+            {deleteError && (
+              <p
+                role="alert"
+                style={{
+                  margin: "10px 0 0",
+                  color: "var(--red)",
+                  fontSize: 13,
+                  fontWeight: 700,
+                }}
+              >
+                {deleteError}
+              </p>
+            )}
+          </div>
+        </Modal>
       )}
 
       {/* "إضافة منتج": normal product or sandwich */}

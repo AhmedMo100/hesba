@@ -43,6 +43,8 @@ export interface SandwichIngredientOption {
   variantId: string;
   productId: string;
   name: string;
+  /** English catalog name (used by search), when the product comes from the catalog. */
+  nameEn?: string | null;
   unit: string;
   isWeight: boolean;
   buyPricePiasters: number;
@@ -175,4 +177,35 @@ export async function sellSandwich(params: {
     t("sandwich.sellOnlineOnly"),
   );
   return body.data;
+}
+
+/**
+ * "إضافة إلى البيع" hand-off from the Products screen to the Sales screen: the sandwich id is
+ * kept in `sessionStorage` (the same mechanism the services "add to sale" action uses) until
+ * the Sales screen reads it. Nothing is sold or saved by staging.
+ */
+const STAGED_SANDWICH_KEY = "hesba_staged_sandwich_id";
+
+export function stageSandwichForSale(sandwichId: string): void {
+  try {
+    sessionStorage.setItem(STAGED_SANDWICH_KEY, sandwichId);
+  } catch {
+    // Storage unavailable: the Sales screen simply opens without a preselected sandwich.
+  }
+}
+
+export function readStagedSandwich(): string | null {
+  try {
+    return sessionStorage.getItem(STAGED_SANDWICH_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearStagedSandwich(): void {
+  try {
+    sessionStorage.removeItem(STAGED_SANDWICH_KEY);
+  } catch {
+    // Nothing to clear.
+  }
 }

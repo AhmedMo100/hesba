@@ -3,10 +3,16 @@ import "server-only";
 export {
   listRecentSales,
   recordSale,
-  deleteSale,
+  voidSale,
   type SaleListItem,
   type SalesOverview,
 } from "./sales.service";
+export {
+  checkoutSale,
+  paySale,
+  returnSale,
+  getSaleInvoice,
+} from "./sales-invoice.service";
 export {
   getSalesViewConfig,
   saveSalesViewConfig,

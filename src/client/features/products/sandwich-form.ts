@@ -15,6 +15,7 @@ import {
   type RecipeInputUnit,
 } from "@/domain/recipe";
 import { normalizeNumberString, parseEgpToPiasters } from "@/domain/money";
+import { normalizeArabic } from "@/domain/normalize";
 import { t } from "@/client/shared/i18n";
 import type { SandwichInput } from "@/schemas/sandwich";
 import type {
@@ -66,6 +67,79 @@ export function isWholePackUnit(unit: string | null | undefined): boolean {
   return (
     unit === "bag" || unit === "carton" || unit === "كرتونة" || unit === "كيس"
   );
+}
+
+/**
+ * Ingredient priority groups for the picker (0 = first). A product joins a group when one of
+ * its name words *starts with* a keyword (after normalizing Arabic and dropping a leading
+ * "ال"), so "جبنة رومي" and "الجبنة البيضاء" match cheese, while "بسكويت بالجبنة" (a
+ * cheese-flavoured biscuit) does not. Keywords include common spelling variants.
+ */
+const PRIORITY_KEYWORDS: ReadonlyArray<readonly string[]> = [
+  // 1. cheese, luncheon
+  ["جبن", "لانشون", "لانشن", "لانشيون", "cheese", "luncheon"],
+  // 2. chips
+  ["شيبسي", "شيبس", "chips", "chipsy"],
+  // 3. ketchup, mayonnaise
+  [
+    "كاتشاب",
+    "كاتشب",
+    "كتشب",
+    "كاتشوب",
+    "مايونيز",
+    "مايونيس",
+    "ketchup",
+    "mayo",
+  ],
+];
+const OTHER_GROUP = PRIORITY_KEYWORDS.length;
+
+function nameTokens(text: string | null | undefined): string[] {
+  return normalizeArabic(text ?? "")
+    .split(" ")
+    .filter(Boolean)
+    .map((tok) =>
+      tok.startsWith("ال") && tok.length > 3 ? tok.slice(2) : tok,
+    );
+}
+
+/** Priority group of an ingredient name (0–2 for common sandwich items, 3 for the rest). */
+export function ingredientPriority(
+  option: Pick<SandwichIngredientOption, "name">,
+): number {
+  // Ranked by the shop's own product name only. The English catalog name is used for search
+  // but not for ranking: "بسكويت بالجبنة" is "Cheese crackers" in English, and must not be
+  // promoted as cheese. A product whose own name is English is still ranked by it.
+  const tokens = nameTokens(option.name);
+  const group = PRIORITY_KEYWORDS.findIndex((keywords) =>
+    tokens.some((tok) =>
+      keywords.some((kw) => tok.startsWith(normalizeArabic(kw))),
+    ),
+  );
+  return group === -1 ? OTHER_GROUP : group;
+}
+
+/**
+ * Filters ingredient options by a search query and orders them by priority group, then by
+ * name. Matching ignores case, diacritics and common Arabic letter variants; every word of
+ * the query must appear in the Arabic or English name. Returns new arrays only — option
+ * objects and ids are untouched.
+ */
+export function searchIngredientOptions(
+  options: readonly SandwichIngredientOption[],
+  query: string,
+): Array<SandwichIngredientOption & { priority: number }> {
+  const words = normalizeArabic(query).split(" ").filter(Boolean);
+  return options
+    .filter((o) => {
+      if (words.length === 0) return true;
+      const haystack = `${normalizeArabic(o.name)} ${normalizeArabic(o.nameEn ?? "")}`;
+      return words.every((w) => haystack.includes(w));
+    })
+    .map((o) => ({ ...o, priority: ingredientPriority(o) }))
+    .sort(
+      (a, b) => a.priority - b.priority || a.name.localeCompare(b.name, "ar"),
+    );
 }
 
 let rowCounter = 0;

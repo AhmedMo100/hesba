@@ -226,6 +226,7 @@
 .personPhone {
   display: inline-flex;
   align-items: center;
+  min-height: 44px; /* QA-46 */
   gap: 5px;
   font-size: 13px;
   color: var(--ink2);
@@ -244,37 +245,6 @@
   gap: 8px;
   flex-wrap: wrap;
   margin-top: 4px;
-}
-
-.waLinkBadge {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  color: #25d366;
-  background: color-mix(in srgb, #25d366 12%, var(--sf2));
-  border: 1px solid color-mix(in srgb, #25d366 25%, transparent);
-  border-radius: 999px;
-  padding: 2px 8px;
-  text-decoration: none;
-  transition: all 0.15s ease;
-}
-
-.waLinkBadge:hover {
-  background: color-mix(in srgb, #25d366 22%, var(--sf2));
-  transform: translateY(-1px);
-}
-
-.waLinkBadge:active {
-  transform: scale(0.95);
-}
-
-:global([data-theme="dark"]) .waLinkBadge,
-:global([data-theme="auto"]) .waLinkBadge {
-  background: rgba(37, 211, 102, 0.15);
-  border-color: rgba(37, 211, 102, 0.3);
-  color: #25d366;
 }
 
 .noPhone {
@@ -301,7 +271,7 @@
   cursor: pointer;
   font-family: inherit;
   transition: opacity 0.15s ease;
-  min-height: 32px;
+  min-height: 44px; /* QA-46 */
 }
 
 .collectBtn {
@@ -323,8 +293,8 @@
 }
 
 .cardDeleteBtn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px; /* QA-46 */
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -347,8 +317,8 @@
 }
 
 .cardWaBtn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px; /* QA-46 */
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -392,8 +362,8 @@
 }
 
 .editBtn {
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px; /* QA-46 */
   border-radius: 8px;
   border: none;
   background: transparent;
@@ -479,6 +449,22 @@
   font-variant-numeric: tabular-nums;
   direction: ltr;
   margin-inline-start: auto;
+}
+
+/* A credit: paid beyond what was owed (ADR-0023). Shown in words, never as 0. */
+.amountCredit {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--yel, #b8841a);
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+.fieldHint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--ink2);
 }
 
 .amountDark {
@@ -970,4 +956,18 @@
   color: var(--ink2);
   font-size: 14px;
   font-weight: 600;
+}
+
+/* QA-30: open the supplier's purchase invoices (touch target ≥ 44px). */
+.purchasesBtn {
+  align-self: flex-start;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--br);
+  font-weight: 800;
+  font-size: 14px;
+  cursor: pointer;
 }

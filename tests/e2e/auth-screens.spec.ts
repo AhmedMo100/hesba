@@ -3,7 +3,12 @@ import path from "node:path";
 import fs from "node:fs";
 
 test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
-  const screenshotsDir = path.resolve(process.cwd(), "docs/screens/phase-2");
+  // QA-54: a normal run must not rewrite the tracked documentation images. They are
+  // regenerated only on purpose: HESBA_UPDATE_SCREENS=1 pnpm test:e2e auth-screens
+  const screenshotsDir =
+    process.env["HESBA_UPDATE_SCREENS"] === "1"
+      ? path.resolve(process.cwd(), "docs/screens/phase-2")
+      : path.resolve(process.cwd(), "test-results/screens/phase-2");
 
   test.beforeAll(() => {
     if (!fs.existsSync(screenshotsDir)) {
