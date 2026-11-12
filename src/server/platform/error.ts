@@ -109,7 +109,8 @@ export class AppError extends Error {
   }
 
   static internal(
-    message = "حصل خطأ غير متوقع في السيرفر. شغلك محفوظ.",
+    // Never "شغلك محفوظ" (your work is saved): a failed request saved nothing (QA-18).
+    message = "حصل خطأ غير متوقع في السيرفر. جرّب تاني.",
   ): AppError {
     return new AppError("INTERNAL_ERROR", message, 500);
   }
@@ -179,6 +180,37 @@ export function toSafeErrorResponse(
     }).toResponse(requestId);
   }
 
+  // A body that is not JSON is the client's mistake, not a server error (QA-18). Routes read
+  // bodies with `readJsonBody`; this catches any `req.json()` that still slips through.
+  if (error instanceof SyntaxError) {
+    return new AppError(
+      "VALIDATION_ERROR",
+      "البيانات المرسلة غير صحيحة",
+      400,
+    ).toResponse(requestId);
+  }
+
+  // Known Prisma request errors that describe the request, not a server fault (QA-19).
+  const prismaCode =
+    error instanceof Error && error.name === "PrismaClientKnownRequestError"
+      ? (error as { code?: string }).code
+      : undefined;
+  const rawSqlState =
+    prismaCode === "P2010"
+      ? (error as { meta?: { code?: string } }).meta?.code
+      : undefined;
+  // P2023 from the query engine, or 22P02 (invalid uuid text) from a raw query (row locks).
+  if (prismaCode === "P2023" || rawSqlState === "22P02") {
+    // Malformed id (e.g. "nope" for a uuid column): no such record can exist.
+    return AppError.badRequest("المعرّف ده مش صحيح").toResponse(requestId);
+  }
+  if (prismaCode === "P2025") {
+    return AppError.notFound().toResponse(requestId);
+  }
+  if (prismaCode === "P2002") {
+    return AppError.conflict("العنصر ده موجود قبل كده").toResponse(requestId);
+  }
+
   if (
     error instanceof Error &&
     (error.name === "PrismaClientInitializationError" ||
@@ -187,7 +219,7 @@ export function toSafeErrorResponse(
   ) {
     logger.error({ err: error, requestId }, "Database connection error");
     return AppError.serviceUnavailable(
-      "تعذر الاتصال بقاعدة البيانات حالياً. جاري إعادة المحاولة... شغلك محفوظ.",
+      "تعذر الاتصال بقاعدة البيانات حالياً. جرّب تاني بعد شوية.",
     ).toResponse(requestId);
   }
 

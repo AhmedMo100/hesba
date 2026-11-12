@@ -105,11 +105,12 @@ export async function createSession(
 }
 
 import { withTenant } from "@/server/infra/db/tenant";
+import { assertSameOriginWrite } from "./request-guard";
 
 /**
  * Resolves a raw session token to the user and store it belongs to.
  *
- * Side effect: updates `lastSeenAt` on every successful validation.
+ * Side effect: refreshes `lastSeenAt` when it is older than {@link LAST_SEEN_REFRESH_MS}.
  *
  * @param rawToken - The token from the cookie or `Authorization: Bearer` header.
  * @returns The session context, or `null` when the token is missing, unknown, or its store
@@ -177,23 +178,43 @@ export async function validateSession(
     );
   }
 
-  // Load store inside its tenant context
+  // Load the store inside its tenant context, only while the user is still a member of it
+  // (QA-51): a member removed from the shop loses access on the next request, not at expiry.
+  // One query — the membership is a condition of the store lookup that already runs.
   const store = await withTenant(record.storeId, record.userId, async (tx) => {
-    return await tx.store.findUnique({
-      where: { id: record.storeId },
+    return await tx.store.findFirst({
+      where: {
+        id: record.storeId,
+        members: { some: { userId: record.userId } },
+      },
     });
   });
 
   if (!store) {
-    logger.warn({ storeId: record.storeId }, "Store not found for session");
+    // The shop is gone or the user is no longer its member: this session is over for good.
+    await prisma.session.updateMany({
+      where: { idHash, revokedAt: null },
+      data: { revokedAt: now },
+    });
+    logger.warn(
+      { userId: record.userId, storeId: record.storeId },
+      "Session refused: no membership in its store; revoked",
+    );
     return null;
   }
 
-  // Touch session lastSeenAt
-  await prisma.session.update({
-    where: { idHash },
-    data: { lastSeenAt: now },
-  });
+  // Touch lastSeenAt at most every LAST_SEEN_REFRESH_MS: it is a "last active" hint, and a
+  // write on every request costs a database round trip (~63 ms on Neon, QA-32). Validity,
+  // expiry and revocation are still checked on every request above.
+  if (
+    !record.lastSeenAt ||
+    now.getTime() - record.lastSeenAt.getTime() >= LAST_SEEN_REFRESH_MS
+  ) {
+    await prisma.session.update({
+      where: { idHash },
+      data: { lastSeenAt: now },
+    });
+  }
 
   return {
     session: {
@@ -228,6 +249,9 @@ export async function validateSession(
  * already in flight when the client rotated still carry the old token.
  */
 export const ROTATION_GRACE_MS = 30_000;
+
+/** How stale `lastSeenAt` may get before a request refreshes it (QA-32). */
+export const LAST_SEEN_REFRESH_MS = 5 * 60_000;
 
 /** The sessions that replaced `startIdHash` by rotation, transitively (it included). */
 async function rotationDescendants(startIdHash: string): Promise<string[]> {
@@ -372,6 +396,8 @@ export async function getSessionFromRequest(
  * @throws AppError (401) when the request has no valid session.
  */
 export async function requireSession(req: Request): Promise<SessionContext> {
+  // Every cookie-authenticated write passes here: refuse cross-site writes (QA-39).
+  assertSameOriginWrite(req);
   const context = await getSessionFromRequest(req);
   if (!context) {
     throw AppError.unauthorized();

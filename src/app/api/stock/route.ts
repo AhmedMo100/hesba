@@ -1,10 +1,17 @@
 import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { wasteReasonSchema } from "@/schemas/inventory";
+import { businessDateSchema, expiryDateSchema } from "@/schemas/dates";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
 import { InventoryService } from "@/server/modules/inventory";
-import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import {
+  AppError,
+  toSafeErrorResponse,
+  readJsonBody,
+} from "@/server/platform/error";
+import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +21,14 @@ const addStockSchema = z.object({
   quantityBase: z
     .number()
     .int()
-    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً"),
+    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
   /** What was paid for the whole quantity, in piasters (ADR-0021). */
   costTotalPiasters: z
     .number()
     .int()
     .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
-    .max(10_000_000_000, "المبلغ كبير قوي")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional(),
   /**
    * Deprecated name for the same value: the Add-Stock screen always sent the TOTAL here.
@@ -30,10 +38,11 @@ const addStockSchema = z.object({
     .number()
     .int()
     .min(0, "سعر التكلفة يجب ألا يقل عن صفر")
-    .max(10_000_000_000, "المبلغ كبير قوي")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
     .optional(),
-  productionDate: z.string().optional().nullable(),
-  expiryDate: z.string().optional().nullable(),
+  // Real dates in a sensible range (QA-37): "not-a-date" was a 500.
+  productionDate: businessDateSchema.optional().nullable(),
+  expiryDate: expiryDateSchema.optional().nullable(),
   batchCode: z.string().trim().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   opId: z.string().uuid().optional(),
@@ -45,9 +54,11 @@ const wasteStockSchema = z.object({
   quantityBase: z
     .number()
     .int()
-    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً"),
+    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
   batchId: z.string().uuid().optional().nullable(),
-  reason: z.string().trim().default("expired"),
+  reason: wasteReasonSchema.default("expired"),
+  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
   opId: z.string().uuid().optional(),
 });
 
@@ -66,17 +77,15 @@ const adjustStockSchema = z.object({
     .number()
     .int()
     .min(0, "الرصيد يجب ألا يقل عن صفر")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
     .optional(),
-  deltaQuantityBase: z.number().int().optional(),
+  deltaQuantityBase: z
+    .number()
+    .int()
+    .min(-MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
+    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي")
+    .optional(),
   reason: z.string().trim().optional(),
-  opId: z.string().uuid().optional(),
-});
-
-const clearStockSchema = z.object({
-  action: z.literal("clear"),
-  storeVariantId: z.string().uuid(),
-  reason: z.string().trim().optional(),
-  removeFromView: z.boolean().optional(),
   opId: z.string().uuid().optional(),
 });
 
@@ -91,7 +100,6 @@ const stockActionSchema = z.discriminatedUnion("action", [
   wasteStockSchema,
   voidStockSchema,
   adjustStockSchema,
-  clearStockSchema,
   archiveStockSchema,
 ]);
 
@@ -137,18 +145,14 @@ export async function GET(req: Request) {
       return NextResponse.json({ movements });
     }
 
-    const inventory = await inventoryService.getStoreInventory(
-      context.store.id,
-      context.user.id,
-    );
-
-    let movements = null;
-    if (view === "all") {
-      movements = await inventoryService.getStockMovements(
-        context.store.id,
-        context.user.id,
-      );
-    }
+    // `view=all` (the Stock screen) also needs the movement history: both are reads, so they
+    // run at the same time instead of one after the other (QA-32).
+    const [inventory, movements] = await Promise.all([
+      inventoryService.getStoreInventory(context.store.id, context.user.id),
+      view === "all"
+        ? inventoryService.getStockMovements(context.store.id, context.user.id)
+        : Promise.resolve(null),
+    ]);
 
     return NextResponse.json({ inventory, movements });
   } catch (err: unknown) {
@@ -163,7 +167,7 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   try {
     const context = await requireSession(req);
-    const body = await req.json();
+    const body = await readJsonBody(req);
     const input = stockActionSchema.parse(body);
 
     const inventoryService = new InventoryService(prisma);
@@ -194,6 +198,7 @@ export async function POST(req: Request) {
           quantityBase: input.quantityBase,
           batchId: input.batchId,
           reason: input.reason,
+          note: input.note ?? null,
           opId: input.opId,
         },
       );
@@ -210,6 +215,13 @@ export async function POST(req: Request) {
       );
       return NextResponse.json({ success: true, data: result });
     } else if (input.action === "adjust") {
+      // An adjustment that names no change records nothing: say so instead of "success" (QA-35).
+      if (input.mode === "delta" && !input.deltaQuantityBase) {
+        throw AppError.badRequest("اكتب الكمية اللي هتزود أو تنقص بيها");
+      }
+      if (input.mode === "set" && input.targetQuantityBase === undefined) {
+        throw AppError.badRequest("اكتب الرصيد الجديد");
+      }
       const result = await inventoryService.adjustStockQuantity(
         context.store.id,
         context.user.id,
@@ -219,18 +231,6 @@ export async function POST(req: Request) {
           targetQuantityBase: input.targetQuantityBase,
           deltaQuantityBase: input.deltaQuantityBase,
           reason: input.reason,
-          opId: input.opId,
-        },
-      );
-      return NextResponse.json({ success: true, data: result });
-    } else if (input.action === "clear") {
-      const result = await inventoryService.clearVariantStock(
-        context.store.id,
-        context.user.id,
-        {
-          storeVariantId: input.storeVariantId,
-          reason: input.reason,
-          removeFromView: input.removeFromView,
           opId: input.opId,
         },
       );
@@ -252,16 +252,15 @@ export async function POST(req: Request) {
 }
 
 /**
- * DELETE /api/stock?batchId=<uuid> OR /api/stock?variantId=<uuid>
- * Voids an added stock batch OR clears all stock for a variant under tenant isolation.
+ * DELETE /api/stock?batchId=<uuid>
+ * Voids an added stock batch under tenant isolation. (Zeroing a whole product was removed:
+ * a quantity is changed with `action: "adjust"`, which records the movement.)
  */
 export async function DELETE(req: Request) {
   try {
     const context = await requireSession(req);
     const { searchParams } = new URL(req.url);
     const batchId = searchParams.get("batchId");
-    const variantId = searchParams.get("variantId");
-    const removeFromView = searchParams.get("removeFromView") === "true";
 
     const inventoryService = new InventoryService(prisma);
 
@@ -272,17 +271,8 @@ export async function DELETE(req: Request) {
         { batchId },
       );
       return NextResponse.json({ success: true, data: result });
-    } else if (variantId) {
-      const result = await inventoryService.clearVariantStock(
-        context.store.id,
-        context.user.id,
-        { storeVariantId: variantId, removeFromView },
-      );
-      return NextResponse.json({ success: true, data: result });
     } else {
-      throw AppError.badRequest(
-        "معرّف الإضافة (batchId) أو معرّف الصنف (variantId) مطلوب",
-      );
+      throw AppError.badRequest("معرّف الإضافة (batchId) مطلوب");
     }
   } catch (err: unknown) {
     return toSafeErrorResponse(err);

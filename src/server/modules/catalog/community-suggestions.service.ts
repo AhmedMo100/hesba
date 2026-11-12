@@ -226,27 +226,15 @@ export class CommunitySuggestionsService {
     const db = (options?.tx ? options.tx : this.prisma) as PrismaClient;
     const now = options?.now ?? new Date();
 
-    // Idempotent upsert on candidate_adoptions
-    try {
-      await db.candidateAdoption.create({
-        data: {
-          candidateId,
-          storeId,
-          createdAt: now,
-        },
-      });
-    } catch (err: unknown) {
-      // If unique constraint violation, this store already adopted - safe to ignore
-      const isUniqueViolation =
-        typeof err === "object" &&
-        err !== null &&
-        "code" in err &&
-        (err as { code: string }).code === "P2002";
-
-      if (!isUniqueViolation) {
-        throw err;
-      }
-
+    // Idempotent insert: ON CONFLICT DO NOTHING (QA-23). Catching a unique violation inside
+    // the caller's transaction is not possible — Postgres aborts the transaction (25P02) and
+    // every later statement fails, which made a second same-name product a 500.
+    const inserted = await db.candidateAdoption.createMany({
+      data: [{ candidateId, storeId, createdAt: now }],
+      skipDuplicates: true,
+    });
+    if (inserted.count === 0) {
+      // This store had already adopted the candidate.
       const existingCandidate = await this.prisma.catalogCandidate.findUnique({
         where: { id: candidateId },
         select: { acceptsCount: true },

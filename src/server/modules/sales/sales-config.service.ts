@@ -13,6 +13,7 @@ import {
   readStoreSettings,
   updateStoreSettings,
 } from "@/server/modules/tenancy";
+import type { SalesViewConfigUpdate } from "@/schemas/sales-config";
 
 export interface SalesViewConfig {
   enabledServiceIds: string[];
@@ -41,20 +42,26 @@ export async function getSalesViewConfig(
 export async function saveSalesViewConfig(
   storeId: string,
   userId: string,
-  input: { enabledServiceIds?: unknown; enabledProductIds?: unknown },
+  input: SalesViewConfigUpdate,
 ): Promise<SalesViewConfig> {
-  const toIdList = (value: unknown): string[] =>
-    Array.isArray(value) ? Array.from(new Set(value.map(String))) : [];
-
-  const config: SalesViewConfig = {
-    enabledServiceIds: toIdList(input.enabledServiceIds),
-    enabledProductIds: toIdList(input.enabledProductIds),
-    updatedAt: new Date().toISOString(),
-  };
-
-  await updateStoreSettings(storeId, userId, () => ({
-    patch: { salesConfig: config },
-    result: undefined,
-  }));
-  return config;
+  const unique = (ids: string[]) => Array.from(new Set(ids));
+  return updateStoreSettings(storeId, userId, (settings) => {
+    const saved = (settings.salesConfig as SalesViewConfig | undefined) ?? {
+      enabledServiceIds: [],
+      enabledProductIds: [],
+    };
+    // Partial update (QA-21): a list that was not sent keeps its saved value.
+    const config: SalesViewConfig = {
+      enabledServiceIds:
+        input.enabledServiceIds !== undefined
+          ? unique(input.enabledServiceIds)
+          : (saved.enabledServiceIds ?? []),
+      enabledProductIds:
+        input.enabledProductIds !== undefined
+          ? unique(input.enabledProductIds)
+          : (saved.enabledProductIds ?? []),
+      updatedAt: new Date().toISOString(),
+    };
+    return { patch: { salesConfig: config }, result: config };
+  });
 }
