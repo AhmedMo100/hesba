@@ -1,5 +1,7 @@
 "use client";
 
+import { apiGet } from "./read-cache";
+
 /**
  * @file machines.ts
  * @description Client API for the store's POS machines (e-payment / top-up terminals) and
@@ -207,7 +209,7 @@ export async function fetchStoreMachines(
   }
 
   try {
-    const res = await fetch("/api/machines");
+    const res = await apiGet("/api/machines");
     if (!res.ok) {
       return getStoredMachines(storeId);
     }

@@ -13,12 +13,14 @@ import { withTenant } from "@/server/infra/db/tenant";
 import { normalizePhone } from "./signup.service";
 
 const MAX_LOGIN_ATTEMPTS = 5;
+const MAX_LOGIN_ATTEMPTS_PER_IP = 15;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
 /**
  * Phone + password login.
  *
- * Flow: rate-limit (5 attempts per phone, 15 per IP, per 15 minutes) → look up the user by
+ * Flow: lockout check (5 FAILED attempts per phone, 15 per IP, per 15 minutes; successes do
+ * not count and clear the phone, QA-24) → look up the user by
  * normalized phone → verify the Argon2id hash → pick the user's oldest store membership →
  * register a new device row → create a session for that store.
  *
@@ -29,7 +31,7 @@ const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
  * @param clientIp - Used only for the per-IP rate limit, when known.
  * @param deviceLabel - Label stored on the device row created for this login.
  * @returns The raw session token (for the cookie) plus the user and store summary.
- * @throws AppError (400) when rate-limited; (401) on bad credentials; (500) when the user has
+ * @throws AppError (429 + Retry-After) when locked out; (401) on bad credentials; (500) when the user has
  * no store membership. A zod error on invalid input.
  */
 export async function loginWithPassword(
@@ -40,31 +42,36 @@ export async function loginWithPassword(
   const data = loginInputSchema.parse(rawInput);
   const normalizedPhone = normalizePhone(data.phone);
 
-  // Rate Limiting by phone: Max 5 attempts per 15 min
-  if (
-    !authRateLimiter.check(
-      `login-phone:${normalizedPhone}`,
-      MAX_LOGIN_ATTEMPTS,
-      LOGIN_LOCKOUT_MS,
-    )
-  ) {
-    logger.warn(
-      { phone: normalizedPhone },
-      "Login rate limit exceeded for phone",
-    );
-    throw AppError.badRequest(
-      "تجاوزت الحد الأقصى لمحاولات الدخول. يُرجى الانتظار 15 دقيقة والمحاولة لاحقاً.",
+  // Lockout counts FAILED attempts only (QA-24): 5 per phone and 15 per IP in 15 minutes.
+  // Unknown phones and wrong passwords count the same, so the lockout reveals nothing about
+  // which phones have accounts. A locked request is a 429 with Retry-After.
+  const phoneAttempt = authRateLimiter.reserveAttempt(
+    `login-phone:${normalizedPhone}`,
+    MAX_LOGIN_ATTEMPTS,
+    LOGIN_LOCKOUT_MS,
+  );
+  if (phoneAttempt.locked) {
+    logger.warn("Login locked out for a phone after repeated failures");
+    throw AppError.rateLimited(
+      "محاولات دخول غلط كتير. استنى شوية وجرب تاني.",
+      undefined,
+      phoneAttempt.retryAfterMs / 1000,
     );
   }
-
-  // Rate Limiting by IP: Max 15 attempts per 15 min
-  if (
-    clientIp &&
-    !authRateLimiter.check(`login-ip:${clientIp}`, 15, LOGIN_LOCKOUT_MS)
-  ) {
-    logger.warn({ clientIp }, "Login rate limit exceeded for IP");
-    throw AppError.badRequest(
-      "تجاوزت الحد الأقصى لمحاولات الدخول من هذا العنوان. يُرجى الانتظار والمحاولة لاحقاً.",
+  const ipAttempt = clientIp
+    ? authRateLimiter.reserveAttempt(
+        `login-ip:${clientIp}`,
+        MAX_LOGIN_ATTEMPTS_PER_IP,
+        LOGIN_LOCKOUT_MS,
+      )
+    : null;
+  if (ipAttempt?.locked) {
+    phoneAttempt.release(); // this phone did not get a try
+    logger.warn("Login locked out for an IP after repeated failures");
+    throw AppError.rateLimited(
+      "محاولات دخول غلط كتير من الجهاز ده. استنى شوية وجرب تاني.",
+      undefined,
+      ipAttempt.retryAfterMs / 1000,
     );
   }
 
@@ -74,10 +81,7 @@ export async function loginWithPassword(
 
   if (!user || !user.passwordHash) {
     await dummyVerifyTimingProtection();
-    logger.warn(
-      { phone: normalizedPhone },
-      "Failed login attempt: user not found or no password",
-    );
+    logger.warn("Failed login attempt: user not found or no password");
     throw AppError.unauthorized("رقم الموبايل أو كلمة السر غير صحيحة");
   }
 
@@ -90,6 +94,10 @@ export async function loginWithPassword(
     logger.warn({ userId: user.id }, "Failed login attempt: invalid password");
     throw AppError.unauthorized("رقم الموبايل أو كلمة السر غير صحيحة");
   }
+
+  // A successful login does not count, and clears this phone's failures.
+  authRateLimiter.reset(`login-phone:${normalizedPhone}`);
+  if (ipAttempt && !ipAttempt.locked) ipAttempt.release();
 
   // Find user's primary store membership under app.user_id context
   const primaryMember = await prisma.$transaction(async (tx) => {

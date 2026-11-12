@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo } from "react";
+import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import { Modal, Button, Field, Seg } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import type { StockInventoryItem } from "@/client/shared/store-items";
@@ -62,6 +63,7 @@ export function AdjustStockModal({
   const [customReason, setCustomReason] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const adjustOp = useRetryOpId();
 
   // Compute target balance for "set" mode
   const targetBase = useMemo(() => {
@@ -156,14 +158,20 @@ export function AdjustStockModal({
       const res = await fetch("/api/stock", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "adjust",
-          storeVariantId: item.variantId,
-          mode,
-          targetQuantityBase: mode === "set" ? targetBase : undefined,
-          deltaQuantityBase: mode === "delta" ? deltaBase : undefined,
-          reason: finalReason,
-        }),
+        body: JSON.stringify(
+          (() => {
+            const body = {
+              action: "adjust",
+              storeVariantId: item.variantId,
+              mode,
+              targetQuantityBase: mode === "set" ? targetBase : undefined,
+              deltaQuantityBase: mode === "delta" ? deltaBase : undefined,
+              reason: finalReason,
+            };
+            // Same adjustment retried → same opId → applied once (QA-27).
+            return { ...body, opId: adjustOp.opIdFor(body) };
+          })(),
+        ),
       });
 
       if (!res.ok) {

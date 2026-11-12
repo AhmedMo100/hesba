@@ -1,4 +1,7 @@
+import { stockLevel } from "@/domain/alerts";
 import "server-only";
+import { toCairoDateString } from "@/domain/time";
+import type { WasteReason } from "@/schemas/inventory";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
@@ -101,6 +104,46 @@ export async function lockStockLevelsInTx(
   return balances;
 }
 
+/** The first day (UTC midnight of the Cairo date key) a batch is still sellable on `now`. */
+function sellableFromDate(now: Date): Date {
+  return new Date(`${toCairoDateString(now)}T00:00:00.000Z`);
+}
+
+/**
+ * Locks the variants (see {@link lockStockLevelsInTx}) and returns what can be SOLD: the
+ * ledger balance minus what is still in batches that expired before today (Cairo calendar).
+ * Expired goods stay in stock (visible, recordable as waste) but a sale never takes them; a
+ * batch is still sellable on its expiry day.
+ */
+export async function lockSellableStockInTx(
+  tx: TenantTx,
+  storeId: string,
+  variantIds: readonly string[],
+  now: Date = new Date(),
+): Promise<Map<string, bigint>> {
+  const balances = await lockStockLevelsInTx(tx, storeId, variantIds);
+  const ids = [...balances.keys()];
+  if (ids.length === 0) return balances;
+  const expired = await tx.storeStockBatch.groupBy({
+    by: ["storeVariantId"],
+    where: {
+      storeId,
+      storeVariantId: { in: ids },
+      remainingQuantityBase: { gt: ZERO },
+      expiryDate: { lt: sellableFromDate(now) },
+    },
+    _sum: { remainingQuantityBase: true },
+  });
+  for (const e of expired) {
+    const left = e._sum.remainingQuantityBase ?? ZERO;
+    balances.set(
+      e.storeVariantId,
+      (balances.get(e.storeVariantId) ?? ZERO) - left,
+    );
+  }
+  return balances;
+}
+
 /** Locks one variant's level (see {@link lockStockLevelsInTx}) and returns its balance. */
 export async function lockStockLevelInTx(
   tx: TenantTx,
@@ -112,7 +155,7 @@ export async function lockStockLevelInTx(
 }
 
 /** Writes the `stock_levels` cache: always the ledger balance computed under the lock. */
-async function writeLevelInTx(
+export async function writeLevelInTx(
   tx: TenantTx,
   storeId: string,
   storeVariantId: string,
@@ -176,6 +219,15 @@ export async function takeStockInTx(
       storeVariantId: input.storeVariantId,
       remainingQuantityBase: { gt: ZERO },
       ...(input.batchId ? { id: input.batchId } : {}),
+      // A sale never takes expired goods (FEFO over the sellable batches only).
+      ...(input.type === "sale"
+        ? {
+            OR: [
+              { expiryDate: null },
+              { expiryDate: { gte: sellableFromDate(now) } },
+            ],
+          }
+        : {}),
     },
   });
   const byId = new Map(batches.map((b) => [b.id, b]));
@@ -380,6 +432,260 @@ export async function restoreSaleTakesInTx(
   return changed;
 }
 
+/**
+ * Puts back `quantityBase` of ONE sold line (a return, QA-31 / ADR-0027) inside the caller's
+ * tenant transaction: into the batches the sale took from (latest expiry first), never more
+ * per batch than was taken minus what earlier returns already put back, with append-only
+ * `sale_return` movements linked to the sale line and the new balance in `stock_levels`.
+ *
+ * The caller checks the returnable quantity; this refuses (409) only when the movements and the
+ * batches disagree, rather than inventing stock.
+ */
+export async function restoreReturnInTx(
+  tx: TenantTx,
+  storeId: string,
+  input: { saleLineId: string; quantityBase: bigint; opId: string; now: Date },
+): Promise<{
+  variantId: string;
+  balance: bigint;
+  /** Where the goods went back (the sale's own batches), for a damaged return's waste. */
+  parts: Array<{ batchId: string | null; quantityBase: bigint }>;
+} | null> {
+  const { now } = input;
+  const parts: Array<{ batchId: string | null; quantityBase: bigint }> = [];
+  const moves = await tx.stockMovement.findMany({
+    where: {
+      storeId,
+      saleLineId: input.saleLineId,
+      type: { in: ["sale", "sale_return"] },
+    },
+    orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+  });
+  // The sale's own batches, the one with the most shelf life first (latest expiry; no expiry
+  // counts as latest): returned goods go back where they came from, deterministically.
+  const takenFrom = await tx.storeStockBatch.findMany({
+    where: {
+      storeId,
+      id: {
+        in: moves.flatMap((m) =>
+          m.type === "sale" && m.batchId ? [m.batchId] : [],
+        ),
+      },
+    },
+    select: { id: true, expiryDate: true },
+  });
+  const expiryOf = new Map(
+    takenFrom.map((b) => [b.id, b.expiryDate?.getTime() ?? Infinity]),
+  );
+  const takes = moves
+    .filter((m) => m.type === "sale")
+    .sort(
+      (a, b) =>
+        (b.batchId ? (expiryOf.get(b.batchId) ?? -1) : -1) -
+        (a.batchId ? (expiryOf.get(a.batchId) ?? -1) : -1),
+    );
+  if (takes.length === 0) return null;
+  const variantId = takes[0]!.storeVariantId;
+  const balances = await lockStockLevelsInTx(tx, storeId, [variantId]);
+  let balance = balances.get(variantId) ?? ZERO;
+
+  // What each batch still "owes back" to this line: taken − already returned.
+  const key = (b: string | null) => b ?? "unbatched";
+  const open = new Map<string, bigint>();
+  for (const t of takes)
+    open.set(
+      key(t.batchId),
+      (open.get(key(t.batchId)) ?? ZERO) - t.quantityBase,
+    );
+  for (const r of moves.filter((m) => m.type === "sale_return")) {
+    open.set(
+      key(r.batchId),
+      (open.get(key(r.batchId)) ?? ZERO) - r.quantityBase,
+    );
+  }
+
+  let left = input.quantityBase;
+  const seen = new Set<string>();
+  for (const take of takes) {
+    if (left <= ZERO) break;
+    const k = key(take.batchId);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    const room = open.get(k) ?? ZERO;
+    if (room <= ZERO) continue;
+    const qty = room < left ? room : left;
+    if (take.batchId) {
+      const batch = await tx.storeStockBatch.findFirst({
+        where: { id: take.batchId, storeId },
+        select: { remainingQuantityBase: true, receivedQuantityBase: true },
+      });
+      if (
+        !batch ||
+        batch.remainingQuantityBase + qty > batch.receivedQuantityBase
+      ) {
+        throw AppError.conflict(
+          "مقدرناش نرجّع الكمية دي للمخزن — راجع المخزون",
+        );
+      }
+      await tx.storeStockBatch.update({
+        where: { id: take.batchId },
+        data: { remainingQuantityBase: { increment: qty }, updatedAt: now },
+      });
+    }
+    balance += qty;
+    await tx.stockMovement.create({
+      data: {
+        storeId,
+        storeVariantId: variantId,
+        storeProductId: take.storeProductId,
+        batchId: take.batchId,
+        type: "sale_return",
+        quantityBase: qty,
+        costPriceMinor: take.costPriceMinor,
+        balanceAfterBase: balance,
+        negative: balance < ZERO,
+        saleLineId: input.saleLineId,
+        opId: input.opId,
+        createdAt: now,
+      },
+    });
+    parts.push({ batchId: take.batchId, quantityBase: qty });
+    left -= qty;
+  }
+  if (left > ZERO) {
+    throw AppError.conflict("مقدرناش نرجّع الكمية دي للمخزن — راجع المخزون");
+  }
+  await writeLevelInTx(tx, storeId, variantId, balance, now);
+  return { variantId, balance, parts };
+}
+
+/**
+ * Records goods that left stock without a sale (damaged / lost, P4) inside the caller's tenant
+ * transaction: a `waste_records` row (reason, note, cost of what was taken) and the take from
+ * the batches — the chosen batch, or FEFO including expired batches — as `waste` movements.
+ * Idempotent by `opId`. Never more than the stock (or the batch) holds.
+ */
+export async function recordWasteInTx(
+  tx: TenantTx,
+  storeId: string,
+  input: {
+    storeVariantId: string;
+    quantityBase: bigint;
+    batchId?: string | null;
+    reason?: WasteReason;
+    note?: string | null;
+    saleReturnId?: string | null;
+    opId?: string | null;
+  },
+) {
+  const qtyBase = input.quantityBase;
+  const now = new Date();
+  // 1. Verify variant
+  const variant = await tx.storeVariant.findFirst({
+    where: { id: input.storeVariantId, storeId },
+    select: { id: true, storeProductId: true },
+  });
+  if (!variant) {
+    throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
+  }
+
+  // 2. Lock the variant's stock (ADR-0019), then check opId idempotency
+  const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
+  if (input.opId) {
+    const existing = await tx.stockMovement.findFirst({
+      where: { storeId, opId: input.opId },
+    });
+    if (existing) {
+      assertSameStockOperation(existing, {
+        variantId: variant.id,
+        types: ["waste"],
+      });
+      return { movementId: existing.id, duplicate: true };
+    }
+  }
+
+  // 3. Availability: the stock, or the chosen batch
+  if (qtyBase > currentQty) {
+    throw AppError.conflict(
+      `الكمية أكبر من المخزون (الموجود ${Number(currentQty < ZERO ? ZERO : currentQty)})`,
+    );
+  }
+  if (input.batchId) {
+    const batch = await tx.storeStockBatch.findFirst({
+      where: { id: input.batchId, storeId, storeVariantId: variant.id },
+      select: { remainingQuantityBase: true },
+    });
+    if (!batch) {
+      throw AppError.notFound("التشغيلة أو الإضافة غير موجودة");
+    }
+    if (qtyBase > batch.remainingQuantityBase) {
+      throw AppError.conflict(
+        `التشغيلة دي فيها ${Number(batch.remainingQuantityBase)} بس`,
+      );
+    }
+  }
+
+  // 4. The waste record, then the take from the batches (movements link to it)
+  const waste = await tx.wasteRecord.create({
+    data: {
+      storeId,
+      storeVariantId: variant.id,
+      batchId: input.batchId ?? null,
+      quantityBase: qtyBase,
+      costMinor: ZERO,
+      reason: input.reason ?? "expired",
+      note: input.note ?? null,
+      saleReturnId: input.saleReturnId ?? null,
+      createdAt: now,
+    },
+  });
+  const taken = await takeStockInTx(tx, storeId, {
+    storeVariantId: variant.id,
+    storeProductId: variant.storeProductId,
+    quantityBase: qtyBase,
+    type: "waste",
+    batchId: input.batchId ?? null,
+    wasteId: waste.id,
+    opId: input.opId ?? null,
+    now,
+  });
+  if (taken.costPiasters !== null) {
+    await tx.wasteRecord.update({
+      where: { id: waste.id },
+      data: { costMinor: taken.costPiasters },
+    });
+  }
+
+  const firstMovement = await tx.stockMovement.findFirst({
+    where: { storeId, wasteId: waste.id },
+    orderBy: { createdAt: "asc" },
+    select: { id: true },
+  });
+  return {
+    wasteId: waste.id,
+    movementId: firstMovement?.id ?? null,
+    newBalance: Number(taken.newBalance),
+    duplicate: false,
+  };
+}
+
+/**
+ * An `opId` that was already used must be a retry of the SAME operation (QA-27): the same
+ * variant and the same kind of movement. Anything else is a 409 — the earlier operation is
+ * neither repeated nor reported as this one.
+ */
+function assertSameStockOperation(
+  existing: { storeVariantId: string; type: string },
+  expected: { variantId: string; types: readonly string[] },
+): void {
+  if (
+    existing.storeVariantId !== expected.variantId ||
+    !expected.types.includes(existing.type)
+  ) {
+    throw AppError.conflict("رقم العملية ده اتسجل قبل كده لعملية مختلفة");
+  }
+}
+
 /** Cost of one movement's quantity from its batch's recorded total (ADR-0021); null = unknown. */
 function movementCostPiasters(m: {
   quantityBase: bigint;
@@ -398,12 +704,6 @@ function movementCostPiasters(m: {
   );
   return milli === null ? null : Number(milliToWholePiasters(milli));
 }
-
-/**
- * A variant with at most this many base units in stock is reported as "low" (5 pieces, or
- * 5 grams for weighed items).
- */
-const FIVE = BigInt(5);
 
 export class InventoryService {
   constructor(private readonly prisma: PrismaClient) {}
@@ -562,6 +862,10 @@ export class InventoryService {
             where: { storeId, opId: input.opId },
           });
           if (existingMovement) {
+            assertSameStockOperation(existingMovement, {
+              variantId: resolvedVariantId,
+              types: ["purchase", "initial_stock"],
+            });
             return {
               batchId: existingMovement.batchId,
               movementId: existingMovement.id,
@@ -648,7 +952,8 @@ export class InventoryService {
       storeVariantId: string;
       quantityBase: bigint | number;
       batchId?: string | null;
-      reason?: string;
+      reason?: WasteReason;
+      note?: string | null;
       opId?: string | null;
     },
   ) {
@@ -659,94 +964,10 @@ export class InventoryService {
       );
     }
 
-    const now = new Date();
-
     return withTenant(
       storeId,
       userId,
-      async (tx) => {
-        // 1. Verify variant
-        const variant = await tx.storeVariant.findFirst({
-          where: { id: input.storeVariantId, storeId },
-          select: { id: true, storeProductId: true },
-        });
-        if (!variant) {
-          throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
-        }
-
-        // 2. Lock the variant's stock (ADR-0019), then check opId idempotency
-        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
-        if (input.opId) {
-          const existing = await tx.stockMovement.findFirst({
-            where: { storeId, opId: input.opId },
-          });
-          if (existing) {
-            return { movementId: existing.id, duplicate: true };
-          }
-        }
-
-        // 3. Availability: the stock, or the chosen batch
-        if (qtyBase > currentQty) {
-          throw AppError.conflict(
-            `الكمية أكبر من المخزون (الموجود ${Number(currentQty < ZERO ? ZERO : currentQty)})`,
-          );
-        }
-        if (input.batchId) {
-          const batch = await tx.storeStockBatch.findFirst({
-            where: { id: input.batchId, storeId, storeVariantId: variant.id },
-            select: { remainingQuantityBase: true },
-          });
-          if (!batch) {
-            throw AppError.notFound("التشغيلة أو الإضافة غير موجودة");
-          }
-          if (qtyBase > batch.remainingQuantityBase) {
-            throw AppError.conflict(
-              `التشغيلة دي فيها ${Number(batch.remainingQuantityBase)} بس`,
-            );
-          }
-        }
-
-        // 4. The waste record, then the take from the batches (movements link to it)
-        const waste = await tx.wasteRecord.create({
-          data: {
-            storeId,
-            storeVariantId: variant.id,
-            batchId: input.batchId ?? null,
-            quantityBase: qtyBase,
-            costMinor: ZERO,
-            reason: input.reason ?? "expired",
-            createdAt: now,
-          },
-        });
-        const taken = await takeStockInTx(tx, storeId, {
-          storeVariantId: variant.id,
-          storeProductId: variant.storeProductId,
-          quantityBase: qtyBase,
-          type: "waste",
-          batchId: input.batchId ?? null,
-          wasteId: waste.id,
-          opId: input.opId ?? null,
-          now,
-        });
-        if (taken.costPiasters !== null) {
-          await tx.wasteRecord.update({
-            where: { id: waste.id },
-            data: { costMinor: taken.costPiasters },
-          });
-        }
-
-        const firstMovement = await tx.stockMovement.findFirst({
-          where: { storeId, wasteId: waste.id },
-          orderBy: { createdAt: "asc" },
-          select: { id: true },
-        });
-        return {
-          wasteId: waste.id,
-          movementId: firstMovement?.id ?? null,
-          newBalance: Number(taken.newBalance),
-          duplicate: false,
-        };
-      },
+      (tx) => recordWasteInTx(tx, storeId, { ...input, quantityBase: qtyBase }),
       this.prisma,
     );
   }
@@ -856,8 +1077,12 @@ export class InventoryService {
           }));
 
           const hasNearExpiry = batches.some((b) => b.isNearExpiry);
-          const status =
-            currentQty <= ZERO ? "out" : currentQty <= FIVE ? "low" : "ok";
+          // The documented stock-level rule (QA-52): 3 kg, two packs or 10 pieces.
+          const status = stockLevel(
+            v.storeProduct?.unit === "kg" ? "weight" : "piece",
+            v.packQty,
+            Number(currentQty),
+          );
 
           return {
             variantId: v.id,
@@ -996,8 +1221,7 @@ export class InventoryService {
    * 1) mode === "set": Sets final balance to `targetQuantityBase` (a negative target is
    *    rejected with 400).
    * 2) mode === "delta": Increments or decrements balance by `deltaQuantityBase`. A decrement
-   *    larger than the current stock is floored: the balance becomes 0 and the recorded delta
-   *    is reduced to `-current` (existing rule; audit QA-16 is about this clamp).
+   *    larger than the current stock is rejected with 409 and nothing is written (QA-16).
    * Enforces tenant isolation and append-only audit trail; `opId` makes a retry a no-op.
    *
    * Batches (ADR-0021, QA-05): an increase adds an adjustment batch costed at the registered
@@ -1047,6 +1271,10 @@ export class InventoryService {
             where: { storeId, opId: input.opId },
           });
           if (existing) {
+            assertSameStockOperation(existing, {
+              variantId: variant.id,
+              types: ["adjustment"],
+            });
             return {
               variantId: variant.id,
               movementId: existing.id,
@@ -1066,8 +1294,17 @@ export class InventoryService {
         } else {
           delta = BigInt(input.deltaQuantityBase ?? 0);
           if (currentQty + delta < ZERO) {
-            // Floor at zero (existing rule, see QA-16): take only what is there.
-            delta = currentQty > ZERO ? -currentQty : ZERO;
+            // Rejected, never floored (QA-16, decision D31): nothing is written, the stock
+            // stays as it was, and the cashier is told what is actually there.
+            throw new AppError(
+              "CONFLICT",
+              "الكمية الناتجة بعد الخصم لا يمكن أن تكون سالبة",
+              409,
+              {
+                availableBase: Number(currentQty < ZERO ? ZERO : currentQty),
+                requestedBase: Number(-delta),
+              },
+            );
           }
         }
 
@@ -1168,108 +1405,6 @@ export class InventoryService {
   }
 
   /**
-   * Clears all stock for a variant: takes everything out of its batches (FEFO, one
-   * `type: "adjustment"` movement per batch part) so batches, ledger and cache all reach 0.
-   * Optionally soft-removes the variant from active inventory view (isActive = false).
-   */
-  async clearVariantStock(
-    storeId: string,
-    userId: string | null,
-    input: {
-      storeVariantId: string;
-      reason?: string;
-      removeFromView?: boolean;
-      opId?: string | null;
-    },
-  ) {
-    const now = new Date();
-
-    return withTenant(
-      storeId,
-      userId,
-      async (tx) => {
-        // 1. Verify variant
-        const variant = await tx.storeVariant.findFirst({
-          where: {
-            storeId,
-            OR: [
-              { id: input.storeVariantId },
-              { storeProductId: input.storeVariantId },
-            ],
-          },
-          include: { storeProduct: true },
-        });
-        if (!variant) {
-          throw AppError.notFound("الصنف غير موجود في هذا المحل");
-        }
-
-        // 2. Lock the variant's stock (ADR-0019), then check opId idempotency
-        const currentQty = await lockStockLevelInTx(tx, storeId, variant.id);
-        if (input.opId) {
-          const existing = await tx.stockMovement.findFirst({
-            where: { storeId, opId: input.opId },
-          });
-          if (existing) {
-            return {
-              variantId: variant.id,
-              movementId: existing.id,
-              clearedQuantity: Number(
-                existing.quantityBase ? -existing.quantityBase : 0,
-              ),
-              duplicate: true,
-            };
-          }
-        }
-
-        // 3. Take everything there is
-        let movementId: string | null = null;
-        if (currentQty > ZERO) {
-          await takeStockInTx(tx, storeId, {
-            storeVariantId: variant.id,
-            storeProductId: variant.storeProductId,
-            quantityBase: currentQty,
-            type: "adjustment",
-            opId: input.opId ?? null,
-            now,
-          });
-          const first = await tx.stockMovement.findFirst({
-            where: {
-              storeId,
-              storeVariantId: variant.id,
-              type: "adjustment",
-              createdAt: now,
-            },
-            select: { id: true },
-          });
-          movementId = first?.id ?? null;
-        } else {
-          await writeLevelInTx(tx, storeId, variant.id, currentQty, now);
-        }
-
-        // 4. If removeFromView is true, deactivate variant
-        if (input.removeFromView) {
-          await tx.storeVariant.update({
-            where: { id: variant.id },
-            data: {
-              isActive: false,
-              updatedAt: now,
-            },
-          });
-        }
-
-        return {
-          variantId: variant.id,
-          movementId,
-          clearedQuantity: Number(currentQty > ZERO ? currentQty : ZERO),
-          removedFromView: Boolean(input.removeFromView),
-          duplicate: false,
-        };
-      },
-      this.prisma,
-    );
-  }
-
-  /**
    * Archives a variant from the active inventory view (sets isActive = false).
    * Strict safety check: ONLY permitted if the current stock level is 0.
    * If current stock > 0, throws AppError.badRequest to prevent hidden inventory.
@@ -1309,7 +1444,7 @@ export class InventoryService {
 
         if (currentQty > ZERO) {
           throw AppError.badRequest(
-            "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. يرجى تصفير المخزون أولاً.",
+            "لا يمكن إزالة الصنف من قائمة المخزون النشطة لأن رصيده الحالي موجب. عدّل الكمية لـ 0 الأول.",
           );
         }
 

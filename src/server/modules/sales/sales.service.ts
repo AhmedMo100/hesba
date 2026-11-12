@@ -30,11 +30,14 @@ import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
   depleteVariantFefoInTx,
-  lockStockLevelInTx,
-  lockStockLevelsInTx,
+  lockSellableStockInTx,
   restoreSaleTakesInTx,
 } from "@/server/modules/inventory";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
+import {
+  lockLedgerOwnerInTx,
+  writeInvoiceEntryInTx,
+} from "@/server/modules/people";
 import { findPromotionInTx } from "@/server/modules/promotions";
 import {
   isSandwichProductInTx,
@@ -50,6 +53,7 @@ import {
 } from "@/domain/sale-pricing";
 import type {
   CreateSaleInput,
+  InstantPaymentMethod,
   RecordedSale,
   RecordedSaleLine,
   VoidSaleInput,
@@ -79,6 +83,16 @@ export interface SaleListItem {
   voided: boolean;
   /** When it was undone (epoch ms); null for an active sale. */
   voidedAt: number | null;
+  /** cash | wallet | card | debt (QA-31). */
+  paymentMethod: string;
+  /** Credit sale: the customer's name. */
+  customerName: string | null;
+  /** The invoice discount (QA-31). */
+  discountPiasters: number;
+  /** Value returned so far (QA-31); the sale counts `amountPiasters − returnedPiasters`. */
+  returnedPiasters: number;
+  /** Number of lines: more than one for a cart invoice or an offer. */
+  lineCount: number;
 }
 
 export interface SalesOverview {
@@ -115,6 +129,8 @@ export async function listRecentSales(
         take: 200,
         include: {
           saleVoid: { select: { createdAt: true } },
+          saleReturns: { select: { amountPiasters: true } },
+          customer: { select: { nameAr: true } },
           saleLines: {
             include: {
               storeProduct: true,
@@ -157,6 +173,13 @@ export async function listRecentSales(
         line?.costPiasters != null ? Number(line.costPiasters) : null,
       voided: s.saleVoid !== null,
       voidedAt: s.saleVoid ? s.saleVoid.createdAt.getTime() : null,
+      paymentMethod: s.paymentMethod,
+      customerName: s.customer?.nameAr ?? null,
+      discountPiasters: Number(s.discountPiasters),
+      returnedPiasters: Number(
+        s.saleReturns.reduce((sum, r) => sum + r.amountPiasters, ZERO),
+      ),
+      lineCount: s.saleLines.length,
     };
   });
 
@@ -164,8 +187,9 @@ export async function listRecentSales(
     (s) => toCairoDateString(s.timestamp) === todayCairo,
   );
   const todayActive = todaySales.filter((s) => !s.voided);
+  // Net of returns (QA-31): a returned value is no longer sold.
   const todayTotalPiasters = todayActive.reduce(
-    (sum, s) => sum + s.amountPiasters,
+    (sum, s) => sum + s.amountPiasters - s.returnedPiasters,
     0,
   );
 
@@ -209,62 +233,31 @@ export async function recordSale(
   userId: string,
   input: CreateSaleInput,
 ): Promise<RecordedSale> {
-  const saleId = isValidUuid(input.id) ? input.id : crypto.randomUUID();
+  // The server chooses the sale id (QA-56): a client id could collide with another shop's sale
+  // (a 500 that also reveals the id exists). Retries are matched by `opId`, per store.
+  const saleId = crypto.randomUUID();
   const opId = input.opId ?? crypto.randomUUID();
   const now = new Date();
 
   try {
-    return await withTenant(
+    const recorded = await withTenant(
       storeId,
       userId,
       async (tx) => {
-        if (input.promotionId) {
-          return recordPromotionSaleInTx(tx, storeId, {
-            saleId,
-            opId,
-            promotionId: input.promotionId,
-            now,
-          });
+        const sale = await recordSaleKindInTx(tx);
+        // A replayed opId must be the SAME sale; checked in this transaction (QA-27).
+        if (sale.duplicate) {
+          assertSameSaleRequest(
+            sale,
+            input,
+            await isServiceSaleInTx(tx, storeId, sale.id),
+          );
         }
-
-        if (
-          input.productId &&
-          isValidUuid(input.productId) &&
-          (await isSandwichProductInTx(tx, storeId, input.productId))
-        ) {
-          const sale = await recordSandwichSaleInTx(tx, storeId, {
-            saleId,
-            opId,
-            sandwichId: input.productId,
-            count: input.quantityBase,
-            createdAt: now,
-          });
-          return loadSaleSummaryInTx(tx, storeId, sale.id, sale.duplicate);
-        }
-
-        const target = await resolveSaleTargetInTx(tx, storeId, input);
-        if (target.isService) {
-          return recordServiceSaleInTx(tx, storeId, {
-            saleId,
-            opId,
-            target,
-            quantityBase: input.quantityBase,
-            amountPiasters: input.amountPiasters,
-            machineId: input.machineId,
-            machineDeductPiasters: input.machineDeductPiasters,
-            now,
-          });
-        }
-        return recordProductSaleInTx(tx, storeId, {
-          saleId,
-          opId,
-          target,
-          quantityBase: input.quantityBase,
-          now,
-        });
+        return sale;
       },
       prisma,
     );
+    return recorded;
   } catch (err) {
     // A concurrent request with the same opId committed first: (store_id, op_id) is unique,
     // so this transaction rolled back entirely. Return the sale that won.
@@ -273,11 +266,128 @@ export async function recordSale(
       err instanceof Prisma.PrismaClientKnownRequestError &&
       err.code === "P2002"
     ) {
-      const existing = await findSaleSummaryByOpId(storeId, userId, input.opId);
+      const existing = await findSaleSummaryByOpId(storeId, userId, {
+        ...input,
+        opId: input.opId,
+      });
       if (existing) return existing;
     }
     throw err;
   }
+
+  async function recordSaleKindInTx(tx: TenantTx): Promise<RecordedSale> {
+    if (input.promotionId) {
+      return recordPromotionSaleInTx(tx, storeId, {
+        saleId,
+        opId,
+        promotionId: input.promotionId,
+        now,
+        paymentMethod: input.paymentMethod,
+      });
+    }
+
+    if (
+      input.productId &&
+      isValidUuid(input.productId) &&
+      (await isSandwichProductInTx(tx, storeId, input.productId))
+    ) {
+      const sale = await recordSandwichSaleInTx(tx, storeId, {
+        saleId,
+        opId,
+        sandwichId: input.productId,
+        count: input.quantityBase,
+        createdAt: now,
+        paymentMethod: input.paymentMethod,
+      });
+      return loadSaleSummaryInTx(tx, storeId, sale.id, sale.duplicate);
+    }
+
+    const target = await resolveSaleTargetInTx(tx, storeId, input);
+    if (target.isService) {
+      return recordServiceSaleInTx(tx, storeId, {
+        saleId,
+        opId,
+        target,
+        quantityBase: input.quantityBase,
+        amountPiasters: input.amountPiasters,
+        machineId: input.machineId,
+        machineDeductPiasters: input.machineDeductPiasters,
+        now,
+        paymentMethod: input.paymentMethod,
+      });
+    }
+    return recordProductSaleInTx(tx, storeId, {
+      saleId,
+      opId,
+      target,
+      quantityBase: input.quantityBase,
+      now,
+      paymentMethod: input.paymentMethod,
+    });
+  }
+}
+
+/**
+ * A replayed `opId` must be a retry of the SAME sale (QA-27): the same item and quantity (or
+ * the same offer, or the same service amount). Otherwise the client reused an id for another
+ * sale: 409, and the recorded sale is neither repeated nor reported as this one.
+ *
+ * Only a service sale's amount comes from the client, so only there is a different
+ * `amountPiasters` a different sale; for goods, sandwiches and offers it is ignored.
+ */
+function assertSameSaleRequest(
+  recorded: RecordedSale,
+  input: CreateSaleInput,
+  isServiceSale: boolean,
+): void {
+  const mismatch = () =>
+    AppError.conflict("رقم العملية ده اتسجل قبل كده لبيعة مختلفة");
+  if (input.promotionId) {
+    if (recorded.lines.length === 0) throw mismatch();
+    return;
+  }
+  const wanted = isValidUuid(input.variantId)
+    ? input.variantId
+    : isValidUuid(input.productId)
+      ? input.productId
+      : null;
+  const line = recorded.lines.find(
+    (l) =>
+      wanted !== null && (l.variantId === wanted || l.productId === wanted),
+  );
+  if (wanted !== null && !line) throw mismatch();
+  if (line && line.quantityBase !== input.quantityBase) throw mismatch();
+  if (
+    isServiceSale &&
+    input.amountPiasters !== undefined &&
+    recorded.totalPiasters !== input.amountPiasters
+  ) {
+    throw mismatch(); // a service sale retried with another amount
+  }
+}
+
+/** True when the sale's lines are services (their amount was entered by the cashier). */
+async function isServiceSaleInTx(
+  tx: TenantTx,
+  storeId: string,
+  saleId: string,
+): Promise<boolean> {
+  const lines = await tx.saleLine.findMany({
+    where: { storeId, saleId },
+    select: {
+      storeProduct: { select: { category: true, unit: true } },
+      storeVariant: {
+        select: { storeProduct: { select: { category: true, unit: true } } },
+      },
+    },
+  });
+  return (
+    lines.length > 0 &&
+    lines.every((l) => {
+      const product = l.storeVariant?.storeProduct ?? l.storeProduct;
+      return product !== null && isServiceProduct(product);
+    })
+  );
 }
 
 /** The product a sale line points at, resolved inside the sale transaction. */
@@ -416,6 +526,7 @@ async function recordProductSaleInTx(
   tx: TenantTx,
   storeId: string,
   params: {
+    paymentMethod?: InstantPaymentMethod;
     saleId: string;
     opId: string;
     target: SaleTarget;
@@ -440,7 +551,9 @@ async function recordProductSaleInTx(
   }
   const variantId = target.variant.id;
 
-  const available = await lockStockLevelInTx(tx, storeId, variantId);
+  const available =
+    (await lockSellableStockInTx(tx, storeId, [variantId])).get(variantId) ??
+    ZERO;
   const duplicate = await findSaleIdByOpIdInTx(tx, storeId, params.opId);
   if (duplicate) return loadSaleSummaryInTx(tx, storeId, duplicate, true);
 
@@ -470,7 +583,7 @@ async function recordProductSaleInTx(
     data: {
       id: params.saleId,
       storeId,
-      paymentMethod: "cash",
+      paymentMethod: params.paymentMethod ?? "cash",
       totalPiasters: BigInt(total),
       opId: params.opId,
       createdAt: now,
@@ -536,6 +649,7 @@ async function recordServiceSaleInTx(
   tx: TenantTx,
   storeId: string,
   params: {
+    paymentMethod?: InstantPaymentMethod;
     saleId: string;
     opId: string;
     target: SaleTarget;
@@ -596,7 +710,7 @@ async function recordServiceSaleInTx(
     data: {
       id: params.saleId,
       storeId,
-      paymentMethod: "cash",
+      paymentMethod: params.paymentMethod ?? "cash",
       totalPiasters: BigInt(amount),
       opId: params.opId,
       createdAt: now,
@@ -648,7 +762,13 @@ async function recordServiceSaleInTx(
 async function recordPromotionSaleInTx(
   tx: TenantTx,
   storeId: string,
-  params: { saleId: string; opId: string; promotionId: string; now: Date },
+  params: {
+    saleId: string;
+    opId: string;
+    promotionId: string;
+    now: Date;
+    paymentMethod?: InstantPaymentMethod;
+  },
 ): Promise<RecordedSale> {
   const { now } = params;
   const promo = await findPromotionInTx(tx, storeId, params.promotionId);
@@ -712,7 +832,7 @@ async function recordPromotionSaleInTx(
     });
   }
 
-  const levels = await lockStockLevelsInTx(
+  const levels = await lockSellableStockInTx(
     tx,
     storeId,
     items.map((i) => i.variantId),
@@ -751,7 +871,7 @@ async function recordPromotionSaleInTx(
     data: {
       id: params.saleId,
       storeId,
-      paymentMethod: "cash",
+      paymentMethod: params.paymentMethod ?? "cash",
       totalPiasters: BigInt(offerTotal),
       opId: params.opId,
       createdAt: now,
@@ -801,7 +921,7 @@ async function recordPromotionSaleInTx(
 }
 
 /** One item the stock cannot cover (same shape as the sandwich `IngredientShortage`). */
-interface SaleShortage {
+export interface SaleShortage {
   variantId: string | null;
   name: string;
   unit: string;
@@ -817,7 +937,7 @@ function formatQuantity(base: number, unit: string): string {
   return `${base} ${unit}`;
 }
 
-function shortageError(shortages: SaleShortage[]): AppError {
+export function shortageError(shortages: SaleShortage[]): AppError {
   const parts = shortages.map(
     (s) =>
       `«${s.name}» محتاج ${formatQuantity(s.neededBase, s.unit)} والموجود ${formatQuantity(s.availableBase, s.unit)}`,
@@ -830,7 +950,15 @@ function shortageError(shortages: SaleShortage[]): AppError {
   );
 }
 
-function toSafeNumber(value: bigint): number {
+/** Serializes returns / voids / payments of ONE sale (no UPDATE grant on `sales` is needed). */
+export async function lockSaleInTx(
+  tx: TenantTx,
+  saleId: string,
+): Promise<void> {
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${saleId}, 42))::text`;
+}
+
+export function toSafeNumber(value: bigint): number {
   const n = Number(value);
   if (!Number.isSafeInteger(n)) {
     throw AppError.badRequest("السعر كبير قوي");
@@ -903,17 +1031,25 @@ async function loadSaleSummaryInTx(
   };
 }
 
+/** The sale that won a concurrent same-`opId` race, after checking it is the same request. */
 async function findSaleSummaryByOpId(
   storeId: string,
   userId: string,
-  opId: string,
+  input: CreateSaleInput & { opId: string },
 ): Promise<RecordedSale | null> {
   return withTenant(
     storeId,
     userId,
     async (tx) => {
-      const id = await findSaleIdByOpIdInTx(tx, storeId, opId);
-      return id ? loadSaleSummaryInTx(tx, storeId, id, true) : null;
+      const id = await findSaleIdByOpIdInTx(tx, storeId, input.opId);
+      if (!id) return null;
+      const sale = await loadSaleSummaryInTx(tx, storeId, id, true);
+      assertSameSaleRequest(
+        sale,
+        input,
+        await isServiceSaleInTx(tx, storeId, id),
+      );
+      return sale;
     },
     prisma,
   );
@@ -934,6 +1070,7 @@ async function recordSandwichSaleInTx(
   tx: TenantTx,
   storeId: string,
   params: {
+    paymentMethod?: InstantPaymentMethod;
     saleId: string;
     opId: string;
     sandwichId: string;
@@ -961,7 +1098,7 @@ async function recordSandwichSaleInTx(
     data: {
       id: params.saleId,
       storeId,
-      paymentMethod: "cash",
+      paymentMethod: params.paymentMethod ?? "cash",
       totalPiasters: total,
       opId: params.opId,
       createdAt: params.createdAt,
@@ -1035,11 +1172,20 @@ export async function voidSale(
             id: true,
             opId: true,
             totalPiasters: true,
+            paymentMethod: true,
+            customerId: true,
             saleVoid: true,
             saleLines: { select: { id: true } },
           },
         });
         if (!sale) throw AppError.notFound("البيعة دي مش موجودة");
+        // A credit sale's customer is locked first (the same order as checkout), then the sale.
+        const owner =
+          sale.paymentMethod === "debt" && sale.customerId
+            ? { table: "customers" as const, customerId: sale.customerId }
+            : null;
+        if (owner) await lockLedgerOwnerInTx(tx, storeId, owner);
+        await lockSaleInTx(tx, sale.id);
 
         const sameOp = await tx.saleVoid.findFirst({
           where: { storeId, opId },
@@ -1049,6 +1195,16 @@ export async function voidSale(
         }
         if (sale.saleVoid) {
           return alreadyVoidedResult(tx, storeId, sale.id);
+        }
+        // A sale with a return is undone by returning the rest (ADR-0027): voiding it would
+        // put back stock and money that the return already gave back.
+        if (
+          (await tx.saleReturn.count({ where: { storeId, saleId: sale.id } })) >
+          0
+        ) {
+          throw AppError.conflict(
+            "البيعة دي عليها مرتجع، مينفعش تتلغي — رجّع الباقي بدالها",
+          );
         }
 
         const saleVoid = await tx.saleVoid.create({
@@ -1067,6 +1223,31 @@ export async function voidSale(
           opId,
           now,
         });
+
+        // A credit sale: the invoice is no longer owed — reverse its debt. Payments already
+        // made stay on the ledger, so the customer then has them as a credit (ADR-0027).
+        if (owner) {
+          const debt = await tx.debtEntry.aggregate({
+            where: {
+              storeId,
+              saleId: sale.id,
+              entryKind: "transaction",
+              direction: "owed_to_me",
+            },
+            _sum: { amountPiasters: true },
+          });
+          const owed = debt._sum.amountPiasters ?? ZERO;
+          if (owed > ZERO) {
+            await writeInvoiceEntryInTx(tx, storeId, owner, {
+              type: "reversal",
+              amountPiasters: owed,
+              opId,
+              note: "إلغاء فاتورة بيع آجل",
+              saleId: sale.id,
+              now,
+            });
+          }
+        }
 
         // A service paid through a POS machine: give the machine back what the sale charged.
         let machine: VoidedSale["machine"];

@@ -21,6 +21,14 @@ export interface ChatMessage {
   content: string;
   name?: string;
   toolCallId?: string;
+  /** An assistant turn that asked for tools: the calls it made. */
+  toolCalls?: ToolCall[];
+  /**
+   * The provider's own record of that assistant turn, replayed as-is on the follow-up call
+   * (Gemini needs its `functionCall` parts, with their thought signatures, before the tool
+   * results). Opaque outside the adapter that produced it.
+   */
+  providerParts?: unknown[];
 }
 
 /** JSON-schema description of a read-only business tool the model may call. */
@@ -50,6 +58,8 @@ export interface SearchCitation {
 export interface ProviderResponse {
   text: string;
   toolCalls?: ToolCall[];
+  /** See {@link ChatMessage.providerParts}. */
+  providerParts?: unknown[];
   citations?: SearchCitation[];
   usage?: {
     promptTokens?: number;
@@ -63,11 +73,15 @@ export interface AIProvider {
 
   /**
    * Generates a completion from the model given the conversation history and available tools.
+   *
+   * `options.signal` is the reply's deadline (QA-29): an adapter stops waiting when it aborts
+   * and throws a 503 `AppError`. A busy provider (429/5xx) is also a 503, never a 500.
    */
   generateChatCompletion(
     messages: ChatMessage[],
     systemInstruction: string,
     tools?: ToolDefinition[],
+    options?: { signal?: AbortSignal },
   ): Promise<ProviderResponse>;
 }
 

@@ -37,6 +37,11 @@ CREATE POLICY tenant_isolation ON <t>
 ```
 The application user (`hesba_app`) is not the owner, not a superuser, and does not have `BYPASSRLS`. Migrations run as a different user (`hesba_migrator`). Admin roles/jobs that need to bypass RLS use a separate role, `hesba_service`, with a specific list of tables (section 9).
 
+**As built (ADR-0024, 2026-11-12).**
+- **Migrator:** `hesba_migrator` has no bypass policy on tenant tables. It sees a shop's rows only with `app.store_id` set, and it is never used at runtime.
+- **Service role:** `hesba_service` exists for the catalog-promotion cron only. Its grants are narrow (see ADR-0024), and it never touches sales, stock, money, people or identity.
+- **Identity tables** (`users`, `sessions`, …) are read by the server on `hesba_app`, before any shop is known.
+
 ### Enums
 ```sql
 CREATE TYPE product_kind    AS ENUM ('piece','weight');
@@ -1222,3 +1227,9 @@ Note: Barcode is completely eliminated per ADR-0016; matching relies on Arabic n
 - The button name: **"إضافة" (Add)**. ("وصلت" means "the message arrived"; the most suitable for the user is one clear word.)
 - After acceptance: a short message "اتضاف. حط سعرك" (Added. Enter your price) with automatic focus on the price field.
 - The main products page: a "اقتراحات" (Suggestions) tab next to "المنتجات" (Products) instead of cramming everything into the alerts (possibly an ADR later).
+
+## 10. Signup referral codes (2026-11-12)
+
+- `referral_codes` (global, FORCE RLS): `code` (lower-case, `^[a-z0-9_-]{3,32}$`, unique), `label` (whose code — internal, never returned to users), `is_active`. The app role can only read active codes; codes are added by Hesba staff (migrator / SQL), e.g. `INSERT INTO referral_codes (code, label) VALUES ('mogamal123', 'Mostafa Gamal');`.
+- `store_referrals` (tenant table, FORCE RLS, one row per shop): written in the signup transaction only; append-only for the app role (no UPDATE/DELETE), so the attribution is permanent. A code that brought shops cannot be deleted (`ON DELETE RESTRICT`); deactivate it instead.
+- Signup: the code is optional; an unknown, inactive or malformed code is a 400 on `referralCode` and nothing is created. Migration `20261117000000_referral_codes` (additive; `stores` unchanged).

@@ -18,13 +18,17 @@
  * - `transaction`: a real debt or payment;
  * - `adjustment`: the owner set the balance by hand (editing the person). It is labelled as
  *   such and is NOT counted as a debt or a payment in the totals.
+ * - `reversal`: a debt taken back because its invoice was cancelled or returned (a cancelled
+ *   supplier purchase, a returned credit sale — ADR-0027). It lowers the debt total, and is
+ *   never counted as a payment: no money changed hands.
  *
  * Amounts are integer piasters (`bigint`).
  */
 
 export type LedgerSide = "receivable" | "payable";
 export type LedgerDirection = "owed_to_me" | "i_owe";
-export type LedgerEntryKind = "opening" | "transaction" | "adjustment";
+export type LedgerEntryKind =
+  "opening" | "transaction" | "adjustment" | "reversal";
 
 export interface LedgerEntry {
   direction: LedgerDirection;
@@ -54,7 +58,7 @@ export function signedAmount(side: LedgerSide, entry: LedgerEntry): bigint {
 export interface LedgerSummary {
   /** Signed: see the sign convention above. */
   balance: bigint;
-  /** Σ opening balances and debts (not adjustments). */
+  /** Σ opening balances and debts, minus reversals (not adjustments). */
   totalDebt: bigint;
   /** Σ payments (not adjustments). */
   totalPaid: bigint;
@@ -78,6 +82,7 @@ export function summarizeLedger(
     const signed = signedAmount(side, e);
     balance += signed;
     if (e.kind === "adjustment") totalAdjustments += signed;
+    else if (e.kind === "reversal") totalDebt += signed;
     else if (signed > ZERO) totalDebt += signed;
     else totalPaid -= signed;
     running.push(balance);

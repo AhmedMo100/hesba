@@ -16,6 +16,7 @@ import { AppError } from "@/server/platform/error";
 import {
   adjustmentEntry,
   debtDirection,
+  paymentDirection,
   splitBalance,
   summarizeLedger,
   type LedgerEntryKind,
@@ -38,6 +39,7 @@ export interface LedgerLabels {
 
 export const ADJUSTMENT_LABEL = "تعديل رصيد (صاحب المحل)";
 export const OPENING_LABEL = "رصيد البداية";
+export const REVERSAL_LABEL = "إلغاء فاتورة / مرتجع";
 
 export function sideOf(owner: LedgerOwner): LedgerSide {
   return owner.table === "customers" ? "receivable" : "payable";
@@ -60,7 +62,7 @@ function ownerColumns(owner: LedgerOwner) {
 }
 
 const asKind = (k: string): LedgerEntryKind =>
-  k === "opening" || k === "adjustment" ? k : "transaction";
+  k === "opening" || k === "adjustment" || k === "reversal" ? k : "transaction";
 
 /**
  * Locks the person's row for the rest of the transaction, so two writes to the same ledger run
@@ -161,20 +163,29 @@ function toItem(
   return {
     id: entry.id,
     direction: entry.direction,
-    type: kind === "adjustment" ? "adjustment" : isDebt ? "debt" : "payment",
+    type:
+      kind === "adjustment" || kind === "reversal"
+        ? kind
+        : isDebt
+          ? "debt"
+          : "payment",
     kind,
     action_label:
       kind === "adjustment"
         ? ADJUSTMENT_LABEL
-        : kind === "opening"
-          ? OPENING_LABEL
-          : isDebt
-            ? labels.debt
-            : labels.payment,
+        : kind === "reversal"
+          ? REVERSAL_LABEL
+          : kind === "opening"
+            ? OPENING_LABEL
+            : isDebt
+              ? labels.debt
+              : labels.payment,
     amount_piasters: Number(entry.amountPiasters),
     balance_after_piasters: Number(balanceAfter),
     note: entry.noteAr,
     op_id: entry.opId,
+    purchase_id: entry.purchaseId,
+    sale_id: entry.saleId,
     created_at: entry.createdAt.toISOString(),
   };
 }
@@ -223,10 +234,25 @@ export async function recordLedgerEntryInTx(
     throw AppError.notFound("الشخص ده مش موجود أو اتحذف");
   }
   const opId = input.opId || crypto.randomUUID();
+  const direction =
+    input.type === "debt"
+      ? debtDirection(side)
+      : side === "receivable"
+        ? "i_owe"
+        : "owed_to_me";
   const existing = await tx.debtEntry.findFirst({ where: { storeId, opId } });
   if (existing) {
     if (ownerId(owner) !== ownerIdOfEntry(existing)) {
       throw AppError.conflict("العملية دي اتسجلت قبل كده لشخص تاني");
+    }
+    // A retry must be the same entry (QA-27): another amount or direction is a 409.
+    if (
+      existing.direction !== direction ||
+      existing.amountPiasters !== BigInt(input.amountPiasters)
+    ) {
+      throw AppError.conflict(
+        "رقم العملية ده اتسجل قبل كده بمبلغ أو نوع مختلف",
+      );
     }
     const history = historyOf(
       side,
@@ -238,12 +264,6 @@ export async function recordLedgerEntryInTx(
     return item;
   }
 
-  const direction =
-    input.type === "debt"
-      ? debtDirection(side)
-      : side === "receivable"
-        ? "i_owe"
-        : "owed_to_me";
   const created = await tx.debtEntry.create({
     data: {
       storeId,
@@ -334,4 +354,66 @@ export function sectionTotals(people: readonly FormattedPerson[]) {
       credit_count: credits,
     },
   };
+}
+
+/**
+ * Writes one entry of an INVOICE on a person's ledger (ADR-0027): the debt a supplier purchase
+ * or a credit sale creates, a payment against it, or its reversal when the invoice is
+ * cancelled or returned. The caller holds the person's lock ({@link lockLedgerOwnerInTx}) and
+ * owns the idempotency of the invoice operation; `opId` is that operation's (unique per store).
+ *
+ * - `debt`: increases what is owed on this side (supplier: «عليك»; customer: «ليك»).
+ * - `payment`: money paid against the invoice (`settlesEntryId` = the invoice's debt entry).
+ * - `reversal`: takes (part of) the invoice's debt back; never counted as a payment.
+ */
+export async function writeInvoiceEntryInTx(
+  tx: TenantTx,
+  storeId: string,
+  owner: LedgerOwner,
+  entry: {
+    type: "debt" | "payment" | "reversal";
+    amountPiasters: bigint;
+    opId: string;
+    note?: string | null;
+    purchaseId?: string | null;
+    saleId?: string | null;
+    settlesEntryId?: string | null;
+    now: Date;
+  },
+): Promise<DebtEntry> {
+  const side = sideOf(owner);
+  if (entry.amountPiasters <= BigInt(0)) {
+    throw AppError.badRequest("المبلغ لازم يكون أكبر من صفر");
+  }
+  return tx.debtEntry.create({
+    data: {
+      storeId,
+      ...ownerColumns(owner),
+      direction:
+        entry.type === "debt" ? debtDirection(side) : paymentDirection(side),
+      amountPiasters: entry.amountPiasters,
+      noteAr: entry.note?.trim() || null,
+      opId: entry.opId,
+      entryKind: entry.type === "reversal" ? "reversal" : "transaction",
+      purchaseId: entry.purchaseId ?? null,
+      saleId: entry.saleId ?? null,
+      settlesEntryId: entry.settlesEntryId ?? null,
+      createdAt: entry.now,
+    },
+  });
+}
+
+/** What is still owed on one invoice: Σ its signed entries on that side (may be < 0). */
+export function invoiceOutstanding(
+  side: LedgerSide,
+  entries: ReadonlyArray<Pick<DebtEntry, "direction" | "amountPiasters">>,
+): bigint {
+  let balance = BigInt(0);
+  for (const e of entries) {
+    balance +=
+      e.direction === debtDirection(side)
+        ? e.amountPiasters
+        : -e.amountPiasters;
+  }
+  return balance;
 }

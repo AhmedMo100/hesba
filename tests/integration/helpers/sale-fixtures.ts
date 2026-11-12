@@ -16,8 +16,10 @@ import {
 import { POST as voidSaleRoute } from "@/app/api/sales/void/route";
 
 export const directUrl =
-  process.env["HESBA_DIRECT_URL"] ??
-  "postgres://hesba_migrator:change-me-local@localhost:5434/hesba";
+  // Fixtures only (seed, inspect, clean up): a test-database admin connection. The migrator
+  // no longer sees shops' rows (ADR-0024); isolation itself is tested through the app role.
+  process.env["HESBA_TEST_ADMIN_URL"] ??
+  "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
 export type Json = Record<string, unknown>;
 
@@ -95,6 +97,9 @@ export class SaleFixtures {
       await sql`DELETE FROM "sale_voids" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sale_lines" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sales" WHERE store_id IN ${sql(ids)}`;
+      await sql`DELETE FROM "sandwich_ingredients" WHERE store_id IN ${sql(ids)}`;
+      // Purchases first: their lines must keep a product/variant target (chk_purchase_lines_target).
+      await sql`DELETE FROM "purchases" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_variants" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "store_products" WHERE store_id IN ${sql(ids)}`;
       await sql`DELETE FROM "sessions" WHERE store_id IN ${sql(ids)}`;
@@ -264,6 +269,7 @@ export class SaleFixtures {
         movementsSum: movements.reduce((s, m) => s + Number(m.quantityBase), 0),
         movements: movements.map((m) => ({
           type: m.type,
+          batchId: m.batchId,
           quantity: Number(m.quantityBase),
           balanceAfter: Number(m.balanceAfterBase ?? 0),
           saleLineId: m.saleLineId,

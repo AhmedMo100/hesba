@@ -443,6 +443,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** apply reuse detection only to **rotated** tokens, with a short grace period. Logged-out and revoked tokens simply return 401.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/auth-security.spec.ts`.
+
 #### QA-15 · P2 · No upper bounds on quantities and money
 - **Category:** validation / financial · **Area:** Products, Stock, Expenses, Machines · **Env:** DEV
 - **Steps:** add stock `quantityBase: 10^12`; create a product priced 10¹⁵ piasters; create an expense of 10¹⁵ piasters.
@@ -458,6 +460,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** shared sane limits in `domain/constants`.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`.
+
 #### QA-16 · P2 · Overselling or over-adjusting silently zeros the stock
 - **Category:** inventory · **Area:** Stock · **Env:** DEV · **Links:** UE-08, K5
 - **Steps:** apply a delta of −(stock + 50).
@@ -469,6 +473,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** owner decision (Roadmap Phase 0), then implement it.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`, `inventory-stock.spec.ts` (the K5 test now passes).
+
 #### QA-17 · P2 · The sync bar misreports status
 - **Category:** misleading UI · **Area:** App shell · **Env:** PROD · **Links:** UE-09
 - **Actual:**
@@ -478,6 +484,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** `pendingCount` is never computed, and the state follows `navigator.onLine` only.
 - **Fix:** reflect real queue and failure state, or remove the counter until an outbox exists.
 - **Regression risk:** low.
+- **Status (2026-11-12):** the count and the false "synced" were fixed by QA-04 (`fix/qa-03-qa-04-money-offline`, the outbox). Completed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026): a queued sale's last answer now shows as "log in" (401) or "server updating" (503). Verified by `tests/unit/client/sync-bar-state.spec.ts` and `tests/e2e/offline-sales.spec.ts`.
 
 #### QA-18 · P2 · Malformed JSON returns 500 with "شغلك محفوظ" on 20 endpoints
 - **Category:** API errors / misleading message · **Area:** API · **Env:** DEV + PROD
@@ -500,6 +507,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** routes call `await req.json()` directly, and `toSafeErrorResponse` maps `SyntaxError` to 500.
 - **Fix:** use `readJsonBody` everywhere; map `SyntaxError` → 400; reword the 500/503 messages.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026). Verified by `tests/integration/api-errors.spec.ts` (all 21 endpoints), `tests/unit/server/error.spec.ts`, and requests against the real app.
 
 #### QA-19 · P2 · Invalid or non-existent ids return 500 instead of 400/404
 - **Category:** API errors · **Area:** People, Expenses, Products, Machines, Stock, AI, Sales · **Env:** DEV + PROD
@@ -524,6 +532,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** every 500 is logged as an internal error, which hides real incidents. Users see "server error" for a deleted record.
 - **Fix:** validate ids; typed `AppError`s; map P2025 → 404 and P2002 → 409.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026). Verified by `tests/integration/api-errors.spec.ts` and requests against the real app (each request in the table: 400 or 404). `DELETE /api/sales` was removed by QA-10 (405).
 
 #### QA-20 · P2 · Promotions accept invalid offers, which are shown to the cashier
 - **Category:** validation / financial · **Area:** Promotions, Sales · **Env:** DEV
@@ -543,6 +552,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** a cashier can sell a "discount" that costs more, or a bundle with no stock behind it.
 - **Fix:** server-side validation against the store's variants and prices.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026). Verified by `tests/integration/promotions-api.spec.ts`, `tests/unit/domain/alerts.spec.ts`.
 
 #### QA-21 · P2 · Any body sent to `POST /api/sales/config` silently resets the shop's sales screen config
 - **Category:** validation / data loss · **Area:** Sales config · **Env:** DEV
@@ -553,6 +563,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** `saveSalesViewConfig` builds the config from missing fields with defaults; there is no schema.
 - **Fix:** zod schema; reject unknown shapes.
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/store-settings-api.spec.ts`.
 
 #### QA-22 · P2 · The People API reads `"50"` as 0.50 EGP but `"50.00"` as 50 EGP
 - **Category:** money / unit conversion · **Area:** People · **Env:** DEV
@@ -568,6 +580,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** accept integer piasters only on the API, and parse pounds only in the UI.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`, `tests/unit/domain/money-strict.spec.ts`.
+
 #### QA-23 · P2 · Creating a second product with a name the shop already used fails with 500
 - **Category:** transaction bug · **Area:** Products · **Env:** DEV
 - **Steps:** create "بيبسي تدقيق", then create a new product with the same name and a different price.
@@ -581,6 +595,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** use `ON CONFLICT DO NOTHING`, a savepoint, or do the candidate work after commit.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`.
+
 #### QA-24 · P2 · Login lockout counts successful logins and returns 400 instead of 429
 - **Category:** authentication · **Area:** Login · **Env:** DEV · **Links:** UE-18
 - **Steps:** log in successfully 8 times with the same phone.
@@ -593,6 +609,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** count failures only; return 429; consider IP + phone keys.
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/auth-security.spec.ts`.
+
 #### QA-25 · P2 · Forgot-password reveals whether an email has an account
 - **Category:** security / enumeration · **Area:** Recovery · **Env:** DEV
 - **Steps:** `POST /api/auth/forgot-password/request` with an unknown email, then with a registered one.
@@ -604,6 +622,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** the email-send failure is surfaced only for existing users.
 - **Fix:** always return the same 200; log and alert on send failures.
 - **Regression risk:** low.
+
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/auth-security.spec.ts`.
 
 #### QA-26 · P2 · No security headers
 - **Category:** security · **Area:** All pages · **Env:** DEV + PROD
@@ -619,6 +639,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** a `headers()` block in `next.config.ts`.
 - **Regression risk:** low (CSP needs care with Next inline scripts).
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/unit/server/security-headers.spec.ts` and `tests/e2e/security-headers.spec.ts`.
+
 #### QA-27 · P2 · Most writes are not idempotent; retries and parallel submits duplicate records
 - **Category:** idempotency · **Area:** Expenses, People, ordinary Sales, Machines · **Env:** DEV
 - **Actual:**
@@ -632,6 +654,8 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Fix:** accept and enforce a client `opId` on every write (unique `(store_id, op_id)`).
 - **Regression risk:** low.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`.
+
 #### QA-28 · P2 · The Alerts screen repeats requests endlessly
 - **Category:** performance · **Area:** Alerts · **Env:** DEV · **Links:** UE-20
 - **Actual:** in 12 idle seconds: 6–8× `GET /api/machines` and 5× `GET /api/alerts`, at every width. Other screens have no loop.
@@ -639,6 +663,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Root cause:** `AlertsView.loadMachines` re-fetches on `hesba_machines_updated`, which the fetch itself dispatches.
 - **Fix:** same fix as was applied to SalesView.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui`. Verified by `tests/e2e/alerts-requests.spec.ts` (0 repeated requests in 12 idle seconds; the previous code fails it).
 
 #### QA-29 · P2 · AI chat waits 72 s, then returns 500 when the provider is busy
 - **Category:** external dependency / error mapping · **Area:** AI · **Env:** DEV
@@ -646,6 +671,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Evidence:** [API], [LOG].
 - **Fix:** client-visible timeout (~20 s), map to 503 with a retry hint, and a progress state in the UI.
 - **Regression risk:** low.
+- **Status (2026-11-12):** fixed on branch `fix/qa-17-qa-32-api-errors-ui` (ADR-0026, D34). Verified by `tests/unit/server/ai-provider-timeout.spec.ts`, `tests/integration/ai-backend.spec.ts`, `tests/e2e/ai-busy.spec.ts`.
 
 #### QA-30 · P2 · Purchases from suppliers are never recorded
 - **Category:** missing flow / reporting · **Area:** Suppliers, AI · **Env:** code + DB
@@ -658,6 +684,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** payables can drift from what was actually received, and AI answers about purchases are always "none".
 - **Fix:** a purchase flow (product decision).
 - **Regression risk:** n/a.
+- **Status (2026-11-12):** fixed on branch `feat/qa-30-qa-32-purchases-sales` (ADR-0027, D35). Supplier purchases: stock and «عليك» move in one transaction, payments are linked to the invoice, cancellation is checked. Verified by `tests/integration/purchases-credit-returns.spec.ts`, `tests/e2e/invoices.spec.ts`.
 
 #### QA-31 · P2 · Core sales features are missing
 - **Category:** missing features · **Area:** Sales
@@ -665,6 +692,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** test flows 11, 15 and 16 are BLOCKED. Credit sales are tracked only through the separate People ledger, so a debt is never linked to a sale or to stock.
 - **Fix:** roadmap (V1.1).
 - **Regression risk:** n/a.
+- **Status (2026-11-12):** fixed on branch `feat/qa-30-qa-32-purchases-sales` (ADR-0027, D35). Cart checkout, server-validated discount, stored payment method, credit sales with linked payments, and returns. Verified by `tests/integration/purchases-credit-returns.spec.ts`, `tests/e2e/invoices.spec.ts`.
 
 #### QA-32 · P2 · The development database is slow enough to cause 500s
 - **Category:** performance / environment · **Area:** All · **Env:** DEV + PROD on Neon
@@ -676,6 +704,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Impact:** real users on a far or cold database get random 500s. The UI shows nothing for many failures (QA-01 pattern).
 - **Fix:** region, pooling and warm-up review; fewer queries per request; surface failures in the UI.
 - **Regression risk:** n/a.
+- **Status (2026-11-12):** application part fixed on branch `feat/qa-30-qa-32-purchases-sales` (ADR-0027). Measured 63 ms per round trip to Neon; −2 to −3 round trips per request, hot-path indexes, and duplicate screen requests removed. Verified by `tests/integration/query-budget.spec.ts`, `tests/e2e/screen-requests.spec.ts`. **Remaining (infrastructure, needs authorization):** region, cold start, serverless pool settings.
 
 #### QA-33 · P2 · Ordinary sale lines store the total as the unit price, and trust the client's amount and timestamp
 - **Category:** financial (latent until QA-01 is fixed) · **Area:** Sales · **Env:** code
@@ -691,6 +720,8 @@ Issues are ordered by severity. Each one lists, in this order:
   - Bound the timestamp to now ± a small skew, or keep only the server time.
 - **Regression risk:** medium.
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-15-qa-33-data-integrity` (ADR-0025). Verified by `tests/integration/data-integrity.spec.ts`; mostly fixed earlier by QA-01.
+
 #### QA-34 · P2 · The migrator role bypasses tenant isolation by policy
 - **Category:** security (defense in depth) · **Area:** DB · **Env:** DB
 - **Actual:**
@@ -703,6 +734,8 @@ Issues are ordered by severity. Each one lists, in this order:
 
 ### P3
 
+- **Status (2026-11-12):** fixed on branch `fix/qa-14-qa-34-security-auth` (ADR-0024). Verified by `tests/integration/db-roles-security.spec.ts`. The cron stays off on Neon and production until `hesba_service` is created (an authorized step, ADR-0024).
+
 #### QA-35 · P3 · Operations that change nothing still report success
 - **Area:** API
 - **Actual (all 200 with "success"):**
@@ -712,6 +745,7 @@ Issues are ordered by severity. Each one lists, in this order:
 - **Evidence:** [API].
 - **Impact:** clients can't detect mistakes. No other shop's data changed (verified).
 - **Fix:** return 404 when no row matches.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. Unhiding or deleting an unknown or another shop's product or promotion gets 404. An adjustment with no delta or target gets 400. Verified by `tests/integration/p3-hardening.spec.ts`.
 
 #### QA-36 · P3 · Machine top-up and adjust mishandle numbers
 - **Actual:**
@@ -720,6 +754,7 @@ Issues are ordered by severity. Each one lists, in this order:
   - Adjust with `"abc"` → 500.
 - **Root cause:** hand-written `Number()` checks instead of a schema; `BigInt(NaN)` / `BigInt(0.5)` throw.
 - **Evidence:** [API], [LOG] "The number NaN cannot be converted to a BigInt".
+- **Status (2026-11-12):** already fixed by QA-03 (`machineTopupSchema` / `machineAdjustSchema`). Verified by `tests/integration/p3-hardening.spec.ts`: strings, fractions, 10²⁰ and 0 get 400.
 
 #### QA-37 · P3 · Dates are not validated
 - **Actual:**
@@ -729,21 +764,25 @@ Issues are ordered by severity. Each one lists, in this order:
   - An unknown `period` falls back silently.
 - **Evidence:** [API], [DB].
 - **Fix:** strict date parsing and a reasonable range.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`: strict real dates (`src/schemas/dates.ts`). Business dates run from 2000 to tomorrow, expiry up to 30 years ahead. An unknown expenses `period` gets 400. Verified by `tests/integration/p3-hardening.spec.ts` and `tests/unit/server/p3-hardening.spec.ts`.
 
 #### QA-38 · P3 · Login response time reveals whether a phone is registered
 - **Actual:** wrong password on an existing phone: 94–107 ms. Unknown phone: 74–81 ms. Measured over HTTP, 3 samples each.
 - **Root cause:** the malformed dummy Argon2 hash (UE-10).
 - **Fix:** a real dummy hash with the same parameters.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`: a real Argon2id dummy hash with the login parameters. The old one failed in ~0.1 ms versus ~13 ms for a real verify. Verified by `tests/unit/server/p3-hardening.spec.ts`.
 
 #### QA-39 · P3 · No server-side origin (CSRF) check
 - **Actual:** a POST with `Origin: https://evil.example`, and even `Content-Type: text/plain`, was accepted (201) on DEV and PROD when the cookie was present.
 - **Mitigation:** in browsers, the cookie is `SameSite=Lax`, so cross-site requests don't carry it today.
 - **Risk:** same-site subdomains, older browsers, and any future change of `SameSite`.
 - **Fix:** check `Origin`/`Sec-Fetch-Site` on writes; require `application/json`.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. `assertSameOriginWrite` runs in `requireSession` and on the auth writes: a foreign `Origin` or `Sec-Fetch-Site: cross-site` gets 403, a non-JSON body 415. Verified by `tests/integration/p3-hardening.spec.ts` and the unit tests.
 
 #### QA-40 · P3 · The session token is also returned in the JSON body
 - **Actual:** signup, login and rotate return `data.sessionToken`. The HttpOnly cookie is therefore not the only copy: any script (XSS) can read the token.
 - **Fix:** return the token only as the cookie.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. Signup, login and rotate return the token only as the HttpOnly cookie. Verified by `tests/integration/p3-hardening.spec.ts`.
 
 #### QA-41 · P3 · A sandwich still sells after one of its ingredient products is hidden
 - **Steps:**
@@ -754,6 +793,7 @@ Issues are ordered by severity. Each one lists, in this order:
   - The hidden product disappears from the ingredient picker, so editing the sandwich would show a missing product.
 - **Evidence:** [API] `SW hide ingredient`.
 - **Fix:** product decision. Either block hiding a product used in a sandwich (as delete already does), or warn.
+- **Status (2026-11-12):** fixed on branch `fix/qa-35-qa-42-p3-hardening`. Hiding a sandwich ingredient gets 409, the same rule as delete. A sandwich with an already-hidden ingredient refuses to sell (400). Verified by `tests/integration/p3-hardening.spec.ts`.
 
 #### QA-42 · P3 · Cross-shop attempts return 500 instead of 404
 - **Actual:**
@@ -764,20 +804,24 @@ Issues are ordered by severity. Each one lists, in this order:
   - Shop B selling shop A's sandwich → 500.
   - **No data leaked and nothing changed** (verified via shop A's lists and the DB).
 - **Fix:** same as QA-19.
+- **Status (2026-11-12):** already fixed by QA-19 (error mapping, `AppError.notFound`). Verified by `tests/integration/p3-hardening.spec.ts`: every listed cross-shop attempt gets 404, and nothing of the other shop changed.
 
 #### QA-43 · P3 · English unit codes and wrong pack words on Home
 - **Actual:** the Home "الجرد" table shows "19 **piece**", "carton 5", and for a 10-piece bread pack "1 **كرتونة** و 8 piece".
 - **Evidence:** [UI] journey home text, `qa-home-360.png`.
 - **Fix:** translate units through `t()`; use the product's own pack word.
+- **Status (2026-11-13):** fixed. Home words units and packs through `src/client/shared/unit-labels.ts` (`piece` → قطعة, `carton` → كرتونة). With no pack word it shows the neutral عبوة (دستة for 12), never a guessed كرتونة. Tests: `tests/unit/client/p3-ux.spec.ts`, e2e `p3-ux.spec.ts`.
 
 #### QA-44 · P3 · Home scrolls horizontally on phones when numbers are large
 - **Actual:** at 360 and 390 px, the page width is 411/415 px. The inventory table is wider than the screen with 13-digit values. Normal values fit (`qa-j-prod-5-home-0.png`).
 - **Fix:** wrap the table in its own scroll container; use compact number formatting.
+- **Status (2026-11-13):** fixed. The grid and flex items could not shrink, so `nowrap` figures widened the page. They can now shrink, and very large figures wrap inside their card. The table scrolls inside its own card. e2e: 1,000,000 pieces at 1,000,000 EGP, no sideways scroll at 360 px or on desktop.
 
 #### QA-45 · P3 · Every navigation label exists twice; the desktop e2e test fails on it
 - **Actual:** at all five widths, the accessibility tree has two buttons each for "الرئيسية", "البيع", "المنتجات", "المخزون" and "التنبيهات". People cards also repeat "تواصل واتساب <name>".
 - **Evidence:** [UI] survey; [T] e2e `shell-offline` desktop: strict-mode violation on `button[aria-label="التنبيهات"]`.
 - **Links:** UE-16.
+- **Status (2026-11-13):** fixed. Only one navigation shows at a width (the other is `display: none`). The real duplicate was the header bell: it is now named «جرس التنبيهات». People cards had two identical WhatsApp links; the duplicate small one is removed. The desktop `shell-offline` e2e passes. e2e `p3-ux.spec.ts` checks one control per name.
 
 #### QA-46 · P3 · Touch targets below 44 px
 - **Actual:**
@@ -794,26 +838,32 @@ Issues are ordered by severity. Each one lists, in this order:
 
 - **Evidence:** [UI] survey (360 px).
 - **Rule:** AGENTS.md §7 requires ≥ 44 px.
+- **Status (2026-11-13):** fixed. Every listed control is ≥ 44 px (offer edit and delete, People edit, delete, WhatsApp, phone and تحصيل, the expense amount field, Alerts «تم», Products chips). Measured in e2e `p3-ux.spec.ts` on both projects.
 
 #### QA-47 · P3 · Promotion card titles are nearly invisible
 - **Actual:** dark grey text on a near-black card on the Sales screen.
 - **Evidence:** `qa-sales-360.png`.
+- **Status (2026-11-13):** fixed. The card used an undefined `--bg-card` (always near-black) with the theme's ink text. It now uses the theme surface `--sf2`. e2e checks a contrast of at least 4.5:1.
 
 #### QA-48 · P3 · Searching products in English finds nothing
 - **Actual:** "pepsi" → 0 results, although catalog items have English names. Arabic variants work (بيبسي/بيبسى).
 - **Fix:** include `name_en` in the products search (the sandwich picker already does).
+- **Status (2026-11-13):** fixed. The server search and the Products screen filter both match the catalog's English product and brand names (`name_en`, `brand_name_en`, also returned by `GET /api/products`). Test: `tests/integration/p3-ux-runtime.spec.ts`.
 
 #### QA-49 · P3 · No web app manifest; the app can't be installed
 - **Actual:** `/manifest.webmanifest` → 404 on DEV and PROD.
+- **Status (2026-11-13):** fixed. `src/app/manifest.ts` with 192, 512 and maskable icons in `public/icons/`. On a production build, Chrome reports no installability errors (the service worker controls `/app`).
 
 #### QA-50 · P3 · Signup can leave an unusable account
 - **Status:** [C] only, not reproduced. The user is created before the store transaction (UE-12).
+- **Status (2026-11-13):** fixed. The user, store, owner membership and device are created in one transaction. Reproduced with an injected failure in the last step: nothing is left, the same phone can sign up again, and a duplicate gets 409. Test: `tests/integration/p3-ux-runtime.spec.ts`.
 
 #### QA-51 · P3 · Sessions never slide, and membership is not re-checked
 - **Status:** [C].
 - **Details:**
   - The cookie lasts 30 days fixed; the client never calls rotate.
   - A removed member keeps access until expiry (UE-17).
+- **Status (2026-11-13):** fixed. Each request's store lookup now requires the user's membership (same query). Without it the session is revoked and the owner sees the login. The app rotates a session older than a day (`POST /api/auth/rotate`, the documented "rotation on periodic use"), which gives a fresh 30-day HttpOnly cookie; other devices are untouched. Tests: `tests/integration/p3-final.spec.ts`, `tests/unit/client/p3-final.spec.ts`, plus a browser check.
 
 #### QA-52 · P3 · Alert rules
 - **Status:** [T]/[C], from earlier audits, not re-reproduced.
@@ -821,10 +871,12 @@ Issues are ordered by severity. Each one lists, in this order:
   - Clearance offer can be above the original price (K7).
   - Expiry day uses the server's local day, not Cairo (K8).
   - Weighed goods count as "low" only at ≤ 5 **grams**.
+- **Status (2026-11-13):** fixed. K7 was already fixed by QA-20 (no offer that is not cheaper); a test now covers it. Expiry days use the Cairo calendar, and the stock badge uses the same rule. The stock level follows the reference rule (`docs/demo` `stockLevel`): low under 3 kg, under two packs, or under 10 pieces. It is one shared function used by the server and Sales.
 
 #### QA-53 · P3 · The offline catalog is never downloaded
 - **Status:** [C] (UE-15). `syncCatalog` is never called.
 - **Also:** `/api/sync/catalog` is public and accepts `limit=999999` (a 300 KB response).
+- **Status (2026-11-13):** fixed. The shell downloads the catalog after sign-in and again when back online (events only). The download resumes from the last saved page, writes nothing twice, and gets a 204 when nothing changed. The endpoint needs a session, caps `limit` at 1000, returns its position on the last page too, and no longer leaks error text. Browser check on a production build: the catalog is still there after an offline reload, and the pending offline sale syncs once when back online.
 
 #### QA-54 · P3 · Test-suite problems
 - **Integration:** 1 test fails (the K5 clamp test vs the code).
@@ -832,12 +884,22 @@ Issues are ordered by severity. Each one lists, in this order:
   - The desktop `shell-offline` test fails (QA-45).
   - The `sandwich-products` spec failed on both viewports in two runs, timing out on the slow DB. It passed earlier today at the same commit while the server was idle.
   - `auth-screens.spec.ts` writes into the tracked `docs/screens/phase-2/auth-forgot-code.png` on every run. The file was restored after this audit's run.
+- **Status (2026-11-13):** fixed.
+  - The K5 and `shell-offline` failures were already fixed (QA-16, QA-45).
+  - `auth-screens` writes to `test-results/` unless `HESBA_UPDATE_SCREENS=1`.
+  - A Playwright `globalSetup` compiles every route before the workers start. On a cold dev server, first-time compiles used to reload other workers' pages mid-test; the full suite now passes in parallel (64/64).
+  - **Environment-dependent:** the e2e suite needs a server whose database may be written to (each test signs up a store). Use `HESBA_APP_ORIGIN` for a local-DB server, never a shared DB.
 
 #### QA-55 · P3 · Products list payload is about 230 KB
 - **Actual:**
   - `GET /api/products?filter=all` returns 230 KB: the global catalog merged with the shop's products.
   - It is loaded by Products, and by Sales and Home through other calls.
   - It takes about 2 s per load on DEV.
+- **Status (2026-11-13):** fixed. Measured on Neon dev data (270 rows):
+  - Full list (Products, Stock): 214.7 → 198.0 KB raw (30.7 → 28.5 KB gzip). `name_norm` and the variants' `is_active` are dropped; no screen reads them.
+  - Sales (`scope=sale`, own products and services): 22.8 KB raw (3.2 KB gzip).
+  - People and the offer editor (`scope=store`): under 1.2 KB.
+  - Without `scope` the response is the same as before.
 
 #### QA-56 · P3 · A client-chosen sale id collides across shops
 - **Status:** latent.
@@ -846,17 +908,21 @@ Issues are ordered by severity. Each one lists, in this order:
   - Shop B posting shop A's sale id → 500 (primary-key collision).
   - Once QA-01 is fixed, the 500 vs 200 difference would reveal whether an id exists in another shop.
 - **Fix:** generate ids on the server, or scope the uniqueness check.
+- **Status (2026-11-13):** fixed. The server always chooses the sale id; a client `id` is ignored. Retries are matched by `(store_id, op_id)`. Tests cover: the same id in two shops, twice in one shop (no overwrite), and an offline retry (same sale, once).
 
 ### P4
 
 #### QA-57 · P4 · Offline, the header shows "حسبة" instead of the shop's name
 - **Evidence:** `qa-j-prod-7-offline-after-sale.png`.
+- **Status (2026-11-12):** fixed. The shop and owner names are kept in IndexedDB (`stores`, `sync_meta`) and read for the shop that owns this device's data; no request is made. They are forgotten only when the server answers that nobody is signed in (a failed session request keeps them). Unit, e2e (session request aborted → name kept) and production offline reload verified.
 
 #### QA-58 · P4 · Signup accepts a 10,000-character owner name
 - **Note:** no `max()` on the signup string fields.
+- **Status (2026-11-12):** fixed. Owner name at most 120 characters (`MAX_PERSON_NAME_LENGTH`, same as People names) on signup and profile, server (zod, 400 on `ownerName`) and forms; never truncated.
 
 #### QA-59 · P4 · An unknown `section` in the People list silently returns "owedToMe"
 - **Expected:** 400.
+- **Status (2026-11-12):** fixed. `peopleListQuerySchema` (zod enum): an unknown or empty section is a 400 `VALIDATION_ERROR` on `section`; no section still means «ليك».
 
 ---
 
