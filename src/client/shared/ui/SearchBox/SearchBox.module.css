@@ -1,5 +1,7 @@
 .sbox {
   display: flex;
+  min-width: 0;
+  box-sizing: border-box;
   align-items: center;
   gap: 6px;
   background: var(--sf);
@@ -34,6 +36,10 @@
 
 .input {
   flex: 1;
+  /* A flex item keeps its intrinsic input width (~20 chars) unless allowed to shrink: without
+     this the mic button is pushed out of the box on narrow screens (Home → الجرد). */
+  min-width: 0;
+  width: 100%;
   min-height: 48px;
   font-size: 16px;
   font-weight: 500;

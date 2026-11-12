@@ -333,9 +333,6 @@ export function SalesView({
     null,
   );
   const [creditFormOpen, setCreditFormOpen] = useState(false);
-  // The card whose «آجل» opened the customer form: added once the customer is chosen.
-  const [pendingCreditItem, setPendingCreditItem] =
-    useState<DisplaySaleItem | null>(null);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
   const [cartOpen, setCartOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -1220,21 +1217,6 @@ export function SalesView({
     return true;
   };
 
-  /**
-   * A card's «آجل»: within a credit sale the item joins its invoice; otherwise the customer
-   * form opens first and the item is added once the customer is chosen. It is the existing
-   * invoice-level credit flow; nothing is recorded until «تسجيل الآجل».
-   */
-  const handleSellOnCredit = (e: React.MouseEvent, item: DisplaySaleItem) => {
-    e.stopPropagation();
-    if (creditCustomer) {
-      addToCart(item);
-      return;
-    }
-    setPendingCreditItem(item);
-    setCreditFormOpen(true);
-  };
-
   /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
   const startCreditSale = (customer: CreditCustomer) => {
     setCreditCustomer(customer);
@@ -1242,12 +1224,6 @@ export function SalesView({
     setCartMode(true);
     setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
     showToast(t("credit.started", { name: customer.name }), "success");
-    if (pendingCreditItem) {
-      const item = pendingCreditItem;
-      setPendingCreditItem(null);
-      // added after the session state is set, so the toast names the customer
-      setTimeout(() => addToCartRef.current?.(item), 0);
-    }
   };
 
   /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
@@ -1258,11 +1234,6 @@ export function SalesView({
     setCartOpen(false);
     setCartDraft(EMPTY_CART_DRAFT);
   };
-
-  const addToCartRef = useRef(addToCart);
-  useEffect(() => {
-    addToCartRef.current = addToCart;
-  });
 
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
@@ -1646,12 +1617,6 @@ export function SalesView({
                 item.unitMode === "piece" &&
                 item.packQty > 1 &&
                 !isOut;
-              // «آجل»: stocked products only (services and sandwiches are sold on their own).
-              const hasCreditBtn =
-                !item.isService &&
-                !item.isSandwich &&
-                !!item.variantId &&
-                !isOut;
 
               return (
                 <div
@@ -1692,7 +1657,8 @@ export function SalesView({
                     <span className={styles.tS}>{formatStockText(item)}</span>
                   </button>
 
-                  {(hasCartonBtn || hasCreditBtn) && (
+                  {/* Credit sales start from «آجل» above the grid, never from a card. */}
+                  {hasCartonBtn && (
                     <div className={styles.tActions}>
                       {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
                       {hasCartonBtn && (
@@ -1707,23 +1673,6 @@ export function SalesView({
                           <span>
                             {getPackLabel(item.packName, item.packQty)}
                           </span>
-                        </button>
-                      )}
-                      {hasCreditBtn && (
-                        <button
-                          type="button"
-                          className={`${styles.tPack} ${styles.tCredit}`}
-                          data-testid="tile-credit"
-                          onClick={(e) => handleSellOnCredit(e, item)}
-                          title={t("invoice.creditActionLabel", {
-                            name: item.name,
-                          })}
-                          aria-label={t("invoice.creditActionLabel", {
-                            name: item.name,
-                          })}
-                        >
-                          <Icon n="users" s={15} />
-                          <span>{t("invoice.creditAction")}</span>
                         </button>
                       )}
                     </div>
@@ -2299,10 +2248,7 @@ export function SalesView({
       {/* Credit sale: who is the customer? */}
       {creditFormOpen && (
         <CreditCustomerForm
-          onClose={() => {
-            setCreditFormOpen(false);
-            setPendingCreditItem(null);
-          }}
+          onClose={() => setCreditFormOpen(false)}
           onChosen={startCreditSale}
         />
       )}

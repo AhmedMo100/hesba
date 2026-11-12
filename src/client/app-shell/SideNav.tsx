@@ -21,8 +21,8 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { route: "home", labelKey: "nav.home", icon: "home" },
   { route: "sales", labelKey: "nav.sales", icon: "cart", isKey: true },
-  { route: "products", labelKey: "nav.products", icon: "box" },
-  { route: "stock", labelKey: "nav.stock", icon: "layers" },
+  { route: "products", labelKey: "nav.products", icon: "basket" },
+  { route: "stock", labelKey: "nav.stock", icon: "warehouse" },
   { route: "expenses", labelKey: "nav.expenses", icon: "wallet" },
   { route: "people", labelKey: "nav.people", icon: "users" },
   { route: "alerts", labelKey: "nav.alerts", icon: "bell" },

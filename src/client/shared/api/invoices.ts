@@ -145,7 +145,11 @@ export async function paySaleInvoice(
 export async function returnSaleLines(
   saleId: string,
   opId: string,
-  lines: Array<{ saleLineId: string; quantityBase: number }>,
+  lines: Array<{
+    saleLineId: string;
+    quantityBase: number;
+    condition?: "sellable" | "damaged";
+  }>,
 ): Promise<SaleInvoice> {
   return (
     await send<{ invoice: SaleInvoice }>(

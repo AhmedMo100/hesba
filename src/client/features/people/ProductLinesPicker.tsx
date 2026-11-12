@@ -10,7 +10,7 @@
 import React, { useMemo, useState } from "react";
 import { Field, Icon } from "@/client/shared/ui";
 import { normalizeArabic } from "@/domain/normalize";
-import { kilogramsToGrams, packsToPieces } from "@/domain/units";
+import { quantityBaseFromInput } from "@/client/shared/quantity-input";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 
@@ -23,26 +23,12 @@ export interface PickedLine {
   units: string;
 }
 
-const toNum = (v: string) => {
-  const n = Number(
-    v.trim().replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d))),
-  );
-  return Number.isFinite(n) && n > 0 ? n : 0;
-};
-
 /** The line's quantity in base units (grams or pieces); 0 when nothing valid is typed. */
 export function lineQuantityBase(
   line: PickedLine,
   item: Pick<StockInventoryItem, "unitMode" | "packQty">,
 ): number {
-  if (item.unitMode === "weight") {
-    const kg = toNum(line.kg);
-    return kg > 0 ? kilogramsToGrams(kg) : 0;
-  }
-  const pack = Math.max(1, item.packQty || 1);
-  const packs = Math.floor(toNum(line.packs));
-  const units = Math.floor(toNum(line.units));
-  return (pack > 1 ? packsToPieces(packs, pack) : 0) + units;
+  return quantityBaseFromInput(line, item);
 }
 
 export function ProductLinesPicker({
