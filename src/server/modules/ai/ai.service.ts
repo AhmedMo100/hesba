@@ -142,6 +142,8 @@ export class AIService {
     private readonly prisma: PrismaClient,
     aiProvider?: AIProvider,
     searchProvider?: SearchProvider,
+    /** Tests: run an injected provider as an unapproved external one (private mode). */
+    options?: { dataSharing?: "approved" | "none" },
   ) {
     this.quotaService = new AIQuotaService(prisma);
     this.conversationService = new AIConversationService(prisma);
@@ -151,11 +153,12 @@ export class AIService {
     if (aiProvider) {
       // An injected provider (tests) is treated as approved for data unless it says otherwise.
       this.aiProvider = aiProvider;
+      const sharing = options?.dataSharing ?? "approved";
       this.info = {
         provider: aiProvider.name === "gemini" ? "gemini" : "mock",
         model: aiProvider.name,
-        dataSharing: "approved",
-        mode: "model",
+        dataSharing: sharing,
+        mode: sharing === "approved" ? "model" : "grounded",
       };
     } else {
       this.aiProvider =
@@ -202,78 +205,106 @@ export class AIService {
       throw AppError.badRequest("نص السؤال مطلوب ولا يمكن أن يكون فارغاً");
     }
 
-    // 1. Idempotency: the same clientMessageId is answered once. A retry after an answer gets
-    // that answer; a retry while it is being answered is refused; a retry after a failure
-    // reuses the stored question (no second copy of it, one credit).
-    let retryOfMessageId: string | null = null;
+    // 1. Today's conversation.
+    const conversation =
+      await this.conversationService.getOrCreateTodayConversation(storeId);
+
+    // 2. Idempotency: the same clientMessageId is answered once. Under a lock on that id the
+    // question is looked up and, if new, stored at once — so two parallel sends store it once.
+    // Its reply is the message right after it; a retry after an answer gets that answer, a
+    // retry while it is being answered is refused, a retry after a failure reuses it.
+    let storedQuestionId: string | null = null;
+    let createdNow = false;
     if (clientMessageId) {
       const prior = await withTenant(
         storeId,
         userId,
         async (tx) => {
-          // Two requests with the same id wait for each other here (transaction-scoped lock).
           await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${storeId}:${clientMessageId}`}))`;
-          const existingUserMsg = await tx.aiMessage.findFirst({
+          const existing = await tx.aiMessage.findFirst({
             where: { storeId, clientMessageId, role: "user" },
             orderBy: { createdAt: "asc" },
           });
-          if (!existingUserMsg?.conversationId) return null;
-          const reply = await tx.aiMessage.findFirst({
-            where: {
-              storeId,
-              conversationId: existingUserMsg.conversationId,
-              role: "assistant",
-              createdAt: { gte: existingUserMsg.createdAt },
-            },
-            orderBy: { createdAt: "asc" },
-          });
-          if (reply) {
+          if (!existing) {
+            const created = await tx.aiMessage.create({
+              data: {
+                storeId,
+                conversationId: conversation.id,
+                role: "user",
+                bodyText: cleanPrompt,
+                clientMessageId,
+              },
+            });
+            return { created: created.id };
+          }
+          const next = existing.conversationId
+            ? await tx.aiMessage.findFirst({
+                where: {
+                  storeId,
+                  conversationId: existing.conversationId,
+                  id: { not: existing.id },
+                  createdAt: { gte: existing.createdAt },
+                },
+                orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+              })
+            : null;
+          if (next?.role === "assistant") {
             return {
               cached: {
-                conversationId: existingUserMsg.conversationId,
-                messageId: reply.id,
-                bodyText: reply.bodyText,
+                conversationId: existing.conversationId!,
+                messageId: next.id,
+                bodyText: next.bodyText,
                 sources:
-                  (reply.sources as unknown as SearchCitation[]) || undefined,
+                  (next.sources as unknown as SearchCitation[]) || undefined,
               },
             };
           }
-          if (
-            Date.now() - existingUserMsg.createdAt.getTime() <
-            IN_PROGRESS_MS
-          ) {
+          if (Date.now() - existing.createdAt.getTime() < IN_PROGRESS_MS) {
             throw AppError.conflict("سؤالك لسه بيتجاوب، استنى ثواني");
           }
-          // Mark the attempt as fresh, so a parallel retry sees it "in progress".
+          // A retry after a failure: mark the attempt as fresh (in progress again).
           await tx.aiMessage.update({
-            where: { id: existingUserMsg.id },
-            data: { createdAt: new Date() },
+            where: { id: existing.id },
+            data: { createdAt: new Date(), conversationId: conversation.id },
           });
-          return { retryOf: existingUserMsg.id };
+          return { retryOf: existing.id };
         },
         this.prisma,
       );
-      if (prior && "cached" in prior && prior.cached) {
+      if ("cached" in prior && prior.cached) {
         const quota = await this.quotaService.getQuotaStatus(storeId);
         return { ...prior.cached, quota };
       }
-      if (prior && "retryOf" in prior) retryOfMessageId = prior.retryOf ?? null;
+      if ("created" in prior) {
+        storedQuestionId = prior.created ?? null;
+        createdNow = true;
+      } else if ("retryOf" in prior) {
+        storedQuestionId = prior.retryOf ?? null;
+      }
     }
 
-    // 2. Atomic Quota Reservation
+    // 3. Atomic Quota Reservation
     const quotaReservation = await this.quotaService.reserveQuota(storeId);
     if (!quotaReservation.success) {
+      // A question refused for the daily limit leaves no trace.
+      if (createdNow && storedQuestionId) {
+        await withTenant(
+          storeId,
+          userId,
+          (tx) =>
+            tx.aiMessage.deleteMany({
+              where: { id: storedQuestionId!, storeId },
+            }),
+          this.prisma,
+        );
+      }
       throw AppError.rateLimited(
         "استخدمت 5 من 5 رسائل اليوم. تقدر ترجع تسأل حِسبة بكرة بعد تجدد الرصيد.",
       );
     }
 
-    // 3. Today Conversation Retrieval / Creation
-    const conversation =
-      await this.conversationService.getOrCreateTodayConversation(storeId);
-
-    // 4. Persist the question (once; a retry reuses the stored one)
-    if (!retryOfMessageId) {
+    // 4. Store the question (when it has no clientMessageId it was not stored above)
+    if (!storedQuestionId) {
       await withTenant(
         storeId,
         userId,
@@ -284,7 +315,7 @@ export class AIService {
               conversationId: conversation.id,
               role: "user",
               bodyText: cleanPrompt,
-              clientMessageId: clientMessageId || null,
+              clientMessageId: null,
             },
           });
         },
