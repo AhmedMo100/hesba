@@ -109,33 +109,19 @@ import {
   ProductScannerSheet,
   type ConfirmedScanLine,
 } from "./ProductScannerSheet";
-
-interface DisplaySaleItem {
-  id: string;
-  variantId?: string;
-  productId: string;
-  name: string;
-  sellPricePiasters: number;
-  unitMode: "piece" | "weight" | "service";
-  packQty: number;
-  currentStockBase: number;
-  status: "ok" | "low" | "out";
-  isService?: boolean;
-  category?: string;
-  brandName?: string | null;
-  unit?: string;
-  packName?: string | null;
-  /** A sandwich: `currentStockBase` is how many its ingredients can make. */
-  isSandwich?: boolean;
-}
-
-/**
- * Older versions kept a copy of the sales list in `localStorage` under this prefix and showed
- * it as recorded sales — including sales the server had rejected (QA-09). The server's list is
- * now the only source, so the old copy is removed instead of read.
- */
-const LEGACY_SALES_KEY_PREFIX = "hesba_sales_records";
-const STAGED_KEY = "hesba_staged_sale_item";
+import {
+  type DisplaySaleItem,
+  generateUuid,
+  formatCairoTime,
+  formatStockText as formatStockTextPure,
+  getPackLabel,
+  weightToGrams,
+  formatWeightLabel,
+  weightSalePiasters,
+  getServicesStorageKey,
+  LEGACY_SALES_KEY_PREFIX,
+  STAGED_KEY,
+} from "./sales.logic";
 
 function removeLegacySalesCopy(storeId?: string): void {
   try {
@@ -148,102 +134,8 @@ function removeLegacySalesCopy(storeId?: string): void {
   }
 }
 
-function getServicesStorageKey(storeId?: string): string {
-  return `hesba_sales_enabled_services_${storeId || "default"}`;
-}
-
-function generateUuid(): string {
-  if (
-    typeof crypto !== "undefined" &&
-    typeof crypto.randomUUID === "function"
-  ) {
-    return crypto.randomUUID();
-  }
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === "x" ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
-}
-
-function formatCairoTime(ts: number): string {
-  try {
-    const d = new Date(ts);
-    return d.toLocaleTimeString("ar-EG", {
-      hour: "numeric",
-      minute: "2-digit",
-      timeZone: "Africa/Cairo",
-    });
-  } catch {
-    const d = new Date(ts);
-    const h = d.getHours() % 12 || 12;
-    const m = String(d.getMinutes()).padStart(2, "0");
-    const ampm = d.getHours() >= 12 ? "م" : "ص";
-    return `${h}:${m} ${ampm}`;
-  }
-}
-
-function getPackLabel(packName?: string | null, packQty?: number): string {
-  if (packName) {
-    const p = packName.toLowerCase();
-    if (p === "dozen" || p === "دستة" || packQty === 12) return "دستة";
-    if (p === "carton" || p === "كرتونة") return "كرتونة";
-    if (p === "bag" || p === "كيس") return "كيس";
-    if (p === "box" || p === "علبة") return "علبة";
-    return packName;
-  }
-  if (packQty === 12) return "دستة";
-  return "كرتونة";
-}
-
-function getUnitWord(u?: string): string {
-  const val = (u || "").toLowerCase();
-  if (val === "can" || val === "علبة") return "علبة";
-  if (val === "jar" || val === "برطمان") return "برطمان";
-  if (val === "bag" || val === "كيس") return "كيس";
-  if (val === "carton" || val === "كرتونة") return "كرتونة";
-  if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
-  return "قطعة";
-}
-
 function formatStockText(item: DisplaySaleItem): string {
-  if (item.isSandwich) {
-    return item.currentStockBase > 0
-      ? t("sandwich.canMake", { count: item.currentStockBase })
-      : t("sandwich.notEnough");
-  }
-  if (item.isService) {
-    return item.brandName ? `ماكينة ${item.brandName}` : "خدمة دفع فورية";
-  }
-
-  if (item.currentStockBase <= 0) {
-    return "خلصان";
-  }
-
-  if (item.unitMode === "weight") {
-    if (item.currentStockBase >= 1000) {
-      const kg = Math.round((item.currentStockBase / 1000) * 10) / 10;
-      return `${kg} كجم`;
-    }
-    return `${item.currentStockBase} جرام`;
-  }
-
-  const unitWord = getUnitWord(item.unit);
-  const packQty = item.packQty || 1;
-  const packLabel = getPackLabel(item.packName, item.packQty);
-  if (packQty > 1) {
-    const cartons = Math.floor(item.currentStockBase / packQty);
-    const pieces = item.currentStockBase % packQty;
-    if (cartons > 0 && pieces > 0) {
-      return `${cartons} ${packLabel} و ${pieces} ${unitWord}`;
-    }
-    if (cartons > 0) {
-      return `${cartons} ${packLabel}`;
-    }
-    return `${pieces} ${unitWord}`;
-  }
-
-  return `${item.currentStockBase} ${unitWord}`;
+  return formatStockTextPure(item, t);
 }
 
 function loadInitialData(storeId?: string): {
@@ -1438,14 +1330,15 @@ export function SalesView({
     const num = parseFloat(weightValue) || 0;
     if (num <= 0) return;
 
-    const grams =
-      weightUnit === "kg" ? Math.round(num * 1000) : Math.round(num);
-    const kg = grams / 1000;
+    const grams = weightToGrams(num, weightUnit as "kg" | "gram");
 
     if (grams > weightModalItem.currentStockBase) return;
 
-    const amountPiasters = Math.round(kg * weightModalItem.sellPricePiasters);
-    const label = grams >= 1000 ? `${kg} كجم` : `${grams} جرام`;
+    const amountPiasters = weightSalePiasters(
+      grams,
+      weightModalItem.sellPricePiasters,
+    );
+    const label = formatWeightLabel(grams);
 
     void recordSale({
       item: weightModalItem,
@@ -1511,8 +1404,7 @@ export function SalesView({
 
   // Weight modal calculations
   const weightNum = parseFloat(weightValue) || 0;
-  const weightGrams =
-    weightUnit === "kg" ? Math.round(weightNum * 1000) : Math.round(weightNum);
+  const weightGrams = weightToGrams(weightNum, weightUnit as "kg" | "gram");
   const weightKg = weightGrams / 1000;
   const weightAmountEgp =
     weightModalItem && weightKg > 0

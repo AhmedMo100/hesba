@@ -69,7 +69,7 @@ async function login(phone: string, pw: string, ip = "198.51.100.7") {
     new Request("http://localhost:3000/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
-      body: JSON.stringify({ phone, password: pw }),
+      body: JSON.stringify({ identifier: phone, password: pw }),
     }),
   );
   return { status: res.status, headers: res.headers, json: await res.json() };

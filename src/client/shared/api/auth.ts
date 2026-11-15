@@ -1,7 +1,7 @@
 export interface SignupInput {
   ownerName: string;
   phone: string;
-  email: string;
+  email?: string;
   password: string;
   storeName: string;
   shopType: string;
@@ -15,7 +15,8 @@ export interface SignupInput {
 }
 
 export interface LoginInput {
-  phone: string;
+  /** Phone number or email address. */
+  identifier: string;
   password: string;
 }
 
@@ -67,7 +68,7 @@ export interface AuthApiResult<T> {
 }
 
 export interface AuthApi {
-  // Mobile + Password Authentication
+  // Phone or Email + Password Authentication
   login(credentials: LoginInput): Promise<AuthApiResult<SessionState>>;
   signup(data: SignupInput): Promise<AuthApiResult<SessionState>>;
 

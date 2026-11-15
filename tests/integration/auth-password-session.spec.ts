@@ -373,7 +373,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
 
       // Verify the user can log in with the exact passphrase
       const loginRes = await loginWithPassword({
-        phone: "01088888884",
+        identifier: "01088888884",
         password: passphrase,
       });
       expect(loginRes.userId).toBe(result.userId);
@@ -418,7 +418,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       const localPhone = testUserPhone.replace(/^\+2/, "");
 
       const result = await loginWithPassword(
-        { phone: localPhone, password: testUserPassword },
+        { identifier: localPhone, password: testUserPassword },
         "127.0.0.1",
       );
 
@@ -472,7 +472,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
 
         // Verify the legacy user logs in successfully with their old 6-char password
         const loginRes = await loginWithPassword({
-          phone: localPhone,
+          identifier: localPhone,
           password: "old123",
         });
         expect(loginRes.userId).toBe(legacyUser.id);
@@ -494,19 +494,19 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
     it("rejects invalid password with generic error message", async () => {
       await expect(
         loginWithPassword(
-          { phone: testUserPhone, password: "WrongPasswordHere!" },
+          { identifier: testUserPhone, password: "WrongPasswordHere!" },
           "127.0.0.1",
         ),
-      ).rejects.toThrow("رقم الموبايل أو كلمة السر غير صحيحة");
+      ).rejects.toThrow("البيانات غير صحيحة");
     });
 
     it("rejects non-existent phone with identical generic error message (timing safe)", async () => {
       await expect(
         loginWithPassword(
-          { phone: "01011111119", password: "AnyPassword123" },
+          { identifier: "01011111119", password: "AnyPassword123" },
           "127.0.0.1",
         ),
-      ).rejects.toThrow("رقم الموبايل أو كلمة السر غير صحيحة");
+      ).rejects.toThrow("البيانات غير صحيحة");
     });
   });
 
@@ -711,7 +711,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
 
       // Verify user can now log in with the new password
       const loginResult = await loginWithPassword({
-        phone: testUserPhone,
+        identifier: testUserPhone,
         password: newPassword,
       });
       expect(loginResult.userId).toBe(testUserId);
@@ -719,10 +719,10 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
       // Verify old password no longer works
       await expect(
         loginWithPassword({
-          phone: testUserPhone,
+          identifier: testUserPhone,
           password: testUserPassword,
         }),
-      ).rejects.toThrow("رقم الموبايل أو كلمة السر غير صحيحة");
+      ).rejects.toThrow("البيانات غير صحيحة");
     });
 
     it("REPLAY PROTECTION: consumed code cannot be reused", async () => {
