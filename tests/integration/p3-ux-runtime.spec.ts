@@ -174,7 +174,7 @@ describe("QA-50 — a failed signup leaves no half-made account", () => {
       null,
       "POST",
       "/api/auth/login",
-      { phone, password },
+      { identifier: phone, password },
     );
     expect(loginBefore.status).toBe(401);
 
@@ -199,7 +199,7 @@ describe("QA-50 — a failed signup leaves no half-made account", () => {
       null,
       "POST",
       "/api/auth/login",
-      { phone, password },
+      { identifier: phone, password },
     );
     expect(login.status).toBe(200);
 

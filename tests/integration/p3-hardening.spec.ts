@@ -364,7 +364,7 @@ describe("QA-40 — the session token is only in the HttpOnly cookie", () => {
       null,
       "POST",
       "/api/auth/login",
-      { phone, password },
+      { identifier: phone, password },
     );
     expect(login.status).toBe(200);
     for (const r of [sign, login]) {

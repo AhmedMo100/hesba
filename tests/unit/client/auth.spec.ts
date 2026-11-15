@@ -37,7 +37,7 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
   describe("Phone & Password Login Flow", () => {
     it("authenticates valid mobile number and password", async () => {
       const res = await fixtureAuthApi.login({
-        phone: "01012345678",
+        identifier: "01012345678",
         password: "password123",
       });
 
@@ -52,18 +52,18 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
 
     it("rejects invalid phone numbers or short passwords", async () => {
       const invalidPhoneRes = await fixtureAuthApi.login({
-        phone: "01312345678",
+        identifier: "01312345678",
         password: "validPassword123",
       });
       expect(invalidPhoneRes.success).toBe(false);
-      expect(invalidPhoneRes.error).toBe("رقم الموبايل غير صحيح");
+      expect(invalidPhoneRes.error).toBe("البيانات غير صحيحة");
 
       const shortPassRes = await fixtureAuthApi.login({
-        phone: "01012345678",
+        identifier: "01012345678",
         password: "123",
       });
       expect(shortPassRes.success).toBe(false);
-      expect(shortPassRes.error).toBe("كلمة السر غير صحيحة");
+      expect(shortPassRes.error).toBe("البيانات غير صحيحة");
     });
   });
 
@@ -92,7 +92,7 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
       expect(session?.user.email).toBe("ahmed@example.com");
     });
 
-    it("rejects registration with empty or missing email", async () => {
+    it("allows registration with empty email (optional)", async () => {
       const res = await fixtureAuthApi.signup({
         ownerName: "محمود",
         phone: "01098765432",
@@ -103,8 +103,7 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
         governorate: "القاهرة",
       });
 
-      expect(res.success).toBe(false);
-      expect(res.error).toBe("البريد الإلكتروني مطلوب");
+      expect(res.success).toBe(true);
     });
 
     it("rejects registration with invalid email format", async () => {
@@ -293,7 +292,7 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
   describe("Session Management & Logout", () => {
     it("logs out and clears session", async () => {
       await fixtureAuthApi.login({
-        phone: "01012345678",
+        identifier: "01012345678",
         password: "password123",
       });
 

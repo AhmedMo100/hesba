@@ -1,0 +1,25 @@
+.card {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 16px;
+  box-shadow: var(--sh);
+}
+
+.greenAccent {
+  composes: card;
+  background: var(--br);
+  border-color: var(--br);
+  color: var(--brInk);
+}
+
+.greenAccent :is(small, em) {
+  color: var(--brInk);
+  opacity: 0.85;
+}
+
+.beigeAccent {
+  composes: card;
+  background: var(--sf2);
+  border-color: var(--line);
+}

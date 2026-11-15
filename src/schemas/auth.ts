@@ -78,7 +78,7 @@ export const signupInputSchema = z.object({
 export type SignupInput = z.input<typeof signupInputSchema>;
 
 export const loginInputSchema = z.object({
-  phone: z.string().trim().min(10, "رقم الموبايل مطلوب"),
+  identifier: z.string().trim().min(1, "رقم الموبايل أو الإيميل مطلوب"),
   password: z.string().min(1, "كلمة السر مطلوبة"),
 });
 
