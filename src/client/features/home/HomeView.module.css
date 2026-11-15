@@ -1,17 +1,261 @@
-/* HomeView.module.css — Hesba Native Home & Inventory View */
+/* HomeView.module.css — Hesba card-grid dashboard + inventory sub-view */
 
 .page {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 12px 14px 60px;
-  max-width: 960px;
+  padding: 12px 16px 80px;
+  max-width: 480px;
   margin: 0 auto;
   width: 100%;
-  /* QA-44: never wider than the screen, whatever the numbers. */
   min-width: 0;
   overflow-x: clip;
 }
+
+/* ─── Welcome row ─── */
+
+.welcome {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.welcomeText {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.welcomeActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.actionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--sf);
+  color: var(--ink2);
+  font-size: 11.5px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  min-height: 34px;
+  position: relative;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.actionBtn:hover {
+  border-color: var(--br);
+  background: var(--sf2);
+}
+
+.actionBtn:active {
+  transform: scale(0.96);
+}
+
+.actionBadge {
+  background: var(--red);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 800;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 3px;
+}
+
+/* ─── KPI row ─── */
+
+.kpiRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.kpiCard {
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--sh);
+  min-width: 0;
+}
+
+.kpiCard small {
+  color: var(--ink2);
+  font-weight: 700;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.kpiCard b {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--br);
+  overflow-wrap: anywhere;
+}
+
+/* ─── Card grid ─── */
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 22px 12px 18px;
+  border-radius: 18px;
+  border: none;
+  cursor: pointer;
+  min-height: 120px;
+  transition:
+    transform 0.12s,
+    box-shadow 0.15s;
+  text-align: center;
+}
+
+.card:active {
+  transform: scale(0.96);
+}
+
+.cardIcon {
+  font-size: 38px;
+  line-height: 1;
+}
+
+.cardLabel {
+  font-size: 16px;
+  font-weight: 800;
+  line-height: 1.3;
+}
+
+.cardBadge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Dark green cards */
+.cardDark {
+  background: var(--br2);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(63, 89, 55, 0.18);
+}
+
+.cardDark .cardBadge {
+  background: rgba(255, 255, 255, 0.2);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* Light cards */
+.cardLight {
+  background: var(--sf);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: var(--sh);
+}
+
+.cardLight .cardBadge {
+  background: var(--sf2);
+  color: var(--ink2);
+}
+
+/* Gold/beige cards */
+.cardGold {
+  background: var(--yelBg, #f6eac4);
+  color: var(--ink);
+  box-shadow: 0 2px 8px rgba(184, 132, 26, 0.1);
+}
+
+.cardGold .cardBadge {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--ink2);
+}
+
+/* ─── Logout ─── */
+
+.logoutBtn {
+  width: 100%;
+  padding: 16px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.15s;
+}
+
+.logoutBtn:hover {
+  background: var(--sf2);
+}
+
+.logoutBtn:active {
+  transform: scale(0.98);
+}
+
+/* ─── Back button (inventory sub-view) ─── */
+
+.backBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--sf);
+  color: var(--ink2);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  align-self: flex-start;
+  min-height: 44px;
+  transition: background 0.15s;
+}
+
+.backBtn:hover {
+  background: var(--sf2);
+}
+
+/* ─── Inventory KPIs ─── */
 
 .kpis {
   display: grid;
@@ -19,26 +263,20 @@
   gap: 10px;
 }
 
-@media (min-width: 768px) {
-  .kpis {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-}
-
 .kpi {
-  background: var(--sf, #23221f);
-  border: 1px solid var(--line, #383b34);
+  background: var(--sf);
+  border: 1px solid var(--line);
   border-radius: 14px;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
   gap: 2px;
-  box-shadow: var(--sh, 0 2px 6px rgba(0, 0, 0, 0.08));
+  box-shadow: var(--sh);
   min-width: 0;
 }
 
 .kpi small {
-  color: var(--ink2, #a0a8a0);
+  color: var(--ink2);
   font-weight: 700;
   font-size: 13px;
 }
@@ -46,13 +284,12 @@
 .kpi b {
   font-size: 21px;
   font-weight: 800;
-  color: var(--ink, #fff);
-  /* A very large figure wraps inside its card instead of widening the page (QA-44). */
+  color: var(--ink);
   overflow-wrap: anywhere;
 }
 
 .kpi em {
-  color: var(--ink2, #a0a8a0);
+  color: var(--ink2);
   font-size: 11.5px;
   font-style: normal;
   line-height: 1.3;
@@ -60,22 +297,11 @@
 
 .kpiBig {
   grid-column: 1 / -1;
-  background: var(--sf);
-  border-color: var(--line);
-  color: var(--ink);
   padding: 18px 20px;
   border-radius: 16px;
-  box-shadow: var(--sh);
-}
-
-@media (min-width: 768px) {
-  .kpiBig {
-    grid-column: span 2;
-  }
 }
 
 .kpiBig small {
-  color: var(--ink2);
   font-size: 13.5px;
   font-weight: 800;
 }
@@ -89,55 +315,16 @@
 }
 
 .kpiBig em {
-  color: var(--ink2);
   font-size: 13px;
-  font-style: normal;
   font-weight: 700;
 }
 
 .kpiNeg b {
-  color: #ef4444 !important;
+  color: var(--red) !important;
 }
 
-/* Period Chips bar */
-.periodBar {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding: 2px 0 6px;
-  scrollbar-width: none;
-}
+/* ─── Inventory toolbar ─── */
 
-.periodBar::-webkit-scrollbar {
-  display: none;
-}
-
-.chip {
-  background: var(--sf, #23221f);
-  border: 1px solid var(--line, #383b34);
-  color: var(--ink2, #a0a8a0);
-  border-radius: 10px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: all 0.15s ease;
-}
-
-.chip:hover {
-  border-color: var(--br, #8db68a);
-  color: var(--ink, #fff);
-}
-
-.chipOn {
-  background: var(--br, #8db68a);
-  border-color: var(--br, #8db68a);
-  color: var(--brInk);
-  font-weight: 800;
-}
-
-/* Inventory toolbar */
 .invBar {
   display: flex;
   gap: 10px;
@@ -152,10 +339,10 @@
 }
 
 .exportBtn {
-  background: var(--sf, #23221f);
-  border: 1px solid var(--line, #383b34);
+  background: var(--sf);
+  border: 1px solid var(--line);
   border-radius: 12px;
-  color: var(--ink, #fff);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 700;
   padding: 10px 14px;
@@ -169,20 +356,21 @@
 }
 
 .exportBtn:hover {
-  border-color: var(--br, #8db68a);
-  background: rgba(141, 182, 138, 0.12);
-  color: var(--br, #8db68a);
+  border-color: var(--br);
+  background: var(--soft);
+  color: var(--br);
 }
 
-/* Table card */
+/* ─── Inventory table ─── */
+
 .tblCard {
   min-width: 0;
   max-width: 100%;
-  background: var(--sf, #23221f);
-  border: 1px solid var(--line, #383b34);
+  background: var(--sf);
+  border: 1px solid var(--line);
   border-radius: 16px;
   overflow: hidden;
-  box-shadow: var(--sh, 0 2px 6px rgba(0, 0, 0, 0.08));
+  box-shadow: var(--sh);
 }
 
 .tblW {
@@ -199,30 +387,30 @@
 
 .tbl th {
   padding: 11px 14px;
-  background: var(--sf2, #1d1c18);
-  color: var(--ink2, #a0a8a0);
+  background: var(--sf2);
+  color: var(--ink2);
   font-size: 12.5px;
   font-weight: 700;
-  border-bottom: 1px solid var(--line, #383b34);
+  border-bottom: 1px solid var(--line);
   white-space: nowrap;
 }
 
 .tbl td {
   padding: 12px 14px;
-  border-top: 1px solid var(--line, #2c2b27);
-  color: var(--ink, #fff);
+  border-top: 1px solid var(--line);
+  color: var(--ink);
   white-space: nowrap;
 }
 
 .tbl tbody tr:hover {
-  background: rgba(255, 255, 255, 0.02);
+  background: color-mix(in srgb, var(--ink) 3%, transparent);
 }
 
 .tbl tfoot td {
   font-weight: 800;
-  background: var(--sf2, #1d1c18);
-  border-top: 1.5px solid var(--line, #383b34);
-  color: var(--ink, #fff);
+  background: var(--sf2);
+  border-top: 1.5px solid var(--line);
+  color: var(--ink);
   font-size: 14px;
 }
 
@@ -259,287 +447,46 @@
   font-weight: 800;
 }
 
-/* Sections in Report tab */
-.sectionCard {
-  background: var(--sf, #23221f);
-  border: 1px solid var(--line, #383b34);
-  border-radius: 16px;
-  padding: 14px 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  box-shadow: var(--sh, 0 2px 6px rgba(0, 0, 0, 0.08));
-}
+/* ─── Responsive ─── */
 
-.secTitle {
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--ink, #fff);
-  margin: 0;
-}
+@media (max-width: 340px) {
+  .page {
+    padding: 10px 12px 80px;
+  }
 
-.mutedText {
-  color: var(--ink2, #a0a8a0);
-  font-size: 13px;
-  margin: 4px 0;
-}
+  .card {
+    min-height: 100px;
+    padding: 18px 8px 14px;
+  }
 
-/* Chart */
-.chartContainer {
-  width: 100%;
-  padding: 8px 0;
-}
+  .cardLabel {
+    font-size: 14px;
+  }
 
-.chartSvg {
-  width: 100%;
-  height: 180px;
-  display: block;
-}
+  .cardIcon {
+    font-size: 32px;
+  }
 
-.gl {
-  stroke: var(--line, #383b34);
-  stroke-width: 1;
-  stroke-dasharray: 3 4;
-}
+  .welcomeText {
+    font-size: 18px;
+  }
 
-.bar {
-  fill: var(--br, #8db68a);
-  opacity: 0.75;
-  transition: opacity 0.15s ease;
-  cursor: pointer;
-}
-
-.bar:hover,
-.barHi {
-  opacity: 1;
-}
-
-.ax {
-  fill: var(--ink2, #a0a8a0);
-  font-size: 11px;
-  font-family: inherit;
-}
-
-.chTip {
-  min-height: 24px;
-  text-align: center;
-  color: var(--ink2, #a0a8a0);
-  font-size: 13px;
-  margin-top: 6px;
-}
-
-.chTip b {
-  color: var(--ink, #fff);
-}
-
-/* Grid for two cards side by side on desktop */
-.twoCols {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-
-@media (min-width: 768px) {
-  .twoCols {
-    grid-template-columns: 1fr 1fr;
+  .actionBtn {
+    padding: 5px 7px;
+    font-size: 10.5px;
   }
 }
 
-/* Top Selling Products */
-.topItem {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-top: 1px solid var(--line, #2c2b27);
-}
+@media (min-width: 768px) {
+  .page {
+    max-width: 600px;
+  }
 
-.topItem:first-of-type {
-  border-top: 0;
-}
+  .kpis {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
 
-.topRank {
-  width: 24px;
-  height: 24px;
-  border-radius: 7px;
-  background: rgba(141, 182, 138, 0.15);
-  color: var(--br, #8db68a);
-  font-weight: 800;
-  font-size: 12.5px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-.topNameGroup {
-  flex: 1;
-  min-width: 0;
-}
-
-.topNameGroup b {
-  display: block;
-  font-size: 13.5px;
-  color: var(--ink, #fff);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.topBar {
-  display: block;
-  height: 5px;
-  border-radius: 3px;
-  background: var(--br, #8db68a);
-  opacity: 0.55;
-  margin-top: 3px;
-}
-
-.topValues {
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-}
-
-.topValues b {
-  font-size: 13.5px;
-  font-weight: 700;
-  color: var(--ink, #fff);
-}
-
-.topValues small {
-  font-size: 11.5px;
-  color: var(--ink2, #a0a8a0);
-}
-
-/* By Category Item */
-.catItem {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 8px 0;
-  border-top: 1px solid var(--line, #2c2b27);
-  font-size: 13.5px;
-}
-
-.catItem:first-of-type {
-  border-top: 0;
-}
-
-.catValues {
-  display: flex;
-  flex-direction: column;
-  text-align: left;
-  font-weight: 800;
-  color: var(--ink, #fff);
-}
-
-.catValues small {
-  font-weight: 500;
-  color: var(--ink2, #a0a8a0);
-  font-size: 11.5px;
-}
-
-/* Timeline */
-.timelineItem {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  padding: 9px 0;
-  border-top: 1px solid var(--line, #2c2b27);
-}
-
-.timelineItem:first-of-type {
-  border-top: 0;
-}
-
-.tlDot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  flex-shrink: 0;
-  background: var(--br, #8db68a);
-}
-
-.tlDotSale {
-  background: #22c55e;
-}
-
-.tlDotBuy {
-  background: #3b82f6;
-}
-
-.tlDotExp {
-  background: #f59e0b;
-}
-
-.tlDotWaste {
-  background: #ef4444;
-}
-
-.tlBody {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.tlBody b {
-  font-size: 13.5px;
-  color: var(--ink, #fff);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tlBody small {
-  color: var(--ink2, #a0a8a0);
-  font-size: 11.5px;
-}
-
-.tlAmt {
-  font-weight: 800;
-  font-size: 13.5px;
-  white-space: nowrap;
-}
-
-.tlAmtPos {
-  color: #22c55e;
-}
-
-.tlAmtNeg {
-  color: #ef4444;
-}
-
-.moreBtn {
-  align-self: flex-start;
-  background: none;
-  border: none;
-  color: var(--br, #8db68a);
-  font-size: 13px;
-  font-weight: 700;
-  cursor: pointer;
-  padding: 4px 0;
-}
-
-/* The report could not be read: say so, never show 0 (QA-06). */
-.reportError {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 8px 0;
-  font-size: 13px;
-  color: var(--red);
-}
-
-.reportError button {
-  min-height: 44px;
-  padding: 0 14px;
-  border-radius: 10px;
-  border: 1.5px solid var(--br);
-  background: transparent;
-  color: var(--br);
-  font-weight: 700;
+  .kpiBig {
+    grid-column: span 2;
+  }
 }

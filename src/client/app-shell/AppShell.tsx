@@ -258,7 +258,19 @@ function AppShellInner() {
   const renderCurrentView = () => {
     switch (route) {
       case "home":
-        return <HomeView />;
+        return (
+          <HomeView
+            onNavigate={navigate}
+            alertCount={alertCount}
+            onOpenAlerts={() => navigate("alerts")}
+            onLogout={async () => {
+              await logout();
+              await forgetShopIdentities(db).catch(() => {});
+              await clearReadCache();
+              router.push("/");
+            }}
+          />
+        );
       case "products":
         return <ProductsView />;
       case "sales":
@@ -274,7 +286,19 @@ function AppShellInner() {
       case "ai":
         return <AiView />;
       default:
-        return <HomeView />;
+        return (
+          <HomeView
+            onNavigate={navigate}
+            alertCount={alertCount}
+            onOpenAlerts={() => navigate("alerts")}
+            onLogout={async () => {
+              await logout();
+              await forgetShopIdentities(db).catch(() => {});
+              await clearReadCache();
+              router.push("/");
+            }}
+          />
+        );
     }
   };
 
@@ -371,8 +395,6 @@ function AppShellInner() {
             router.push("/");
           }}
           signedIn={Boolean(session)}
-          alertCount={alertCount}
-          onOpenAlerts={() => navigate("alerts")}
         />
         <SyncBar
           state={effectiveSyncState}
