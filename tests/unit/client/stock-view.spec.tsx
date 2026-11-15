@@ -8,70 +8,33 @@ import { AddStockModal } from "@/client/features/stock/AddStockModal";
 import { ArchiveStockModal } from "@/client/features/stock/ArchiveStockModal";
 import { MachineTopupModal } from "@/client/features/stock/MachineTopupModal";
 
-describe("StockView Component (Phase 2 Inventory UI)", () => {
+describe("StockView — Stock Entry Wizard", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("renders header with 'المخزون' title, subtitle, and '+ إضافة' button matching Image 4", () => {
+  it("renders landing step with barcode and manual entry choices", () => {
     const html = renderToStaticMarkup(
       <ToastProvider>
         <StockView />
       </ToastProvider>,
     );
     expect(html).toContain('data-testid="page-stock"');
-    expect(html).toContain("المخزون");
-    expect(html).toContain("الكميات الحالية وسجل اللي دخل");
-    expect(html).toContain('data-testid="add-stock-btn"');
-    expect(html).toContain("إضافة");
+    expect(html).toContain("دخلت بضاعة جديدة؟");
+    expect(html).toContain("امسح الباركود");
+    expect(html).toContain("تسجيل يدوي");
+    expect(html).toContain('data-testid="stock-scan-btn"');
+    expect(html).toContain('data-testid="stock-manual-btn"');
   });
 
-  it("renders segmented control tabs with 'الكميات' and 'سجل الإضافات'", () => {
+  it("includes camera and manual entry icons", () => {
     const html = renderToStaticMarkup(
       <ToastProvider>
         <StockView />
       </ToastProvider>,
     );
-    expect(html).toContain("الكميات");
-    expect(html).toContain("سجل الإضافات");
-  });
-
-  it("renders search box and status filter chips on Tab 1 matching Image 1", () => {
-    const html = renderToStaticMarkup(
-      <ToastProvider>
-        <StockView />
-      </ToastProvider>,
-    );
-    expect(html).toContain("دوّر في المخزون");
-    expect(html).toContain("الكل");
-    expect(html).toContain("قرب يخلص (0)");
-    expect(html).toContain("خلصان (0)");
-  });
-
-  it("renders POS payment machines section in Inventory with empty state or provider balances", () => {
-    const html = renderToStaticMarkup(
-      <ToastProvider>
-        <StockView />
-      </ToastProvider>,
-    );
-    expect(html).toContain('data-testid="stock-pos-machines-section"');
-    expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة");
-    expect(html).toContain("لا توجد ماكينات دفع مسجلة لهذا المتجر");
-  });
-
-  it("renders separated stock valuation card at the bottom of the page", () => {
-    const html = renderToStaticMarkup(
-      <ToastProvider>
-        <StockView />
-      </ToastProvider>,
-    );
-    expect(html).toContain('data-testid="stock-valuation-card"');
-    expect(html).toContain("تقييم إجمالي البضاعة ورؤوس الأموال");
-    expect(html).toContain("قيمة بضاعة المخزون المادي (بسعر الشراء):");
-    // Services (cards, top-ups, transfers) hold no stock: no separate cards valuation (P4).
-    expect(html).not.toContain("قيمة كروت الشحن والوحدات الرقمية:");
-    expect(html).toContain("أرصدة ماكينات الدفع ومقدمي الخدمة (أموال تشغيل):");
-    expect(html).toContain("إجمالي رأس المال والأرصدة:");
+    expect(html).toContain("📷");
+    expect(html).toContain("✍️");
   });
 });
 
