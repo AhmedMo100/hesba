@@ -211,39 +211,65 @@
   cursor: not-allowed;
 }
 
-/* Note Link & Expandable Fields */
-.noteToggle {
-  background: none;
-  border: none;
-  color: var(--ink2);
+/* Quick Amount Buttons */
+.quickAmounts {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.quickAmountBtn {
+  flex: 1;
+  background: var(--sf2);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+  padding: 8px 0;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: inherit;
+  min-height: 44px;
+}
+
+.quickAmountBtn:active {
+  background: var(--br);
+  color: #fff;
+  border-color: var(--br);
+}
+
+/* Date quick-select row */
+.dateQuickRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.dateQuickBtn {
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 700;
-  padding: 8px 0 0 0;
   cursor: pointer;
-  text-align: start;
-  text-decoration: underline;
-  text-underline-offset: 4px;
-  align-self: flex-start;
+  min-height: 42px;
+  white-space: nowrap;
   font-family: inherit;
+  transition: all 0.12s ease;
 }
 
-.noteToggle:hover {
-  color: var(--ink);
+.dateQuickBtn:hover {
+  border-color: var(--ink2);
 }
 
-.extraFields {
-  display: grid;
-  grid-template-columns: 2fr 1fr;
-  gap: 8px;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--line);
-}
-
-@media (max-width: 500px) {
-  .extraFields {
-    grid-template-columns: 1fr;
-  }
+.dateQuickActive {
+  background: var(--br);
+  color: #fff;
+  border-color: var(--br);
 }
 
 .fieldItem {

@@ -99,7 +99,7 @@ describe("SalesView Client Component", () => {
 
   it("renders search box with voice search and legend indicators matching Image 1", () => {
     const html = renderToStaticMarkup(<SalesView />);
-    expect(html).toContain("دوّر على صنف...");
+    expect(html).toContain("...دور على منتج");
     expect(html).toContain("مبيعات النهارده");
     expect(html).toContain("خلصان");
     expect(html).toContain("قرب يخلص");

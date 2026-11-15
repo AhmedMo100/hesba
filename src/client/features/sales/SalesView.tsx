@@ -37,14 +37,7 @@ import React, {
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
-import {
-  Button,
-  Empty,
-  SearchBox,
-  Icon,
-  Modal,
-  Skeleton,
-} from "@/client/shared/ui";
+import { Empty, SearchBox, Icon, Modal, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
@@ -246,6 +239,13 @@ export function SalesView({
 
   const [query, setQuery] = useState("");
   const [flashId, setFlashId] = useState<string | null>(null);
+
+  type SaleMode = "invoice" | "credit" | "return";
+  type CategoryTab = "products" | "offers" | "services";
+  const [saleMode, setSaleMode] = useState<SaleMode>("invoice");
+  const [categoryTab, setCategoryTab] = useState<CategoryTab>(
+    initial.stagedSaleItem?.isService ? "services" : "products",
+  );
 
   // POS Machines & Selection state
   const [machines, setMachines] = useState<PosMachine[]>(() =>
@@ -572,16 +572,24 @@ export function SalesView({
     return list;
   }, [inventory, services, enabledServiceIds, stagedItem, sandwiches]);
 
-  // Filtered by Search query
+  // Filtered by category tab and search query
   const filteredItems = useMemo(() => {
+    let items = displayItems;
+    if (categoryTab === "services") {
+      items = items.filter((i) => i.isService);
+    } else if (categoryTab === "offers") {
+      items = [];
+    } else {
+      items = items.filter((i) => !i.isService);
+    }
     const q = normalizeArabic(query.trim());
-    if (!q) return displayItems;
-    return displayItems.filter((item) => {
+    if (!q) return items;
+    return items.filter((item) => {
       const name = normalizeArabic(item.name || "");
       const cat = normalizeArabic(item.category || "");
       return name.includes(q) || cat.includes(q);
     });
-  }, [displayItems, query]);
+  }, [displayItems, query, categoryTab]);
 
   /** Shows the server's stock balance after a sale on the tiles (matched by variant). */
   const applyRecordedStock = useCallback((recorded: RecordedSale) => {
@@ -1437,18 +1445,98 @@ export function SalesView({
   return (
     <div className={viewStyles.view} data-testid="page-sales" dir="rtl">
       <div className={styles.salesContainer}>
-        {/* Search Box matching Image 1 */}
+        {/* Mode tabs: فاتورة / آجل / مرتجع */}
+        <div className={styles.modeTabs} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={saleMode === "invoice"}
+            className={`${styles.modeTab} ${saleMode === "invoice" ? styles.modeTabActive : ""}`}
+            onClick={() => {
+              setSaleMode("invoice");
+              if (!cartMode) setCartMode(true);
+            }}
+          >
+            🧾 فاتورة{cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={saleMode === "credit"}
+            className={`${styles.modeTab} ${saleMode === "credit" ? styles.modeTabActive : ""}`}
+            onClick={() => {
+              setSaleMode("credit");
+              if (!creditCustomer) setCreditFormOpen(true);
+            }}
+          >
+            ⏳ آجل{creditCustomer ? ` · ${creditCustomer.name}` : ""}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={saleMode === "return"}
+            className={`${styles.modeTab} ${saleMode === "return" ? styles.modeTabActive : ""}`}
+            onClick={() => setSaleMode("return")}
+          >
+            🔄 مرتجع
+          </button>
+        </div>
+
+        {/* Category tabs: المنتجات / العروض / الخدمات */}
+        <div className={styles.catTabs} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={categoryTab === "products"}
+            className={`${styles.catTab} ${categoryTab === "products" ? styles.catTabActive : ""}`}
+            onClick={() => setCategoryTab("products")}
+          >
+            🥪 المنتجات
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={categoryTab === "offers"}
+            className={`${styles.catTab} ${categoryTab === "offers" ? styles.catTabActive : ""}`}
+            onClick={() => setCategoryTab("offers")}
+          >
+            🎁 العروض
+            {activePromotions.length > 0 ? ` (${activePromotions.length})` : ""}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={categoryTab === "services"}
+            className={`${styles.catTab} ${categoryTab === "services" ? styles.catTabActive : ""}`}
+            onClick={() => setCategoryTab("services")}
+          >
+            ⚡ الخدمات
+          </button>
+        </div>
+
+        {/* Barcode scan button */}
+        <button
+          type="button"
+          className={styles.barcodeBtn}
+          onClick={() => setScannerOpen(true)}
+        >
+          📷 امسح باركود
+        </button>
+
+        {/* Search Box */}
         <div className={styles.searchWrapper}>
           <SearchBox
             value={query}
             onChange={setQuery}
-            placeholder="دوّر على صنف..."
+            placeholder={
+              categoryTab === "services" ? "...دور على خدمة" : "...دور على منتج"
+            }
             voice={true}
             onCamera={() => setScannerOpen(true)}
           />
         </div>
 
-        {/* Today's Sales Pill & Legend matching Image 1 */}
+        {/* Today's Sales Pill & Legend */}
         <div className={styles.sBar}>
           <div className={styles.sTotal} data-testid="today-sales-pill">
             <span className={styles.sTotalLabel}>مبيعات النهارده</span>
@@ -1469,49 +1557,6 @@ export function SalesView({
               <span>قرب يخلص</span>
             </span>
           </div>
-        </div>
-
-        {/* Offers and the multi-item invoice: two small controls, opened in sheets */}
-        <div className={styles.salesTools}>
-          {activePromotions.length > 0 && (
-            <Button
-              kind="ghost"
-              size="sm"
-              icon="sparkle"
-              data-testid="promos-toggle"
-              onClick={() => setPromosOpen(true)}
-            >
-              {t("invoice.promos")} ({activePromotions.length})
-            </Button>
-          )}
-          {!creditCustomer && (
-            <Button
-              kind={cartMode ? "primary" : "ghost"}
-              size="sm"
-              icon="plus"
-              data-testid="cart-toggle"
-              aria-pressed={cartMode}
-              onClick={() => setCartMode((v) => !v)}
-            >
-              {t("invoice.cartToggle")}
-              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
-            </Button>
-          )}
-          {/* The credit-sale entry point: the customer first, then the items */}
-          <Button
-            kind={creditCustomer ? "primary" : "ghost"}
-            size="sm"
-            icon="users"
-            data-testid="credit-start"
-            aria-pressed={!!creditCustomer}
-            onClick={() =>
-              creditCustomer ? setCartOpen(true) : setCreditFormOpen(true)
-            }
-          >
-            {creditCustomer
-              ? t("credit.sessionLabel", { name: creditCustomer.name })
-              : t("credit.start")}
-          </Button>
         </div>
 
         {/* Product & Services Tiles Grid matching Image 1 */}

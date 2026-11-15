@@ -357,47 +357,32 @@ export function HomeView({
     );
   }
 
+  const hasProducts = inventory.length > 0;
+
   // ─── Dashboard card-grid view ───
   return (
     <div className={styles.page} data-testid="page-home" dir="rtl">
-      {/* Welcome row with action buttons */}
-      <div className={styles.welcome}>
-        <span className={styles.welcomeText}>{t("home.welcome")}</span>
-        <div className={styles.welcomeActions}>
-          {onOpenAlerts && (
-            <button
-              type="button"
-              className={styles.actionBtn}
-              onClick={onOpenAlerts}
-              aria-label={t("home.notifications")}
-              title={t("home.notifications")}
-            >
-              <Icon n="bell" s={16} />
-              <span>{t("home.notifications")}</span>
-              {alertCount > 0 && (
-                <span className={styles.actionBadge}>
-                  {alertCount > 99 ? "99+" : alertCount}
-                </span>
-              )}
-            </button>
-          )}
-          <button
-            type="button"
-            className={styles.actionBtn}
-            onClick={() => onNavigate("sales")}
-            aria-label={t("home.cashDrawer")}
-            title={t("home.cashDrawer")}
-          >
-            <Icon n="wallet" s={16} />
-            <span>{t("home.cashDrawer")}</span>
-          </button>
-        </div>
-      </div>
+      {/* Centered greeting */}
+      <p className={styles.greeting}>أهلاً بيك 👋</p>
 
-      {/* Today's KPI cards */}
+      {/* Onboarding banner when no products */}
+      {!hasProducts && (
+        <button
+          type="button"
+          className={styles.onboardBanner}
+          onClick={() => onNavigate("products")}
+        >
+          <span className={styles.onboardIcon}>🚀</span>
+          <span className={styles.onboardText}>
+            ابدأ بإضافة أول منتج عشان تبدأ تبيع
+          </span>
+        </button>
+      )}
+
+      {/* Today's KPI cards with emoji labels */}
       <div className={styles.kpiRow}>
         <div className={styles.kpiCard}>
-          <small>{t("home.soldToday")}</small>
+          <small>💵 {t("home.soldToday")}</small>
           <b>
             {reportLoading ? (
               <Skeleton width={60} height={20} />
@@ -409,7 +394,7 @@ export function HomeView({
           </b>
         </div>
         <div className={styles.kpiCard}>
-          <small>{t("home.profitToday")}</small>
+          <small>📈 {t("home.profitToday")}</small>
           <b>
             {reportLoading ? (
               <Skeleton width={60} height={20} />
@@ -422,15 +407,13 @@ export function HomeView({
         </div>
       </div>
 
-      {/* Action cards grid */}
+      {/* Action cards grid — all dark green */}
       <div className={styles.grid}>
-        {/* Row 1: dark green */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
           onClick={() => onNavigate("sales")}
         >
-          <span className={styles.cardBadge}>٢</span>
           <span className={styles.cardIcon}>🛒</span>
           <span className={styles.cardLabel}>{t("home.sell")}</span>
         </button>
@@ -439,12 +422,9 @@ export function HomeView({
           className={`${styles.card} ${styles.cardDark}`}
           onClick={() => onNavigate("stock")}
         >
-          <span className={styles.cardBadge}>١</span>
           <span className={styles.cardIcon}>📦</span>
           <span className={styles.cardLabel}>{t("home.addStock")}</span>
         </button>
-
-        {/* Row 2: dark green */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
@@ -458,12 +438,13 @@ export function HomeView({
           className={`${styles.card} ${styles.cardDark}`}
           onClick={() => onNavigate("expenses")}
         >
-          <span className={styles.cardBadge}>٣</span>
           <span className={styles.cardIcon}>💰</span>
           <span className={styles.cardLabel}>{t("home.expenses")}</span>
         </button>
+      </div>
 
-        {/* Row 3: light */}
+      {/* Secondary shortcuts */}
+      <div className={styles.grid}>
         <button
           type="button"
           className={`${styles.card} ${styles.cardLight}`}
@@ -475,24 +456,6 @@ export function HomeView({
         <button
           type="button"
           className={`${styles.card} ${styles.cardLight}`}
-          onClick={() => onNavigate("alerts")}
-        >
-          <span className={styles.cardIcon}>💳</span>
-          <span className={styles.cardLabel}>{t("home.walletsMachines")}</span>
-        </button>
-
-        {/* Row 4: gold/beige */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardGold}`}
-          onClick={() => onNavigate("ai")}
-        >
-          <span className={styles.cardIcon}>💬</span>
-          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardGold}`}
           onClick={() => setView("inventory")}
         >
           <span className={styles.cardIcon}>📊</span>

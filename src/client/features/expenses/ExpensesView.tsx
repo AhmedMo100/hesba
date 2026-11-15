@@ -126,7 +126,6 @@ export function ExpensesView() {
   const [amountStr, setAmountStr] = useState("");
   const [noteStr, setNoteStr] = useState("");
   const [dateStr, setDateStr] = useState(getTodayCairoDateString());
-  const [showExtra, setShowExtra] = useState(false);
 
   const [period, setPeriod] = useState<ExpensePeriod>("today");
   const [customFrom, setCustomFrom] = useState(getTodayCairoDateString());
@@ -241,7 +240,7 @@ export function ExpensesView() {
         payload.note = noteStr.trim();
       }
 
-      if (showExtra && dateStr && dateStr !== getTodayCairoDateString()) {
+      if (dateStr && dateStr !== getTodayCairoDateString()) {
         payload.spentAt = dateStr;
       }
 
@@ -258,10 +257,8 @@ export function ExpensesView() {
       }
 
       expenseOp.reset();
-      // Reset input fields
       setAmountStr("");
       setNoteStr("");
-      setShowExtra(false);
 
       // Refresh list
       await reloadExpenses();
@@ -360,48 +357,81 @@ export function ExpensesView() {
               </button>
             </div>
 
-            {/* Expandable Link for Note & Date */}
-            <button
-              type="button"
-              className={styles.noteToggle}
-              onClick={() => setShowExtra((v) => !v)}
-            >
-              {showExtra
-                ? t("pages.expenses.noteLinkClose")
-                : t("pages.expenses.noteLinkOpen")}
-            </button>
+            {/* Quick amount buttons */}
+            <div className={styles.quickAmounts}>
+              {[50, 100, 250].map((val) => (
+                <button
+                  key={val}
+                  type="button"
+                  className={styles.quickAmountBtn}
+                  onClick={() => setAmountStr(String(val))}
+                >
+                  {val}
+                </button>
+              ))}
+            </div>
 
-            {/* Expanded Fields */}
-            {showExtra && (
-              <div className={styles.extraFields}>
-                <div className={styles.fieldItem}>
-                  <label className={styles.fieldLabel}>
-                    {t("pages.expenses.noteLabel")}
-                  </label>
-                  <input
-                    type="text"
-                    value={noteStr}
-                    placeholder={t("pages.expenses.notePlaceholder")}
-                    onChange={(e) => setNoteStr(e.target.value)}
-                    className={styles.textInput}
-                  />
-                </div>
-                <div className={styles.fieldItem}>
-                  <label className={styles.fieldLabel}>
-                    {t("pages.expenses.dayLabel")}
-                  </label>
-                  <input
-                    type="date"
-                    value={dateStr}
-                    max={getTodayCairoDateString()}
-                    onChange={(e) =>
-                      setDateStr(e.target.value || getTodayCairoDateString())
-                    }
-                    className={styles.textInput}
-                  />
-                </div>
+            {/* Note field — always visible */}
+            <div className={styles.fieldItem}>
+              <label className={styles.fieldLabel}>
+                {t("pages.expenses.noteLabel")}
+              </label>
+              <input
+                type="text"
+                value={noteStr}
+                placeholder={t("pages.expenses.notePlaceholder")}
+                onChange={(e) => setNoteStr(e.target.value)}
+                className={styles.textInput}
+              />
+            </div>
+
+            {/* Date quick-select */}
+            <div className={styles.fieldItem}>
+              <label className={styles.fieldLabel}>
+                {t("pages.expenses.dayLabel")}
+              </label>
+              <div className={styles.dateQuickRow}>
+                <button
+                  type="button"
+                  className={`${styles.dateQuickBtn} ${dateStr === getTodayCairoDateString() ? styles.dateQuickActive : ""}`}
+                  onClick={() => setDateStr(getTodayCairoDateString())}
+                >
+                  النهارده
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.dateQuickBtn} ${
+                    (() => {
+                      const y = new Date();
+                      y.setDate(y.getDate() - 1);
+                      const yStr = `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`;
+                      return dateStr === yStr;
+                    })()
+                      ? styles.dateQuickActive
+                      : ""
+                  }`}
+                  onClick={() => {
+                    const y = new Date();
+                    y.setDate(y.getDate() - 1);
+                    setDateStr(
+                      `${y.getFullYear()}-${String(y.getMonth() + 1).padStart(2, "0")}-${String(y.getDate()).padStart(2, "0")}`,
+                    );
+                  }}
+                >
+                  امبارح
+                </button>
+                <input
+                  type="date"
+                  value={dateStr}
+                  max={getTodayCairoDateString()}
+                  onChange={(e) =>
+                    setDateStr(e.target.value || getTodayCairoDateString())
+                  }
+                  className={styles.textInput}
+                  style={{ flex: 1, minWidth: 0 }}
+                />
               </div>
-            )}
+            </div>
           </form>
         </div>
 

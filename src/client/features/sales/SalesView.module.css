@@ -9,6 +9,101 @@
   box-sizing: border-box;
 }
 
+/* Mode Tabs (فاتورة / آجل / مرتجع) */
+.modeTabs {
+  display: flex;
+  gap: 6px;
+  background: var(--sf);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 4px;
+}
+
+.modeTab {
+  flex: 1;
+  padding: 10px 6px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--ink2);
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+  transition: all 0.12s ease;
+  font-family: inherit;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.modeTabActive {
+  background: var(--br);
+  color: #fff;
+  box-shadow: 0 1px 4px rgba(63, 89, 55, 0.2);
+}
+
+/* Category Tabs (المنتجات / العروض / الخدمات) */
+.catTabs {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding: 2px 0;
+}
+
+.catTabs::-webkit-scrollbar {
+  display: none;
+}
+
+.catTab {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 40px;
+  white-space: nowrap;
+  font-family: inherit;
+  transition: all 0.12s ease;
+}
+
+.catTab:hover {
+  border-color: var(--ink2);
+}
+
+.catTabActive {
+  background: var(--br);
+  color: #fff;
+  border-color: var(--br);
+}
+
+/* Barcode Scan Button */
+.barcodeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px 16px;
+  border-radius: 14px;
+  border: 1.5px solid var(--yelLine, #d9a92e);
+  background: var(--yelBg, #f6eac4);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  min-height: 48px;
+  font-family: inherit;
+  transition: transform 0.12s;
+}
+
+.barcodeBtn:active {
+  transform: scale(0.97);
+}
+
 /* Search Bar Wrapper */
 .searchWrapper {
   width: 100%;
