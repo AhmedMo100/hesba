@@ -56,6 +56,7 @@ beforeAll(async () => {
     await f.sql`SELECT scanner_daily_default FROM ai_platform_settings WHERE id = 1`;
   savedDaily = s!.scanner_daily_default as number;
   await f.sql`UPDATE ai_platform_settings SET scanner_rpm = 10000, shop_rpm = 1000 WHERE id = 1`;
+  await f.sql`DELETE FROM ai_usage_events`;
   await f.sql`DELETE FROM ai_provider_health`;
   await f.sql`DELETE FROM ai_capacity_minutes`;
   invalidateAiSettingsCache();
