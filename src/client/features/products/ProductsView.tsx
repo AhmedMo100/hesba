@@ -45,13 +45,13 @@ interface PriceBoxProps {
   sell: number;
 }
 
-function fmtMoney(piasters: number) {
-  if (!piasters || piasters <= 0) return "—";
-  const val = piasters / 100;
-  return (Math.round(val * 100) / 100).toLocaleString("en-US", {
-    maximumFractionDigits: 2,
-  });
-}
+import {
+  fmtMoney,
+  sandwichSubtitle as sandwichSubtitlePure,
+  isWeightProduct,
+  packCount,
+  getServiceNature,
+} from "./products.logic";
 
 function PriceBox({ label, buy, sell }: PriceBoxProps) {
   const buyFormatted = fmtMoney(buy);
@@ -119,20 +119,8 @@ function SandwichPriceBox({
 }
 
 function sandwichSubtitle(sandwich: Sandwich | undefined): string {
-  if (!sandwich) return t("sandwich.category");
-  return `${t("sandwich.ingredientsCount", {
-    count: sandwich.ingredients.length,
-  })} · ${t("sandwich.canMake", { count: sandwich.availableCount })}`;
+  return sandwichSubtitlePure(sandwich, t);
 }
-
-const isWeightProduct = (p: StoreProductItem) =>
-  p.unit === "weight" || p.unit === "kg" || p.unit === "g";
-
-const packCount = (p: StoreProductItem) => {
-  if (isWeightProduct(p)) return 0;
-  const n = p.variants?.[0]?.pack_qty;
-  return n && n > 1 ? n : 0;
-};
 
 function getBrandBadge(p: StoreProductItem) {
   const text = (p.brand_name || p.name_ar).toLowerCase();
@@ -182,24 +170,6 @@ function getBrandBadge(p: StoreProductItem) {
   return { name: p.brand_name || "خدمة عامة", className: styles.brandUtility };
 }
 
-function getServiceNature(p: StoreProductItem) {
-  if (p.category === "كروت شحن" || p.category === "كروت مرافق") {
-    return { label: "كارت فيزيائي (مخزون)", isStock: true };
-  }
-  if (p.category === "فواتير إنترنت") {
-    return { label: "دفع فاتورة رسمية", isStock: false };
-  }
-  if (p.category === "خدمات مرافق") {
-    return { label: "شحن كارت ذكي (NFC)", isStock: false };
-  }
-  if (p.category === "تحويل أموال") {
-    return { label: "تحويل ومحافظ نقدية", isStock: false };
-  }
-  if (p.category === "شحن رصيد") {
-    return { label: "شحن رصيد مباشر", isStock: false };
-  }
-  return { label: "خدمة رقمية", isStock: false };
-}
 
 export function ProductsView() {
   const [tab, setTab] = useState<"products" | "services">("products");

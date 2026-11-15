@@ -58,12 +58,17 @@ export function normalizePhone(v: string): string {
 export async function registerUserWithPassword(rawInput: SignupInput) {
   const data = signupInputSchema.parse(rawInput);
   const normalizedPhone = normalizePhone(data.phone);
-  const normalizedEmail = data.email.trim().toLowerCase();
+  const normalizedEmail = data.email?.trim().toLowerCase() || null;
+
+  const orConditions: { phone?: string; email?: string }[] = [
+    { phone: normalizedPhone },
+  ];
+  if (normalizedEmail) {
+    orConditions.push({ email: normalizedEmail });
+  }
 
   const existing = await prisma.user.findFirst({
-    where: {
-      OR: [{ phone: normalizedPhone }, { email: normalizedEmail }],
-    },
+    where: { OR: orConditions },
   });
 
   if (existing) {
@@ -109,7 +114,7 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
           id: userId,
           name: data.ownerName.trim(),
           phone: normalizedPhone,
-          email: normalizedEmail,
+          email: normalizedEmail ?? "",
           passwordHash: hashedPassword,
         },
       });

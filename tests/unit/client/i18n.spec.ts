@@ -20,16 +20,14 @@ describe("i18n and formatting utilities", () => {
   });
 
   it("contains clean marketing copy without demo version claims in auth strings", () => {
-    expect(t("auth.loginSub")).toBe(
-      "أهلاً بعودتك، خلّي إدارة محلك أسهل مع حِسبة.",
-    );
+    expect(t("auth.loginSub")).toBe("حساب محلك في جيبك");
     expect(t("auth.signupSub")).toBe(
       "ابدأ تنظيم حسابات محلك ومخزونه مع حِسبة.",
     );
     expect(t("auth.forgotPasswordSub")).toBe(
       "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
     );
-    expect(t("auth.loginPasswordPlaceholder")).toBe("كلمة السر");
+    expect(t("auth.loginPasswordPlaceholder")).toBe("••••••");
     expect(t("auth.passwordHint")).toBe(
       "12 حرفًا على الأقل، ويشمل حرفًا ورقمًا، مثال: Cairo2026Pass",
     );

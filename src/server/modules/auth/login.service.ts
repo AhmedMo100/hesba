@@ -16,18 +16,22 @@ const MAX_LOGIN_ATTEMPTS = 5;
 const MAX_LOGIN_ATTEMPTS_PER_IP = 15;
 const LOGIN_LOCKOUT_MS = 15 * 60 * 1000; // 15 minutes
 
+function isEmailIdentifier(identifier: string): boolean {
+  return identifier.includes("@");
+}
+
 /**
- * Phone + password login.
+ * Phone or email + password login.
  *
- * Flow: lockout check (5 FAILED attempts per phone, 15 per IP, per 15 minutes; successes do
- * not count and clear the phone, QA-24) → look up the user by
- * normalized phone → verify the Argon2id hash → pick the user's oldest store membership →
+ * Flow: lockout check (5 FAILED attempts per identifier, 15 per IP, per 15 minutes; successes
+ * do not count and clear the identifier, QA-24) → look up the user by normalized phone or
+ * lowercased email → verify the Argon2id hash → pick the user's oldest store membership →
  * register a new device row → create a session for that store.
  *
- * Unknown phones and wrong passwords return the same message so the response does not reveal
- * which phones have accounts.
+ * Unknown identifiers and wrong passwords return the same message so the response does not
+ * reveal which phones/emails have accounts.
  *
- * @param rawInput - Phone and password (validated with `loginInputSchema`).
+ * @param rawInput - Identifier (phone or email) and password (validated with `loginInputSchema`).
  * @param clientIp - Used only for the per-IP rate limit, when known.
  * @param deviceLabel - Label stored on the device row created for this login.
  * @returns The raw session token (for the cookie) plus the user and store summary.
@@ -40,22 +44,23 @@ export async function loginWithPassword(
   deviceLabel = "جهاز تسجيل الدخول",
 ) {
   const data = loginInputSchema.parse(rawInput);
-  const normalizedPhone = normalizePhone(data.phone);
+  const isEmail = isEmailIdentifier(data.identifier);
+  const normalizedIdentifier = isEmail
+    ? data.identifier.trim().toLowerCase()
+    : normalizePhone(data.identifier);
 
-  // Lockout counts FAILED attempts only (QA-24): 5 per phone and 15 per IP in 15 minutes.
-  // Unknown phones and wrong passwords count the same, so the lockout reveals nothing about
-  // which phones have accounts. A locked request is a 429 with Retry-After.
-  const phoneAttempt = authRateLimiter.reserveAttempt(
-    `login-phone:${normalizedPhone}`,
+  const rateLimitKey = `login-id:${normalizedIdentifier}`;
+  const identifierAttempt = authRateLimiter.reserveAttempt(
+    rateLimitKey,
     MAX_LOGIN_ATTEMPTS,
     LOGIN_LOCKOUT_MS,
   );
-  if (phoneAttempt.locked) {
-    logger.warn("Login locked out for a phone after repeated failures");
+  if (identifierAttempt.locked) {
+    logger.warn("Login locked out for an identifier after repeated failures");
     throw AppError.rateLimited(
       "محاولات دخول غلط كتير. استنى شوية وجرب تاني.",
       undefined,
-      phoneAttempt.retryAfterMs / 1000,
+      identifierAttempt.retryAfterMs / 1000,
     );
   }
   const ipAttempt = clientIp
@@ -66,7 +71,7 @@ export async function loginWithPassword(
       )
     : null;
   if (ipAttempt?.locked) {
-    phoneAttempt.release(); // this phone did not get a try
+    identifierAttempt.release();
     logger.warn("Login locked out for an IP after repeated failures");
     throw AppError.rateLimited(
       "محاولات دخول غلط كتير من الجهاز ده. استنى شوية وجرب تاني.",
@@ -75,14 +80,14 @@ export async function loginWithPassword(
     );
   }
 
-  const user = await prisma.user.findUnique({
-    where: { phone: normalizedPhone },
-  });
+  const user = isEmail
+    ? await prisma.user.findFirst({ where: { email: normalizedIdentifier } })
+    : await prisma.user.findUnique({ where: { phone: normalizedIdentifier } });
 
   if (!user || !user.passwordHash) {
     await dummyVerifyTimingProtection();
     logger.warn("Failed login attempt: user not found or no password");
-    throw AppError.unauthorized("رقم الموبايل أو كلمة السر غير صحيحة");
+    throw AppError.unauthorized("البيانات غير صحيحة");
   }
 
   const isValidPassword = await verifyPassword(
@@ -92,11 +97,10 @@ export async function loginWithPassword(
 
   if (!isValidPassword) {
     logger.warn({ userId: user.id }, "Failed login attempt: invalid password");
-    throw AppError.unauthorized("رقم الموبايل أو كلمة السر غير صحيحة");
+    throw AppError.unauthorized("البيانات غير صحيحة");
   }
 
-  // A successful login does not count, and clears this phone's failures.
-  authRateLimiter.reset(`login-phone:${normalizedPhone}`);
+  authRateLimiter.reset(rateLimitKey);
   if (ipAttempt && !ipAttempt.locked) ipAttempt.release();
 
   // Find user's primary store membership under app.user_id context

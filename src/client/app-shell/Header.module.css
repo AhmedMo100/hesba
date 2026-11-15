@@ -21,11 +21,39 @@
   min-width: 0;
 }
 
+.spacer {
+  flex: 1;
+}
+
 .rightGroup {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: none;
+}
+
+.iconBtn {
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink2);
+  cursor: pointer;
+  border: 0;
+  background: none;
+  transition:
+    background 0.15s,
+    transform 0.12s;
+}
+
+.iconBtn:hover {
+  background: var(--sf2);
+}
+
+.iconBtn:active {
+  transform: scale(0.92);
 }
 
 @media (max-width: 380px) {

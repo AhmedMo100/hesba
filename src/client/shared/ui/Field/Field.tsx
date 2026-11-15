@@ -54,8 +54,9 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
   className?: string;
 }
 
-export function Input({ className = "", ...rest }: InputProps) {
-  return <input className={`${styles.input} ${className}`} {...rest} />;
+export function Input({ className = "", type, ...rest }: InputProps) {
+  const dir = type === "password" ? "ltr" : "auto";
+  return <input className={`${styles.input} ${className}`} type={type} dir={dir} {...rest} />;
 }
 
 export interface NumProps extends Omit<
@@ -88,6 +89,7 @@ export function Num({
         type="text"
         inputMode="decimal"
         autoComplete="off"
+        dir="ltr"
         className={`${styles.numInput} ${className}`}
         value={value}
         placeholder={placeholder}

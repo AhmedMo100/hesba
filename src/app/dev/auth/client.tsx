@@ -115,12 +115,8 @@ export default function DevAuthClient() {
         </div>
 
         <div style={{ paddingTop: "56px" }}>
-          {screen === "signup-1" && (
-            <AuthScreen initialMode="signup" initialStep={0} />
-          )}
-
-          {screen === "signup-2" && (
-            <AuthScreen initialMode="signup" initialStep={1} />
+          {(screen === "signup-1" || screen === "signup-2") && (
+            <AuthScreen initialMode="signup" />
           )}
 
           {screen === "login" && <AuthScreen initialMode="login" />}
@@ -144,9 +140,9 @@ export default function DevAuthClient() {
           {screen === "error-feedback" && (
             <AuthScreen
               initialMode="login"
-              initialError="رقم الموبايل أو كلمة السر غير صحيحة. تأكد من البيانات وحاول تاني."
+              initialError="البيانات غير صحيحة"
               initialFieldErrors={{
-                loginPhone: "رقم موبايل مصري صحيح (01xxxxxxxxx)",
+                loginIdentifier: "رقم موبايل مصري صحيح (01xxxxxxxxx)",
               }}
             />
           )}

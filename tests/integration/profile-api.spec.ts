@@ -195,12 +195,12 @@ describe("QA-11 — Profile API", () => {
 
     // Login looks users up by the normalized phone: both local and +20 forms work.
     const local = await loginWithPassword({
-      phone: `0101${digits}`,
+      identifier: `0101${digits}`,
       password,
     });
     expect(local.user.id).toBe(ownerId);
     const intl = await loginWithPassword({
-      phone: `+20101${digits}`,
+      identifier: `+20101${digits}`,
       password,
     });
     expect(intl.user.id).toBe(ownerId);
