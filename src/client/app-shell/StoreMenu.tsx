@@ -31,6 +31,8 @@ export interface StoreMenuProps {
   onLogout: () => void;
   /** Signed in (a session or a saved identity): account items are shown. */
   signedIn: boolean;
+  /** When set, the trigger shows this page title instead of the app name. */
+  pageTitle?: string;
 }
 
 function MenuBox({ children }: { children: React.ReactNode }) {
@@ -53,6 +55,7 @@ export function StoreMenu({
   onOpenProfile,
   onLogout,
   signedIn,
+  pageTitle,
 }: StoreMenuProps) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -86,7 +89,9 @@ export function StoreMenu({
         onClick={() => setOpen((o) => !o)}
       >
         <span className={styles.nameGroup}>
-          <span className={styles.appName}>{t("common.appName")}</span>
+          <span className={styles.appName}>
+            {pageTitle || t("common.appName")}
+          </span>
           <span className={styles.storeName} data-testid="store-name">
             {displayName}
           </span>

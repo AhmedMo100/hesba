@@ -8,7 +8,7 @@ import React, {
   useMemo,
   useRef,
 } from "react";
-import { Icon, useToast } from "@/client/shared/ui";
+import { Icon, Modal, useToast } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
@@ -23,7 +23,7 @@ import { ProductFormModal } from "../products/ProductFormModal";
 import { resolveSellingMethod, type StockProductOption } from "./AddStockModal";
 import styles from "./StockView.module.css";
 
-type Step = "landing" | "manual" | "scan" | "quantity" | "confirm";
+type Overlay = null | "manual" | "scan" | "quantity" | "confirm";
 
 function physicalOnly(
   items: StockInventoryItem[] | undefined,
@@ -66,15 +66,11 @@ function getUnitWord(u?: string, isCard?: boolean): string {
   return "قطعة";
 }
 
-interface StockViewProps {
-  onBack?: () => void;
-}
-
-export function StockView({ onBack }: StockViewProps) {
+export function StockView() {
   const toast = useToast();
   useAuth();
 
-  const [step, setStep] = useState<Step>("landing");
+  const [overlay, setOverlay] = useState<Overlay>(null);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [storeProducts, setStoreProducts] = useState<StoreProductItem[]>([]);
 
@@ -226,7 +222,6 @@ export function StockView({ onBack }: StockViewProps) {
       }
     });
 
-    // Merge extra options (from inline product creation)
     extraOptions.forEach((opt) => {
       if (!seenIds.has(opt.variantId) && !seenIds.has(opt.productId)) {
         seenIds.add(opt.variantId);
@@ -234,7 +229,6 @@ export function StockView({ onBack }: StockViewProps) {
       }
     });
 
-    // Sort: products without barcode first (manual entry products)
     return options;
   }, [inventory, storeProducts, extraOptions]);
 
@@ -346,7 +340,7 @@ export function StockView({ onBack }: StockViewProps) {
 
   // ─── Select product and go to quantity step ───
 
-  const selectProduct = (opt: StockProductOption) => {
+  const selectProduct = useCallback((opt: StockProductOption) => {
     setSelectedOption(opt);
     const method = resolveSellingMethod(opt.unit);
     const w = method === "weight";
@@ -354,8 +348,7 @@ export function StockView({ onBack }: StockViewProps) {
       setWeightInput("1");
     } else {
       setQty(1);
-      const pack = Math.max(1, opt.packQty || 1);
-      setUnitMode(pack > 1 ? "piece" : "piece");
+      setUnitMode("piece");
     }
     setCostInput("");
     setCostTouched(false);
@@ -364,10 +357,10 @@ export function StockView({ onBack }: StockViewProps) {
     setNoExpiry(false);
     setActivePreset(null);
     setSubmitError(null);
-    setStep("quantity");
-  };
+    setOverlay("quantity");
+  }, []);
 
-  // ─── Camera stop (declared first so lookupBarcode can use it) ───
+  // ─── Camera stop ───
 
   const stopScanner = useCallback(() => {
     if (scanIntervalRef.current) {
@@ -390,7 +383,6 @@ export function StockView({ onBack }: StockViewProps) {
       const trimmed = code.trim();
       if (!trimmed) return;
 
-      // Debounce duplicate scans within 2 seconds
       const now = Date.now();
       if (
         trimmed === lastScannedRef.current &&
@@ -401,7 +393,6 @@ export function StockView({ onBack }: StockViewProps) {
       lastScannedRef.current = trimmed;
       lastScanTimeRef.current = now;
 
-      // Search products by barcode
       const found = storeProducts.find(
         (p) =>
           p.barcode?.trim() === trimmed ||
@@ -439,7 +430,7 @@ export function StockView({ onBack }: StockViewProps) {
         setScanError(`الباركود ${trimmed} مش موجود في منتجاتك`);
       }
     },
-    [storeProducts, inventory, toast, stopScanner],
+    [storeProducts, inventory, toast, stopScanner, selectProduct],
   );
 
   // ─── Camera barcode scanner ───
@@ -502,29 +493,27 @@ export function StockView({ onBack }: StockViewProps) {
     }
   }, [lookupBarcode]);
 
-  // Cleanup scanner on unmount
   useEffect(() => {
     return () => {
       stopScanner();
     };
   }, [stopScanner]);
 
-  // Start/stop camera when entering/leaving scan step
-  useEffect(() => {
-    if (step === "scan") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- camera init is an external system interaction
-      void startScanner();
-    } else {
-      stopScanner();
-    }
-  }, [step, startScanner, stopScanner]);
+  const openScan = useCallback(() => {
+    setOverlay("scan");
+    void startScanner();
+  }, [startScanner]);
+
+  const closeScan = useCallback(() => {
+    stopScanner();
+    setOverlay(null);
+  }, [stopScanner]);
 
   // Physical barcode scanner: listen for rapid keystrokes ending with Enter
   useEffect(() => {
-    if (step !== "landing" && step !== "manual" && step !== "scan") return;
+    if (overlay !== null && overlay !== "manual" && overlay !== "scan") return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in an input
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
@@ -548,7 +537,7 @@ export function StockView({ onBack }: StockViewProps) {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [step, lookupBarcode]);
+  }, [overlay, lookupBarcode]);
 
   // ─── Submit ───
 
@@ -569,7 +558,6 @@ export function StockView({ onBack }: StockViewProps) {
           ),
         );
 
-      // If the product was just created from catalog and doesn't have a real UUID yet
       if (
         targetVariantId.startsWith("temp_") ||
         targetVariantId.startsWith("created_") ||
@@ -647,9 +635,8 @@ export function StockView({ onBack }: StockViewProps) {
       });
       void loadData();
 
-      // Reset to landing
       setSelectedOption(null);
-      setStep("landing");
+      setOverlay(null);
       setQty(1);
       setCostInput("");
       setCostTouched(false);
@@ -658,7 +645,7 @@ export function StockView({ onBack }: StockViewProps) {
       setActivePreset(null);
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : "حدث خطأ غير متوقع");
-      setStep("quantity");
+      setOverlay("quantity");
     } finally {
       setIsSubmitting(false);
     }
@@ -666,224 +653,185 @@ export function StockView({ onBack }: StockViewProps) {
 
   // ─── Render ───
 
-  // Scanner overlay
-  if (step === "scan") {
-    return (
-      <div className={styles.scannerOverlay} data-testid="barcode-scanner">
-        <div className={styles.scannerHeader}>
-          <span className={styles.scannerTitle}>امسح الباركود</span>
-          <button
-            type="button"
-            className={styles.scannerClose}
-            onClick={() => {
-              stopScanner();
-              setStep("landing");
-            }}
-          >
-            إغلاق ✕
-          </button>
-        </div>
-        <div className={styles.scannerBody}>
-          <video
-            ref={videoRef}
-            className={styles.scannerVideo}
-            playsInline
-            muted
-          />
-          {scanStatus && <p className={styles.scannerStatus}>{scanStatus}</p>}
-          {scanError && <p className={styles.scannerError}>{scanError}</p>}
-          <div className={styles.scannerManualRow}>
-            <input
-              type="text"
-              className={styles.scannerManualInput}
-              placeholder="أو اكتب الباركود هنا..."
-              value={barcodeInput}
-              onChange={(e) => {
-                setBarcodeInput(e.target.value);
-                setScanError("");
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  lookupBarcode(barcodeInput);
-                }
-              }}
-              dir="ltr"
-            />
-            <button
-              type="button"
-              className={styles.scannerSearchBtn}
-              onClick={() => lookupBarcode(barcodeInput)}
-            >
-              ابحث
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const stepBackAction =
-    step === "landing"
-      ? onBack
-      : step === "manual"
-        ? () => setStep("landing")
-        : step === "quantity"
-          ? () => setStep("manual")
-          : step === "confirm"
-            ? () => setStep("quantity")
-            : onBack;
-
   return (
     <div className={styles.view} data-testid="page-stock" dir="rtl">
-      {/* Back navigation */}
-      {stepBackAction && (
-        <button
-          type="button"
-          className={styles.backLink}
-          onClick={stepBackAction}
-        >
-          <Icon n="left" s={16} />
-          رجوع
-        </button>
-      )}
+      {/* Landing — always visible */}
+      <h2 className={styles.landingTitle}>دخلت بضاعة جديدة؟</h2>
 
-      {/* Step 1: Landing — choice between barcode and manual */}
-      {step === "landing" && (
-        <>
-          <h2 className={styles.landingTitle}>دخلت بضاعة جديدة؟</h2>
+      <button
+        type="button"
+        className={styles.choiceCard}
+        onClick={openScan}
+        data-testid="stock-scan-btn"
+      >
+        <span className={styles.choiceLabel}>امسح الباركود</span>
+        <span className={styles.choiceIconBox}>
+          <span className={styles.choiceEmoji}>📷</span>
+        </span>
+      </button>
 
-          <button
-            type="button"
-            className={styles.choiceCard}
-            onClick={() => setStep("scan")}
-            data-testid="stock-scan-btn"
-          >
-            <span className={styles.choiceLabel}>امسح الباركود</span>
-            <span className={styles.choiceIconBox}>
-              <span className={styles.choiceEmoji}>📷</span>
-            </span>
-          </button>
+      <button
+        type="button"
+        className={styles.choiceCard}
+        onClick={() => setOverlay("manual")}
+        data-testid="stock-manual-btn"
+      >
+        <span className={styles.choiceLabel}>تسجيل يدوي</span>
+        <span className={styles.choiceIconBox}>
+          <span className={styles.choiceEmoji}>✍️</span>
+        </span>
+      </button>
 
-          <button
-            type="button"
-            className={styles.choiceCard}
-            onClick={() => setStep("manual")}
-            data-testid="stock-manual-btn"
-          >
-            <span className={styles.choiceLabel}>تسجيل يدوي</span>
-            <span className={styles.choiceIconBox}>
-              <span className={styles.choiceEmoji}>✍️</span>
-            </span>
-          </button>
-        </>
-      )}
-
-      {/* Step 2: Manual product selection */}
-      {step === "manual" && (
-        <>
-          <h3 className={styles.stepTitle}>تسجيل يدوي</h3>
-          <p className={styles.fieldLabel}>اختار المنتج</p>
-
-          {/* Product dropdown */}
-          <button
-            type="button"
-            className={styles.selectBtn}
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            aria-haspopup="listbox"
-            aria-expanded={dropdownOpen}
-          >
-            <span className={styles.selectChevron}>
-              <Icon n="down" s={16} />
-            </span>
-            <span>
-              {selectedOption
-                ? `${selectedOption.productName}${selectedOption.flavor ? ` (${selectedOption.flavor})` : ""}`
-                : "اختار المنتج"}
-            </span>
-          </button>
-
-          {dropdownOpen && (
-            <div className={styles.dropdownList}>
-              <div className={styles.dropdownSearch}>
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="دوّر على المنتج..."
-                  autoFocus
-                />
-              </div>
-              {filteredOptions.length === 0 ? (
-                <div className={styles.dropdownEmpty}>مفيش منتج بالاسم ده</div>
-              ) : (
-                filteredOptions.map((opt) => (
-                  <button
-                    key={opt.variantId}
-                    type="button"
-                    className={styles.dropdownItem}
-                    onClick={() => {
-                      setSelectedOption(opt);
-                      setDropdownOpen(false);
-                      setSearchQuery("");
-                    }}
-                  >
-                    <span className={styles.dropdownItemStock}>
-                      {formatOptionStock(opt)}
-                    </span>
-                    <span>
-                      {opt.productName}
-                      {opt.flavor ? ` (${opt.flavor})` : ""}
-                    </span>
-                  </button>
-                ))
-              )}
+      {/* Scanner Bottom Sheet */}
+      {overlay === "scan" && (
+        <Modal title="امسح الباركود" onClose={closeScan}>
+          <div className={styles.scannerBody}>
+            <video
+              ref={videoRef}
+              className={styles.scannerVideo}
+              playsInline
+              muted
+            />
+            {scanStatus && <p className={styles.scannerStatus}>{scanStatus}</p>}
+            {scanError && <p className={styles.scannerError}>{scanError}</p>}
+            <div className={styles.scannerManualRow}>
+              <input
+                type="text"
+                className={styles.scannerManualInput}
+                placeholder="أو اكتب الباركود هنا..."
+                value={barcodeInput}
+                onChange={(e) => {
+                  setBarcodeInput(e.target.value);
+                  setScanError("");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    lookupBarcode(barcodeInput);
+                  }
+                }}
+                dir="ltr"
+              />
+              <button
+                type="button"
+                className={styles.scannerSearchBtn}
+                onClick={() => lookupBarcode(barcodeInput)}
+              >
+                ابحث
+              </button>
             </div>
-          )}
-
-          <p className={styles.hintText}>
-            المنتجات اللي من غير باركود بتبان الأول
-          </p>
-
-          <button
-            type="button"
-            className={styles.continueBtn}
-            disabled={!selectedOption}
-            onClick={() => {
-              if (selectedOption) selectProduct(selectedOption);
-            }}
-          >
-            كمّل ← الكمية
-          </button>
-
-          <button
-            type="button"
-            className={styles.registerBtn}
-            onClick={() => setShowNewProduct(true)}
-          >
-            المنتج مش موجود؟ سجّله
-          </button>
-        </>
+          </div>
+        </Modal>
       )}
 
-      {/* Step 3: Quantity entry */}
-      {step === "quantity" && selectedOption && (
-        <>
-          {/* Product info */}
-          <div className={styles.productHeader}>
-            <span className={styles.productName}>
-              {selectedOption.productName}
-            </span>
-            <span className={styles.productEmoji}>🥤</span>
+      {/* Manual selection Bottom Sheet */}
+      {overlay === "manual" && (
+        <Modal title="تسجيل يدوي" onClose={() => setOverlay(null)}>
+          <div className={styles.view}>
+            <p className={styles.fieldLabel}>اختار المنتج</p>
+
+            <button
+              type="button"
+              className={styles.selectBtn}
+              onClick={() => setDropdownOpen(!dropdownOpen)}
+              aria-haspopup="listbox"
+              aria-expanded={dropdownOpen}
+            >
+              <span className={styles.selectChevron}>
+                <Icon n="down" s={16} />
+              </span>
+              <span>
+                {selectedOption
+                  ? `${selectedOption.productName}${selectedOption.flavor ? ` (${selectedOption.flavor})` : ""}`
+                  : "اختار المنتج"}
+              </span>
+            </button>
+
+            {dropdownOpen && (
+              <div className={styles.dropdownList}>
+                <div className={styles.dropdownSearch}>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="دوّر على المنتج..."
+                    autoFocus
+                  />
+                </div>
+                {filteredOptions.length === 0 ? (
+                  <div className={styles.dropdownEmpty}>
+                    مفيش منتج بالاسم ده
+                  </div>
+                ) : (
+                  filteredOptions.map((opt) => (
+                    <button
+                      key={opt.variantId}
+                      type="button"
+                      className={styles.dropdownItem}
+                      onClick={() => {
+                        setSelectedOption(opt);
+                        setDropdownOpen(false);
+                        setSearchQuery("");
+                      }}
+                    >
+                      <span className={styles.dropdownItemStock}>
+                        {formatOptionStock(opt)}
+                      </span>
+                      <span>
+                        {opt.productName}
+                        {opt.flavor ? ` (${opt.flavor})` : ""}
+                      </span>
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+
+            <p className={styles.hintText}>
+              المنتجات اللي من غير باركود بتبان الأول
+            </p>
+
+            <button
+              type="button"
+              className={styles.continueBtn}
+              disabled={!selectedOption}
+              onClick={() => {
+                if (selectedOption) selectProduct(selectedOption);
+              }}
+            >
+              كمّل ← الكمية
+            </button>
+
+            <button
+              type="button"
+              className={styles.registerBtn}
+              onClick={() => setShowNewProduct(true)}
+            >
+              المنتج مش موجود؟ سجّله
+            </button>
           </div>
-          <p className={styles.productStock}>
-            المتاح: {formatOptionStock(selectedOption)}
-          </p>
+        </Modal>
+      )}
 
-          {submitError && <div className={styles.error}>{submitError}</div>}
+      {/* Quantity Bottom Sheet */}
+      {overlay === "quantity" && selectedOption && (
+        <Modal
+          title={selectedOption.productName}
+          onClose={() => setOverlay(null)}
+        >
+          <div className={styles.view}>
+            <div className={styles.productHeader}>
+              <span className={styles.productName}>
+                {selectedOption.productName}
+              </span>
+              <span className={styles.productEmoji}>🥤</span>
+            </div>
+            <p className={styles.productStock}>
+              المتاح: {formatOptionStock(selectedOption)}
+            </p>
 
-          {isWeight ? (
-            /* Weight input */
-            <>
+            {submitError && <div className={styles.error}>{submitError}</div>}
+
+            {isWeight ? (
               <div className={styles.weightRow}>
                 <input
                   type="number"
@@ -897,169 +845,161 @@ export function StockView({ onBack }: StockViewProps) {
                   data-testid="stock-weight"
                 />
               </div>
-            </>
-          ) : (
-            <>
-              {/* Unit toggle: قطعة / كرتونة */}
-              {packQty > 1 && (
-                <div className={styles.unitToggle}>
+            ) : (
+              <>
+                {packQty > 1 && (
+                  <div className={styles.unitToggle}>
+                    <button
+                      type="button"
+                      className={`${styles.unitBtn} ${unitMode === "carton" ? "" : styles.unitBtnActive}`}
+                      onClick={() => setUnitMode("piece")}
+                    >
+                      <span className={styles.unitBtnLabel}>{unitWord}</span>
+                      {regPieceCost > 0 && (
+                        <span className={styles.unitBtnPrice}>
+                          {formatMoney(regPiecePiasters)}
+                        </span>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.unitBtn} ${unitMode === "carton" ? styles.unitBtnActive : ""}`}
+                      onClick={() => setUnitMode("carton")}
+                    >
+                      <span className={styles.unitBtnLabel}>
+                        كرتونة ({packQty})
+                      </span>
+                      {regPieceCost > 0 && (
+                        <span className={styles.unitBtnPrice}>
+                          {formatMoney(Math.round(regPiecePiasters * packQty))}
+                        </span>
+                      )}
+                    </button>
+                  </div>
+                )}
+
+                <div className={styles.stepper}>
                   <button
                     type="button"
-                    className={`${styles.unitBtn} ${unitMode === "carton" ? "" : styles.unitBtnActive}`}
-                    onClick={() => setUnitMode("piece")}
+                    className={styles.stepperBtn}
+                    onClick={() => setQty((v) => v + 1)}
+                    data-testid="stock-qty-plus"
                   >
-                    <span className={styles.unitBtnLabel}>{unitWord}</span>
-                    {regPieceCost > 0 && (
-                      <span className={styles.unitBtnPrice}>
-                        {formatMoney(regPiecePiasters)}
-                      </span>
-                    )}
+                    +
                   </button>
+                  <span className={styles.stepperValue}>
+                    {qty} {unitMode === "carton" ? "كرتونة" : unitWord}
+                  </span>
                   <button
                     type="button"
-                    className={`${styles.unitBtn} ${unitMode === "carton" ? styles.unitBtnActive : ""}`}
-                    onClick={() => setUnitMode("carton")}
+                    className={styles.stepperBtn}
+                    disabled={qty <= 1}
+                    onClick={() => setQty((v) => Math.max(1, v - 1))}
+                    data-testid="stock-qty-minus"
                   >
-                    <span className={styles.unitBtnLabel}>
-                      كرتونة ({packQty})
-                    </span>
-                    {regPieceCost > 0 && (
-                      <span className={styles.unitBtnPrice}>
-                        {formatMoney(Math.round(regPiecePiasters * packQty))}
-                      </span>
-                    )}
+                    −
                   </button>
                 </div>
-              )}
+              </>
+            )}
 
-              {/* Quantity stepper */}
-              <div className={styles.stepper}>
-                <button
-                  type="button"
-                  className={styles.stepperBtn}
-                  onClick={() => setQty((v) => v + 1)}
-                  data-testid="stock-qty-plus"
-                >
-                  +
-                </button>
-                <span className={styles.stepperValue}>
-                  {qty} {unitMode === "carton" ? "كرتونة" : unitWord}
-                </span>
-                <button
-                  type="button"
-                  className={styles.stepperBtn}
-                  disabled={qty <= 1}
-                  onClick={() => setQty((v) => Math.max(1, v - 1))}
-                  data-testid="stock-qty-minus"
-                >
-                  −
-                </button>
-              </div>
-            </>
-          )}
+            <div className={styles.totalRow}>
+              <span className={styles.totalValue}>{totalCostDisplay}</span>
+              <span className={styles.totalLabel}>الإجمالي</span>
+            </div>
 
-          {/* Total row */}
-          <div className={styles.totalRow}>
-            <span className={styles.totalValue}>{totalCostDisplay}</span>
-            <span className={styles.totalLabel}>الإجمالي</span>
-          </div>
+            <hr className={styles.divider} />
 
-          <hr className={styles.divider} />
+            {qtyEquivDisplay && (
+              <p className={styles.qtyEquiv}>{qtyEquivDisplay}</p>
+            )}
 
-          {/* Equivalence */}
-          {qtyEquivDisplay && (
-            <p className={styles.qtyEquiv}>{qtyEquivDisplay}</p>
-          )}
-
-          {/* Production date */}
-          <p className={styles.dateLabel}>تاريخ البداية</p>
-          <input
-            type="date"
-            className={styles.dateInput}
-            value={prodDate}
-            onChange={(e) => setProdDate(e.target.value)}
-          />
-
-          {/* Expiry presets */}
-          <p className={styles.dateLabel}>تاريخ النهاية (اختياري)</p>
-          <div className={styles.presetRow}>
-            {expiryPresets.map((p) => (
-              <button
-                key={p.value}
-                type="button"
-                className={`${styles.presetChip} ${activePreset === p.value ? styles.presetChipActive : ""}`}
-                onClick={() => applyPreset(p.value)}
-              >
-                {p.label}
-              </button>
-            ))}
-          </div>
-
-          {/* Manual expiry date */}
-          {!noExpiry && (
+            <p className={styles.dateLabel}>تاريخ البداية</p>
             <input
               type="date"
               className={styles.dateInput}
-              value={expiry}
-              onChange={(e) => {
-                setExpiry(e.target.value);
-                setActivePreset(null);
-              }}
-              data-testid="stock-expiry"
+              value={prodDate}
+              onChange={(e) => setProdDate(e.target.value)}
             />
-          )}
 
-          {/* Confirm button */}
-          <button
-            type="button"
-            className={styles.confirmBtn}
-            disabled={totalBaseQty <= 0}
-            onClick={() => setStep("confirm")}
-          >
-            تأكيد الدخول
-          </button>
-        </>
+            <p className={styles.dateLabel}>تاريخ النهاية (اختياري)</p>
+            <div className={styles.presetRow}>
+              {expiryPresets.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  className={`${styles.presetChip} ${activePreset === p.value ? styles.presetChipActive : ""}`}
+                  onClick={() => applyPreset(p.value)}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {!noExpiry && (
+              <input
+                type="date"
+                className={styles.dateInput}
+                value={expiry}
+                onChange={(e) => {
+                  setExpiry(e.target.value);
+                  setActivePreset(null);
+                }}
+                data-testid="stock-expiry"
+              />
+            )}
+
+            <button
+              type="button"
+              className={styles.confirmBtn}
+              disabled={totalBaseQty <= 0}
+              onClick={() => setOverlay("confirm")}
+            >
+              تأكيد الدخول
+            </button>
+          </div>
+        </Modal>
       )}
 
-      {/* Step 4: Confirmation */}
-      {step === "confirm" && selectedOption && (
-        <>
-          <h3 className={styles.confirmTitle}>تأكيد الدخول</h3>
+      {/* Confirm Bottom Sheet */}
+      {overlay === "confirm" && selectedOption && (
+        <Modal title="تأكيد الدخول" onClose={() => setOverlay(null)}>
+          <div className={styles.view}>
+            <div className={styles.summaryRow}>
+              <span className={styles.summaryValue}>{qtyDisplay}</span>
+              <span className={styles.summaryLabel}>
+                {selectedOption.productName}
+              </span>
+            </div>
 
-          <div className={styles.summaryRow}>
-            <span className={styles.summaryValue}>{qtyDisplay}</span>
-            <span className={styles.summaryLabel}>
-              {selectedOption.productName}
-            </span>
+            <div className={styles.summaryRow}>
+              <span className={styles.summaryValue}>
+                {noExpiry ? "من غير نهاية" : expiry || "—"}
+              </span>
+              <span className={styles.summaryLabel}>دفعة جديدة</span>
+            </div>
+
+            {submitError && <div className={styles.error}>{submitError}</div>}
+
+            <button
+              type="button"
+              className={styles.confirmBtn}
+              disabled={isSubmitting}
+              onClick={handleSubmit}
+            >
+              {isSubmitting ? "بيتسجّل…" : "تأكيد"}
+            </button>
+
+            <button
+              type="button"
+              className={styles.editBtn}
+              disabled={isSubmitting}
+              onClick={() => setOverlay("quantity")}
+            >
+              تعديل
+            </button>
           </div>
-
-          <div className={styles.summaryRow}>
-            <span className={styles.summaryValue}>
-              {noExpiry ? "من غير نهاية" : expiry || "—"}
-            </span>
-            <span className={styles.summaryLabel}>دفعة جديدة</span>
-          </div>
-
-          {submitError && <div className={styles.error}>{submitError}</div>}
-
-          <button
-            type="button"
-            className={styles.confirmBtn}
-            disabled={isSubmitting}
-            onClick={handleSubmit}
-          >
-            {isSubmitting ? "بيتسجّل…" : "تأكيد"}
-          </button>
-
-          <button
-            type="button"
-            className={styles.editBtn}
-            disabled={isSubmitting}
-            onClick={() => setStep("quantity")}
-          >
-            تعديل
-          </button>
-        </>
+        </Modal>
       )}
 
       {/* New product modal */}

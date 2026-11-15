@@ -38,6 +38,7 @@ const loadExpensesView = () => import("../features/expenses/ExpensesView");
 const loadPeopleView = () => import("../features/people/PeopleView");
 const loadAlertsView = () => import("../features/alerts/AlertsView");
 const loadAiView = () => import("../features/ai/AiView");
+const loadInventoryView = () => import("../features/home/InventoryView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -46,6 +47,7 @@ const ExpensesView = lazy(loadExpensesView);
 const PeopleView = lazy(loadPeopleView);
 const AlertsView = lazy(loadAlertsView);
 const AiView = lazy(loadAiView);
+const InventoryView = lazy(loadInventoryView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -56,6 +58,7 @@ const VALID_ROUTES: NavRoute[] = [
   "people",
   "alerts",
   "ai",
+  "inventory",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -226,6 +229,7 @@ function AppShellInner() {
     loadPeopleView();
     loadAlertsView();
     loadAiView();
+    loadInventoryView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -276,7 +280,7 @@ function AppShellInner() {
       case "sales":
         return <SalesView onNavigate={navigate} />;
       case "stock":
-        return <StockView onBack={() => navigate("home")} />;
+        return <StockView />;
       case "expenses":
         return <ExpensesView />;
       case "people":
@@ -285,6 +289,8 @@ function AppShellInner() {
         return <AlertsView />;
       case "ai":
         return <AiView />;
+      case "inventory":
+        return <InventoryView />;
       default:
         return (
           <HomeView
@@ -395,8 +401,12 @@ function AppShellInner() {
             router.push("/");
           }}
           signedIn={Boolean(session)}
+          route={route}
+          alertCount={alertCount}
+          onOpenAlerts={() => navigate("alerts")}
+          onBack={route !== "home" ? () => navigate("home") : undefined}
         />
-        {route !== "stock" && (
+        {route !== "stock" && effectiveSyncState !== "synced" && (
           <SyncBar
             state={effectiveSyncState}
             pendingCount={pendingCount}

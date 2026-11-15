@@ -37,11 +37,11 @@
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--br2);
+  background: var(--brBg);
 }
 
 .primary:active:not(:disabled) {
-  box-shadow: 0 1px 0 var(--br2);
+  box-shadow: 0 1px 0 var(--brBg);
 }
 
 .ghost {

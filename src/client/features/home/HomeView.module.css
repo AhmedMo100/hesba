@@ -179,7 +179,7 @@
 
 /* Dark green cards */
 .cardDark {
-  background: var(--br2);
+  background: var(--brBg);
   color: #fff;
   box-shadow: 0 2px 8px rgba(63, 89, 55, 0.18);
 }

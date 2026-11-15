@@ -53,7 +53,7 @@
   width: 52px;
   height: 52px;
   border-radius: 14px;
-  background: var(--br2);
+  background: var(--brBg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -324,7 +324,7 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: var(--br2);
+  background: var(--brBg);
   border: none;
   color: #fff;
   font-size: 28px;

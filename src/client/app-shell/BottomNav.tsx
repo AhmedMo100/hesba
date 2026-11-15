@@ -13,7 +13,8 @@ export type NavRoute =
   | "expenses"
   | "people"
   | "alerts"
-  | "ai";
+  | "ai"
+  | "inventory";
 
 export interface BottomNavProps {
   activeRoute: NavRoute;

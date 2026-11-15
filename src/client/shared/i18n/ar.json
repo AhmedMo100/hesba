@@ -43,6 +43,16 @@
     "ai": "المساعد",
     "more": "المزيد"
   },
+  "pageTitle": {
+    "stock": "دخلت بضاعة",
+    "sales": "بيع",
+    "expenses": "صرفت فلوس",
+    "people": "الناس",
+    "alerts": "المحافظ والماكينات",
+    "products": "بضاعتي",
+    "ai": "اسأل حسبة",
+    "inventory": "التقارير والجرد"
+  },
   "storeMenu": {
     "online": "متصل",
     "offline": "بدون نت",
@@ -55,12 +65,12 @@
     "sync": "المزامنة",
     "syncing": "بتتزامن…",
     "waiting": "{count} عملية مستنية",
-    "allSynced": "كله متزامن ✓",
+    "allSynced": "كل حاجة تمام ✓",
     "syncNow": "زامن دلوقتي",
     "logout": "تسجيل الخروج"
   },
   "sync": {
-    "synced": "متزامن ✓",
+    "synced": "تمام ✓",
     "syncing": "بيزامن… {count} بيعة مستنية",
     "offline": "{count} عمليات مستنية (أوفلاين)",
     "needsReview": "في عمليات محتاجة مراجعة ({count})",

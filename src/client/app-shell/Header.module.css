@@ -8,13 +8,13 @@
   gap: 8px;
   height: 62px;
   padding: 0 16px;
-  background: var(--br2);
+  background: var(--brBg);
 }
 
-.leftGroup {
+.rightGroup {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
 }
 
@@ -22,16 +22,41 @@
   flex: 1;
 }
 
-.rightGroup {
+.leftGroup {
   display: flex;
   align-items: center;
   gap: 6px;
   flex: none;
 }
 
+.backBtn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  border: 0;
+  background: rgba(255, 255, 255, 0.15);
+  transition:
+    background 0.15s,
+    transform 0.12s;
+  flex-shrink: 0;
+}
+
+.backBtn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.backBtn:active {
+  transform: scale(0.92);
+}
+
 .themeBtn {
-  width: 44px;
-  height: 44px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   display: inline-flex;
   align-items: center;
@@ -51,6 +76,49 @@
 
 .themeBtn:active {
   transform: scale(0.92);
+}
+
+.bellBtn {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  cursor: pointer;
+  border: 0;
+  background: rgba(255, 255, 255, 0.15);
+  transition:
+    background 0.15s,
+    transform 0.12s;
+}
+
+.bellBtn:hover {
+  background: rgba(255, 255, 255, 0.25);
+}
+
+.bellBtn:active {
+  transform: scale(0.92);
+}
+
+.bellBadge {
+  position: absolute;
+  top: 2px;
+  inset-inline-start: 2px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--red);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  line-height: 1;
 }
 
 .iconBtn {
