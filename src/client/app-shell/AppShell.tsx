@@ -420,7 +420,7 @@ function AppShellInner() {
           />
         )}
         <main
-          className={`${styles.content} ${route === "ai" ? styles.contentAi : ""}`}
+          className={`${styles.content} ${route === "ai" ? styles.contentAi : ""} ${route === "stock" ? styles.contentStock : ""}`}
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
