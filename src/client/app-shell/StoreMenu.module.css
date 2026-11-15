@@ -16,37 +16,37 @@
   cursor: pointer;
   border: 0;
   background: none;
-  color: var(--ink);
+  color: #fff;
   transition: background 0.15s;
 }
 
 .storeBtn:hover {
-  background: var(--sf2);
+  background: rgba(255, 255, 255, 0.1);
 }
 
-.logo {
-  width: 36px;
-  height: 36px;
-  border-radius: 12px;
-  background: var(--sf2);
+.nameGroup {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
 }
 
-.logo img {
-  display: block;
-  height: 30px;
-  width: auto;
+.appName {
+  font-size: 20px;
+  font-weight: 900;
+  line-height: 1.2;
+  white-space: nowrap;
+  color: #fff;
 }
 
 .storeName {
-  font-size: 16px;
+  font-size: 13px;
+  font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .offDot {
@@ -55,15 +55,6 @@
   border-radius: 50%;
   background: var(--red);
   flex: none;
-}
-
-.chev {
-  flex: none;
-  transition: transform 0.2s;
-}
-
-.chev.up {
-  transform: rotate(180deg);
 }
 
 .shield {

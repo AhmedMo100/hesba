@@ -21,7 +21,7 @@ import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
-import { BottomNav, type NavRoute } from "./BottomNav";
+import type { NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ListSkeleton, ToastProvider } from "../shared/ui";
@@ -276,14 +276,7 @@ function AppShellInner() {
       case "sales":
         return <SalesView onNavigate={navigate} />;
       case "stock":
-        return (
-          <StockView
-            storeName={storeName}
-            alertCount={alertCount}
-            onBack={() => navigate("home")}
-            onOpenAlerts={() => navigate("alerts")}
-          />
-        );
+        return <StockView onBack={() => navigate("home")} />;
       case "expenses":
         return <ExpensesView />;
       case "people":
@@ -387,24 +380,22 @@ function AppShellInner() {
     <div className={styles.app} dir="rtl">
       <SideNav activeRoute={route} onNavigate={navigate} />
       <div className={styles.main}>
-        {route !== "stock" && (
-          <Header
-            storeName={storeName}
-            ownerName={ownerName}
-            online={syncState !== "offline"}
-            syncState={effectiveSyncState}
-            pendingCount={pendingCount}
-            onSyncNow={() => scheduleSaleSync(storeId, { now: true })}
-            onOpenProfile={() => setShowProfile(true)}
-            onLogout={async () => {
-              await logout();
-              await forgetShopIdentities(db).catch(() => {});
-              await clearReadCache();
-              router.push("/");
-            }}
-            signedIn={Boolean(session)}
-          />
-        )}
+        <Header
+          storeName={storeName}
+          ownerName={ownerName}
+          online={syncState !== "offline"}
+          syncState={effectiveSyncState}
+          pendingCount={pendingCount}
+          onSyncNow={() => scheduleSaleSync(storeId, { now: true })}
+          onOpenProfile={() => setShowProfile(true)}
+          onLogout={async () => {
+            await logout();
+            await forgetShopIdentities(db).catch(() => {});
+            await clearReadCache();
+            router.push("/");
+          }}
+          signedIn={Boolean(session)}
+        />
         {route !== "stock" && (
           <SyncBar
             state={effectiveSyncState}
@@ -420,13 +411,10 @@ function AppShellInner() {
           />
         )}
         <main
-          className={`${styles.content} ${route === "ai" ? styles.contentAi : ""} ${route === "stock" ? styles.contentStock : ""}`}
+          className={`${styles.content} ${route === "ai" ? styles.contentAi : ""}`}
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
-        {route !== "stock" && (
-          <BottomNav activeRoute={route} onNavigate={navigate} />
-        )}
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

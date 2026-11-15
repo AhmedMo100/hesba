@@ -85,21 +85,15 @@ export function StoreMenu({
         data-testid="store-button"
         onClick={() => setOpen((o) => !o)}
       >
-        <span className={styles.logo} aria-hidden="true">
-          {/* eslint-disable-next-line @next/next/no-img-element -- a 30px static asset, precached for offline */}
-          <img src="/logo.png" alt="" width={21} height={30} />
-        </span>
-        <span className={styles.storeName} data-testid="store-name">
-          {displayName}
+        <span className={styles.nameGroup}>
+          <span className={styles.appName}>{t("common.appName")}</span>
+          <span className={styles.storeName} data-testid="store-name">
+            {displayName}
+          </span>
         </span>
         {!online && (
           <i className={styles.offDot} title={t("storeMenu.offline")} />
         )}
-        <Icon
-          n="down"
-          s={16}
-          className={`${styles.chev} ${open ? styles.up : ""}`}
-        />
       </button>
 
       {open && (

@@ -41,7 +41,7 @@ export function Header({ onBack, ...menu }: HeaderProps) {
       <div className={styles.rightGroup}>
         <button
           type="button"
-          className={styles.iconBtn}
+          className={styles.themeBtn}
           onClick={cycleTheme}
           aria-label={`الوضع: ${theme === "light" ? "فاتح" : theme === "dark" ? "داكن" : "تلقائي"}`}
           title="تغيير المظهر"

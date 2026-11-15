@@ -424,27 +424,43 @@ export function HomeView({
 
       {/* Action cards grid */}
       <div className={styles.grid}>
-        {/* Row 1: dark green */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("sales")}
-        >
-          <span className={styles.cardBadge}>٢</span>
-          <span className={styles.cardIcon}>🛒</span>
-          <span className={styles.cardLabel}>{t("home.sell")}</span>
-        </button>
+        {/* Row 1: stock + expenses — dark green */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
           onClick={() => onNavigate("stock")}
         >
-          <span className={styles.cardBadge}>١</span>
           <span className={styles.cardIcon}>📦</span>
           <span className={styles.cardLabel}>{t("home.addStock")}</span>
         </button>
+        <button
+          type="button"
+          className={`${styles.card} ${styles.cardDark}`}
+          onClick={() => onNavigate("expenses")}
+        >
+          <span className={styles.cardIcon}>💰</span>
+          <span className={styles.cardLabel}>{t("home.expenses")}</span>
+        </button>
 
-        {/* Row 2: dark green */}
+        {/* Row 2: sell — full width, gold (distinctive) */}
+        <button
+          type="button"
+          className={`${styles.card} ${styles.cardGold} ${styles.cardWide}`}
+          onClick={() => onNavigate("sales")}
+        >
+          <span className={styles.cardIcon}>🛒</span>
+          <span className={styles.cardLabel}>{t("home.sell")}</span>
+        </button>
+
+        {/* Row 3: ask hesba + people — dark green */}
+        <button
+          type="button"
+          className={`${styles.card} ${styles.cardDark}`}
+          onClick={() => onNavigate("ai")}
+        >
+          <span className={styles.cardIcon}>💬</span>
+          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
+        </button>
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
@@ -453,20 +469,11 @@ export function HomeView({
           <span className={styles.cardIcon}>👥</span>
           <span className={styles.cardLabel}>{t("home.people")}</span>
         </button>
+
+        {/* Row 4: products + wallets — dark green */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("expenses")}
-        >
-          <span className={styles.cardBadge}>٣</span>
-          <span className={styles.cardIcon}>💰</span>
-          <span className={styles.cardLabel}>{t("home.expenses")}</span>
-        </button>
-
-        {/* Row 3: light */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardLight}`}
           onClick={() => onNavigate("products")}
         >
           <span className={styles.cardIcon}>🧃</span>
@@ -474,28 +481,20 @@ export function HomeView({
         </button>
         <button
           type="button"
-          className={`${styles.card} ${styles.cardLight}`}
+          className={`${styles.card} ${styles.cardDark}`}
           onClick={() => onNavigate("alerts")}
         >
           <span className={styles.cardIcon}>💳</span>
           <span className={styles.cardLabel}>{t("home.walletsMachines")}</span>
         </button>
 
-        {/* Row 4: gold/beige */}
+        {/* Row 5: inventory — full width, gold (distinctive) */}
         <button
           type="button"
-          className={`${styles.card} ${styles.cardGold}`}
-          onClick={() => onNavigate("ai")}
-        >
-          <span className={styles.cardIcon}>💬</span>
-          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardGold}`}
+          className={`${styles.card} ${styles.cardGold} ${styles.cardWide}`}
           onClick={() => setView("inventory")}
         >
-          <span className={styles.cardIcon}>📊</span>
+          <span className={styles.cardIcon}>📋</span>
           <span className={styles.cardLabel}>{t("home.inventory")}</span>
         </button>
       </div>
