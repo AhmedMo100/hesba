@@ -35,6 +35,9 @@ export default async function globalSetup(config: FullConfig) {
     "/signup",
     "/forgot-password",
     "/app",
+    // First compiles of these reload every open page in `next dev` (QA-54): warm them too.
+    "/admin",
+    "/dev/auth",
     "/manifest.webmanifest",
   ];
   const routes = apiRoutes(path.resolve(process.cwd(), "src/app/api")).filter(

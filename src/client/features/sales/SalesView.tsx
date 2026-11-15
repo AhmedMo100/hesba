@@ -105,6 +105,10 @@ import {
 } from "./CartSheet";
 import { CreditCustomerForm } from "./CreditCustomerForm";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
+import {
+  ProductScannerSheet,
+  type ConfirmedScanLine,
+} from "./ProductScannerSheet";
 
 interface DisplaySaleItem {
   id: string;
@@ -333,6 +337,8 @@ export function SalesView({
     null,
   );
   const [creditFormOpen, setCreditFormOpen] = useState(false);
+  // The AI product scanner: another way to fill the same cart (ADR-0030).
+  const [scannerOpen, setScannerOpen] = useState(false);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
   const [cartOpen, setCartOpen] = useState(false);
   const [promosOpen, setPromosOpen] = useState(false);
@@ -1217,6 +1223,43 @@ export function SalesView({
     return true;
   };
 
+  /**
+   * Lines confirmed in the scanner join the cart: the same product is merged, never added
+   * twice. Names, prices, units and stock come from the server's match; checkout re-checks all.
+   */
+  const addScannedToCart = (lines: ConfirmedScanLine[]) => {
+    setCartLines((prev) => {
+      const next = [...prev];
+      for (const l of lines) {
+        const i = next.findIndex((c) => c.variantId === l.variantId);
+        if (i >= 0) {
+          const cur = next[i]!;
+          next[i] = {
+            ...cur,
+            quantityBase: Math.min(
+              cur.quantityBase + l.quantityBase,
+              l.stockBase,
+            ),
+          };
+        } else {
+          next.push({
+            variantId: l.variantId,
+            name: l.name,
+            unit: l.unit,
+            quantityBase: Math.min(l.quantityBase, l.stockBase),
+            sellPricePiasters: l.sellPricePiasters,
+            stockBase: l.stockBase,
+          });
+        }
+      }
+      return next;
+    });
+    setScannerOpen(false);
+    setCartMode(true);
+    setCartOpen(true);
+    showToast(`اتضاف ${lines.length} صنف للفاتورة من الاسكان`, "success");
+  };
+
   /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
   const startCreditSale = (customer: CreditCustomer) => {
     setCreditCustomer(customer);
@@ -1575,6 +1618,15 @@ export function SalesView({
             {creditCustomer
               ? t("credit.sessionLabel", { name: creditCustomer.name })
               : t("credit.start")}
+          </Button>
+          <Button
+            kind="ghost"
+            size="sm"
+            icon="sparkle"
+            data-testid="scan-start"
+            onClick={() => setScannerOpen(true)}
+          >
+            اسكان المنتجات بالذكاء الاصطناعي
           </Button>
         </div>
 
@@ -2243,6 +2295,24 @@ export function SalesView({
             </button>
           </div>
         </>
+      )}
+
+      {/* AI product scanner: confirmed lines join the same cart (normal or credit sale) */}
+      {scannerOpen && (
+        <ProductScannerSheet
+          catalog={displayItems
+            .filter((i) => i.variantId && !i.isService && !i.isSandwich)
+            .map((i) => ({
+              variantId: i.variantId!,
+              name: i.name,
+              unit: i.unit ?? "piece",
+              sellPricePiasters: i.sellPricePiasters,
+              stockBase: i.currentStockBase,
+            }))}
+          creditCustomerName={creditCustomer?.name ?? null}
+          onClose={() => setScannerOpen(false)}
+          onConfirm={addScannedToCart}
+        />
       )}
 
       {/* Credit sale: who is the customer? */}

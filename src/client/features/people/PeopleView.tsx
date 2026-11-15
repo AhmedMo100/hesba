@@ -23,6 +23,7 @@ import { parseEgpToPiasters } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import { PurchasesSheet } from "./PurchasesSheet";
 import { CustomerDebtSheet } from "./CustomerDebtSheet";
+import { CustomerInvoicesSheet } from "./CustomerInvoicesSheet";
 
 interface SuppliedProduct {
   id: string;
@@ -281,6 +282,8 @@ export function PeopleView() {
   const toast = useToast();
   // QA-30: the supplier whose purchase invoices are open.
   const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
+  // «فواتير الزبون»: the credit invoices behind what a customer owes (Prompt 2).
+  const [invoicesTarget, setInvoicesTarget] = useState<PersonItem | null>(null);
   const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
     null,
   );
@@ -928,6 +931,19 @@ export function PeopleView() {
                     {t("pages.people.recordDebt")}
                   </button>
                 )}
+                {section === "owedToMe" && (
+                  <button
+                    type="button"
+                    className={styles.purchasesBtn}
+                    data-testid={`customer-invoices-${p.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setInvoicesTarget(p);
+                    }}
+                  >
+                    الفواتير والمدفوعات
+                  </button>
+                )}
 
                 {/* Footer / Notes row */}
                 {section === "suppliers" ? (
@@ -1498,6 +1514,17 @@ export function PeopleView() {
           onClose={() => setDebtTarget(null)}
           onDone={(message) => {
             setDebtTarget(null);
+            toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData("owedToMe");
+          }}
+        />
+      )}
+
+      {invoicesTarget && (
+        <CustomerInvoicesSheet
+          customer={{ id: invoicesTarget.id, name: invoicesTarget.name }}
+          onClose={() => setInvoicesTarget(null)}
+          onChanged={(message) => {
             toast.show({ msg: message, kind: "ok" });
             void fetchSectionData("owedToMe");
           }}

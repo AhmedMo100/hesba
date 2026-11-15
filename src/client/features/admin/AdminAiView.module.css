@@ -1,0 +1,175 @@
+/* Platform admin — AI (ADR-0030). Tokens from docs/05-ui.md. */
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--ink);
+  background: var(--bg);
+  min-height: 100dvh;
+}
+.head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.head h1 {
+  font-size: 22px;
+  margin: 0;
+}
+.tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
+}
+.tile,
+.card {
+  background: var(--sf);
+  border: 1.5px solid var(--line);
+  border-radius: 16px;
+  padding: 12px 14px;
+  min-width: 0;
+}
+.tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tile span,
+.tile small {
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.tile b {
+  font-size: 22px;
+}
+.card h2 {
+  font-size: 16px;
+  margin: 0 0 10px;
+}
+.list {
+  margin: 0;
+  padding-inline-start: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.muted {
+  color: var(--ink2);
+  font-size: 13.5px;
+  margin: 6px 0 0;
+}
+.warn {
+  color: var(--red);
+  font-weight: 700;
+  font-size: 13.5px;
+  margin: 6px 0 0;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  margin-top: 8px;
+  display: block;
+  overflow-x: auto;
+}
+.table th,
+.table td {
+  text-align: start;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.table th {
+  color: var(--ink2);
+  font-weight: 700;
+}
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-weight: 700;
+}
+.switch input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--br);
+}
+.row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.search {
+  flex: 1;
+  min-width: 0;
+  min-height: 44px;
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  padding: 0 12px;
+  font: inherit;
+}
+.shops {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.shop {
+  border: 1.5px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+}
+.shopHead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.off {
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--red);
+}
+.link {
+  margin-inline-start: auto;
+  background: none;
+  border: 0;
+  color: var(--br);
+  font-weight: 700;
+  min-height: 44px;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* Long values (audit JSON, model ids) wrap instead of widening the page. */
+.list li,
+.muted,
+.card small {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.page > * {
+  min-width: 0;
+}

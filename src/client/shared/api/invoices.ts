@@ -162,3 +162,13 @@ export async function returnSaleLines(
     )
   ).invoice;
 }
+
+// ---- A customer's credit invoices («ليك», Prompt 2) ----------------------------------------
+
+export type { CustomerInvoicesView } from "@/schemas/sale";
+
+export async function listCustomerInvoices(
+  customerId: string,
+): Promise<import("@/schemas/sale").CustomerInvoicesView> {
+  return send("GET", `/api/people/${encodeURIComponent(customerId)}/invoices`);
+}

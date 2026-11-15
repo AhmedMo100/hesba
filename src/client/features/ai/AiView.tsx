@@ -4,6 +4,28 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./AiView.module.css";
 import { Icon, Modal } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
+import { AI_SUGGESTED_QUESTIONS } from "@/schemas/ai";
+
+/** The unsent question survives a reload or a lost connection (this device only). */
+const DRAFT_KEY = "hesba_ai_draft";
+const OFFLINE_MESSAGE = "مفيش نت دلوقتي. سؤالك محفوظ — ابعته لما النت يرجع.";
+
+function readDraft(): string {
+  try {
+    return localStorage.getItem(DRAFT_KEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function writeDraft(text: string): void {
+  try {
+    if (text) localStorage.setItem(DRAFT_KEY, text);
+    else localStorage.removeItem(DRAFT_KEY);
+  } catch {
+    // Private mode / blocked storage: the draft just is not kept.
+  }
+}
 
 /** Client backstop for one reply: the server's 20 s budget (AI_REPLY_TIMEOUT_MS) + margin. */
 const AI_CLIENT_TIMEOUT_MS = 25_000;
@@ -28,6 +50,8 @@ export interface AiQuotaInfo {
   limit: number;
   resetsAt: string;
   day: string;
+  /** `grounded` = private mode: answered on the server, nothing sent to an AI provider. */
+  mode?: "model" | "grounded";
 }
 
 export interface AiConversationSummary {
@@ -204,7 +228,13 @@ function AiMessageContent({ content }: { content: string }) {
 
 export function AiView() {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInputState] = useState(() =>
+    typeof window === "undefined" ? "" : readDraft(),
+  );
+  const setInput = useCallback((text: string) => {
+    setInputState(text);
+    writeDraft(text);
+  }, []);
   const [isLoading, setIsLoading] = useState(false);
   const [thinkingIndex, setThinkingIndex] = useState(0);
   const [quota, setQuota] = useState<AiQuotaInfo | null>(null);
@@ -219,7 +249,7 @@ export function AiView() {
   const [isListening, setIsListening] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -290,6 +320,7 @@ export function AiView() {
             limit: q.limit ?? 5,
             resetsAt: q.resets_at ?? q.resetsAt ?? "",
             day: q.day_key ?? q.dayKey ?? "",
+            mode: q.mode === "grounded" ? "grounded" : "model",
           });
         }
       }
@@ -342,6 +373,7 @@ export function AiView() {
               limit: q.limit ?? 5,
               resetsAt: q.resets_at ?? q.resetsAt ?? "",
               day: q.day_key ?? q.dayKey ?? "",
+              mode: q.mode === "grounded" ? "grounded" : "model",
             });
             if (q.day_key || q.dayKey) {
               currentDayKey = q.day_key ?? q.dayKey;
@@ -415,15 +447,22 @@ export function AiView() {
     };
   }, []);
 
-  const handleSend = async (textToSend?: string) => {
+  const handleSend = async (textToSend?: string, retryId?: string) => {
     const text = (textToSend ?? input).trim();
     if (!text || isLoading) return;
     if (quota && quota.remaining <= 0) return;
+    // Offline: nothing is sent and no credit is used; the question stays in the box.
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError(OFFLINE_MESSAGE);
+      if (textToSend && !retryId) setInput(textToSend);
+      return;
+    }
 
     setError(null);
     setInput("");
 
-    const clientMsgId = generateClientUuid();
+    // A retry keeps the same id: the server answers it once and counts it once.
+    const clientMsgId = retryId ?? generateClientUuid();
     const optimisticUserMsg: AiChatMessage = {
       id: clientMsgId,
       role: "user",
@@ -485,12 +524,13 @@ export function AiView() {
         setActiveConversationId(convId);
       }
       if (rawQuota && typeof rawQuota.remaining === "number") {
-        setQuota({
+        setQuota((prev) => ({
           remaining: rawQuota.remaining,
           limit: rawQuota.limit ?? 5,
           resetsAt: rawQuota.resets_at ?? rawQuota.resetsAt ?? "",
           day: rawQuota.day_key ?? rawQuota.dayKey ?? "",
-        });
+          mode: prev?.mode,
+        }));
       }
       if (bodyText) {
         setMessages((prev) => [
@@ -526,7 +566,7 @@ export function AiView() {
 
   const handleRetry = (failedMsg: AiChatMessage) => {
     setMessages((prev) => prev.filter((m) => m.id !== failedMsg.id));
-    void handleSend(failedMsg.content);
+    void handleSend(failedMsg.content, failedMsg.id);
   };
 
   const toggleVoice = () => {
@@ -583,13 +623,7 @@ export function AiView() {
     }
   };
 
-  const suggestions = [
-    t("pages.ai.sugg1"),
-    t("pages.ai.sugg2"),
-    t("pages.ai.sugg3"),
-    t("pages.ai.sugg4"),
-    t("pages.ai.sugg5"),
-  ];
+  const suggestions: readonly string[] = AI_SUGGESTED_QUESTIONS;
 
   const remainingQuota = quota ? quota.remaining : 5;
   const isQuotaExceeded = quota ? quota.remaining <= 0 : false;
@@ -628,6 +662,16 @@ export function AiView() {
         </div>
       </header>
 
+      {quota?.mode === "grounded" && (
+        <div className={styles.privateNote} data-testid="ai-private-mode">
+          <Icon n="lock" s={16} />
+          <span>
+            وضع خاص: الأسئلة بتتجاوب على سيرفر حسبة من بيانات محلك، ومش بتتبعت
+            لأي شركة ذكاء اصطناعي.
+          </span>
+        </div>
+      )}
+
       {/* Daily limit warning banner */}
       {isQuotaExceeded && (
         <div className={styles.limitBanner}>
@@ -646,7 +690,26 @@ export function AiView() {
               <Icon n="sparkle" s={26} />
             </div>
             <b>{t("pages.ai.emptyTitle")}</b>
-            <span>{t("pages.ai.emptySubtitle")}</span>
+            <span>
+              اسأل عن مبيعاتك، مصروفاتك، النواقص، واللي ليك واللي عليك. الأرقام
+              بتيجي من بيانات محلك بس.
+            </span>
+            <div
+              className={styles.helloGrid}
+              data-testid="ai-empty-suggestions"
+            >
+              {suggestions.slice(0, 4).map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  className={styles.helloCard}
+                  disabled={isQuotaExceeded || isLoading}
+                  onClick={() => void handleSend(q)}
+                >
+                  {q}
+                </button>
+              ))}
+            </div>
           </div>
         ) : (
           messages.map((m) => (
@@ -772,14 +835,24 @@ export function AiView() {
             <Icon n="mic" s={19} />
           </button>
 
-          <input
+          <textarea
             ref={inputRef}
-            type="text"
+            rows={1}
             value={input}
             disabled={isQuotaExceeded || isLoading}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              // Grows with the question, up to about five lines.
+              e.target.style.height = "auto";
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 132)}px`;
+            }}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
+              // Enter sends; Shift+Enter is a new line. Not while composing (IME).
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                !e.nativeEvent.isComposing
+              ) {
                 e.preventDefault();
                 void handleSend();
               }
@@ -792,6 +865,8 @@ export function AiView() {
                   : t("pages.ai.placeholder")
             }
             aria-label={t("pages.ai.placeholder")}
+            enterKeyHint="send"
+            data-testid="ai-input"
           />
 
           <button

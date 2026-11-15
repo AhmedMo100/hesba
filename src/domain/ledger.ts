@@ -117,3 +117,87 @@ export function adjustmentEntry(
     kind: "adjustment",
   };
 }
+
+// ---- Invoice allocation (Prompt 2, ADR-0030) -----------------------------------------------
+
+export interface AllocatableEntry {
+  direction: LedgerDirection;
+  amountPiasters: bigint;
+  /** The credit-sale (or purchase) invoice this entry belongs to; null = not tied to one. */
+  invoiceId: string | null;
+  createdAt: Date;
+  id: string;
+}
+
+export interface InvoiceAllocation {
+  /** What each invoice still owes after every payment, linked or not. Never negative. */
+  remaining: Map<string, bigint>;
+  /** Debt not tied to an invoice (opening balance, «سجّل عليه»), still unpaid. */
+  unlinkedRemaining: bigint;
+  /** Paid beyond everything owed: the person's credit. */
+  credit: bigint;
+}
+
+/**
+ * Splits a person's ledger over their invoices. Each invoice owes its own entries (its debt,
+ * minus payments and returns linked to it). Money NOT linked to an invoice — a general payment
+ * from «ليك», or what an invoice was overpaid — settles the OLDEST open debts first (invoices
+ * and unlinked debts by date). The total of `remaining` + `unlinkedRemaining` − `credit` always
+ * equals the person's signed balance, so the invoices never disagree with the balance shown.
+ */
+export function allocateLedgerToInvoices(
+  side: LedgerSide,
+  entries: readonly AllocatableEntry[],
+): InvoiceAllocation {
+  const debtDir = debtDirection(side);
+  const linked = new Map<string, { owed: bigint; at: Date; id: string }>();
+  const unlinkedDebts: Array<{ amount: bigint; at: Date; id: string }> = [];
+  let pool = BigInt(0); // unlinked payments, plus any overpayment of an invoice
+
+  for (const e of entries) {
+    const signed =
+      e.direction === debtDir ? e.amountPiasters : -e.amountPiasters;
+    if (e.invoiceId) {
+      const cur = linked.get(e.invoiceId);
+      if (!cur)
+        linked.set(e.invoiceId, { owed: signed, at: e.createdAt, id: e.id });
+      else {
+        cur.owed += signed;
+        if (e.createdAt < cur.at) cur.at = e.createdAt;
+      }
+    } else if (signed > BigInt(0)) {
+      unlinkedDebts.push({ amount: signed, at: e.createdAt, id: e.id });
+    } else {
+      pool += -signed;
+    }
+  }
+
+  const items: Array<{
+    key: string | null;
+    amount: bigint;
+    at: Date;
+    id: string;
+  }> = [];
+  for (const [key, v] of linked) {
+    if (v.owed > BigInt(0))
+      items.push({ key, amount: v.owed, at: v.at, id: v.id });
+    else pool += -v.owed; // an invoice paid / returned beyond its total
+  }
+  for (const d of unlinkedDebts)
+    items.push({ key: null, amount: d.amount, at: d.at, id: d.id });
+  items.sort(
+    (a, b) => a.at.getTime() - b.at.getTime() || a.id.localeCompare(b.id),
+  );
+
+  const remaining = new Map<string, bigint>();
+  for (const key of linked.keys()) remaining.set(key, BigInt(0));
+  let unlinkedRemaining = BigInt(0);
+  for (const it of items) {
+    const used = pool >= it.amount ? it.amount : pool;
+    pool -= used;
+    const left = it.amount - used;
+    if (it.key) remaining.set(it.key, left);
+    else unlinkedRemaining += left;
+  }
+  return { remaining, unlinkedRemaining, credit: pool };
+}

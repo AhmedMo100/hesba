@@ -15,8 +15,10 @@ import type { TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import {
   adjustmentEntry,
+  allocateLedgerToInvoices,
   debtDirection,
   paymentDirection,
+  type InvoiceAllocation,
   splitBalance,
   summarizeLedger,
   type LedgerEntryKind,
@@ -416,4 +418,35 @@ export function invoiceOutstanding(
         : -e.amountPiasters;
   }
   return balance;
+}
+
+/**
+ * A customer's ledger split over their credit-sale invoices (`allocateLedgerToInvoices`): what
+ * each invoice really still owes once general «ليك» payments are applied oldest-first.
+ */
+export async function customerAllocationInTx(
+  tx: TenantTx,
+  storeId: string,
+  customerId: string,
+): Promise<InvoiceAllocation> {
+  const entries = await tx.debtEntry.findMany({
+    where: { storeId, customerId },
+    select: {
+      id: true,
+      direction: true,
+      amountPiasters: true,
+      saleId: true,
+      createdAt: true,
+    },
+  });
+  return allocateLedgerToInvoices(
+    "receivable",
+    entries.map((e) => ({
+      id: e.id,
+      direction: e.direction,
+      amountPiasters: e.amountPiasters,
+      invoiceId: e.saleId,
+      createdAt: e.createdAt,
+    })),
+  );
 }
