@@ -21,7 +21,14 @@ import type { StockInventoryItem } from "@/client/shared/store-items";
 import { useAuth } from "@/client/shared/auth";
 import { ProductFormModal } from "../products/ProductFormModal";
 import { resolveSellingMethod, type StockProductOption } from "./AddStockModal";
+import { useTheme, type ThemeMode } from "@/client/shared/theme";
 import styles from "./StockView.module.css";
+
+const THEME_ICON: Record<ThemeMode, "sun" | "moon" | "auto"> = {
+  light: "sun",
+  dark: "moon",
+  auto: "auto",
+};
 
 type Step = "landing" | "manual" | "scan" | "quantity" | "confirm";
 
@@ -66,9 +73,23 @@ function getUnitWord(u?: string, isCard?: boolean): string {
   return "قطعة";
 }
 
-export function StockView() {
+interface StockViewProps {
+  storeName?: string | null;
+  alertCount?: number;
+  onBack?: () => void;
+  onOpenAlerts?: () => void;
+}
+
+export function StockView({
+  storeName,
+  alertCount = 0,
+  onBack,
+  onOpenAlerts,
+}: StockViewProps) {
   const toast = useToast();
   useAuth();
+  const { theme, cycleTheme } = useTheme();
+  const themeIcon = THEME_ICON[theme] ?? "sun";
 
   const [step, setStep] = useState<Step>("landing");
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
@@ -718,8 +739,68 @@ export function StockView() {
     );
   }
 
+  const headerTitle =
+    step === "landing"
+      ? "دخلت بضاعة"
+      : step === "manual"
+        ? "تسجيل يدوي"
+        : step === "quantity" || step === "confirm"
+          ? "كمية الدخول"
+          : "دخلت بضاعة";
+
   return (
     <div className={styles.view} data-testid="page-stock" dir="rtl">
+      {/* Custom header matching screenshot design */}
+      <header className={styles.stockHeader}>
+        <div className={styles.headerRight}>
+          <button
+            type="button"
+            className={styles.headerBackBtn}
+            onClick={
+              step === "landing"
+                ? onBack
+                : step === "manual"
+                  ? () => setStep("landing")
+                  : step === "quantity"
+                    ? () => setStep("manual")
+                    : step === "confirm"
+                      ? () => setStep("quantity")
+                      : onBack
+            }
+            aria-label="رجوع"
+          >
+            <Icon n="left" s={22} />
+          </button>
+          <div className={styles.headerTitles}>
+            <span className={styles.headerPageTitle}>{headerTitle}</span>
+            {storeName && (
+              <span className={styles.headerStoreName}>{storeName}</span>
+            )}
+          </div>
+        </div>
+        <div className={styles.headerLeft}>
+          <button
+            type="button"
+            className={styles.headerIconBtn}
+            onClick={onOpenAlerts}
+            aria-label="التنبيهات"
+          >
+            <Icon n="bell" s={20} />
+            {alertCount > 0 && (
+              <span className={styles.headerBadge}>{alertCount}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            className={styles.headerIconBtn}
+            onClick={cycleTheme}
+            aria-label={`الوضع: ${theme === "light" ? "فاتح" : theme === "dark" ? "داكن" : "تلقائي"}`}
+          >
+            <Icon n={themeIcon} s={20} />
+          </button>
+        </div>
+      </header>
+
       {/* Step 1: Landing — choice between barcode and manual */}
       {step === "landing" && (
         <>
@@ -754,15 +835,6 @@ export function StockView() {
       {/* Step 2: Manual product selection */}
       {step === "manual" && (
         <>
-          <button
-            type="button"
-            className={styles.backLink}
-            onClick={() => setStep("landing")}
-          >
-            <Icon n="left" s={16} />
-            رجوع
-          </button>
-
           <h3 className={styles.stepTitle}>تسجيل يدوي</h3>
           <p className={styles.fieldLabel}>اختار المنتج</p>
 
