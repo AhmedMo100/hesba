@@ -596,7 +596,22 @@
     "unknownCost": "{count} بيعة تكلفتها مش متسجلة",
     "purchasesUnknown": "{count} إضافة من غير تكلفة",
     "reportFailed": "مقدرناش نجيب التقرير من السيرفر",
-    "reportRetry": "جرّب تاني"
+    "reportRetry": "جرّب تاني",
+    "welcome": "أهلاً بيك 👋",
+    "notifications": "التنبيهات",
+    "cashDrawer": "الدرج",
+    "soldToday": "💵 بعت النهارده",
+    "profitToday": "📈 ربحك النهارده",
+    "pound": "جنيه",
+    "sell": "بيع حاجة",
+    "addStock": "دخلت بضاعة",
+    "people": "حسابات الناس",
+    "expenses": "صرفت فلوس",
+    "myProducts": "بضاعتي",
+    "walletsMachines": "المحافظ والماكينات",
+    "askHesba": "اسأل حسبة",
+    "inventory": "الجرد",
+    "logout": "خروج"
   },
   "credit": {
     "start": "آجل",
