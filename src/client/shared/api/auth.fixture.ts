@@ -53,16 +53,21 @@ class FixtureAuthApi implements AuthApi {
   }
 
   async login(credentials: LoginInput): Promise<AuthApiResult<SessionState>> {
-    const cleanPhone = credentials.phone.replace(/\s|-/g, "");
-    if (!/^(01[0125]\d{8}|\+201[0125]\d{8})$/.test(cleanPhone)) {
-      return { success: false, error: "رقم الموبايل غير صحيح" };
+    const id = credentials.identifier.trim();
+    const isEmail = id.includes("@");
+    if (!isEmail) {
+      const cleanPhone = id.replace(/\s|-/g, "");
+      if (!/^(01[0125]\d{8}|\+201[0125]\d{8})$/.test(cleanPhone)) {
+        return { success: false, error: "البيانات غير صحيحة" };
+      }
     }
     if (!credentials.password || credentials.password.length < 6) {
-      return { success: false, error: "كلمة السر غير صحيحة" };
+      return { success: false, error: "البيانات غير صحيحة" };
     }
 
+    const phone = isEmail ? DEFAULT_TEST_USER.phone : id.replace(/\s|-/g, "");
     const state: SessionState = {
-      user: { ...DEFAULT_TEST_USER, phone: cleanPhone },
+      user: { ...DEFAULT_TEST_USER, phone },
       store: { ...DEFAULT_TEST_STORE },
       token: "fixture-token-123456",
       expiresAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
@@ -78,13 +83,10 @@ class FixtureAuthApi implements AuthApi {
     if (!cleanPhone.startsWith("01") || cleanPhone.length !== 11) {
       return { success: false, error: "رقم الموبايل غير صحيح" };
     }
-    if (!data.email || !data.email.trim()) {
-      return { success: false, error: "البريد الإلكتروني مطلوب" };
-    }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) {
+    if (data.email && data.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) {
       return { success: false, error: "البريد الإلكتروني غير صحيح" };
     }
-    if (data.email.trim().toLowerCase() === "duplicate@example.com") {
+    if (data.email && data.email.trim().toLowerCase() === "duplicate@example.com") {
       return { success: false, error: "البريد الإلكتروني مسجل بالفعل" };
     }
     const pwdCheck = validatePasswordPolicy(data.password);
@@ -126,7 +128,7 @@ class FixtureAuthApi implements AuthApi {
         id: `user-${Date.now()}`,
         name: data.ownerName,
         phone: cleanPhone,
-        email: data.email,
+        email: data.email || "",
         emailVerified: true,
       },
       store: {

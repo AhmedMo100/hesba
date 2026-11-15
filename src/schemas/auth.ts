@@ -46,8 +46,9 @@ export const signupInputSchema = z.object({
   email: z
     .string()
     .trim()
-    .min(1, "البريد الإلكتروني مطلوب")
-    .email("بريد إلكتروني غير صحيح"),
+    .email("بريد إلكتروني غير صحيح")
+    .optional()
+    .or(z.literal("")),
   password: passwordPolicySchema,
   storeName: z.string().trim().min(2, "اسم المحل مطلوب"),
   shopType: z.string().trim().min(2, "نوع المحل مطلوب"),
@@ -78,7 +79,7 @@ export const signupInputSchema = z.object({
 export type SignupInput = z.input<typeof signupInputSchema>;
 
 export const loginInputSchema = z.object({
-  phone: z.string().trim().min(10, "رقم الموبايل مطلوب"),
+  identifier: z.string().trim().min(1, "رقم الموبايل أو الإيميل مطلوب"),
   password: z.string().min(1, "كلمة السر مطلوبة"),
 });
 

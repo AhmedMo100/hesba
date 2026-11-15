@@ -21,6 +21,10 @@
   min-width: 0;
 }
 
+.spacer {
+  flex: 1;
+}
+
 .rightGroup {
   display: flex;
   align-items: center;
@@ -61,7 +65,7 @@
   position: absolute;
   top: 2px;
   right: 2px;
-  background: #e27d60;
+  background: var(--red);
   color: #fff;
   font-size: 10px;
   font-weight: 800;

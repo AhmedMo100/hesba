@@ -10,6 +10,11 @@ import {
 import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import {
+  packToPiecePrice,
+  pieceToPackPrice,
+  recalcOnPackQtyChange,
+} from "./product-form.logic";
+import {
   getCachedCustomTaxonomy,
   fetchCustomTaxonomy,
   saveCustomTaxonomy,
@@ -366,55 +371,35 @@ export function ProductFormModal({
   // Bidirectional price calculations between carton and piece
   const handlePackSellChange = (val: string) => {
     setPkSell(val);
-    const n = parseFloat(packN);
-    const p = parseFloat(val);
-    if (!isNaN(n) && n > 0 && !isNaN(p)) {
-      setPcSell((p / n).toFixed(2).replace(/\.00$/, ""));
-    }
+    const pc = packToPiecePrice(val, packN);
+    if (pc !== null) setPcSell(pc);
   };
 
   const handlePieceSellChange = (val: string) => {
     setPcSell(val);
-    const n = parseFloat(packN);
-    const p = parseFloat(val);
-    if (!isNaN(n) && n > 0 && !isNaN(p)) {
-      setPkSell((p * n).toFixed(2).replace(/\.00$/, ""));
-    }
+    const pk = pieceToPackPrice(val, packN);
+    if (pk !== null) setPkSell(pk);
   };
 
   const handlePackBuyChange = (val: string) => {
     setPkBuy(val);
-    const n = parseFloat(packN);
-    const p = parseFloat(val);
-    if (!isNaN(n) && n > 0 && !isNaN(p)) {
-      setPcBuy((p / n).toFixed(2).replace(/\.00$/, ""));
-    }
+    const pc = packToPiecePrice(val, packN);
+    if (pc !== null) setPcBuy(pc);
   };
 
   const handlePieceBuyChange = (val: string) => {
     setPcBuy(val);
-    const n = parseFloat(packN);
-    const p = parseFloat(val);
-    if (!isNaN(n) && n > 0 && !isNaN(p)) {
-      setPkBuy((p * n).toFixed(2).replace(/\.00$/, ""));
-    }
+    const pk = pieceToPackPrice(val, packN);
+    if (pk !== null) setPkBuy(pk);
   };
 
   const handlePackNChange = (val: string) => {
     setPackN(val);
-    const n = parseFloat(val);
-    if (!isNaN(n) && n > 0) {
-      if (pkSell && !pcSell) {
-        setPcSell((parseFloat(pkSell) / n).toFixed(2).replace(/\.00$/, ""));
-      } else if (pcSell) {
-        setPkSell((parseFloat(pcSell) * n).toFixed(2).replace(/\.00$/, ""));
-      }
-      if (pkBuy && !pcBuy) {
-        setPcBuy((parseFloat(pkBuy) / n).toFixed(2).replace(/\.00$/, ""));
-      } else if (pcBuy) {
-        setPkBuy((parseFloat(pcBuy) * n).toFixed(2).replace(/\.00$/, ""));
-      }
-    }
+    const updates = recalcOnPackQtyChange(val, pkSell, pcSell, pkBuy, pcBuy);
+    if (updates.pcSell !== undefined) setPcSell(updates.pcSell);
+    if (updates.pkSell !== undefined) setPkSell(updates.pkSell);
+    if (updates.pcBuy !== undefined) setPcBuy(updates.pcBuy);
+    if (updates.pkBuy !== undefined) setPkBuy(updates.pkBuy);
   };
 
   const handleSelectCatalogMatch = (match: CatalogSearchResult) => {

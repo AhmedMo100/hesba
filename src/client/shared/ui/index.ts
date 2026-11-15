@@ -10,3 +10,4 @@ export * from "./Chips/Chips";
 export * from "./Empty/Empty";
 export * from "./Skeleton/Skeleton";
 export * from "./PeriodFilter/PeriodFilter";
+export { default as cardStyles } from "../styles/card.module.css";

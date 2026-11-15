@@ -1,72 +1,32 @@
 "use client";
 
-import React, { useState } from "react";
-import Image from "next/image";
+import React, { useState, useCallback } from "react";
 import styles from "./AuthScreen.module.css";
-import { Button, Field, Icon, Alert } from "@/client/shared/ui";
+import { Button, Field, Alert } from "@/client/shared/ui";
 import { useTranslation } from "@/client/shared/i18n";
 import { authApi } from "@/client/shared/api";
 import type { SessionState, SignupInput } from "@/client/shared/api";
-import { MAX_PERSON_NAME_LENGTH, validatePasswordPolicy } from "@/domain";
-import { useTheme } from "@/client/shared/theme";
+import { validatePasswordPolicy } from "@/domain";
+import {
+  normDigits,
+  okPhone,
+  okMail,
+  validateSignup,
+  isEmailIdentifier,
+} from "./auth.logic";
 
-export const GOVERNORATES = [
-  "القاهرة",
-  "الجيزة",
-  "الإسكندرية",
-  "القليوبية",
-  "الشرقية",
-  "الدقهلية",
-  "الغربية",
-  "المنوفية",
-  "البحيرة",
-  "كفر الشيخ",
-  "دمياط",
-  "بورسعيد",
-  "الإسماعيلية",
-  "السويس",
-  "الفيوم",
-  "بني سويف",
-  "المنيا",
-  "أسيوط",
-  "سوهاج",
-  "قنا",
-  "الأقصر",
-  "أسوان",
-  "البحر الأحمر",
-  "الوادي الجديد",
-  "مطروح",
-  "شمال سيناء",
-  "جنوب سيناء",
-];
-
-export const SHOP_TYPES = [
-  "سوبر ماركت",
-  "بقالة",
-  "ميني ماركت",
-  "جملة / نص جملة",
-  "أخرى",
-];
-
-export function normDigits(v: string): string {
-  return v
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
-    .replace(/[0-9]/g, (d) => d);
-}
-
-export function okPhone(v: string): boolean {
-  const clean = normDigits(v).replace(/\s|-/g, "");
-  return /^01[0125]\d{8}$/.test(clean);
-}
-
-export function okMail(v: string): boolean {
-  if (!v || !v.trim()) return false;
-  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
-}
+export {
+  GOVERNORATES,
+  SHOP_TYPES,
+  normDigits,
+  okPhone,
+  okMail,
+  validateSignup,
+  isEmailIdentifier,
+} from "./auth.logic";
 
 export interface AuthScreenProps {
   initialMode?: "signup" | "login" | "forgot-password";
-  initialStep?: 0 | 1;
   initialForgotStep?: 0 | 1;
   initialSuccess?: string;
   initialSuccessTitle?: string;
@@ -78,7 +38,6 @@ export interface AuthScreenProps {
 
 export function AuthScreen({
   initialMode = "login",
-  initialStep = 0,
   initialForgotStep = 0,
   initialSuccess = "",
   initialSuccessTitle = "",
@@ -88,22 +47,11 @@ export function AuthScreen({
   isOffline = false,
 }: AuthScreenProps) {
   const { t } = useTranslation();
-  const { theme, cycleTheme } = useTheme();
-  const themeIcon =
-    theme === "dark" ? "moon" : theme === "light" ? "sun" : "auto";
-  const themeLabel =
-    theme === "dark"
-      ? t("common.themeDark")
-      : theme === "light"
-        ? t("common.themeLight")
-        : t("common.themeAuto");
 
   const [mode, setMode] = useState<"signup" | "login" | "forgot-password">(
     initialMode,
   );
-  const [step, setStep] = useState<0 | 1>(initialStep); // 0 = عنك, 1 = محلك
-  const [forgotStep, setForgotStep] = useState<0 | 1>(initialForgotStep); // 0 = إرسال الكود, 1 = إدخال الكود وكلمة السر
-  const [dir, setDir] = useState<1 | -1>(1);
+  const [forgotStep, setForgotStep] = useState<0 | 1>(initialForgotStep);
   const [busy, setBusy] = useState(false);
   const [globalErr, setGlobalErr] = useState(initialError);
   const [globalSuccess, setGlobalSuccess] = useState(initialSuccess);
@@ -111,12 +59,13 @@ export function AuthScreen({
     useState(initialSuccessTitle);
   const [fieldErrors, setFieldErrors] =
     useState<Record<string, string>>(initialFieldErrors);
+  const [touched, setTouched] = useState<Record<string, boolean>>({});
+  const [submitted, setSubmitted] = useState(
+    Object.keys(initialFieldErrors).length > 0,
+  );
 
-  // Password visibility toggles
-  const [showPassword, setShowPassword] = useState(false);
-  const [showNewPassword, setShowNewPassword] = useState(false);
 
-  // 1. Signup state
+  // Signup fields (simplified: store name, phone, email optional, password)
   const [signupData, setSignupData] = useState<SignupInput>({
     ownerName: "",
     phone: "",
@@ -125,32 +74,56 @@ export function AuthScreen({
     storeName: "",
     shopType: "سوبر ماركت",
     governorate: "القاهرة",
-    area: "",
-    openedOn: new Date().toISOString().split("T")[0] ?? "2024-01-01",
-    workersCount: 1,
-    withDemoData: true,
   });
 
-  // 2. Login state
-  const [loginPhone, setLoginPhone] = useState("");
+  // Login fields
+  const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
 
-  // 3. Forgot Password state
+  // Forgot password fields
   const [forgotEmail, setForgotEmail] = useState("");
   const [resetCode, setResetCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [resendCooldown, setResendCooldown] = useState(0);
 
-  // Clear errors when switching modes
+  const showErr = useCallback(
+    (field: string) =>
+      (touched[field] || submitted) && fieldErrors[field]
+        ? fieldErrors[field]
+        : undefined,
+    [touched, submitted, fieldErrors],
+  );
+
+  const markTouched = (field: string) =>
+    setTouched((prev) => ({ ...prev, [field]: true }));
+
+  const enterNext = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+    if (e.key !== "Enter") return;
+    e.preventDefault();
+    const form = e.currentTarget.form;
+    if (!form) return;
+    const els = Array.from(form.elements).filter(
+      (el): el is HTMLInputElement | HTMLSelectElement =>
+        (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) &&
+        !el.disabled &&
+        el.type !== "hidden" &&
+        el.type !== "submit",
+    );
+    const idx = els.indexOf(e.currentTarget as HTMLInputElement | HTMLSelectElement);
+    if (idx >= 0 && idx < els.length - 1) els[idx + 1]?.focus();
+    else form.requestSubmit();
+  };
+
   const switchMode = (newMode: "signup" | "login" | "forgot-password") => {
     setMode(newMode);
-    setStep(0);
     setForgotStep(0);
     setGlobalErr("");
     setGlobalSuccess("");
     setGlobalSuccessTitle("");
     setFieldErrors({});
+    setTouched({});
+    setSubmitted(false);
 
     if (typeof window !== "undefined") {
       const targetPath = newMode === "login" ? "/login" : "/" + newMode;
@@ -168,11 +141,21 @@ export function AuthScreen({
     e?.preventDefault();
     setGlobalErr("");
     setGlobalSuccess("");
+    setSubmitted(true);
     const errs: Record<string, string> = {};
 
-    const cleanPhone = normDigits(loginPhone).replace(/\s|-/g, "");
-    if (!cleanPhone || !okPhone(cleanPhone)) {
-      errs["loginPhone"] = t("errors.invalidPhone");
+    const id = loginIdentifier.trim();
+    if (!id) {
+      errs["loginIdentifier"] = t("errors.invalidCredentials");
+    } else if (isEmailIdentifier(id)) {
+      if (!okMail(id)) {
+        errs["loginIdentifier"] = t("errors.invalidEmail");
+      }
+    } else {
+      const cleanPhone = normDigits(id).replace(/\s|-/g, "");
+      if (!okPhone(cleanPhone)) {
+        errs["loginIdentifier"] = t("errors.invalidPhone");
+      }
     }
     if (!loginPassword) {
       errs["loginPassword"] = t("errors.invalidCredentials");
@@ -183,8 +166,12 @@ export function AuthScreen({
 
     setBusy(true);
     try {
+      const identifier = isEmailIdentifier(loginIdentifier.trim())
+        ? loginIdentifier.trim()
+        : normDigits(loginIdentifier).replace(/\s|-/g, "");
+
       const res = await authApi.login({
-        phone: cleanPhone,
+        identifier,
         password: loginPassword,
       });
 
@@ -201,65 +188,12 @@ export function AuthScreen({
     }
   };
 
-  // --- 2. Signup Handlers ---
-  const handleNextSignupStep = () => {
-    setGlobalErr("");
-    const errs: Record<string, string> = {};
-
-    if (
-      !signupData.ownerName.trim() ||
-      signupData.ownerName.trim().length < 2
-    ) {
-      errs["ownerName"] = t("errors.writeName");
-    } else if (signupData.ownerName.trim().length > MAX_PERSON_NAME_LENGTH) {
-      // QA-58: the same limit as the server; the text is never cut.
-      errs["ownerName"] = t("errors.nameTooLong", {
-        max: MAX_PERSON_NAME_LENGTH,
-      });
-    }
-    if (!okPhone(signupData.phone)) {
-      errs["phone"] = t("errors.invalidPhone");
-    }
-    if (!signupData.email.trim()) {
-      errs["email"] = t("errors.emailRequired");
-    } else if (!okMail(signupData.email)) {
-      errs["email"] = t("errors.invalidEmail");
-    }
-    const pwdRes = validatePasswordPolicy(signupData.password);
-    if (!pwdRes.valid) {
-      if (pwdRes.reason === "too_short" || pwdRes.reason === "empty") {
-        errs["password"] = t("auth.passwordLength");
-      } else if (pwdRes.reason === "missing_letter") {
-        errs["password"] = t("auth.passwordMissingLetter");
-      } else if (pwdRes.reason === "missing_number") {
-        errs["password"] = t("auth.passwordMissingNumber");
-      } else if (pwdRes.reason === "too_long") {
-        errs["password"] = t("auth.passwordTooLong");
-      } else if (pwdRes.reason === "too_common") {
-        errs["password"] = t("auth.passwordTooCommon");
-      }
-    }
-
-    setFieldErrors(errs);
-    if (Object.keys(errs).length > 0) return;
-
-    setDir(1);
-    setStep(1);
-  };
-
-  const handleCompleteSignup = async (e?: React.FormEvent) => {
+  // --- 2. Signup Handler (single step) ---
+  const handleSignup = async (e?: React.FormEvent) => {
     e?.preventDefault();
     setGlobalErr("");
-    const errs: Record<string, string> = {};
-
-    if (!signupData.storeName.trim()) {
-      errs["storeName"] = t("errors.writeStoreName");
-    }
-    const referral = (signupData.referralCode ?? "").trim();
-    if (referral && !/^[a-zA-Z0-9_-]{3,32}$/.test(referral)) {
-      errs["referralCode"] = t("auth.referralInvalid");
-    }
-
+    setSubmitted(true);
+    const errs = validateSignup(signupData, t, validatePasswordPolicy);
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -267,18 +201,12 @@ export function AuthScreen({
     try {
       const res = await authApi.signup({
         ...signupData,
+        ownerName: signupData.storeName.trim(),
         phone: normDigits(signupData.phone).replace(/\s|-/g, ""),
-        email: signupData.email.trim().toLowerCase(),
-        referralCode: referral || undefined,
+        email: signupData.email?.trim().toLowerCase() || undefined,
       });
 
       if (!res.success || !res.data) {
-        if (res.field === "referralCode") {
-          setFieldErrors({
-            referralCode: res.error || t("auth.referralInvalid"),
-          });
-          return;
-        }
         setGlobalErr(res.error || t("errors.serverError"));
         return;
       }
@@ -296,6 +224,7 @@ export function AuthScreen({
     e?.preventDefault();
     setGlobalErr("");
     setGlobalSuccess("");
+    setSubmitted(true);
 
     if (!okMail(forgotEmail)) {
       setFieldErrors({ forgotEmail: t("errors.invalidEmail") });
@@ -313,6 +242,8 @@ export function AuthScreen({
       }
 
       setForgotStep(1);
+      setSubmitted(false);
+      setTouched({});
       setGlobalSuccessTitle(t("auth.codeSentTitle"));
       setGlobalSuccess(res.data?.message || t("auth.forgotPasswordSub"));
       setResendCooldown(60);
@@ -337,6 +268,7 @@ export function AuthScreen({
     setGlobalErr("");
     setGlobalSuccess("");
     setGlobalSuccessTitle("");
+    setSubmitted(true);
     const errs: Record<string, string> = {};
 
     const cleanCode = normDigits(resetCode).replace(/\s|-/g, "");
@@ -377,7 +309,6 @@ export function AuthScreen({
         return;
       }
 
-      // Success! Switch back to login with success message
       switchMode("login");
       setGlobalSuccessTitle(t("auth.passwordResetSuccessTitle"));
       setGlobalSuccess(t("auth.passwordResetSuccess"));
@@ -391,52 +322,8 @@ export function AuthScreen({
 
   return (
     <div className={styles.auth} dir="rtl">
-      <button
-        type="button"
-        className={styles.themeToggle}
-        onClick={cycleTheme}
-        aria-label={`${t("common.themeToggle")} (${themeLabel})`}
-        title={`${t("common.themeToggle")} (${themeLabel})`}
-      >
-        <Icon n={themeIcon} s={18} />
-      </button>
-
-      <div
-        className={`${styles.card} ${mode === "signup" ? styles.signupCard : ""}`}
-      >
-        {/* Header */}
-        <div className={styles.head}>
-          <Image
-            src="/logo.png"
-            width={64}
-            height={64}
-            alt="حسبة"
-            className={styles.logoImg}
-            priority
-          />
-
-          <h1>
-            {mode === "login"
-              ? t("auth.loginTitle")
-              : mode === "signup"
-                ? t("auth.signupTitle")
-                : forgotStep === 0
-                  ? t("auth.forgotPasswordTitle")
-                  : t("auth.resetPasswordTitle")}
-          </h1>
-
-          <p>
-            {mode === "login"
-              ? t("auth.loginSub")
-              : mode === "signup"
-                ? t("auth.signupSub")
-                : forgotStep === 0
-                  ? t("auth.forgotPasswordSub")
-                  : t("auth.resetPasswordSub")}
-          </p>
-        </div>
-
-        {/* Offline Notice if applicable */}
+      <div className={styles.container}>
+        {/* Offline Notice */}
         {isOffline && (
           <Alert kind="warning" icon="wifioff">
             {t("auth.offlineNotice")}
@@ -464,55 +351,54 @@ export function AuthScreen({
 
         {/* ----------------- 1. LOGIN MODE ----------------- */}
         {mode === "login" && (
-          <form onSubmit={handleLogin} className={styles.body}>
-            <Field label={t("auth.phoneLabel")} err={fieldErrors["loginPhone"]}>
-              <input
-                type="tel"
-                inputMode="tel"
-                autoComplete="tel"
-                placeholder={t("auth.loginPhonePlaceholder")}
-                value={loginPhone}
-                onChange={(e) => {
-                  setLoginPhone(e.target.value);
-                  setFieldErrors((prev) => ({ ...prev, loginPhone: "" }));
-                  setGlobalErr("");
-                }}
-                disabled={busy}
-                autoFocus
-              />
-            </Field>
+          <>
+            <div className={styles.loginHead}>
+              <h1 className={styles.brandTitle}>{t("auth.loginTitle")}</h1>
+              <p className={styles.brandSub}>{t("auth.loginSub")}</p>
+            </div>
 
-            <Field
-              label={t("auth.passwordLabel")}
-              err={fieldErrors["loginPassword"]}
-            >
-              <div className={styles.passwordWrapper}>
+            <form onSubmit={handleLogin} className={styles.body} noValidate>
+              <Field label={t("auth.loginIdentifierLabel")} err={showErr("loginIdentifier")}>
                 <input
-                  type={showPassword ? "text" : "password"}
-                  autoComplete="current-password"
-                  placeholder={t("auth.loginPasswordPlaceholder")}
-                  value={loginPassword}
+                  type="text"
+                  inputMode="text"
+                  autoComplete="username"
+                  placeholder={t("auth.loginIdentifierPlaceholder")}
+                  value={loginIdentifier}
                   onChange={(e) => {
-                    setLoginPassword(e.target.value);
-                    setFieldErrors((prev) => ({ ...prev, loginPassword: "" }));
+                    setLoginIdentifier(e.target.value);
+                    setFieldErrors((prev) => ({ ...prev, loginIdentifier: "" }));
                     setGlobalErr("");
                   }}
+                  onBlur={() => markTouched("loginIdentifier")}
+                  onKeyDown={enterNext}
                   disabled={busy}
+                  autoFocus
                 />
-                <button
-                  type="button"
-                  className={styles.passwordToggle}
-                  onClick={() => setShowPassword(!showPassword)}
-                  aria-label={
-                    showPassword ? "إخفاء كلمة السر" : "عرض كلمة السر"
-                  }
-                >
-                  <Icon n={showPassword ? "eyeoff" : "eye"} s={18} />
-                </button>
-              </div>
-            </Field>
+              </Field>
 
-            <div style={{ marginTop: "10px" }}>
+              <Field
+                label={t("auth.passwordLabel")}
+                err={showErr("loginPassword")}
+              >
+                <div className={styles.passwordWrapper}>
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    placeholder={t("auth.loginPasswordPlaceholder")}
+                    value={loginPassword}
+                    onChange={(e) => {
+                      setLoginPassword(e.target.value);
+                      setFieldErrors((prev) => ({ ...prev, loginPassword: "" }));
+                      setGlobalErr("");
+                    }}
+                    onBlur={() => markTouched("loginPassword")}
+                    onKeyDown={enterNext}
+                    disabled={busy}
+                  />
+                </div>
+              </Field>
+
               <Button
                 type="submit"
                 kind="primary"
@@ -522,382 +408,154 @@ export function AuthScreen({
               >
                 {busy ? t("auth.loggingIn") : t("auth.loginBtn")}
               </Button>
-            </div>
 
-            <button
-              type="button"
-              className={styles.linkCenter}
-              onClick={() => switchMode("signup")}
-            >
-              {t("auth.newAccountLink")}
-            </button>
-
-            <button
-              type="button"
-              className={styles.secondaryLink}
-              onClick={() => switchMode("forgot-password")}
-            >
-              {t("auth.forgotPasswordLink")}
-            </button>
-          </form>
+              <div className={styles.switchSection}>
+                <span className={styles.switchText}>{t("auth.noAccount")}</span>
+                <button
+                  type="button"
+                  className={styles.outlineBtn}
+                  onClick={() => switchMode("signup")}
+                >
+                  {t("auth.newAccountLink")}
+                </button>
+              </div>
+            </form>
+          </>
         )}
 
-        {/* ----------------- 2. SIGNUP MODE ----------------- */}
+        {/* ----------------- 2. SIGNUP MODE (single step) ----------------- */}
         {mode === "signup" && (
-          <div>
-            {/* Stepper with exactly 2 steps */}
-            <div className={styles.steps}>
-              <div
-                className={`${styles.st} ${step === 0 ? styles.on : styles.done}`}
-              >
-                <span className={styles.stN}>{step > 0 ? "✓" : "1"}</span>
-                <span>{t("auth.step1")}</span>
-              </div>
-
-              <div className={styles.stLine}>
-                <span
-                  className={styles.stLineFill}
-                  style={{
-                    transform: step === 1 ? "scaleX(1)" : "scaleX(0)",
-                  }}
-                />
-              </div>
-
-              <div className={`${styles.st} ${step === 1 ? styles.on : ""}`}>
-                <span className={styles.stN}>2</span>
-                <span>{t("auth.step2")}</span>
-              </div>
+          <>
+            <div className={styles.signupHead}>
+              <h1>{t("auth.signupTitle")}</h1>
             </div>
 
-            {/* Step 1: عنك */}
-            {step === 0 && (
-              <div className={styles.body} data-dir={dir}>
-                <Field
-                  label={t("auth.ownerLabel")}
-                  err={fieldErrors["ownerName"]}
-                >
-                  <input
-                    type="text"
-                    autoComplete="name"
-                    placeholder={t("auth.ownerPlaceholder")}
-                    value={signupData.ownerName}
-                    onChange={(e) => {
-                      setSignupData({
-                        ...signupData,
-                        ownerName: e.target.value,
-                      });
-                      setFieldErrors((prev) => ({ ...prev, ownerName: "" }));
-                      setGlobalErr("");
-                    }}
-                    disabled={busy}
-                    autoFocus
-                  />
-                </Field>
-
-                <div className={styles.signupContactRow}>
-                  <Field
-                    label={t("auth.phoneLabel")}
-                    err={fieldErrors["phone"]}
-                    grow
-                  >
-                    <input
-                      type="tel"
-                      inputMode="tel"
-                      autoComplete="tel"
-                      placeholder={t("auth.phonePlaceholder")}
-                      value={signupData.phone}
-                      onChange={(e) => {
-                        setSignupData({ ...signupData, phone: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, phone: "" }));
-                        setGlobalErr("");
-                      }}
-                      disabled={busy}
-                    />
-                  </Field>
-
-                  <Field
-                    label={t("auth.emailLabel")}
-                    err={fieldErrors["email"]}
-                    grow
-                  >
-                    <input
-                      type="email"
-                      inputMode="email"
-                      autoComplete="email"
-                      placeholder={t("auth.emailPlaceholder")}
-                      value={signupData.email}
-                      onChange={(e) => {
-                        setSignupData({ ...signupData, email: e.target.value });
-                        setFieldErrors((prev) => ({ ...prev, email: "" }));
-                        setGlobalErr("");
-                      }}
-                      disabled={busy}
-                    />
-                  </Field>
-                </div>
-
-                <Field
-                  label={t("auth.passwordLabel")}
-                  hint={t("auth.passwordHint")}
-                  err={fieldErrors["password"]}
-                >
-                  <div className={styles.passwordWrapper}>
-                    <input
-                      type={showPassword ? "text" : "password"}
-                      autoComplete="new-password"
-                      placeholder={t("auth.passwordPlaceholder")}
-                      value={signupData.password}
-                      onChange={(e) => {
-                        setSignupData({
-                          ...signupData,
-                          password: e.target.value,
-                        });
-                        setFieldErrors((prev) => ({ ...prev, password: "" }));
-                        setGlobalErr("");
-                      }}
-                      disabled={busy}
-                    />
-                    <button
-                      type="button"
-                      className={styles.passwordToggle}
-                      onClick={() => setShowPassword(!showPassword)}
-                      aria-label={
-                        showPassword ? "إخفاء كلمة السر" : "عرض كلمة السر"
-                      }
-                    >
-                      <Icon n={showPassword ? "eyeoff" : "eye"} s={18} />
-                    </button>
-                  </div>
-                </Field>
-
-                <div style={{ marginTop: "10px" }}>
-                  <Button
-                    type="button"
-                    kind="primary"
-                    wide
-                    onClick={handleNextSignupStep}
-                  >
-                    {t("auth.next")}
-                  </Button>
-                </div>
-
-                <button
-                  type="button"
-                  className={styles.linkCenter}
-                  onClick={() => switchMode("login")}
-                >
-                  {t("auth.hasAccount")}
-                </button>
-              </div>
-            )}
-
-            {/* Step 2: محلك */}
-            {step === 1 && (
-              <form
-                onSubmit={handleCompleteSignup}
-                className={styles.body}
-                data-dir={dir}
+            <form onSubmit={handleSignup} className={styles.body} noValidate>
+              <Field
+                label={t("auth.storeNameLabel")}
+                err={showErr("storeName")}
               >
-                <Field
-                  label={t("auth.storeNameLabel")}
-                  err={fieldErrors["storeName"]}
-                >
+                <input
+                  type="text"
+                  placeholder={t("auth.storeNamePlaceholder")}
+                  value={signupData.storeName}
+                  onChange={(e) => {
+                    setSignupData({ ...signupData, storeName: e.target.value });
+                    setFieldErrors((prev) => ({ ...prev, storeName: "" }));
+                    setGlobalErr("");
+                  }}
+                  onBlur={() => markTouched("storeName")}
+                  onKeyDown={enterNext}
+                  disabled={busy}
+                  autoFocus
+                />
+              </Field>
+
+              <Field
+                label={t("auth.phoneLabel")}
+                err={showErr("phone")}
+              >
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="tel"
+                  placeholder={t("auth.phonePlaceholder")}
+                  value={signupData.phone}
+                  onChange={(e) => {
+                    setSignupData({ ...signupData, phone: e.target.value });
+                    setFieldErrors((prev) => ({ ...prev, phone: "" }));
+                    setGlobalErr("");
+                  }}
+                  onBlur={() => markTouched("phone")}
+                  onKeyDown={enterNext}
+                  disabled={busy}
+                />
+              </Field>
+
+              <Field
+                label={t("auth.emailOptionalLabel")}
+                err={showErr("email")}
+              >
+                <input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder={t("auth.emailPlaceholder")}
+                  value={signupData.email}
+                  onChange={(e) => {
+                    setSignupData({ ...signupData, email: e.target.value });
+                    setFieldErrors((prev) => ({ ...prev, email: "" }));
+                    setGlobalErr("");
+                  }}
+                  onBlur={() => markTouched("email")}
+                  onKeyDown={enterNext}
+                  disabled={busy}
+                />
+              </Field>
+
+              <Field
+                label={t("auth.passwordLabelWithHint")}
+                err={showErr("password")}
+              >
+                <div className={styles.passwordWrapper}>
                   <input
-                    type="text"
-                    placeholder={t("auth.storeNamePlaceholder")}
-                    value={signupData.storeName}
+                    type="password"
+                    autoComplete="new-password"
+                    value={signupData.password}
                     onChange={(e) => {
-                      setSignupData({
-                        ...signupData,
-                        storeName: e.target.value,
-                      });
-                      setFieldErrors((prev) => ({ ...prev, storeName: "" }));
+                      setSignupData({ ...signupData, password: e.target.value });
+                      setFieldErrors((prev) => ({ ...prev, password: "" }));
                       setGlobalErr("");
                     }}
-                    disabled={busy}
-                    autoFocus
-                  />
-                </Field>
-
-                <div>
-                  <div className={styles.fieldLabel}>
-                    {t("auth.shopTypeLabel")}
-                  </div>
-                  <div className={styles.chipsWrap}>
-                    {SHOP_TYPES.map((type) => (
-                      <button
-                        type="button"
-                        key={type}
-                        className={`${styles.chip} ${
-                          signupData.shopType === type ? styles.on : ""
-                        }`}
-                        onClick={() =>
-                          setSignupData({ ...signupData, shopType: type })
-                        }
-                      >
-                        {type}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className={styles.row2}>
-                  <Field label={t("auth.governorateLabel")}>
-                    <select
-                      value={signupData.governorate}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          governorate: e.target.value,
-                        })
-                      }
-                    >
-                      {GOVERNORATES.map((gov) => (
-                        <option key={gov} value={gov}>
-                          {gov}
-                        </option>
-                      ))}
-                    </select>
-                  </Field>
-
-                  <Field label={t("auth.areaLabel")}>
-                    <input
-                      type="text"
-                      placeholder={t("auth.areaPlaceholder")}
-                      value={signupData.area}
-                      onChange={(e) =>
-                        setSignupData({ ...signupData, area: e.target.value })
-                      }
-                      disabled={busy}
-                    />
-                  </Field>
-                </div>
-
-                <div className={styles.row2}>
-                  <Field label={t("auth.openedDateLabel")}>
-                    <input
-                      type="date"
-                      value={signupData.openedOn}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          openedOn: e.target.value,
-                        })
-                      }
-                      disabled={busy}
-                    />
-                  </Field>
-
-                  <Field label={t("auth.workersCountLabel")}>
-                    <select
-                      value={signupData.workersCount}
-                      onChange={(e) =>
-                        setSignupData({
-                          ...signupData,
-                          workersCount: Number(e.target.value),
-                        })
-                      }
-                    >
-                      <option value={1}>١ (أنا بس)</option>
-                      <option value={2}>٢</option>
-                      <option value={3}>٣</option>
-                      <option value={4}>٤</option>
-                      <option value={5}>٥ أو أكتر</option>
-                    </select>
-                  </Field>
-                </div>
-
-                <Field
-                  label={t("auth.referralLabel")}
-                  hint={t("auth.referralHint")}
-                  err={fieldErrors["referralCode"]}
-                >
-                  <input
-                    type="text"
-                    dir="ltr"
-                    inputMode="text"
-                    autoCapitalize="none"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    maxLength={32}
-                    placeholder="mogamal123"
-                    data-testid="signup-referral"
-                    value={signupData.referralCode ?? ""}
-                    onChange={(e) => {
-                      setSignupData({
-                        ...signupData,
-                        referralCode: e.target.value,
-                      });
-                      setFieldErrors((prev) => ({ ...prev, referralCode: "" }));
-                      setGlobalErr("");
-                    }}
+                    onBlur={() => markTouched("password")}
+                    onKeyDown={enterNext}
                     disabled={busy}
                   />
-                </Field>
-
-                <label className={styles.chkDemo}>
-                  <input
-                    type="checkbox"
-                    checked={signupData.withDemoData}
-                    onChange={(e) =>
-                      setSignupData({
-                        ...signupData,
-                        withDemoData: e.target.checked,
-                      })
-                    }
-                  />
-                  <div className={styles.chkDemoText}>
-                    <b>{t("auth.demoData")}</b>
-                    <small>{t("auth.demoDataDesc")}</small>
-                  </div>
-                </label>
-
-                <div className={styles.actions}>
-                  <Button
-                    type="button"
-                    kind="ghost"
-                    onClick={() => {
-                      setDir(-1);
-                      setStep(0);
-                    }}
-                    disabled={busy}
-                  >
-                    {t("auth.back")}
-                  </Button>
-
-                  <div className={styles.grow1}>
-                    <Button
-                      type="submit"
-                      kind="primary"
-                      wide
-                      busy={busy}
-                      disabled={busy}
-                    >
-                      {busy ? t("auth.creating") : t("auth.createAccount")}
-                    </Button>
-                  </div>
                 </div>
+              </Field>
 
-                <button
-                  type="button"
-                  className={styles.linkCenter}
-                  onClick={() => switchMode("login")}
-                >
-                  {t("auth.hasAccount")}
-                </button>
-              </form>
-            )}
-          </div>
+              <Button
+                type="submit"
+                kind="primary"
+                wide
+                busy={busy}
+                disabled={busy}
+              >
+                {busy ? t("auth.creating") : t("auth.createAccount")}
+              </Button>
+
+              <button
+                type="button"
+                className={styles.outlineBtn}
+                onClick={() => switchMode("login")}
+              >
+                {t("auth.hasAccount")}
+              </button>
+            </form>
+          </>
         )}
 
         {/* ----------------- 3. FORGOT PASSWORD MODE ----------------- */}
         {mode === "forgot-password" && (
           <div>
+            <div className={styles.signupHead}>
+              <h1>
+                {forgotStep === 0
+                  ? t("auth.forgotPasswordTitle")
+                  : t("auth.resetPasswordTitle")}
+              </h1>
+              <p className={styles.brandSub}>
+                {forgotStep === 0
+                  ? t("auth.forgotPasswordSub")
+                  : t("auth.resetPasswordSub")}
+              </p>
+            </div>
+
             {forgotStep === 0 ? (
-              <form onSubmit={handleRequestCode} className={styles.body}>
+              <form onSubmit={handleRequestCode} className={styles.body} noValidate>
                 <Field
                   label={t("auth.emailLabel")}
-                  err={fieldErrors["forgotEmail"]}
+                  err={showErr("forgotEmail")}
                 >
                   <input
                     type="email"
@@ -910,34 +568,34 @@ export function AuthScreen({
                       setFieldErrors({});
                       setGlobalErr("");
                     }}
+                    onBlur={() => markTouched("forgotEmail")}
+                    onKeyDown={enterNext}
                     disabled={busy}
                     autoFocus
                   />
                 </Field>
 
-                <div style={{ marginTop: "10px" }}>
-                  <Button
-                    type="submit"
-                    kind="primary"
-                    wide
-                    busy={busy}
-                    disabled={busy}
-                  >
-                    {busy ? t("auth.sendingCode") : t("auth.sendCodeBtn")}
-                  </Button>
-                </div>
+                <Button
+                  type="submit"
+                  kind="primary"
+                  wide
+                  busy={busy}
+                  disabled={busy}
+                >
+                  {busy ? t("auth.sendingCode") : t("auth.sendCodeBtn")}
+                </Button>
 
                 <button
                   type="button"
-                  className={styles.linkCenter}
+                  className={styles.outlineBtn}
                   onClick={() => switchMode("login")}
                 >
                   {t("auth.backToLogin")}
                 </button>
               </form>
             ) : (
-              <form onSubmit={handleResetPassword} className={styles.body}>
-                <Field label={t("auth.codeLabel")} err={fieldErrors["code"]}>
+              <form onSubmit={handleResetPassword} className={styles.body} noValidate>
+                <Field label={t("auth.codeLabel")} err={showErr("code")}>
                   <input
                     type="text"
                     inputMode="numeric"
@@ -952,6 +610,8 @@ export function AuthScreen({
                       setFieldErrors((prev) => ({ ...prev, code: "" }));
                       setGlobalErr("");
                     }}
+                    onBlur={() => markTouched("code")}
+                    onKeyDown={enterNext}
                     disabled={busy}
                     autoFocus
                   />
@@ -960,13 +620,12 @@ export function AuthScreen({
                 <Field
                   label={t("auth.newPasswordLabel")}
                   hint={t("auth.passwordHint")}
-                  err={fieldErrors["newPassword"]}
+                  err={showErr("newPassword")}
                 >
                   <div className={styles.passwordWrapper}>
                     <input
-                      type={showNewPassword ? "text" : "password"}
+                      type="password"
                       autoComplete="new-password"
-                      placeholder={t("auth.passwordPlaceholder")}
                       value={newPassword}
                       onChange={(e) => {
                         setNewPassword(e.target.value);
@@ -976,30 +635,21 @@ export function AuthScreen({
                         }));
                         setGlobalErr("");
                       }}
+                      onBlur={() => markTouched("newPassword")}
+                      onKeyDown={enterNext}
                       disabled={busy}
                     />
-                    <button
-                      type="button"
-                      className={styles.passwordToggle}
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      aria-label={
-                        showNewPassword ? "إخفاء كلمة السر" : "عرض كلمة السر"
-                      }
-                    >
-                      <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
-                    </button>
                   </div>
                 </Field>
 
                 <Field
                   label={t("auth.confirmPasswordLabel")}
-                  err={fieldErrors["confirmPassword"]}
+                  err={showErr("confirmPassword")}
                 >
                   <div className={styles.passwordWrapper}>
                     <input
-                      type={showNewPassword ? "text" : "password"}
+                      type="password"
                       autoComplete="new-password"
-                      placeholder={t("auth.confirmPasswordLabel")}
                       value={confirmPassword}
                       onChange={(e) => {
                         setConfirmPassword(e.target.value);
@@ -1009,34 +659,24 @@ export function AuthScreen({
                         }));
                         setGlobalErr("");
                       }}
+                      onBlur={() => markTouched("confirmPassword")}
+                      onKeyDown={enterNext}
                       disabled={busy}
                     />
-                    <button
-                      type="button"
-                      className={styles.passwordToggle}
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                      aria-label={
-                        showNewPassword ? "إخفاء كلمة السر" : "عرض كلمة السر"
-                      }
-                    >
-                      <Icon n={showNewPassword ? "eyeoff" : "eye"} s={18} />
-                    </button>
                   </div>
                 </Field>
 
-                <div style={{ marginTop: "10px" }}>
-                  <Button
-                    type="submit"
-                    kind="primary"
-                    wide
-                    busy={busy}
-                    disabled={busy}
-                  >
-                    {busy
-                      ? t("auth.savingPassword")
-                      : t("auth.saveNewPasswordBtn")}
-                  </Button>
-                </div>
+                <Button
+                  type="submit"
+                  kind="primary"
+                  wide
+                  busy={busy}
+                  disabled={busy}
+                >
+                  {busy
+                    ? t("auth.savingPassword")
+                    : t("auth.saveNewPasswordBtn")}
+                </Button>
 
                 {resendCooldown > 0 ? (
                   <span
@@ -1061,7 +701,7 @@ export function AuthScreen({
 
                 <button
                   type="button"
-                  className={styles.linkCenter}
+                  className={styles.outlineBtn}
                   onClick={() => switchMode("login")}
                 >
                   {t("auth.backToLogin")}
