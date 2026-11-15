@@ -46,9 +46,8 @@ export const signupInputSchema = z.object({
   email: z
     .string()
     .trim()
-    .email("بريد إلكتروني غير صحيح")
-    .optional()
-    .or(z.literal("")),
+    .min(1, "البريد الإلكتروني مطلوب")
+    .email("بريد إلكتروني غير صحيح"),
   password: passwordPolicySchema,
   storeName: z.string().trim().min(2, "اسم المحل مطلوب"),
   shopType: z.string().trim().min(2, "نوع المحل مطلوب"),
