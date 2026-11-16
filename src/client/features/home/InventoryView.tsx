@@ -4,6 +4,10 @@ import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useMemo } from "react";
 import { SearchBox, Icon, Empty } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
+import {
+  fetchStoreMachines,
+  type PosMachine,
+} from "@/client/shared/api/machines";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import { formatQtyText } from "./HomeView";
@@ -12,6 +16,39 @@ import styles from "./HomeView.module.css";
 export function InventoryView() {
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [query, setQuery] = useState("");
+  const [machines, setMachines] = useState<PosMachine[] | null>(null);
+  const [people, setPeople] = useState<{
+    owedToMe: number | null;
+    iOwe: number | null;
+  }>({ owedToMe: null, iOwe: null });
+
+  useEffect(() => {
+    let ignore = false;
+    void fetchStoreMachines().then((list) => {
+      if (!ignore) setMachines(list);
+    });
+    const sectionTotal = (section: string) =>
+      apiGet(`/api/people?section=${section}`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { total_piasters?: number } | null) =>
+          typeof d?.total_piasters === "number" ? d.total_piasters : null,
+        )
+        .catch(() => null);
+    void Promise.all([
+      sectionTotal("owedToMe"),
+      sectionTotal("iOwe"),
+      sectionTotal("suppliers"),
+    ]).then(([owed, iOwe, sup]) => {
+      if (ignore) return;
+      setPeople({
+        owedToMe: owed,
+        iOwe: iOwe === null && sup === null ? null : (iOwe ?? 0) + (sup ?? 0),
+      });
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -67,15 +104,18 @@ export function InventoryView() {
     () => inventoryRows.reduce((sum, item) => sum + item.valPiasters, 0),
     [inventoryRows],
   );
-  const expectedProfitPiasters = totalSellPiasters - totalCostPiasters;
-
-  const todayDateLabel = useMemo(() => {
-    return new Intl.DateTimeFormat("ar-EG", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    }).format(new Date());
-  }, []);
+  const outCount = inventory.filter((i) => i.status === "out").length;
+  const lowCount = inventory.filter((i) => i.status === "low").length;
+  const machinesTotal = (machines ?? []).reduce(
+    (sum, m) => sum + (m.currentBalancePiasters || 0),
+    0,
+  );
+  const liquidation =
+    totalSellPiasters +
+    machinesTotal +
+    (people.owedToMe ?? 0) -
+    (people.iOwe ?? 0);
+  const show = (v: number | null) => (v === null ? "—" : formatMoney(v));
 
   const exportToExcel = () => {
     const headers = [
@@ -120,29 +160,85 @@ export function InventoryView() {
 
   return (
     <div className={styles.page} data-testid="page-inventory" dir="rtl">
-      <div className={styles.kpis}>
-        <div className={`${styles.kpi} ${styles.kpiBig}`}>
-          <small>قيمة المخزون بسعر الشراء — جرد {todayDateLabel}</small>
-          <b>{formatMoney(totalCostPiasters)}</b>
-          <em>
-            بسعر البيع {formatMoney(totalSellPiasters)} · ربح متوقع{" "}
-            {formatMoney(expectedProfitPiasters)}
-          </em>
-        </div>
-        <div className={styles.kpi}>
-          <small>عدد الأصناف</small>
+      <div className={styles.note}>
+        الجرد بيتحسب لوحده. ده إجمالي اللي عندك دلوقتي.
+      </div>
+
+      <h3 className={styles.sech}>🧃 البضاعة</h3>
+      <div className={styles.sumbox}>
+        <div className={styles.line}>
+          <span>عدد المنتجات</span>
           <b>{inventory.length}</b>
         </div>
-        <div className={`${styles.kpi} ${styles.kpiNeg}`}>
-          <small>خلصان</small>
-          <b>{inventory.filter((i) => i.status === "out").length}</b>
+        <div className={styles.line}>
+          <span>خلصانين</span>
+          <b>{outCount}</b>
         </div>
-        <div className={styles.kpi}>
-          <small>قرب يخلص</small>
-          <b>{inventory.filter((i) => i.status === "low").length}</b>
+        <div className={styles.line}>
+          <span>قربوا يخلصوا</span>
+          <b>{lowCount}</b>
+        </div>
+        <div className={styles.line}>
+          <span>قيمتها بسعر الشراء</span>
+          <b>{formatMoney(totalCostPiasters)}</b>
+        </div>
+        <div className={styles.line}>
+          <span>قيمتها بسعر البيع</span>
+          <b>{formatMoney(totalSellPiasters)}</b>
         </div>
       </div>
 
+      <h3 className={styles.sech}>💳 الماكينات والمحافظ</h3>
+      <div className={styles.sumbox}>
+        {(machines ?? []).map((m) => (
+          <div key={m.id} className={styles.line}>
+            <span>{m.name}</span>
+            <b>{formatMoney(m.currentBalancePiasters || 0)}</b>
+          </div>
+        ))}
+        <div className={styles.line}>
+          <b>الإجمالي</b>
+          <b>{machines === null ? "—" : formatMoney(machinesTotal)}</b>
+        </div>
+      </div>
+
+      <h3 className={styles.sech}>👥 الناس</h3>
+      <div className={styles.sumbox}>
+        <div className={styles.line}>
+          <span>ليك عند الناس</span>
+          <b>{show(people.owedToMe)}</b>
+        </div>
+        <div className={styles.line}>
+          <span>عليك للناس</span>
+          <b>{show(people.iOwe)}</b>
+        </div>
+      </div>
+
+      <h3 className={styles.sech}>🧮 لو صفّيت دلوقتي</h3>
+      <div className={styles.sumbox}>
+        <div className={styles.line}>
+          <span>البضاعة بسعر البيع</span>
+          <b>{formatMoney(totalSellPiasters)}</b>
+        </div>
+        <div className={styles.line}>
+          <span>الماكينات والمحافظ</span>
+          <b>{machines === null ? "—" : formatMoney(machinesTotal)}</b>
+        </div>
+        <div className={styles.line}>
+          <span>ليك عند الناس</span>
+          <b>{show(people.owedToMe)}</b>
+        </div>
+        <div className={styles.line}>
+          <span>عليك للناس</span>
+          <b>{people.iOwe === null ? "—" : `−${formatMoney(people.iOwe)}`}</b>
+        </div>
+        <div className={styles.line}>
+          <b>هيبقى معاك (من غير فلوس الدرج)</b>
+          <b className={styles.goodText}>{formatMoney(liquidation)}</b>
+        </div>
+      </div>
+
+      <h3 className={styles.sech}>📋 الأصناف</h3>
       <div className={styles.invBar}>
         <div className={styles.invSearch}>
           <SearchBox

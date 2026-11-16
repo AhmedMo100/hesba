@@ -2,12 +2,12 @@
 
 /**
  * @file HomeView.tsx
- * @description Card-grid home dashboard with shortcuts to every feature, today's KPIs,
- * stock alert banner, and a prominent inventory shortcut.
+ * @description Home dashboard (V19 reference): today's KPIs, the drawer, the stock alerts
+ * strip and the shortcut tiles to every screen.
  */
 
 import React, { useState, useEffect } from "react";
-import { Icon, Skeleton } from "@/client/shared/ui";
+import { Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
@@ -49,7 +49,6 @@ export interface HomeViewProps {
 export function HomeView({
   onNavigate,
   alertCount = 0,
-  onOpenAlerts,
   onLogout,
 }: HomeViewProps) {
   // ─── Today's KPIs (from report) ───
@@ -88,206 +87,165 @@ export function HomeView({
     };
   }, []);
 
-  // ─── Stock alert counts ───
-  const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0 });
+  // ─── Stock alert counts (out / low / near expiry), from the stock levels ───
+  const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0, exp: 0 });
 
   useEffect(() => {
     let ignore = false;
-    apiGet("/api/stock")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (ignore) return;
-        if (data?.inventory && Array.isArray(data.inventory)) {
-          const inv = data.inventory as Array<{ status?: string }>;
-          setStockAlerts({
-            out: inv.filter((i) => i.status === "out").length,
-            low: inv.filter((i) => i.status === "low").length,
-          });
-        }
-      })
-      .catch(() => {});
-    const onStockUpdate = () => {
+    const load = () => {
       apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (ignore) return;
           if (data?.inventory && Array.isArray(data.inventory)) {
-            const inv = data.inventory as Array<{ status?: string }>;
+            const inv = data.inventory as Array<{
+              status?: string;
+              hasNearExpiry?: boolean;
+            }>;
             setStockAlerts({
               out: inv.filter((i) => i.status === "out").length,
               low: inv.filter((i) => i.status === "low").length,
+              exp: inv.filter((i) => i.hasNearExpiry).length,
             });
           }
         })
         .catch(() => {});
     };
-    window.addEventListener("hesba_stock_updated", onStockUpdate);
+    load();
+    window.addEventListener("hesba_stock_updated", load);
     return () => {
       ignore = true;
-      window.removeEventListener("hesba_stock_updated", onStockUpdate);
+      window.removeEventListener("hesba_stock_updated", load);
     };
   }, []);
 
   const todayRevenue = report?.sales.revenuePiasters ?? null;
   const todayProfit = report?.sales.grossProfitPiasters ?? null;
+  const todayCount = report?.sales.count ?? null;
 
-  // ─── Alert banner text ───
-  const alertParts: string[] = [];
-  if (stockAlerts.out > 0) alertParts.push(`${stockAlerts.out} خلص`);
-  if (stockAlerts.low > 0) alertParts.push(`${stockAlerts.low} قرب يخلص`);
-  const stockTotal = stockAlerts.out + stockAlerts.low;
-  if (alertCount > stockTotal) {
-    alertParts.push(`${alertCount - stockTotal} قرب تنتهي صلاحيته`);
-  }
-  if (alertParts.length === 0 && alertCount > 0) {
-    alertParts.push(`${alertCount} تنبيه`);
-  }
-  const alertText = alertParts.join(" · ");
-  const hasAlerts = alertText.length > 0;
+  const money = (piasters: number) =>
+    `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
 
-  // ─── Dashboard ───
+  const { out, low, exp } = stockAlerts;
+  const hasStockAlerts = out + low + exp > 0;
+  const alertText = hasStockAlerts
+    ? [
+        t("home.alertOut", { count: out }),
+        t("home.alertLow", { count: low }),
+        t("home.alertExpiry", { count: exp }),
+      ].join(" · ")
+    : alertCount > 0
+      ? t("home.alertGeneric", { count: alertCount })
+      : "";
+
+  const tile = (
+    route: NavRoute,
+    icon: string,
+    label: string,
+    tone: string | undefined,
+    testId?: string,
+  ) => (
+    <button
+      type="button"
+      className={`${styles.t} ${tone ?? ""}`}
+      onClick={() => onNavigate(route)}
+      data-testid={testId}
+    >
+      <i aria-hidden="true">{icon}</i>
+      {label}
+    </button>
+  );
+
+  // ─── Dashboard (docs/ui-reference/v19-demo) ───
   return (
     <div className={styles.page} data-testid="page-home" dir="rtl">
-      {/* Greeting + drawer shortcut */}
-      <div className={styles.welcome}>
-        <span className={styles.welcomeText}>{t("home.welcome")}</span>
-        <div className={styles.welcomeActions}>
-          <button
-            type="button"
-            className={styles.actionBtn}
-            onClick={() => onNavigate("sales")}
-            aria-label={t("home.cashDrawer")}
-            title={t("home.cashDrawer")}
-          >
-            <Icon n="wallet" s={16} />
-            <span>{t("home.cashDrawer")}</span>
-          </button>
-        </div>
-      </div>
-
-      {/* Today's KPI cards */}
-      <div className={styles.kpiRow}>
-        <div className={styles.kpiCard}>
+      <div className={styles.sumrow}>
+        <button
+          type="button"
+          className={styles.stat}
+          onClick={() => onNavigate("inventory")}
+        >
           <small>{t("home.soldToday")}</small>
           <b>
             {reportLoading ? (
-              <Skeleton width={60} height={20} />
+              <Skeleton width={70} height={24} />
             ) : todayRevenue === null ? (
               "—"
             ) : (
-              `${(todayRevenue / 100).toLocaleString("en-US", { maximumFractionDigits: 1 })} ${t("home.pound")}`
+              money(todayRevenue)
             )}
           </b>
-        </div>
-        <div className={styles.kpiCard}>
+        </button>
+        <button
+          type="button"
+          className={`${styles.stat} ${styles.good}`}
+          onClick={() => onNavigate("inventory")}
+        >
           <small>{t("home.profitToday")}</small>
           <b>
             {reportLoading ? (
-              <Skeleton width={60} height={20} />
+              <Skeleton width={70} height={24} />
             ) : todayProfit === null ? (
               "—"
             ) : (
-              `${(todayProfit / 100).toLocaleString("en-US", { maximumFractionDigits: 1 })} ${t("home.pound")}`
+              money(todayProfit)
+            )}
+          </b>
+        </button>
+      </div>
+
+      {/* The drawer: today's sales in the sales screen */}
+      <button
+        type="button"
+        className={styles.drw}
+        onClick={() => onNavigate("sales")}
+        aria-label={t("home.cashDrawer")}
+        data-testid="home-drawer"
+      >
+        <div>
+          <small>{t("home.drawerLabel")}</small>
+          <b>
+            {reportLoading ? (
+              <Skeleton width={60} height={24} />
+            ) : todayCount === null ? (
+              "—"
+            ) : (
+              t("home.drawerCount", { count: todayCount })
             )}
           </b>
         </div>
-      </div>
+        <span>{t("home.drawerOpen")}</span>
+      </button>
 
-      {/* Alert banner */}
-      {hasAlerts && onOpenAlerts && (
+      {alertText && (
         <button
           type="button"
-          className={styles.alertBanner}
-          onClick={onOpenAlerts}
+          className={styles.warn}
+          onClick={() => onNavigate("inventory")}
+          data-testid="home-alerts"
         >
-          <span className={styles.alertIcon}>⚠</span>
-          <span>{alertText}</span>
+          ⚠️ {alertText}
         </button>
       )}
 
-      {/* Action cards grid — matches reference screenshots */}
-      <div className={styles.grid}>
-        {/* Row 1: stock + sales */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("stock")}
-        >
-          <span className={styles.cardBadge}>١</span>
-          <span className={styles.cardIcon}>📦</span>
-          <span className={styles.cardLabel}>{t("home.addStock")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("sales")}
-        >
-          <span className={styles.cardBadge}>٢</span>
-          <span className={styles.cardIcon}>🛒</span>
-          <span className={styles.cardLabel}>{t("home.sell")}</span>
-        </button>
-
-        {/* Row 2: expenses + people */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("expenses")}
-        >
-          <span className={styles.cardBadge}>٣</span>
-          <span className={styles.cardIcon}>💰</span>
-          <span className={styles.cardLabel}>{t("home.expenses")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("people")}
-        >
-          <span className={styles.cardIcon}>👥</span>
-          <span className={styles.cardLabel}>{t("home.people")}</span>
-        </button>
-
-        {/* Row 3: products + wallets */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("products")}
-        >
-          <span className={styles.cardIcon}>🧃</span>
-          <span className={styles.cardLabel}>{t("home.myProducts")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("alerts")}
-        >
-          <span className={styles.cardIcon}>💳</span>
-          <span className={styles.cardLabel}>{t("home.walletsMachines")}</span>
-        </button>
-
-        {/* Row 4: ai (single) */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("ai")}
-        >
-          <span className={styles.cardIcon}>💬</span>
-          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
-        </button>
+      <div className={styles.tiles}>
+        {tile("stock", "📦", t("home.addStock"), styles.cIn)}
+        {tile("expenses", "💰", t("home.expenses"), styles.cOut)}
+        {tile("sales", "🛒", t("home.sell"), `${styles.cSell} ${styles.wide}`)}
+        {tile("people", "👥", t("home.people"), styles.cPpl)}
+        {tile("ai", "💬", t("home.askHesba"), "")}
+        {tile("alerts", "💳", t("home.walletsMachines"), styles.cMach)}
+        {tile("products", "🧃", t("home.myProducts"), "")}
+        {tile(
+          "inventory",
+          "📋",
+          t("home.inventory"),
+          `${styles.cInv} ${styles.wide}`,
+        )}
       </div>
 
-      {/* Inventory — prominent full-width card */}
-      <button
-        type="button"
-        className={`${styles.card} ${styles.cardGold} ${styles.cardWide} ${styles.cardInventory}`}
-        onClick={() => onNavigate("inventory")}
-      >
-        <span className={styles.cardIcon}>📋</span>
-        <span className={styles.cardLabel}>{t("home.inventory")}</span>
-      </button>
-
-      {/* Logout */}
       {onLogout && (
-        <button type="button" className={styles.logoutBtn} onClick={onLogout}>
+        <button type="button" className={styles.link} onClick={onLogout}>
           {t("home.logout")}
         </button>
       )}

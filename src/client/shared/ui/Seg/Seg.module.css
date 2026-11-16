@@ -3,9 +3,9 @@
   display: flex;
   padding: 4px;
   gap: 0;
-  border-radius: 14px;
-  background: var(--sf2);
-  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--chip);
+  border: 0;
   user-select: none;
   width: 100%;
   max-width: 100%;
@@ -18,11 +18,8 @@
   bottom: 4px;
   inset-inline-start: 4px;
   width: calc((100% - 8px) / var(--n, 2));
-  background: var(--sf);
-  border-radius: 10px;
-  box-shadow:
-    0 1px 3px rgba(40, 30, 10, 0.14),
-    0 0 0 1px var(--line);
+  background: var(--dark);
+  border-radius: 16px;
   transform: translateX(calc(var(--i, 0) * -100%));
   transition: transform 0.32s var(--ease);
   pointer-events: none;
@@ -36,9 +33,9 @@
   min-height: 44px;
   padding: 0 8px;
   border-radius: 10px;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 700;
-  color: var(--ink2);
+  color: var(--ink);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -60,7 +57,7 @@
 }
 
 .item.on {
-  color: var(--br);
+  color: var(--cream);
 }
 
 .big .item {

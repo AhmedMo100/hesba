@@ -5,16 +5,17 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  height: 62px;
-  padding: 0 16px;
-  background: var(--brBg);
+  gap: 10px;
+  min-height: 64px;
+  padding: 12px 14px;
+  background: var(--dark);
+  color: var(--cream);
 }
 
 .rightGroup {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -30,16 +31,18 @@
 }
 
 .backBtn {
-  width: 48px;
-  height: 48px;
-  border-radius: 50%;
+  width: 40px;
+  height: 40px;
+  border-radius: 20px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--cream);
   cursor: pointer;
   border: 0;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
   transition:
     background 0.15s,
     transform 0.12s;
@@ -47,7 +50,7 @@
 }
 
 .backBtn:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .backBtn:active {
@@ -55,23 +58,25 @@
 }
 
 .themeBtn {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  border-radius: 21px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--cream);
   cursor: pointer;
   border: 0;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.12);
   transition:
     background 0.15s,
     transform 0.12s;
 }
 
 .themeBtn:hover {
-  background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .themeBtn:active {

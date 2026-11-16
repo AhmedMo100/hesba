@@ -1,8 +1,8 @@
 .fld {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  margin-bottom: 16px;
+  gap: 4px;
+  margin-bottom: 10px;
   min-width: 0;
 }
 
@@ -12,18 +12,19 @@
 }
 
 .fl {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--ink2);
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--muted);
   padding-inline: 2px;
 }
 
 .input {
   width: 100%;
   font-size: 16px;
+  font-weight: 700;
   min-height: 50px;
-  padding: 12px 14px;
-  border: 1.5px solid var(--line);
+  padding: 13px;
+  border: 2px solid var(--line);
   border-radius: 14px;
   background: var(--sf);
   color: var(--ink);
@@ -43,9 +44,10 @@
   width: 100%;
   box-sizing: border-box;
   font-size: 16px;
+  font-weight: 700;
   min-height: 50px;
-  padding: 12px 14px;
-  border: 1.5px solid var(--line);
+  padding: 13px;
+  border: 2px solid var(--line);
   border-radius: 14px;
   background-color: var(--sf);
   color: var(--ink);

@@ -2,16 +2,15 @@
 
 import React from "react";
 import styles from "./Header.module.css";
-import { Icon, type IconName } from "../shared/ui";
 import { StoreMenu, type StoreMenuProps } from "./StoreMenu";
 import { useTheme, type ThemeMode } from "../shared/theme";
 import { t } from "../shared/i18n";
 import type { NavRoute } from "./BottomNav";
 
-const THEME_ICON: Record<ThemeMode, IconName> = {
-  light: "sun",
-  dark: "moon",
-  auto: "auto",
+const THEME_GLYPH: Record<ThemeMode, string> = {
+  light: "🌙",
+  dark: "☀️",
+  auto: "🌓",
 };
 
 const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
@@ -32,7 +31,7 @@ export interface HeaderProps extends StoreMenuProps {
 
 export function Header({ onBack, route, ...menu }: HeaderProps) {
   const { theme, cycleTheme } = useTheme();
-  const themeIcon = THEME_ICON[theme] ?? "sun";
+  const themeGlyph = THEME_GLYPH[theme] ?? "🌙";
 
   const isHome = !route || route === "home";
   const titleKey = route ? PAGE_TITLE[route] : undefined;
@@ -48,7 +47,7 @@ export function Header({ onBack, route, ...menu }: HeaderProps) {
             onClick={onBack}
             aria-label="رجوع للرئيسية"
           >
-            <Icon n="left" s={24} />
+            <span aria-hidden="true">→</span>
           </button>
         )}
         <StoreMenu {...menu} pageTitle={pageTitle} />
@@ -64,7 +63,7 @@ export function Header({ onBack, route, ...menu }: HeaderProps) {
           aria-label={`الوضع: ${theme === "light" ? "فاتح" : theme === "dark" ? "داكن" : "تلقائي"}`}
           title="تغيير المظهر"
         >
-          <Icon n={themeIcon} s={20} />
+          <span aria-hidden="true">{themeGlyph}</span>
         </button>
       </div>
     </header>

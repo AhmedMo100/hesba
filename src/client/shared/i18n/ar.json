@@ -45,13 +45,13 @@
   },
   "pageTitle": {
     "stock": "دخلت بضاعة",
-    "sales": "بيع",
+    "sales": "بيع حاجة",
     "expenses": "صرفت فلوس",
-    "people": "الناس",
+    "people": "حسابات الناس",
     "alerts": "المحافظ والماكينات",
     "products": "بضاعتي",
     "ai": "اسأل حسبة",
-    "inventory": "التقارير والجرد"
+    "inventory": "الجرد"
   },
   "storeMenu": {
     "online": "متصل",
@@ -133,6 +133,9 @@
       "retry": "إعادة المحاولة",
       "saving": "جاري التسجيل...",
       "addExpense": "سجّل",
+      "askTitle": "صرفت على إيه؟",
+      "saveExpense": "حفظ المصروف",
+      "otherDay": "صرفتها يوم تاني؟",
       "register": "+ سجّل",
       "amount": "المبلغ",
       "amountPlaceholder": "0",
@@ -570,6 +573,7 @@
     "missing": "الساندوتش ده مش متاح للبيع دلوقتي"
   },
   "sale": {
+    "outCantSell": "ده خلص، مش هينفع تبيعه",
     "onlineOnly": "البيع محتاج إنترنت — مفيش حاجة اتسجلت",
     "failed": "البيعة متسجلتش، جرب تاني",
     "sold": "تم تسجيل بيع: {name} ({label}) بـ {amount}",
@@ -625,9 +629,23 @@
     "walletsMachines": "المحافظ والماكينات",
     "askHesba": "اسأل حسبة",
     "inventory": "الجرد",
-    "logout": "خروج"
+    "logout": "خروج",
+    "drawerLabel": "🧮 الدرج — بيعات النهارده",
+    "drawerCount": "{count} عملية",
+    "drawerOpen": "افتح ←",
+    "alertOut": "{count} خلص",
+    "alertLow": "{count} قرب يخلص",
+    "alertExpiry": "{count} قرب تنتهي صلاحيته",
+    "alertGeneric": "{count} تنبيه"
   },
   "credit": {
+    "toggle": "🧾 بيع آجل",
+    "modeOn": "بيع آجل: اختار الحاجات، وهتكتب اسم العميل قبل التأكيد",
+    "modeHint": "اختار المنتجات، وقبل تأكيد الفاتورة هتكتب اسم العميل",
+    "whoTitle": "العميل اللي هيتسجل عليه",
+    "namePlaceholder": "اسم العميل",
+    "phoneOptional": "رقم الموبايل (اختياري)",
+    "restOnCredit": "الباقي آجل",
     "start": "آجل",
     "sessionLabel": "آجل: {name}",
     "title": "بيع آجل — مين الزبون؟",

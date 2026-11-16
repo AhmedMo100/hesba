@@ -9,19 +9,20 @@
   align-items: center;
   gap: 8px;
   min-height: 44px;
-  padding: 4px 10px 4px 8px;
-  border-radius: 14px;
+  padding: 0;
+  border-radius: 12px;
   font-weight: 800;
-  max-width: calc(100vw - 96px);
+  max-width: calc(100vw - 120px);
   cursor: pointer;
   border: 0;
   background: none;
-  color: #fff;
+  color: var(--cream);
+  text-align: start;
   transition: background 0.15s;
 }
 
 .storeBtn:hover {
-  background: rgba(255, 255, 255, 0.1);
+  opacity: 0.9;
 }
 
 .nameGroup {
@@ -32,21 +33,22 @@
 }
 
 .appName {
-  font-size: 20px;
-  font-weight: 900;
-  line-height: 1.2;
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
   white-space: nowrap;
-  color: #fff;
+  color: var(--cream);
 }
 
 .storeName {
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.8;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   min-width: 0;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--cream);
 }
 
 .offDot {
