@@ -28,17 +28,9 @@ const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
 export interface HeaderProps extends StoreMenuProps {
   onBack?: () => void;
   route?: NavRoute;
-  alertCount?: number;
-  onOpenAlerts?: () => void;
 }
 
-export function Header({
-  onBack,
-  route,
-  alertCount = 0,
-  onOpenAlerts,
-  ...menu
-}: HeaderProps) {
+export function Header({ onBack, route, ...menu }: HeaderProps) {
   const { theme, cycleTheme } = useTheme();
   const themeIcon = THEME_ICON[theme] ?? "sun";
 
@@ -74,21 +66,6 @@ export function Header({
         >
           <Icon n={themeIcon} s={20} />
         </button>
-        {onOpenAlerts && (
-          <button
-            type="button"
-            className={styles.bellBtn}
-            onClick={onOpenAlerts}
-            aria-label="التنبيهات"
-          >
-            <Icon n="bell" s={20} />
-            {alertCount > 0 && (
-              <span className={styles.bellBadge}>
-                {alertCount > 99 ? "99+" : alertCount}
-              </span>
-            )}
-          </button>
-        )}
       </div>
     </header>
   );

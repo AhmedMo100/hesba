@@ -402,8 +402,6 @@ function AppShellInner() {
           }}
           signedIn={Boolean(session)}
           route={route}
-          alertCount={alertCount}
-          onOpenAlerts={() => navigate("alerts")}
           onBack={route !== "home" ? () => navigate("home") : undefined}
         />
         {route !== "stock" && effectiveSyncState !== "synced" && (

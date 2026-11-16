@@ -3,13 +3,14 @@
 /**
  * @file HomeView.tsx
  * @description Card-grid home dashboard with shortcuts to every feature, today's KPIs,
- * and an inventory sub-view (الجرد) reachable from its card.
+ * stock alert banner, and a prominent inventory shortcut.
  */
 
 import React, { useState, useEffect } from "react";
-import { Icon, Skeleton } from "@/client/shared/ui";
+import { Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
+import { apiGet } from "@/client/shared/api/read-cache";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import styles from "./HomeView.module.css";
@@ -87,44 +88,69 @@ export function HomeView({
     };
   }, []);
 
+  // ─── Stock alert counts ───
+  const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0 });
+
+  useEffect(() => {
+    let ignore = false;
+    apiGet("/api/stock")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (ignore) return;
+        if (data?.inventory && Array.isArray(data.inventory)) {
+          const inv = data.inventory as Array<{ status?: string }>;
+          setStockAlerts({
+            out: inv.filter((i) => i.status === "out").length,
+            low: inv.filter((i) => i.status === "low").length,
+          });
+        }
+      })
+      .catch(() => {});
+    const onStockUpdate = () => {
+      apiGet("/api/stock")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (ignore) return;
+          if (data?.inventory && Array.isArray(data.inventory)) {
+            const inv = data.inventory as Array<{ status?: string }>;
+            setStockAlerts({
+              out: inv.filter((i) => i.status === "out").length,
+              low: inv.filter((i) => i.status === "low").length,
+            });
+          }
+        })
+        .catch(() => {});
+    };
+    window.addEventListener("hesba_stock_updated", onStockUpdate);
+    return () => {
+      ignore = true;
+      window.removeEventListener("hesba_stock_updated", onStockUpdate);
+    };
+  }, []);
+
   const todayRevenue = report?.sales.revenuePiasters ?? null;
   const todayProfit = report?.sales.grossProfitPiasters ?? null;
 
-  // ─── Dashboard card-grid view ───
+  // ─── Alert banner text ───
+  const alertParts: string[] = [];
+  if (stockAlerts.out > 0) alertParts.push(`${stockAlerts.out} خلص`);
+  if (stockAlerts.low > 0) alertParts.push(`${stockAlerts.low} قرب يخلص`);
+  const stockTotal = stockAlerts.out + stockAlerts.low;
+  if (alertCount > stockTotal) {
+    alertParts.push(`${alertCount - stockTotal} قرب تنتهي صلاحيته`);
+  }
+  if (alertParts.length === 0 && alertCount > 0) {
+    alertParts.push(`${alertCount} تنبيه`);
+  }
+  const alertText = alertParts.join(" · ");
+  const hasAlerts = alertText.length > 0;
+
+  // ─── Dashboard ───
   return (
     <div className={styles.page} data-testid="page-home" dir="rtl">
-      {/* Welcome row with action buttons */}
+      {/* Greeting */}
       <div className={styles.welcome}>
         <span className={styles.welcomeText}>{t("home.welcome")}</span>
-        <div className={styles.welcomeActions}>
-          {onOpenAlerts && (
-            <button
-              type="button"
-              className={styles.actionBtn}
-              onClick={onOpenAlerts}
-              aria-label={t("home.notifications")}
-              title={t("home.notifications")}
-            >
-              <Icon n="bell" s={16} />
-              <span>{t("home.notifications")}</span>
-              {alertCount > 0 && (
-                <span className={styles.actionBadge}>
-                  {alertCount > 99 ? "99+" : alertCount}
-                </span>
-              )}
-            </button>
-          )}
-          <button
-            type="button"
-            className={styles.actionBtn}
-            onClick={() => onNavigate("sales")}
-            aria-label={t("home.cashDrawer")}
-            title={t("home.cashDrawer")}
-          >
-            <Icon n="wallet" s={16} />
-            <span>{t("home.cashDrawer")}</span>
-          </button>
-        </div>
       </div>
 
       {/* Today's KPI cards */}
@@ -155,44 +181,49 @@ export function HomeView({
         </div>
       </div>
 
-      {/* Action cards grid */}
+      {/* Alert banner */}
+      {hasAlerts && onOpenAlerts && (
+        <button
+          type="button"
+          className={styles.alertBanner}
+          onClick={onOpenAlerts}
+        >
+          <span className={styles.alertIcon}>⚠</span>
+          <span>{alertText}</span>
+        </button>
+      )}
+
+      {/* Action cards grid — matches reference screenshots */}
       <div className={styles.grid}>
-        {/* Row 1: stock + expenses — dark green */}
+        {/* Row 1: stock + sales */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
           onClick={() => onNavigate("stock")}
         >
+          <span className={styles.cardBadge}>١</span>
           <span className={styles.cardIcon}>📦</span>
           <span className={styles.cardLabel}>{t("home.addStock")}</span>
         </button>
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("expenses")}
-        >
-          <span className={styles.cardIcon}>💰</span>
-          <span className={styles.cardLabel}>{t("home.expenses")}</span>
-        </button>
-
-        {/* Row 2: sell — full width, gold (distinctive) */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardGold} ${styles.cardWide}`}
           onClick={() => onNavigate("sales")}
         >
+          <span className={styles.cardBadge}>٢</span>
           <span className={styles.cardIcon}>🛒</span>
           <span className={styles.cardLabel}>{t("home.sell")}</span>
         </button>
 
-        {/* Row 3: ask hesba + people — dark green */}
+        {/* Row 2: expenses + people */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("ai")}
+          onClick={() => onNavigate("expenses")}
         >
-          <span className={styles.cardIcon}>💬</span>
-          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
+          <span className={styles.cardBadge}>٣</span>
+          <span className={styles.cardIcon}>💰</span>
+          <span className={styles.cardLabel}>{t("home.expenses")}</span>
         </button>
         <button
           type="button"
@@ -203,7 +234,7 @@ export function HomeView({
           <span className={styles.cardLabel}>{t("home.people")}</span>
         </button>
 
-        {/* Row 4: products + wallets — dark green */}
+        {/* Row 3: products + wallets */}
         <button
           type="button"
           className={`${styles.card} ${styles.cardDark}`}
@@ -221,18 +252,28 @@ export function HomeView({
           <span className={styles.cardLabel}>{t("home.walletsMachines")}</span>
         </button>
 
-        {/* Row 5: inventory — full width, gold (distinctive) */}
+        {/* Row 4: ai (single) */}
         <button
           type="button"
-          className={`${styles.card} ${styles.cardGold} ${styles.cardWide}`}
-          onClick={() => onNavigate("inventory")}
+          className={`${styles.card} ${styles.cardDark}`}
+          onClick={() => onNavigate("ai")}
         >
-          <span className={styles.cardIcon}>📋</span>
-          <span className={styles.cardLabel}>{t("home.inventory")}</span>
+          <span className={styles.cardIcon}>💬</span>
+          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
         </button>
       </div>
 
-      {/* Logout button */}
+      {/* Inventory — prominent full-width card */}
+      <button
+        type="button"
+        className={`${styles.card} ${styles.cardGold} ${styles.cardWide} ${styles.cardInventory}`}
+        onClick={() => onNavigate("inventory")}
+      >
+        <span className={styles.cardIcon}>📋</span>
+        <span className={styles.cardLabel}>{t("home.inventory")}</span>
+      </button>
+
+      {/* Logout */}
       {onLogout && (
         <button type="button" className={styles.logoutBtn} onClick={onLogout}>
           {t("home.logout")}

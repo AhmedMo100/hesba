@@ -214,6 +214,44 @@
   color: var(--ink2);
 }
 
+/* ─── Alert banner ─── */
+
+.alertBanner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--redBg);
+  color: var(--red);
+  font-size: 14px;
+  font-weight: 700;
+  border: none;
+  cursor: pointer;
+  text-align: center;
+  font-family: inherit;
+  transition: opacity 0.15s;
+}
+
+.alertBanner:active {
+  opacity: 0.85;
+}
+
+.alertIcon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+/* ─── Prominent inventory card ─── */
+
+.cardInventory {
+  min-height: 90px;
+  font-size: 18px;
+}
+
 /* ─── Logout ─── */
 
 .logoutBtn {
