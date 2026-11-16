@@ -1463,3 +1463,52 @@
   font-size: 12px;
   margin-inline-start: auto;
 }
+
+/* ─── V19 بضاعتي rows: .row .row.yel .row.red ─── */
+
+.rowsList {
+  display: flex;
+  flex-direction: column;
+}
+
+.prow {
+  position: relative;
+  background: var(--card);
+  border-radius: 18px;
+  padding: 12px 14px;
+  margin: 8px 0;
+  cursor: pointer;
+}
+
+.prow .pch {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.prow .pcn {
+  flex: 1;
+  min-width: 0;
+}
+
+.prow .pcn b {
+  font-size: 19px;
+}
+
+.prow .pcn small {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.prowEm {
+  font-size: 30px;
+  flex: none;
+}
+
+.prowYel {
+  background: var(--yelBg);
+}
+
+.prowRed {
+  background: var(--redBg);
+}

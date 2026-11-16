@@ -14,6 +14,8 @@ import {
 } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
+import { stockLevel } from "@/domain/alerts";
+import { unitWord } from "@/client/shared/unit-labels";
 import { SANDWICH_CATEGORY } from "@/domain/recipe";
 import { ProductFormModal } from "./ProductFormModal";
 import { AddProductChoiceModal } from "./AddProductChoiceModal";
@@ -39,39 +41,12 @@ import {
 } from "@/client/shared/store-items";
 import styles from "./ProductsView.module.css";
 
-interface PriceBoxProps {
-  label: string;
-  buy: number;
-  sell: number;
-}
-
 import {
   fmtMoney,
   sandwichSubtitle as sandwichSubtitlePure,
   isWeightProduct,
-  packCount,
   getServiceNature,
 } from "./products.logic";
-
-function PriceBox({ label, buy, sell }: PriceBoxProps) {
-  const buyFormatted = fmtMoney(buy);
-  const sellFormatted = fmtMoney(sell);
-  return (
-    <div className={styles.pr}>
-      <span className={styles.prl}>{label}</span>
-      <div className={styles.prvals}>
-        <div className={styles.prv}>
-          <small>{t("pages.products.buyPrice") || "شراء"}</small>
-          <b title={buyFormatted}>{buyFormatted}</b>
-        </div>
-        <div className={`${styles.prv} ${styles.prvSell}`}>
-          <small>{t("pages.products.sellPrice") || "بيع"}</small>
-          <b title={sellFormatted}>{sellFormatted}</b>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /** Cost / sell / profit of a sandwich card. Cost is the live recipe cost from the server. */
 function SandwichPriceBox({
@@ -169,7 +144,6 @@ function getBrandBadge(p: StoreProductItem) {
   }
   return { name: p.brand_name || "خدمة عامة", className: styles.brandUtility };
 }
-
 
 export function ProductsView() {
   const [tab, setTab] = useState<"products" | "services">("products");
@@ -735,20 +709,6 @@ export function ProductsView() {
     });
   }, [serviceProducts, filterMode, serviceCategory, companyFilter, query]);
 
-  const formatSubtitle = (p: StoreProductItem) => {
-    if (p.unit === "bag") {
-      const packQty = packCount(p);
-      return packQty > 1 ? `كرتونة (${packQty} كيس)` : "بالكيس";
-    }
-    if (p.unit === "weight" || p.unit === "kg") return "بالوزن (كيلو)";
-    if (p.unit === "g") return "بالوزن (جرام)";
-    const packQty = packCount(p);
-    if (packQty > 1) {
-      return `كرتونة ${packQty} قطعة`;
-    }
-    return "بالقطعة";
-  };
-
   return (
     <div className={styles.view} data-testid="page-products">
       {/* Header */}
@@ -1019,7 +979,7 @@ export function ProductsView() {
               />
             </div>
           ) : (
-            <div className={styles.grid}>
+            <div className={styles.rowsList}>
               {filteredPhysicalProducts.map((p) => {
                 const firstVariant = p.variants?.[0];
                 const hasPack = Boolean(
@@ -1030,21 +990,36 @@ export function ProductsView() {
 
                 // Calculations for prices
                 const pieceSell = p.sell_price_piasters;
-                const pieceBuy = p.buy_cost_piasters ?? 0;
-                const packSell = pieceSell * packQty;
-                const packBuy = pieceBuy > 0 ? pieceBuy * packQty : 0;
 
                 const isMenuOpen = menuOpenId === p.id;
+                // V19 row: stock · price, yellow when low and red when out (shop items only).
+                const stock = p.stock_quantity ?? 0;
+                const inShop =
+                  stock > 0 || Boolean(p.is_custom || p.added_by_this_store);
+                const level =
+                  inShop && !isSandwich(p)
+                    ? stockLevel(isWeight ? "weight" : "piece", packQty, stock)
+                    : "ok";
+                const stockTxt = isSandwich(p)
+                  ? sandwichSubtitle(sandwichById.get(p.id))
+                  : !inShop
+                    ? "مش في محلك لسه"
+                    : isWeight
+                      ? `${Math.round(stock / 10) / 100} كيلو`
+                      : `${stock} ${unitWord(p.unit)}`;
 
                 return (
                   <div
-                    className={`${styles.pcard} ${p.is_hidden ? styles.cardHidden : ""} ${isMenuOpen ? styles.activeMenuCard : ""}`}
+                    className={`${styles.prow} ${level === "out" ? styles.prowRed : level === "low" ? styles.prowYel : ""} ${p.is_hidden ? styles.cardHidden : ""} ${isMenuOpen ? styles.activeMenuCard : ""}`}
                     key={p.id}
                     data-testid={`product-card-${p.id}`}
                     onClick={() => openProduct(p)}
                   >
                     {/* Card Top: 3-dots Menu + Title */}
                     <div className={styles.pch}>
+                      <span className={styles.prowEm} aria-hidden="true">
+                        {isSandwich(p) ? "🥪" : isWeight ? "⚖️" : "📦"}
+                      </span>
                       <div className={styles.pcn}>
                         <div
                           style={{
@@ -1066,9 +1041,9 @@ export function ProductsView() {
                           )}
                         </div>
                         <small>
-                          {isSandwich(p)
-                            ? sandwichSubtitle(sandwichById.get(p.id))
-                            : formatSubtitle(p)}
+                          {stockTxt}
+                          {pieceSell > 0 ? ` · ${pieceSell / 100} ج` : ""}
+                          {hasPack ? ` · ${packQty} في العبوة` : ""}
                         </small>
                       </div>
 
@@ -1194,37 +1169,12 @@ export function ProductsView() {
                         )}
                       </div>
                     </div>
-
-                    {/* Price boxes */}
-                    <div className={styles.prs}>
-                      {isSandwich(p) ? (
-                        <SandwichPriceBox
-                          sandwich={sandwichById.get(p.id)}
-                          sellPricePiasters={p.sell_price_piasters}
-                        />
-                      ) : isWeight ? (
-                        <PriceBox
-                          label={p.unit === "g" ? "بالجرام" : "بالكيلو"}
-                          buy={pieceBuy}
-                          sell={pieceSell}
-                        />
-                      ) : (
-                        <>
-                          <PriceBox
-                            label={p.unit === "bag" ? "الكيس" : "القطعة"}
-                            buy={pieceBuy}
-                            sell={pieceSell}
-                          />
-                          {hasPack && (
-                            <PriceBox
-                              label="الكرتونة"
-                              buy={packBuy}
-                              sell={packSell}
-                            />
-                          )}
-                        </>
-                      )}
-                    </div>
+                    {isSandwich(p) && (
+                      <SandwichPriceBox
+                        sandwich={sandwichById.get(p.id)}
+                        sellPricePiasters={p.sell_price_piasters}
+                      />
+                    )}
                   </div>
                 );
               })}

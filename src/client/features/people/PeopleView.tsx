@@ -9,14 +9,7 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import {
-  Icon,
-  Seg,
-  Empty,
-  Modal,
-  useToast,
-  ListSkeleton,
-} from "@/client/shared/ui";
+import { Icon, Empty, Modal, useToast, ListSkeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
@@ -151,6 +144,8 @@ export function PeopleView() {
   const toast = useToast();
   // QA-30: the supplier whose purchase invoices are open.
   const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
+  // V19: a row opens the person's sheet with every action on them.
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   // «فواتير الزبون»: the credit invoices behind what a customer owes (Prompt 2).
   const [invoicesTarget, setInvoicesTarget] = useState<PersonItem | null>(null);
   const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
@@ -556,29 +551,28 @@ export function PeopleView() {
           <h1 className={styles.title}>{t("pages.people.title")}</h1>
           <p className={styles.sub}>{t("pages.people.sub")}</p>
         </div>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={openAddModal}
-          data-testid="btn-add-person"
-        >
-          <Icon n="plus" s={18} />
-          <span>{t("pages.people.add")}</span>
-        </button>
       </div>
 
-      {/* Tabs */}
-      <div className={styles.segWrapper}>
-        <Seg<PeopleSection>
-          size="big"
-          value={section}
-          onChange={(newSec) => setSection(newSec)}
-          options={[
+      {/* Tabs (V19 chips) */}
+      <div className={styles.chips} role="tablist">
+        {(
+          [
             ["owedToMe", t("pages.people.owedToMe")],
             ["iOwe", t("pages.people.iOwe")],
             ["suppliers", t("pages.people.suppliers")],
-          ]}
-        />
+          ] as Array<[PeopleSection, string]>
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={section === k}
+            className={`${styles.chip} ${section === k ? styles.chipOn : ""}`}
+            onClick={() => setSection(k)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Summary Banner */}
@@ -635,301 +629,349 @@ export function PeopleView() {
           }
         />
       ) : (
-        <div className={styles.cardsGrid}>
-          {people.map((p) => {
-            return (
-              <div
-                className={styles.personCard}
-                key={p.id}
-                data-testid={`person-card-${p.id}`}
-              >
-                {/* Header row */}
-                <div className={styles.cardHeader}>
-                  <div className={styles.personMeta}>
-                    <div className={styles.nameRow}>
-                      <span className={styles.personName}>{p.name}</span>
-                      {p.is_settled && (
-                        <span className={styles.settledBadge}>
-                          {section === "owedToMe"
-                            ? "تم التحصيل ✓"
-                            : "تم السداد ✓"}
-                        </span>
-                      )}
-                    </div>
-                    {p.phone ? (
-                      <div className={styles.phoneRow}>
-                        <a
-                          className={styles.personPhone}
-                          href={`tel:${p.phone}`}
-                          dir="ltr"
-                        >
-                          <Icon n="phone" s={13} />
-                          <span>{p.phone}</span>
-                        </a>
-                        {/* WhatsApp: the card's action button (one link per person, QA-45). */}
-                      </div>
-                    ) : (
-                      <span className={styles.noPhone}>
-                        {t("pages.people.noPhone")}
+        <div className={styles.rows}>
+          {people.map((p) => (
+            <button
+              type="button"
+              key={p.id}
+              className={styles.row}
+              data-testid={`person-row-${p.id}`}
+              onClick={() => setOpenPersonId(p.id)}
+            >
+              <span className={styles.rowEm} aria-hidden="true">
+                {section === "suppliers" ? "🚚" : "👤"}
+              </span>
+              <span className={styles.rowT}>
+                <b>{p.name}</b>
+                <small>
+                  {p.phone || t("pages.people.noPhone")}
+                  {section === "suppliers" &&
+                  p.supplies &&
+                  p.supplies.length > 0
+                    ? ` · ${p.supplies.map((x) => x.name).join("، ")}`
+                    : ""}
+                </small>
+              </span>
+              <b className={styles.rowAmt}>
+                {p.amount_piasters < 0
+                  ? formatEgp(p.credit_piasters ?? 0)
+                  : formatEgp(p.amount_piasters)}
+              </b>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className={styles.v19Btn}
+        onClick={openAddModal}
+        data-testid="btn-add-person"
+      >
+        {section === "suppliers"
+          ? "+ مورد جديد"
+          : section === "owedToMe"
+            ? "+ عميل جديد"
+            : `+ ${t("pages.people.add")}`}
+      </button>
+
+      {/* The person's sheet (V19): balance and every action */}
+      {(() => {
+        const p = people.find((x) => x.id === openPersonId);
+        if (!p) return null;
+        return (
+          <Modal title={p.name} onClose={() => setOpenPersonId(null)}>
+            <div
+              className={styles.personCard}
+              key={p.id}
+              data-testid={`person-card-${p.id}`}
+            >
+              {/* Header row */}
+              <div className={styles.cardHeader}>
+                <div className={styles.personMeta}>
+                  <div className={styles.nameRow}>
+                    <span className={styles.personName}>{p.name}</span>
+                    {p.is_settled && (
+                      <span className={styles.settledBadge}>
+                        {section === "owedToMe"
+                          ? "تم التحصيل ✓"
+                          : "تم السداد ✓"}
                       </span>
                     )}
                   </div>
-
-                  {/* Card quick actions */}
-                  <div className={styles.cardActionsGroup}>
-                    {/* Collection / Payment quick button */}
-                    {p.amount_piasters > 0 && (
-                      <button
-                        type="button"
-                        className={
-                          section === "owedToMe"
-                            ? styles.collectBtn
-                            : styles.payBtn
-                        }
-                        onClick={() => openPaymentModal(p)}
-                        title={
-                          section === "owedToMe"
-                            ? t("pages.people.collect")
-                            : t("pages.people.pay")
-                        }
-                      >
-                        <span>
-                          {section === "owedToMe"
-                            ? t("pages.people.collect")
-                            : t("pages.people.pay")}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* WhatsApp quick contact */}
-                    {p.phone && (
+                  {p.phone ? (
+                    <div className={styles.phoneRow}>
                       <a
-                        href={getWaUrl(
-                          p.phone,
-                          p.name,
-                          section,
-                          p.amount_piasters,
-                        )}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.cardWaBtn}
-                        title={t("pages.people.waChat")}
-                        aria-label={`${t("pages.people.waChat")} ${p.name}`}
+                        className={styles.personPhone}
+                        href={`tel:${p.phone}`}
+                        dir="ltr"
                       >
-                        <svg
-                          width={15}
-                          height={15}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                        </svg>
+                        <Icon n="phone" s={13} />
+                        <span>{p.phone}</span>
                       </a>
-                    )}
-
-                    {/* Edit button */}
-                    <button
-                      type="button"
-                      className={styles.editBtn}
-                      aria-label={`${t("common.edit")} ${p.name}`}
-                      onClick={() => openEditModal(p)}
-                      title={t("common.edit")}
-                    >
-                      <Icon n="edit" s={15} />
-                    </button>
-
-                    {/* Delete button right next to edit */}
-                    <button
-                      type="button"
-                      className={styles.cardDeleteBtn}
-                      aria-label={`${t("common.delete")} ${p.name}`}
-                      onClick={() => setDeleteTarget(p)}
-                      title={t("common.delete")}
-                    >
-                      <Icon n="trash" s={15} />
-                    </button>
-                  </div>
+                      {/* WhatsApp: the card's action button (one link per person, QA-45). */}
+                    </div>
+                  ) : (
+                    <span className={styles.noPhone}>
+                      {t("pages.people.noPhone")}
+                    </span>
+                  )}
                 </div>
 
-                {/* Supplier product tags chips */}
-                {section === "suppliers" &&
-                  p.supplies &&
-                  p.supplies.length > 0 && (
+                {/* Card quick actions */}
+                <div className={styles.cardActionsGroup}>
+                  {/* Collection / Payment quick button */}
+                  {p.amount_piasters > 0 && (
+                    <button
+                      type="button"
+                      className={
+                        section === "owedToMe"
+                          ? styles.collectBtn
+                          : styles.payBtn
+                      }
+                      onClick={() => openPaymentModal(p)}
+                      title={
+                        section === "owedToMe"
+                          ? t("pages.people.collect")
+                          : t("pages.people.pay")
+                      }
+                    >
+                      <span>
+                        {section === "owedToMe"
+                          ? t("pages.people.collect")
+                          : t("pages.people.pay")}
+                      </span>
+                    </button>
+                  )}
+
+                  {/* WhatsApp quick contact */}
+                  {p.phone && (
+                    <a
+                      href={getWaUrl(
+                        p.phone,
+                        p.name,
+                        section,
+                        p.amount_piasters,
+                      )}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={styles.cardWaBtn}
+                      title={t("pages.people.waChat")}
+                      aria-label={`${t("pages.people.waChat")} ${p.name}`}
+                    >
+                      <svg
+                        width={15}
+                        height={15}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth={2}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+                      </svg>
+                    </a>
+                  )}
+
+                  {/* Edit button */}
+                  <button
+                    type="button"
+                    className={styles.editBtn}
+                    aria-label={`${t("common.edit")} ${p.name}`}
+                    onClick={() => openEditModal(p)}
+                    title={t("common.edit")}
+                  >
+                    <Icon n="edit" s={15} />
+                  </button>
+
+                  {/* Delete button right next to edit */}
+                  <button
+                    type="button"
+                    className={styles.cardDeleteBtn}
+                    aria-label={`${t("common.delete")} ${p.name}`}
+                    onClick={() => setDeleteTarget(p)}
+                    title={t("common.delete")}
+                  >
+                    <Icon n="trash" s={15} />
+                  </button>
+                </div>
+              </div>
+
+              {/* Supplier product tags chips */}
+              {section === "suppliers" &&
+                p.supplies &&
+                p.supplies.length > 0 && (
+                  <div className={styles.suppliesChips}>
+                    {p.supplies.map((s) => (
+                      <span className={styles.supplyChip} key={s.id}>
+                        {s.name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+              {/* Customer credit products chips in 'owedToMe' */}
+              {section === "owedToMe" &&
+                (() => {
+                  const parsedCust = parseCustomerNotes(p.note);
+                  if (parsedCust.products.length === 0) return null;
+                  return (
                     <div className={styles.suppliesChips}>
-                      {p.supplies.map((s) => (
-                        <span className={styles.supplyChip} key={s.id}>
-                          {s.name}
+                      {parsedCust.products.map((prodName, idx) => (
+                        <span className={styles.creditProductChip} key={idx}>
+                          <Icon n="box" s={12} />
+                          <span>{prodName}</span>
                         </span>
                       ))}
                     </div>
-                  )}
+                  );
+                })()}
 
-                {/* Customer credit products chips in 'owedToMe' */}
-                {section === "owedToMe" &&
-                  (() => {
-                    const parsedCust = parseCustomerNotes(p.note);
-                    if (parsedCust.products.length === 0) return null;
-                    return (
-                      <div className={styles.suppliesChips}>
-                        {parsedCust.products.map((prodName, idx) => (
-                          <span className={styles.creditProductChip} key={idx}>
-                            <Icon n="box" s={12} />
-                            <span>{prodName}</span>
+              {/* «ليك»: record what they took — an amount or products (optional). */}
+              {section === "owedToMe" && (
+                <button
+                  type="button"
+                  className={styles.purchasesBtn}
+                  data-testid={`customer-debt-${p.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setDebtTarget(p);
+                  }}
+                >
+                  {t("pages.people.recordDebt")}
+                </button>
+              )}
+              {section === "owedToMe" && (
+                <button
+                  type="button"
+                  className={styles.purchasesBtn}
+                  data-testid={`customer-invoices-${p.id}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setInvoicesTarget(p);
+                  }}
+                >
+                  الفواتير والمدفوعات
+                </button>
+              )}
+
+              {/* Footer / Notes row */}
+              {section === "suppliers" ? (
+                (() => {
+                  const parsed = parseSupplierNotes(p.note);
+                  return (
+                    <div className={styles.supplierNotesBlock}>
+                      {parsed.owedMoneyNote && (
+                        <div className={styles.supplierNoteRow}>
+                          <span className={styles.supplierNoteLabel}>
+                            {t("pages.people.supplierOwedLabel")}
                           </span>
-                        ))}
-                      </div>
-                    );
-                  })()}
-
-                {/* «ليك»: record what they took — an amount or products (optional). */}
-                {section === "owedToMe" && (
-                  <button
-                    type="button"
-                    className={styles.purchasesBtn}
-                    data-testid={`customer-debt-${p.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDebtTarget(p);
-                    }}
-                  >
-                    {t("pages.people.recordDebt")}
-                  </button>
-                )}
-                {section === "owedToMe" && (
-                  <button
-                    type="button"
-                    className={styles.purchasesBtn}
-                    data-testid={`customer-invoices-${p.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setInvoicesTarget(p);
-                    }}
-                  >
-                    الفواتير والمدفوعات
-                  </button>
-                )}
-
-                {/* Footer / Notes row */}
-                {section === "suppliers" ? (
-                  (() => {
-                    const parsed = parseSupplierNotes(p.note);
-                    return (
-                      <div className={styles.supplierNotesBlock}>
-                        {parsed.owedMoneyNote && (
-                          <div className={styles.supplierNoteRow}>
-                            <span className={styles.supplierNoteLabel}>
-                              {t("pages.people.supplierOwedLabel")}
-                            </span>
-                            <span className={styles.supplierNoteValOwed}>
-                              {parsed.owedMoneyNote}
-                            </span>
-                          </div>
-                        )}
-                        {parsed.productsNote && (
-                          <div className={styles.supplierNoteRow}>
-                            <span className={styles.supplierNoteLabel}>
-                              {t("pages.people.supplierProductsLabel")}
-                            </span>
-                            <span className={styles.supplierNoteValProducts}>
-                              {parsed.productsNote}
-                            </span>
-                          </div>
-                        )}
-                        {parsed.generalNote && (
-                          <span
-                            className={styles.noteText}
-                            title={parsed.generalNote}
-                          >
-                            {parsed.generalNote}
+                          <span className={styles.supplierNoteValOwed}>
+                            {parsed.owedMoneyNote}
                           </span>
-                        )}
-                        {p.amount_piasters < 0 && (
-                          <div className={styles.cardFooter}>
-                            <span
-                              className={styles.amountCredit}
-                              data-testid={`person-balance-${p.id}`}
-                            >
-                              {t("pages.people.creditPayable", {
-                                amount: formatEgp(p.credit_piasters ?? 0),
-                              })}
-                            </span>
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          className={styles.purchasesBtn}
-                          data-testid={`supplier-purchases-${p.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPurchasesTarget(p);
-                          }}
+                        </div>
+                      )}
+                      {parsed.productsNote && (
+                        <div className={styles.supplierNoteRow}>
+                          <span className={styles.supplierNoteLabel}>
+                            {t("pages.people.supplierProductsLabel")}
+                          </span>
+                          <span className={styles.supplierNoteValProducts}>
+                            {parsed.productsNote}
+                          </span>
+                        </div>
+                      )}
+                      {parsed.generalNote && (
+                        <span
+                          className={styles.noteText}
+                          title={parsed.generalNote}
                         >
-                          {t("invoice.purchasesTitle")}
-                        </button>
-                        {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
-                          <div className={styles.cardFooter}>
-                            <span className={styles.amountLabel}>
-                              {t("pages.people.remainingOwed")}
-                            </span>
-                            <span className={styles.amountDark}>
-                              {formatEgp(p.amount_piasters)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <div className={styles.cardFooter}>
-                    {section === "owedToMe" ? (
-                      (() => {
-                        const custNote = parseCustomerNotes(p.note).generalNote;
-                        return custNote ? (
-                          <span className={styles.noteText} title={custNote}>
-                            {custNote}
+                          {parsed.generalNote}
+                        </span>
+                      )}
+                      {p.amount_piasters < 0 && (
+                        <div className={styles.cardFooter}>
+                          <span
+                            className={styles.amountCredit}
+                            data-testid={`person-balance-${p.id}`}
+                          >
+                            {t("pages.people.creditPayable", {
+                              amount: formatEgp(p.credit_piasters ?? 0),
+                            })}
                           </span>
-                        ) : (
-                          <span />
-                        );
-                      })()
-                    ) : p.note ? (
-                      <span className={styles.noteText} title={p.note}>
-                        {p.note}
-                      </span>
-                    ) : (
-                      <span />
-                    )}
-                    <span
-                      className={
-                        p.amount_piasters < 0
-                          ? styles.amountCredit
-                          : section === "owedToMe"
-                            ? styles.amountPos
-                            : styles.amountNeg
-                      }
-                      data-testid={`person-balance-${p.id}`}
-                    >
-                      {p.amount_piasters < 0
-                        ? t(
-                            section === "owedToMe"
-                              ? "pages.people.creditCustomer"
-                              : "pages.people.creditPayable",
-                            { amount: formatEgp(p.credit_piasters ?? 0) },
-                          )
-                        : formatEgp(p.amount_piasters)}
+                        </div>
+                      )}
+                      <button
+                        type="button"
+                        className={styles.purchasesBtn}
+                        data-testid={`supplier-purchases-${p.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setPurchasesTarget(p);
+                        }}
+                      >
+                        {t("invoice.purchasesTitle")}
+                      </button>
+                      {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
+                        <div className={styles.cardFooter}>
+                          <span className={styles.amountLabel}>
+                            {t("pages.people.remainingOwed")}
+                          </span>
+                          <span className={styles.amountDark}>
+                            {formatEgp(p.amount_piasters)}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              ) : (
+                <div className={styles.cardFooter}>
+                  {section === "owedToMe" ? (
+                    (() => {
+                      const custNote = parseCustomerNotes(p.note).generalNote;
+                      return custNote ? (
+                        <span className={styles.noteText} title={custNote}>
+                          {custNote}
+                        </span>
+                      ) : (
+                        <span />
+                      );
+                    })()
+                  ) : p.note ? (
+                    <span className={styles.noteText} title={p.note}>
+                      {p.note}
                     </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+                  ) : (
+                    <span />
+                  )}
+                  <span
+                    className={
+                      p.amount_piasters < 0
+                        ? styles.amountCredit
+                        : section === "owedToMe"
+                          ? styles.amountPos
+                          : styles.amountNeg
+                    }
+                    data-testid={`person-balance-${p.id}`}
+                  >
+                    {p.amount_piasters < 0
+                      ? t(
+                          section === "owedToMe"
+                            ? "pages.people.creditCustomer"
+                            : "pages.people.creditPayable",
+                          { amount: formatEgp(p.credit_piasters ?? 0) },
+                        )
+                      : formatEgp(p.amount_piasters)}
+                  </span>
+                </div>
+              )}
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* Add / Edit Modal */}
       {modalOpen && (

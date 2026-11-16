@@ -2,9 +2,14 @@
 
 import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, Icon, Seg, useToast } from "@/client/shared/ui";
+import { Empty, Icon, Modal, Seg, useToast } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
-import type { StoreProductItem } from "@/client/shared/store-items";
+import {
+  isServiceProduct,
+  type StoreProductItem,
+} from "@/client/shared/store-items";
+import { MachinesModal } from "../products/MachinesModal";
+import { ServiceFormModal } from "../products/ServiceFormModal";
 import { AddStockModal } from "../stock/AddStockModal";
 import { EditPromoModal } from "./EditPromoModal";
 import type {
@@ -15,10 +20,12 @@ import type {
 import type { PublishedPromotion } from "@/schemas/promotion";
 import {
   fetchStoreMachines,
+  getServiceLinkedMachineIds,
   getStoredMachines,
   type PosMachine,
 } from "@/client/shared/api/machines";
 import { useAuth } from "@/client/shared/auth";
+import { unitWord as unitWordOf } from "@/client/shared/unit-labels";
 import { MachineTopupModal } from "../stock/MachineTopupModal";
 import styles from "./AlertsView.module.css";
 
@@ -41,6 +48,14 @@ export function AlertsView() {
   const [allProducts, setAllProducts] = useState<StoreProductItem[]>([]);
   const [machines, setMachines] = useState<PosMachine[]>([]);
   const [topupMachine, setTopupMachine] = useState<PosMachine | null>(null);
+  const [topupMode, setTopupMode] = useState<"topup" | "adjust">("topup");
+  // V19 machines page: a machine's sheet, the machines manager, the service form.
+  const [sheetMachineId, setSheetMachineId] = useState<string | null>(null);
+  const [machinesOpen, setMachinesOpen] = useState(false);
+  const [serviceForm, setServiceForm] = useState<{
+    product: StoreProductItem | null;
+  } | null>(null);
+  const [serviceFilter, setServiceFilter] = useState<string>("all");
 
   const toast = useToast();
   const [wasteTarget, setWasteTarget] = useState<ExpiryAlertItem | null>(null);
@@ -124,6 +139,16 @@ export function AlertsView() {
     return () => {
       ignore = true;
     };
+  }, []);
+
+  const reloadProducts = useCallback(() => {
+    apiGet("/api/products?filter=all&scope=store")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.products && Array.isArray(d.products))
+          setAllProducts(d.products);
+      })
+      .catch(() => undefined);
   }, []);
 
   // Load published promotions
@@ -234,16 +259,7 @@ export function AlertsView() {
       return `${qtyBase} جرام`;
     }
 
-    const unitWord =
-      unit === "can" || unit === "علبة"
-        ? "علبة"
-        : unit === "jar" || unit === "برطمان"
-          ? "برطمان"
-          : unit === "bag" || unit === "كيس"
-            ? "كيس"
-            : unit === "carton" || unit === "كرتونة"
-              ? "كرتونة"
-              : unit || "قطعة";
+    const unitWord = unitWordOf(unit);
 
     if (packQty > 1) {
       const cartons = Math.floor(qtyBase / packQty);
@@ -397,6 +413,100 @@ export function AlertsView() {
 
   return (
     <div className={styles.page} data-testid="page-alerts" dir="rtl">
+      {/* V19: wallets & machines with their balances, then the services */}
+      <div className={styles.two}>
+        <button
+          type="button"
+          className={styles.btn}
+          data-testid="machines-add"
+          onClick={() => setMachinesOpen(true)}
+        >
+          + ماكينة / محفظة
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.btnGhost}`}
+          data-testid="service-add"
+          onClick={() => setServiceForm({ product: null })}
+        >
+          + خدمة
+        </button>
+      </div>
+      <div className={styles.mgrid}>
+        {machines.map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            className={styles.mcard}
+            data-testid="machine-card"
+            onClick={() => setSheetMachineId(m.id)}
+          >
+            <span aria-hidden="true">💳</span>
+            <b>{m.name}</b>
+            <big>{formatMoney(m.currentBalancePiasters || 0)}</big>
+          </button>
+        ))}
+      </div>
+      {machines.length === 0 && (
+        <div className={styles.note}>لسه مفيش ماكينات أو محافظ</div>
+      )}
+
+      <h3 className={styles.sech}>⚡ الخدمات</h3>
+      <div className={styles.chips}>
+        {[
+          ["all", "الكل"] as const,
+          ...machines.map((m) => [m.id, m.name] as const),
+        ].map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            className={`${styles.chip} ${serviceFilter === k ? styles.chipOn : ""}`}
+            onClick={() => setServiceFilter(k)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {(() => {
+        const services = allProducts
+          .filter((p) => isServiceProduct(p))
+          .map((p) => ({
+            p,
+            linked: machines.filter((m) =>
+              getServiceLinkedMachineIds(p.id, storeId).includes(m.id),
+            ),
+          }))
+          .filter(
+            ({ linked }) =>
+              serviceFilter === "all" ||
+              linked.some((m) => m.id === serviceFilter),
+          );
+        if (services.length === 0) {
+          return <div className={styles.note}>مفيش خدمات</div>;
+        }
+        return services.map(({ p, linked }) => (
+          <button
+            key={p.id}
+            type="button"
+            className={styles.row}
+            onClick={() => setServiceForm({ product: p })}
+          >
+            <span className={styles.rowEm} aria-hidden="true">
+              ⚡
+            </span>
+            <span className={styles.rowT}>
+              <b>{p.name_ar}</b>
+              <small>
+                عمولة {formatMoney(p.sell_price_piasters || 0)} · من:{" "}
+                {linked.map((m) => m.name).join("، ") || "مش مربوطة"}
+              </small>
+            </span>
+            <span aria-hidden="true">›</span>
+          </button>
+        ));
+      })()}
+
+      <h3 className={styles.sech}>⚠️ التنبيهات</h3>
       {/* Seg tabs control matching demo */}
       <Seg
         value={tab}
@@ -838,10 +948,81 @@ export function AlertsView() {
         </div>
       )}
 
+      {/* V19 machine sheet: its balance, top up, correct, manage */}
+      {(() => {
+        const m = machines.find((x) => x.id === sheetMachineId);
+        if (!m) return null;
+        return (
+          <Modal title={`💳 ${m.name}`} onClose={() => setSheetMachineId(null)}>
+            <div className={styles.bigBox}>
+              <small>الرصيد دلوقتي</small>
+              <b>{formatMoney(m.currentBalancePiasters || 0)}</b>
+            </div>
+            <button
+              type="button"
+              className={styles.btn}
+              onClick={() => {
+                setSheetMachineId(null);
+                setTopupMode("topup");
+                setTopupMachine(m);
+              }}
+            >
+              ➕ حط رصيد
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnGhost}`}
+              onClick={() => {
+                setSheetMachineId(null);
+                setTopupMode("adjust");
+                setTopupMachine(m);
+              }}
+            >
+              ✏️ عدّل الرصيد
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnGhost}`}
+              onClick={() => {
+                setSheetMachineId(null);
+                setMachinesOpen(true);
+              }}
+            >
+              ⚙️ عدّل الاسم أو امسح
+            </button>
+          </Modal>
+        );
+      })()}
+
+      {machinesOpen && (
+        <MachinesModal
+          storeId={storeId}
+          onClose={() => setMachinesOpen(false)}
+          onMachinesUpdated={(list) => setMachines(list)}
+        />
+      )}
+
+      {serviceForm && (
+        <ServiceFormModal
+          product={serviceForm.product}
+          existingServices={allProducts.filter((p) => isServiceProduct(p))}
+          onClose={() => setServiceForm(null)}
+          onSaved={() => {
+            setServiceForm(null);
+            reloadProducts();
+          }}
+          onDeleted={() => {
+            setServiceForm(null);
+            reloadProducts();
+          }}
+        />
+      )}
+
       {/* POS Machine Topup / Recharge Modal */}
       {topupMachine && (
         <MachineTopupModal
           machine={topupMachine}
+          initialMode={topupMode}
           storeId={storeId}
           onClose={() => setTopupMachine(null)}
           onSuccess={(updated) => {

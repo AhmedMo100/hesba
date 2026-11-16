@@ -304,23 +304,17 @@ export function ExpensesView() {
   return (
     <div className={viewStyles.view} data-testid="page-expenses">
       <div className={styles.container}>
-        {/* Header */}
-        <div className={styles.head}>
-          <h1 className={styles.title}>{t("pages.expenses.title")}</h1>
-          <p className={styles.sub}>{t("pages.expenses.sub")}</p>
-        </div>
-
-        {/* Input Card */}
-        <div className={styles.formCard}>
-          {/* Category Chips */}
-          <div className={styles.catGrid} role="radiogroup">
+        {/* V19: what was it for, how much, a note, save */}
+        <h2 className={styles.askTitle}>{t("pages.expenses.askTitle")}</h2>
+        <form onSubmit={handleRegister} className={styles.v19Form}>
+          <div className={styles.chips} role="radiogroup">
             {EXPENSE_CATEGORIES.map((cat) => (
               <button
                 type="button"
                 key={cat}
                 role="radio"
                 aria-checked={selectedCat === cat}
-                className={`${styles.catChip} ${selectedCat === cat ? styles.active : ""}`}
+                className={`${styles.chip} ${selectedCat === cat ? styles.chipOn : ""}`}
                 onClick={() => setSelectedCat(cat)}
               >
                 {t(`pages.expenses.categories.${cat}`)}
@@ -328,82 +322,77 @@ export function ExpensesView() {
             ))}
           </div>
 
-          {/* Amount Row Form */}
-          <form onSubmit={handleRegister} className={styles.amountFieldGroup}>
-            <label className={styles.amountLabel}>
-              {t("pages.expenses.amount")}
-            </label>
-            <div className={styles.amountRow}>
-              <div className={styles.inputWrapper}>
-                <span className={styles.currencyBadge}>
-                  {t("pages.expenses.currency")}
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder={t("pages.expenses.amountPlaceholder")}
-                  value={amountStr}
-                  onChange={(e) => setAmountStr(e.target.value)}
-                  className={styles.amountInput}
-                  autoComplete="off"
-                />
-              </div>
+          <label className={styles.lbl} htmlFor="expense-amount">
+            {t("pages.expenses.amount")}
+          </label>
+          <input
+            id="expense-amount"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
+            value={amountStr}
+            onChange={(e) => setAmountStr(e.target.value)}
+            className={styles.input}
+            autoComplete="off"
+            data-testid="expense-amount"
+          />
+          <div className={styles.chips}>
+            {[50, 100, 250].map((v) => (
               <button
-                type="submit"
-                disabled={submitting}
-                className={styles.registerBtn}
+                type="button"
+                key={v}
+                className={styles.chip}
+                onClick={() => setAmountStr(String(v))}
               >
-                <Icon n="plus" s={18} />
-                {submitting
-                  ? t("pages.expenses.saving") || "جاري التسجيل..."
-                  : t("pages.expenses.addExpense")}
+                {v} ج
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Expandable Link for Note & Date */}
-            <button
-              type="button"
-              className={styles.noteToggle}
-              onClick={() => setShowExtra((v) => !v)}
-            >
-              {showExtra
-                ? t("pages.expenses.noteLinkClose")
-                : t("pages.expenses.noteLinkOpen")}
-            </button>
+          <label className={styles.lbl} htmlFor="expense-note">
+            {t("pages.expenses.noteLabel")}
+          </label>
+          <input
+            id="expense-note"
+            type="text"
+            dir="auto"
+            value={noteStr}
+            placeholder={t("pages.expenses.notePlaceholder")}
+            onChange={(e) => setNoteStr(e.target.value)}
+            className={styles.input}
+          />
 
-            {/* Expanded Fields */}
-            {showExtra && (
-              <div className={styles.extraFields}>
-                <div className={styles.fieldItem}>
-                  <label className={styles.fieldLabel}>
-                    {t("pages.expenses.noteLabel")}
-                  </label>
-                  <input
-                    type="text"
-                    value={noteStr}
-                    placeholder={t("pages.expenses.notePlaceholder")}
-                    onChange={(e) => setNoteStr(e.target.value)}
-                    className={styles.textInput}
-                  />
-                </div>
-                <div className={styles.fieldItem}>
-                  <label className={styles.fieldLabel}>
-                    {t("pages.expenses.dayLabel")}
-                  </label>
-                  <input
-                    type="date"
-                    value={dateStr}
-                    max={getTodayCairoDateString()}
-                    onChange={(e) =>
-                      setDateStr(e.target.value || getTodayCairoDateString())
-                    }
-                    className={styles.textInput}
-                  />
-                </div>
-              </div>
-            )}
-          </form>
-        </div>
+          <button
+            type="button"
+            className={styles.noteToggle}
+            onClick={() => setShowExtra((v) => !v)}
+          >
+            {t("pages.expenses.otherDay")}
+          </button>
+          {showExtra && (
+            <input
+              type="date"
+              value={dateStr}
+              max={getTodayCairoDateString()}
+              onChange={(e) =>
+                setDateStr(e.target.value || getTodayCairoDateString())
+              }
+              className={styles.input}
+              aria-label={t("pages.expenses.dayLabel")}
+            />
+          )}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className={styles.saveBtn}
+            data-testid="expense-save"
+          >
+            {submitting
+              ? t("pages.expenses.saving") || "جاري التسجيل..."
+              : t("pages.expenses.saveExpense")}
+          </button>
+        </form>
 
         {/* Period filter: the app's one PeriodFilter (shared chips + custom day/range) */}
         <PeriodFilter<ExpensePeriod>

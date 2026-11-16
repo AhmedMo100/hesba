@@ -876,7 +876,7 @@ export function AiView() {
             onClick={() => void handleSend()}
             aria-label={t("pages.ai.send")}
           >
-            <Icon n="send" s={17} />
+            {t("pages.ai.send")}
           </button>
         </div>
       </div>
