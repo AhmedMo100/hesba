@@ -48,7 +48,7 @@ export function Header({ onBack, route, ...menu }: HeaderProps) {
             onClick={onBack}
             aria-label="رجوع للرئيسية"
           >
-            <Icon n="left" s={20} />
+            <Icon n="left" s={24} />
           </button>
         )}
         <StoreMenu {...menu} pageTitle={pageTitle} />

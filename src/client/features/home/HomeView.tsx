@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Skeleton } from "@/client/shared/ui";
+import { Icon, Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
@@ -148,9 +148,21 @@ export function HomeView({
   // ─── Dashboard ───
   return (
     <div className={styles.page} data-testid="page-home" dir="rtl">
-      {/* Greeting */}
+      {/* Greeting + drawer shortcut */}
       <div className={styles.welcome}>
         <span className={styles.welcomeText}>{t("home.welcome")}</span>
+        <div className={styles.welcomeActions}>
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={() => onNavigate("sales")}
+            aria-label={t("home.cashDrawer")}
+            title={t("home.cashDrawer")}
+          >
+            <Icon n="wallet" s={16} />
+            <span>{t("home.cashDrawer")}</span>
+          </button>
+        </div>
       </div>
 
       {/* Today's KPI cards */}
