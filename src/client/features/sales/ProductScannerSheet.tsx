@@ -94,7 +94,10 @@ export function ProductScannerSheet({
   const [saleMode, setSaleMode] = useState<"cash" | "credit">(
     creditCustomerName ? "credit" : "cash",
   );
-  const [phase, setPhase] = useState<"mode" | "scanning" | "review">("mode");
+  // The sale mode is already known (the screen's «بيع آجل» toggle): straight to the camera.
+  const [phase, setPhase] = useState<"mode" | "scanning" | "review">(
+    "scanning",
+  );
   const [accumulated, setAccumulated] = useState<AccItem[]>([]);
   const [quota, setQuota] = useState<ScannerQuotaView | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -167,6 +170,11 @@ export function ProductScannerSheet({
         },
         audio: false,
       });
+      // Closed meanwhile, or already running (a double start): drop this stream.
+      if (!aliveRef.current || streamRef.current) {
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       streamRef.current = stream;
       setCameraActive(true);
       requestAnimationFrame(() => {
@@ -200,6 +208,12 @@ export function ProductScannerSheet({
       if (scanTimerRef.current) clearTimeout(scanTimerRef.current);
     };
   }, []);
+
+  // The camera starts as soon as the sheet opens (no extra tap).
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- starting the camera (external system) on open
+    void startCamera();
+  }, [startCamera]);
 
   // Stop camera when leaving scanning phase
   useEffect(() => {
@@ -592,6 +606,15 @@ export function ProductScannerSheet({
           </span>
         )}
       </div>
+      {blocked && blockedMessage && (
+        <div className={styles.notice} role="alert" data-testid="scan-blocked">
+          {blockedMessage}
+        </div>
+      )}
+      <p className={styles.hint} data-testid="scan-privacy">
+        صوّب الكاميرا على المنتجات — بنتعرّف عليها تلقائيًا. بنبعت الصور بس — من
+        غير أسعار ولا بيانات محلك — ومش بنحفظها.
+      </p>
 
       {cameraError && (
         <div
@@ -630,16 +653,9 @@ export function ProductScannerSheet({
         </div>
       )}
       {!cameraActive && !cameraError && (
-        <div className={styles.actions}>
-          <Button
-            kind="ghost"
-            icon="camera"
-            onClick={() => void startCamera()}
-            data-testid="scan-camera"
-          >
-            افتح الكاميرا
-          </Button>
-        </div>
+        <p className={styles.hint} role="status" data-testid="scan-camera">
+          بنفتح الكاميرا…
+        </p>
       )}
 
       {accumulated.filter((a) => !a.removed).length > 0 && (

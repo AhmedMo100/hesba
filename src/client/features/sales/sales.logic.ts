@@ -21,6 +21,47 @@ export interface DisplaySaleItem {
   packName?: string | null;
   /** A sandwich: `currentStockBase` is how many its ingredients can make. */
   isSandwich?: boolean;
+  /** The product has a barcode registered (the «من غير باركود» filter and order). */
+  hasBarcode?: boolean;
+}
+
+/** The sale screen's filter chips (V19). */
+export type SaleFilter = "all" | "weight" | "nobc" | "svc" | "off";
+
+/**
+ * The tiles' order: products without a barcode first, then weighed products, then the rest
+ * (products with a barcode, sandwiches, services).
+ */
+export function saleSortRank(item: DisplaySaleItem): number {
+  if (item.isService || item.isSandwich) return 2;
+  if (item.unitMode === "weight") return 1;
+  return item.hasBarcode ? 2 : 0;
+}
+
+export function matchesSaleFilter(
+  item: DisplaySaleItem,
+  filter: SaleFilter,
+): boolean {
+  switch (filter) {
+    case "weight":
+      return item.unitMode === "weight";
+    case "nobc":
+      return !item.isService && !item.isSandwich && !item.hasBarcode;
+    case "svc":
+      return Boolean(item.isService);
+    case "off":
+      return false;
+    default:
+      return true;
+  }
+}
+
+/** The tile's picture: there is no product photo, so one sign per kind of item. */
+export function saleTileEmoji(item: DisplaySaleItem): string {
+  if (item.isService) return "⚡";
+  if (item.isSandwich) return "🥪";
+  if (item.unitMode === "weight") return "⚖️";
+  return "📦";
 }
 
 /**
@@ -142,10 +183,7 @@ export function formatStockText(
 }
 
 /** Convert a weight input (kg or grams) to integer grams. */
-export function weightToGrams(
-  value: number,
-  unit: "kg" | "gram",
-): number {
+export function weightToGrams(value: number, unit: "kg" | "gram"): number {
   return unit === "kg" ? Math.round(value * 1000) : Math.round(value);
 }
 

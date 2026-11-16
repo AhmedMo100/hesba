@@ -17,7 +17,7 @@ describe("scanner photo preparation", () => {
 });
 
 describe("ProductScannerSheet", () => {
-  it("renders mode selection on initial open", () => {
+  it("opens straight into scanning — no mode screen, no extra camera button", () => {
     const html = renderToString(
       <ProductScannerSheet
         catalog={[]}
@@ -25,23 +25,24 @@ describe("ProductScannerSheet", () => {
         onConfirm={() => {}}
       />,
     );
-    expect(html).toContain('data-testid="scan-mode-select"');
-    expect(html).toContain('data-testid="scan-mode-cash"');
-    expect(html).toContain('data-testid="scan-mode-credit"');
-    expect(html).toContain("اختر نوع البيع");
+    expect(html).not.toContain('data-testid="scan-mode-select"');
+    expect(html).toContain('data-testid="product-scanner"');
+    expect(html).toContain("نقدي");
+    expect(html).not.toContain("افتح الكاميرا");
     expect(html).toContain("من غير أسعار ولا بيانات محلك");
   });
 
-  it("disables credit mode when no customer is set", () => {
+  it("scans for the credit invoice when the sale is on credit", () => {
     const html = renderToString(
       <ProductScannerSheet
         catalog={[]}
+        creditCustomerName="آجل"
         onClose={() => {}}
         onConfirm={() => {}}
       />,
     );
-    expect(html).toContain('data-testid="scan-mode-credit"');
-    expect(html).not.toContain('data-testid="scan-mode-customer"');
+    expect(html).toContain("آجل — آجل");
+    expect(html).not.toContain('data-testid="scan-mode-credit"');
   });
 
   it("shows customer name when creditCustomerName is provided", () => {

@@ -24,6 +24,67 @@ export function phoneKey(phone: string | null | undefined): string {
   return digits.slice(-10);
 }
 
+/** The shop's customers («ليك»), for matching a typed name or phone. */
+export async function loadCreditCustomers(): Promise<CreditCustomer[]> {
+  const res = await apiGet("/api/people?section=owedToMe");
+  if (!res.ok) return [];
+  const data = (await res.json()) as {
+    people?: Array<{ id: string; name: string; phone: string | null }>;
+  } | null;
+  return (data?.people ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    phone: p.phone ?? null,
+  }));
+}
+
+/**
+ * The customer of a credit invoice from what the owner typed: the customer who already has
+ * this phone, else (no phone typed) the customer with exactly this name, else a new customer
+ * with no opening balance — the receivable comes from the invoice itself. Never two records
+ * for one person, even when a checkout is retried.
+ */
+export async function resolveCreditCustomer(
+  name: string,
+  phone: string,
+  customers: readonly CreditCustomer[],
+): Promise<CreditCustomer> {
+  const key = phoneKey(phone);
+  if (key.length >= 7) {
+    const owner = customers.find((c) => phoneKey(c.phone) === key);
+    if (owner) return owner;
+  }
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error(t("credit.nameRequired"));
+  if (!key) {
+    const n = normalizeArabic(trimmed);
+    const same = customers.find((c) => normalizeArabic(c.name) === n);
+    if (same) return same;
+  }
+  const res = await fetch("/api/people", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: trimmed,
+      phone: phone.trim() || undefined,
+      section: "owedToMe",
+      amountEgp: "0",
+    }),
+  });
+  const json = (await res.json().catch(() => null)) as {
+    person?: { id: string; name: string; phone: string | null };
+    error?: { message?: string };
+  } | null;
+  if (!res.ok || !json?.person) {
+    throw new Error(json?.error?.message || t("invoice.loadFailed"));
+  }
+  return {
+    id: json.person.id,
+    name: json.person.name,
+    phone: json.person.phone ?? null,
+  };
+}
+
 export function CreditCustomerForm({
   onClose,
   onChosen,

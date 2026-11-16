@@ -97,11 +97,16 @@ describe("SalesView Client Component", () => {
     expect(sessionStorage.getItem(STAGED_KEY)).toBeNull();
   });
 
-  it("renders search box with voice search and legend indicators matching Image 1", () => {
+  it("renders the V19 top row, search, filter chips and legend", () => {
     const html = renderToStaticMarkup(<SalesView />);
+    expect(html).toContain("📷 امسح الباركود");
+    expect(html).toContain("🧾 بيع آجل");
     expect(html).toContain("دوّر على صنف...");
+    for (const chip of ["الكل", "بالوزن", "بدون باركود"]) {
+      expect(html).toContain(`>${chip}</button>`);
+    }
     expect(html).toContain("مبيعات النهارده");
-    expect(html).toContain("خلصان");
+    expect(html).toContain("خلص");
     expect(html).toContain("قرب يخلص");
     expect(html).toContain('data-testid="today-sales-pill"');
   });
