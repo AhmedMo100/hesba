@@ -47,6 +47,8 @@ export interface StockProductOption {
   buyCostPiasters?: number;
   unit?: string;
   category?: string;
+  /** The product's pack word (كرتونة / كيس / دستة), when it is sold in packs too. */
+  packName?: string | null;
 }
 
 export interface AddStockModalProps {

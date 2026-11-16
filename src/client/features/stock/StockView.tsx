@@ -19,11 +19,27 @@ import {
 } from "@/client/shared/store-items";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import { useAuth } from "@/client/shared/auth";
+import { packWord } from "@/client/shared/unit-labels";
 import { ProductFormModal } from "../products/ProductFormModal";
 import { resolveSellingMethod, type StockProductOption } from "./AddStockModal";
 import styles from "./StockView.module.css";
 
 type Overlay = null | "manual" | "scan" | "quantity" | "confirm";
+
+/** How the goods were paid: a paid invoice, or on credit to a supplier (آجل). */
+type PayMode = "paid" | "credit";
+
+interface Supplier {
+  id: string;
+  name: string;
+  phone: string | null;
+}
+
+const isUuid = (val?: string | null): val is string =>
+  Boolean(
+    val &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val),
+  );
 
 function physicalOnly(
   items: StockInventoryItem[] | undefined,
@@ -95,8 +111,18 @@ export function StockView() {
   const [expiry, setExpiry] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  // What one selling unit (piece / pack / kg) cost; empty = the registered buy price.
   const [costInput, setCostInput] = useState("");
   const [costTouched, setCostTouched] = useState(false);
+
+  // Paid now, or on credit to a supplier (one purchase invoice, one payable).
+  const [payMode, setPayMode] = useState<PayMode>("paid");
+  const [suppliers, setSuppliers] = useState<Supplier[] | null>(null);
+  const [supplierId, setSupplierId] = useState<string>("");
+  const [newSupplierName, setNewSupplierName] = useState("");
+  const [newSupplierPhone, setNewSupplierPhone] = useState("");
+  const [paidNowInput, setPaidNowInput] = useState("");
+  const purchaseOpRef = useRef<{ key: string; id: string } | null>(null);
 
   // Submission
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -202,6 +228,7 @@ export function StockView() {
             v?.buy_cost_piasters,
           unit: p.unit,
           category: p.category,
+          packName: invItem?.packName ?? null,
         });
       });
 
@@ -218,6 +245,7 @@ export function StockView() {
           buyCostPiasters: i.buyPricePiasters,
           unit: i.unit || (i.unitMode === "weight" ? "kg" : "piece"),
           category: i.category,
+          packName: i.packName ?? null,
         });
       }
     });
@@ -265,20 +293,34 @@ export function StockView() {
 
   const regPiecePiasters = selectedOption?.buyCostPiasters ?? 0;
   const regPieceCost = regPiecePiasters > 0 ? regPiecePiasters / 100 : 0;
+  const packWordNow = packWord(selectedOption?.packName, packQty);
 
-  const expectedCostEgp = useMemo(() => {
-    if (regPieceCost <= 0 || totalBaseQty <= 0) return 0;
-    if (isWeight) {
-      return Math.round((totalBaseQty / 1000) * regPieceCost * 100) / 100;
-    }
-    return Math.round(totalBaseQty * regPieceCost * 100) / 100;
-  }, [isWeight, totalBaseQty, regPieceCost]);
+  // One unit as chosen: a kg, a pack, or one piece.
+  const unitCount = isWeight
+    ? totalBaseQty / 1000
+    : unitMode === "carton"
+      ? qty
+      : qty;
+  const registeredUnitCost =
+    regPieceCost > 0
+      ? isWeight
+        ? regPieceCost
+        : unitMode === "carton"
+          ? Math.round(regPieceCost * packQty * 100) / 100
+          : regPieceCost
+      : 0;
+  const unitCostEgp = costTouched
+    ? parseFloat(costInput) || 0
+    : registeredUnitCost;
+  const costNum = Math.round(unitCostEgp * unitCount * 100) / 100;
 
-  const costFromProduct = !costTouched && expectedCostEgp > 0;
-  const costEgp = costFromProduct ? expectedCostEgp.toFixed(2) : costInput;
-  const costNum = parseFloat(costEgp) || 0;
-
-  const totalCostDisplay = costNum > 0 ? `${costNum} جنيه` : "—";
+  const totalCostDisplay =
+    costNum > 0 ? formatMoney(Math.round(costNum * 100)) : "—";
+  const paidNowNum = Math.min(
+    costNum,
+    Math.max(0, parseFloat(paidNowInput) || 0),
+  );
+  const creditRest = Math.round((costNum - paidNowNum) * 100) / 100;
 
   const qtyDisplay = useMemo(() => {
     if (isWeight) {
@@ -286,10 +328,10 @@ export function StockView() {
       return `${wNum} ${weightUnit === "kg" ? "كجم" : "جم"}`;
     }
     if (unitMode === "carton") {
-      return `${qty} كرتونة`;
+      return `${qty} ${packWordNow}`;
     }
     return `${qty} ${unitWord}`;
-  }, [isWeight, weightInput, weightUnit, unitMode, qty, unitWord]);
+  }, [isWeight, weightInput, weightUnit, unitMode, qty, unitWord, packWordNow]);
 
   const qtyEquivDisplay = useMemo(() => {
     if (isWeight) return null;
@@ -352,6 +394,8 @@ export function StockView() {
     }
     setCostInput("");
     setCostTouched(false);
+    setPayMode("paid");
+    setPaidNowInput("");
     setProdDate(new Date().toISOString().split("T")[0]!);
     setExpiry("");
     setNoExpiry(false);
@@ -539,6 +583,73 @@ export function StockView() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [overlay, lookupBarcode]);
 
+  // ─── Suppliers (آجل) ───
+
+  useEffect(() => {
+    if (payMode !== "credit" || suppliers !== null) return;
+    let alive = true;
+    apiGet("/api/people?section=suppliers")
+      .then((r) => (r.ok ? r.json() : null))
+      .then(
+        (
+          d: {
+            people?: Array<{ id: string; name: string; phone: string | null }>;
+          } | null,
+        ) => {
+          if (!alive) return;
+          const list = (d?.people ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            phone: p.phone ?? null,
+          }));
+          setSuppliers(list);
+          if (list[0]) setSupplierId((cur) => cur || list[0]!.id);
+        },
+      )
+      .catch(() => alive && setSuppliers([]));
+    return () => {
+      alive = false;
+    };
+  }, [payMode, suppliers]);
+
+  /** The chosen supplier, or a new one created once (a retry reuses it). */
+  const ensureSupplier = async (): Promise<Supplier> => {
+    const chosen = (suppliers ?? []).find((x) => x.id === supplierId);
+    if (chosen) return chosen;
+    const name = newSupplierName.trim();
+    if (!name) throw new Error("اختار المورد أو اكتب اسم مورد جديد");
+    const res = await fetch("/api/people", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name,
+        phone: newSupplierPhone.trim() || undefined,
+        section: "suppliers",
+        amountEgp: "0",
+      }),
+    });
+    const json = (await res.json().catch(() => null)) as {
+      person?: { id: string; name: string; phone: string | null };
+      error?: { message?: string };
+    } | null;
+    if (!res.ok || !json?.person) {
+      throw new Error(json?.error?.message || "تعذر تسجيل المورد");
+    }
+    const created = {
+      id: json.person.id,
+      name: json.person.name,
+      phone: json.person.phone ?? null,
+    };
+    setSuppliers((prev) => [...(prev ?? []), created]);
+    setSupplierId(created.id);
+    return created;
+  };
+
+  const supplierReady =
+    payMode !== "credit" ||
+    (suppliers ?? []).some((x) => x.id === supplierId) ||
+    newSupplierName.trim().length > 0;
+
   // ─── Submit ───
 
   const handleSubmit = async () => {
@@ -550,13 +661,7 @@ export function StockView() {
       const costPiasters = Math.round(costNum * 100);
       let targetVariantId = selectedOption.variantId;
 
-      const isValidUuid = (val?: string | null): val is string =>
-        Boolean(
-          val &&
-          /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-            val,
-          ),
-        );
+      const isValidUuid = isUuid;
 
       if (
         targetVariantId.startsWith("temp_") ||
@@ -608,31 +713,68 @@ export function StockView() {
           throw new Error("تعذر تحديد معرّف الصنف في المخزون");
       }
 
-      const payload = {
-        action: "add",
-        storeVariantId: targetVariantId,
-        quantityBase: totalBaseQty,
-        costTotalPiasters: Math.round(costNum * 100),
-        productionDate: noExpiry ? null : prodDate || null,
-        expiryDate: noExpiry ? null : expiry || null,
-        batchCode: null,
-      };
+      if (payMode === "credit") {
+        // آجل: one supplier purchase — stock in and «عليك» up in one transaction.
+        const supplier = await ensureSupplier();
+        const body = {
+          supplierId: supplier.id,
+          lines: [
+            {
+              storeVariantId: targetVariantId,
+              quantityBase: totalBaseQty,
+              totalCostPiasters: Math.round(costNum * 100),
+              expiryDate: noExpiry ? null : expiry || null,
+            },
+          ],
+          paidNowPiasters: Math.round(paidNowNum * 100),
+        };
+        const key = JSON.stringify(body);
+        if (purchaseOpRef.current?.key !== key) {
+          purchaseOpRef.current = { key, id: crypto.randomUUID() };
+        }
+        const res = await fetch("/api/purchases", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ opId: purchaseOpRef.current.id, ...body }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error?.message || "فشل تسجيل فاتورة المورد");
+        }
+        purchaseOpRef.current = null;
+        toast.show({
+          msg: `اتسجلت الدخلة ✅ — ${formatMoney(Math.round(creditRest * 100))} آجل على ${supplier.name}`,
+          kind: "ok",
+        });
+      } else {
+        const payload = {
+          action: "add",
+          storeVariantId: targetVariantId,
+          quantityBase: totalBaseQty,
+          costTotalPiasters: Math.round(costNum * 100),
+          productionDate: noExpiry ? null : prodDate || null,
+          expiryDate: noExpiry ? null : expiry || null,
+          batchCode: null,
+        };
 
-      const res = await fetch("/api/stock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+        const res = await fetch("/api/stock", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error?.message || "فشل تسجيل البضاعة في المخزون");
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(
+            data.error?.message || "فشل تسجيل البضاعة في المخزون",
+          );
+        }
+
+        toast.show({
+          msg: `تم إضافة ${selectedOption.productName} للمخزون ✓`,
+          kind: "ok",
+        });
       }
-
-      toast.show({
-        msg: `تم إضافة ${selectedOption.productName} للمخزون ✓`,
-        kind: "ok",
-      });
       void loadData();
 
       setSelectedOption(null);
@@ -643,9 +785,13 @@ export function StockView() {
       setExpiry("");
       setNoExpiry(false);
       setActivePreset(null);
+      setPayMode("paid");
+      setPaidNowInput("");
+      setNewSupplierName("");
+      setNewSupplierPhone("");
     } catch (err: unknown) {
       setSubmitError(err instanceof Error ? err.message : "حدث خطأ غير متوقع");
-      setOverlay("quantity");
+      if (payMode !== "credit") setOverlay("quantity");
     } finally {
       setIsSubmitting(false);
     }
@@ -655,32 +801,33 @@ export function StockView() {
 
   return (
     <div className={styles.view} data-testid="page-stock" dir="rtl">
-      {/* Landing — always visible */}
+      {/* Landing (V19) */}
       <h2 className={styles.landingTitle}>دخلت بضاعة جديدة؟</h2>
 
       <button
         type="button"
-        className={styles.choiceCard}
+        className={styles.big}
         onClick={openScan}
         data-testid="stock-scan-btn"
       >
-        <span className={styles.choiceLabel}>امسح الباركود</span>
-        <span className={styles.choiceIconBox}>
-          <span className={styles.choiceEmoji}>📷</span>
-        </span>
+        <i aria-hidden="true">📷</i>
+        امسح الباركود
       </button>
 
       <button
         type="button"
-        className={styles.choiceCard}
+        className={styles.big}
         onClick={() => setOverlay("manual")}
         data-testid="stock-manual-btn"
       >
-        <span className={styles.choiceLabel}>تسجيل يدوي</span>
-        <span className={styles.choiceIconBox}>
-          <span className={styles.choiceEmoji}>✍️</span>
-        </span>
+        <i aria-hidden="true">✍️</i>
+        تسجيل يدوي
       </button>
+
+      <p className={styles.note}>
+        لو المنتج موجود، هتدخل الكمية والصلاحية بس. لو مش موجود، هتسجله بكل
+        تفاصيله.
+      </p>
 
       {/* Scanner Bottom Sheet */}
       {overlay === "scan" && (
@@ -818,128 +965,138 @@ export function StockView() {
           title={selectedOption.productName}
           onClose={() => setOverlay(null)}
         >
-          <div className={styles.view}>
-            <div className={styles.productHeader}>
-              <span className={styles.productName}>
-                {selectedOption.productName}
-              </span>
-              <span className={styles.productEmoji}>🥤</span>
-            </div>
-            <p className={styles.productStock}>
+          <div className={styles.sheetBody}>
+            <p className={styles.note}>
               المتاح: {formatOptionStock(selectedOption)}
             </p>
 
             {submitError && <div className={styles.error}>{submitError}</div>}
 
+            {!isWeight && packQty > 1 && (
+              <div className={styles.chips}>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${unitMode === "carton" ? "" : styles.chipOn}`}
+                  onClick={() => {
+                    setUnitMode("piece");
+                    setCostTouched(false);
+                  }}
+                >
+                  {unitWord}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${unitMode === "carton" ? styles.chipOn : ""}`}
+                  data-testid="stock-unit-pack"
+                  onClick={() => {
+                    setUnitMode("carton");
+                    setCostTouched(false);
+                  }}
+                >
+                  {packWordNow} ({packQty})
+                </button>
+              </div>
+            )}
+
+            <div className={styles.lbl}>
+              {isWeight
+                ? "الكمية (كيلو)"
+                : `الكمية (${unitMode === "carton" ? packWordNow : unitWord})`}
+            </div>
             {isWeight ? (
-              <div className={styles.weightRow}>
+              <input
+                type="number"
+                inputMode="decimal"
+                step="0.25"
+                min="0"
+                className={styles.input}
+                value={weightInput}
+                onChange={(e) => setWeightInput(e.target.value)}
+                placeholder="مثال: 5.5"
+                data-testid="stock-weight"
+              />
+            ) : (
+              <div className={styles.qty}>
+                <button
+                  type="button"
+                  disabled={qty <= 1}
+                  onClick={() => setQty((v) => Math.max(1, v - 1))}
+                  data-testid="stock-qty-minus"
+                  aria-label="أقل"
+                >
+                  −
+                </button>
                 <input
                   type="number"
-                  inputMode="decimal"
-                  step={weightUnit === "kg" ? "0.05" : "1"}
-                  min="0"
-                  className={styles.weightInput}
-                  value={weightInput}
-                  onChange={(e) => setWeightInput(e.target.value)}
-                  placeholder={weightUnit === "kg" ? "مثال: 5.5" : "مثال: 500"}
-                  data-testid="stock-weight"
+                  inputMode="numeric"
+                  min="1"
+                  value={qty}
+                  data-testid="stock-qty"
+                  onChange={(e) =>
+                    setQty(Math.max(1, Math.round(Number(e.target.value) || 1)))
+                  }
                 />
+                <button
+                  type="button"
+                  onClick={() => setQty((v) => v + 1)}
+                  data-testid="stock-qty-plus"
+                  aria-label="أكتر"
+                >
+                  +
+                </button>
               </div>
-            ) : (
-              <>
-                {packQty > 1 && (
-                  <div className={styles.unitToggle}>
-                    <button
-                      type="button"
-                      className={`${styles.unitBtn} ${unitMode === "carton" ? "" : styles.unitBtnActive}`}
-                      onClick={() => setUnitMode("piece")}
-                    >
-                      <span className={styles.unitBtnLabel}>{unitWord}</span>
-                      {regPieceCost > 0 && (
-                        <span className={styles.unitBtnPrice}>
-                          {formatMoney(regPiecePiasters)}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.unitBtn} ${unitMode === "carton" ? styles.unitBtnActive : ""}`}
-                      onClick={() => setUnitMode("carton")}
-                    >
-                      <span className={styles.unitBtnLabel}>
-                        كرتونة ({packQty})
-                      </span>
-                      {regPieceCost > 0 && (
-                        <span className={styles.unitBtnPrice}>
-                          {formatMoney(Math.round(regPiecePiasters * packQty))}
-                        </span>
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                <div className={styles.stepper}>
-                  <button
-                    type="button"
-                    className={styles.stepperBtn}
-                    onClick={() => setQty((v) => v + 1)}
-                    data-testid="stock-qty-plus"
-                  >
-                    +
-                  </button>
-                  <span className={styles.stepperValue}>
-                    {qty} {unitMode === "carton" ? "كرتونة" : unitWord}
-                  </span>
-                  <button
-                    type="button"
-                    className={styles.stepperBtn}
-                    disabled={qty <= 1}
-                    onClick={() => setQty((v) => Math.max(1, v - 1))}
-                    data-testid="stock-qty-minus"
-                  >
-                    −
-                  </button>
-                </div>
-              </>
+            )}
+            {qtyEquivDisplay && unitMode === "carton" && (
+              <p className={styles.note}>{qtyEquivDisplay}</p>
             )}
 
-            <div className={styles.totalRow}>
-              <span className={styles.totalValue}>{totalCostDisplay}</span>
-              <span className={styles.totalLabel}>الإجمالي</span>
+            <div className={styles.lbl}>
+              سعر الشراء (
+              {isWeight
+                ? "الكيلو"
+                : unitMode === "carton"
+                  ? packWordNow
+                  : unitWord}
+              )
             </div>
-
-            <hr className={styles.divider} />
-
-            {qtyEquivDisplay && (
-              <p className={styles.qtyEquiv}>{qtyEquivDisplay}</p>
-            )}
-
-            <p className={styles.dateLabel}>تاريخ البداية</p>
             <input
-              type="date"
-              className={styles.dateInput}
-              value={prodDate}
-              onChange={(e) => setProdDate(e.target.value)}
+              type="number"
+              inputMode="decimal"
+              min="0"
+              className={styles.input}
+              value={costTouched ? costInput : registeredUnitCost || ""}
+              placeholder="0"
+              data-testid="stock-unit-cost"
+              onChange={(e) => {
+                setCostTouched(true);
+                setCostInput(e.target.value);
+              }}
             />
 
-            <p className={styles.dateLabel}>تاريخ النهاية (اختياري)</p>
-            <div className={styles.presetRow}>
+            <div className={styles.sumbox}>
+              <div className={styles.line}>
+                <span>تكلفة الكمية كلها</span>
+                <b data-testid="stock-total">{totalCostDisplay}</b>
+              </div>
+            </div>
+
+            <div className={styles.lbl}>تاريخ الصلاحية</div>
+            <div className={styles.chips}>
               {expiryPresets.map((p) => (
                 <button
                   key={p.value}
                   type="button"
-                  className={`${styles.presetChip} ${activePreset === p.value ? styles.presetChipActive : ""}`}
+                  className={`${styles.chip} ${activePreset === p.value ? styles.chipOn : ""}`}
                   onClick={() => applyPreset(p.value)}
                 >
                   {p.label}
                 </button>
               ))}
             </div>
-
             {!noExpiry && (
               <input
                 type="date"
-                className={styles.dateInput}
+                className={styles.input}
                 value={expiry}
                 onChange={(e) => {
                   setExpiry(e.target.value);
@@ -949,14 +1106,41 @@ export function StockView() {
               />
             )}
 
+            <div className={styles.lbl}>الدفع إزاي؟</div>
+            <div className={styles.chips}>
+              <button
+                type="button"
+                className={`${styles.chip} ${payMode === "paid" ? styles.chipOn : ""}`}
+                data-testid="stock-pay-paid"
+                onClick={() => setPayMode("paid")}
+              >
+                🧾 فاتورة
+              </button>
+              <button
+                type="button"
+                className={`${styles.chip} ${payMode === "credit" ? styles.chipOn : ""}`}
+                data-testid="stock-pay-credit"
+                onClick={() => setPayMode("credit")}
+              >
+                📒 آجل على مورد
+              </button>
+            </div>
+
             <button
               type="button"
               className={styles.confirmBtn}
-              disabled={totalBaseQty <= 0}
+              disabled={
+                totalBaseQty <= 0 || (payMode === "credit" && costNum <= 0)
+              }
               onClick={() => setOverlay("confirm")}
             >
-              تأكيد الدخول
+              كمّل ← التأكيد
             </button>
+            {payMode === "credit" && costNum <= 0 && (
+              <p className={styles.note}>
+                اكتب سعر الشراء عشان نعرف المبلغ الآجل
+              </p>
+            )}
           </div>
         </Modal>
       )}
@@ -964,30 +1148,97 @@ export function StockView() {
       {/* Confirm Bottom Sheet */}
       {overlay === "confirm" && selectedOption && (
         <Modal title="تأكيد الدخول" onClose={() => setOverlay(null)}>
-          <div className={styles.view}>
-            <div className={styles.summaryRow}>
-              <span className={styles.summaryValue}>{qtyDisplay}</span>
-              <span className={styles.summaryLabel}>
-                {selectedOption.productName}
-              </span>
+          <div className={styles.sheetBody}>
+            <div className={styles.sumbox}>
+              <div className={styles.line}>
+                <span>{selectedOption.productName}</span>
+                <b>{qtyDisplay}</b>
+              </div>
+              <div className={styles.line}>
+                <span>الصلاحية</span>
+                <b>{noExpiry ? "من غير نهاية" : expiry || "—"}</b>
+              </div>
+              <div className={styles.line}>
+                <span>التكلفة</span>
+                <b>{totalCostDisplay}</b>
+              </div>
             </div>
 
-            <div className={styles.summaryRow}>
-              <span className={styles.summaryValue}>
-                {noExpiry ? "من غير نهاية" : expiry || "—"}
-              </span>
-              <span className={styles.summaryLabel}>دفعة جديدة</span>
-            </div>
+            {payMode === "credit" && (
+              <div data-testid="stock-supplier">
+                <div className={styles.lbl}>المورد</div>
+                <div className={styles.chips}>
+                  {(suppliers ?? []).map((x) => (
+                    <button
+                      key={x.id}
+                      type="button"
+                      className={`${styles.chip} ${supplierId === x.id ? styles.chipOn : ""}`}
+                      onClick={() => setSupplierId(x.id)}
+                    >
+                      {x.name}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    className={`${styles.chip} ${supplierId === "" ? styles.chipOn : ""}`}
+                    data-testid="stock-new-supplier"
+                    onClick={() => setSupplierId("")}
+                  >
+                    + مورد جديد
+                  </button>
+                </div>
+                {supplierId === "" && (
+                  <>
+                    <input
+                      className={styles.input}
+                      placeholder="اسم المورد"
+                      dir="auto"
+                      value={newSupplierName}
+                      data-testid="stock-supplier-name"
+                      onChange={(e) => setNewSupplierName(e.target.value)}
+                    />
+                    <input
+                      className={styles.input}
+                      type="tel"
+                      dir="ltr"
+                      placeholder="رقم المورد (اختياري)"
+                      value={newSupplierPhone}
+                      onChange={(e) => setNewSupplierPhone(e.target.value)}
+                    />
+                  </>
+                )}
+                <div className={styles.lbl}>دفعت للمورد دلوقتي (اختياري)</div>
+                <input
+                  className={styles.input}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  placeholder="0"
+                  value={paidNowInput}
+                  data-testid="stock-paid-now"
+                  onChange={(e) => setPaidNowInput(e.target.value)}
+                />
+                <div className={styles.sumbox}>
+                  <div className={styles.line}>
+                    <span>الباقي عليك للمورد</span>
+                    <b data-testid="stock-credit-rest">
+                      {formatMoney(Math.round(creditRest * 100))}
+                    </b>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {submitError && <div className={styles.error}>{submitError}</div>}
 
             <button
               type="button"
               className={styles.confirmBtn}
-              disabled={isSubmitting}
+              disabled={isSubmitting || !supplierReady}
               onClick={handleSubmit}
+              data-testid="stock-confirm"
             >
-              {isSubmitting ? "بيتسجّل…" : "تأكيد"}
+              {isSubmitting ? "بيتسجّل…" : "سجّل الدخلة ✅"}
             </button>
 
             <button
