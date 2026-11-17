@@ -12,6 +12,8 @@ import React, { useEffect, useState } from "react";
 import { Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
+import { apiGet } from "@/client/shared/api/read-cache";
+import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
 import type { ReportPeriod } from "@/schemas/report";
 import { toCairoDateString } from "@/domain/time";
 import styles from "./HomeView.module.css";
@@ -24,6 +26,22 @@ const PERIODS: Array<[ReportPeriod, string]> = [
   ["year", "السنة"],
   ["custom", "فترة معينة"],
 ];
+
+/** One stock movement as `/api/stock?view=all` returns it. */
+interface StockMove {
+  id: string;
+  batchId?: string | null;
+  productName: string;
+  flavor?: string | null;
+  unitMode?: "piece" | "weight";
+  type: string;
+  quantityBase: number;
+  costTotalMinor?: number | null;
+  costPricePiasters?: number | null;
+  supplierName?: string | null;
+  expiryDate?: string | null;
+  createdAt: string;
+}
 
 const dayLabel = (iso: string) =>
   new Intl.DateTimeFormat("ar-EG", {
@@ -40,6 +58,21 @@ export function ReportsView() {
   const [report, setReport] = useState<HomeReport | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
+  // The stock that came in (the old stock screen's additions log), for the same period.
+  const [moves, setMoves] = useState<StockMove[] | null>(null);
+  const [voiding, setVoiding] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let alive = true;
+    apiGet("/api/stock?view=all")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => alive && setMoves(d?.movements ?? []))
+      .catch(() => alive && setMoves([]));
+    return () => {
+      alive = false;
+    };
+  }, [reloadKey]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -57,7 +90,7 @@ export function ReportsView() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [period, from, to]);
+  }, [period, from, to, reloadKey]);
 
   const sales = report?.sales;
   const profit = sales?.grossProfitPiasters ?? null;
@@ -69,6 +102,43 @@ export function ReportsView() {
   const maxPoint = Math.max(1, ...points.map((p) => p.revenuePiasters));
   const money = (v: number | null | undefined) =>
     v === null || v === undefined ? "—" : formatMoney(v);
+
+  const additions = (moves ?? []).filter((m) => {
+    // A sale undo puts sold stock back; it is not stock that came in (ADR-0022).
+    if (m.type === "sale_void") return false;
+    if (m.type !== "purchase" && m.quantityBase <= 0) return false;
+    if (!report) return false;
+    const at = Date.parse(m.createdAt);
+    return (
+      (!report.from || at >= Date.parse(report.from)) &&
+      at < Date.parse(report.to)
+    );
+  });
+
+  const voidBatch = async (batchId: string) => {
+    if (
+      !window.confirm("متأكد إنك عاوز تلغي الدفعة دي؟ كميتها هتطلع من المخزون.")
+    ) {
+      return;
+    }
+    setVoiding(batchId);
+    try {
+      const res = await fetch("/api/stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "void", batchId }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error?.message || "مقدرناش نلغي الدفعة");
+      }
+      setReloadKey((k) => k + 1);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "مقدرناش نلغي الدفعة");
+    } finally {
+      setVoiding(null);
+    }
+  };
 
   return (
     <div className={styles.page} data-testid="page-reports" dir="rtl">
@@ -150,6 +220,17 @@ export function ReportsView() {
               </small>
             </div>
             <div className={styles.stat}>
+              <small>🧾 تكلفة البضاعة اللي اتباعت</small>
+              <b data-testid="report-cogs">{money(sales?.cogsPiasters)}</b>
+            </div>
+            <div className={styles.stat}>
+              <small>🛍️ بضاعة دخلت (بسعر الشراء)</small>
+              <b data-testid="report-purchases">
+                {money(report?.purchases.totalPiasters)}
+              </b>
+              <small>{report?.purchases.count ?? 0} دخلة · مش مصروف</small>
+            </div>
+            <div className={styles.stat}>
               <small>💸 مصروفات</small>
               <b data-testid="report-expenses">{money(expenses)}</b>
               <small>{report?.expenses.count ?? 0} مصروف</small>
@@ -225,6 +306,79 @@ export function ReportsView() {
               </div>
             </>
           )}
+
+          {report && report.losses.recent.length > 0 && (
+            <>
+              <h3 className={styles.sech}>🗑️ التالف والفاقد</h3>
+              <div className={styles.sumbox} data-testid="home-losses">
+                {report.losses.recent.map((l) => (
+                  <div key={l.id} className={styles.line}>
+                    <span>
+                      {l.name} ·{" "}
+                      {l.unit === "kg" || l.unit === "g"
+                        ? `${l.quantityBase / 1000} كيلو`
+                        : l.quantityBase}
+                      <small className={styles.muted}>
+                        {" "}
+                        {WASTE_REASON_LABELS[l.reason as WasteReason] ??
+                          l.reason}
+                      </small>
+                    </span>
+                    <b>{money(l.costPiasters)}</b>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <h3 className={styles.sech}>📦 البضاعة اللي دخلت</h3>
+          <div className={styles.sumbox} data-testid="report-additions">
+            {moves === null ? (
+              <Skeleton width={160} height={20} />
+            ) : additions.length === 0 ? (
+              <div className={styles.note}>مفيش بضاعة دخلت في الفترة دي</div>
+            ) : (
+              additions.map((m) => (
+                <div key={m.id} className={styles.line}>
+                  <span>
+                    {m.productName}
+                    {m.flavor ? ` (${m.flavor})` : ""} ·{" "}
+                    {m.unitMode === "weight"
+                      ? `${m.quantityBase / 1000} كيلو`
+                      : `${m.quantityBase}`}
+                    <small className={styles.muted}>
+                      {" "}
+                      {dayLabel(m.createdAt)}
+                      {m.expiryDate
+                        ? ` · تنتهي ${m.expiryDate.slice(0, 10)}`
+                        : ""}
+                      {m.supplierName ? ` · ${m.supplierName}` : ""}
+                    </small>
+                  </span>
+                  <span className={styles.lineEnd}>
+                    <b>
+                      {m.costTotalMinor || m.costPricePiasters
+                        ? formatMoney(
+                            m.costTotalMinor || m.costPricePiasters || 0,
+                          )
+                        : "—"}
+                    </b>
+                    {m.type === "purchase" && m.batchId && (
+                      <button
+                        type="button"
+                        className={styles.voidBtn}
+                        disabled={voiding === m.batchId}
+                        onClick={() => void voidBatch(m.batchId!)}
+                        data-testid="report-void-batch"
+                      >
+                        إلغاء
+                      </button>
+                    )}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
 
           {report && report.byCategory.length > 0 && (
             <>

@@ -741,3 +741,23 @@
   color: var(--cream);
   border-color: var(--dark);
 }
+
+.lineEnd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+
+.voidBtn {
+  background: none;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  color: var(--red);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 6px 10px;
+  min-height: 40px;
+  cursor: pointer;
+}
