@@ -23,6 +23,9 @@ import sandwichStyles from "./SandwichFormModal.module.css";
 import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "../stock/AddStockModal";
 import { EditPromoModal } from "../alerts/EditPromoModal";
+import { RecordLossModal } from "../stock/RecordLossModal";
+import { ArchiveStockModal } from "../stock/ArchiveStockModal";
+import type { StockInventoryItem } from "@/client/shared/store-items";
 import type { PublishedPromotion } from "@/schemas/promotion";
 import type { SuggestedPromotion } from "@/domain/alerts";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
@@ -231,6 +234,35 @@ export function ProductsView() {
   const { session } = useAuth();
   const storeId = session?.store?.id;
 
+  // Stock actions on one product (V19 product sheet): record a loss, archive.
+  const [stockLevels, setStockLevels] = useState<StockInventoryItem[]>([]);
+  const [lossTarget, setLossTarget] = useState<{
+    item: StockInventoryItem;
+    reason?: "expired" | "damaged" | "missing" | "other";
+  } | null>(null);
+  const [archiveItem, setArchiveItem] = useState<StockInventoryItem | null>(
+    null,
+  );
+  const loadStockLevels = useCallback(() => {
+    apiGet("/api/stock")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.inventory && Array.isArray(d.inventory)) {
+          setStockLevels(d.inventory);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    loadStockLevels();
+    window.addEventListener("hesba_stock_updated", loadStockLevels);
+    return () =>
+      window.removeEventListener("hesba_stock_updated", loadStockLevels);
+  }, [loadStockLevels]);
+  const stockOf = (p: StoreProductItem) =>
+    stockLevels.find(
+      (i) => i.productId === p.id || i.variantId === p.variants?.[0]?.id,
+    );
   const [stockModalProduct, setStockModalProduct] =
     useState<StoreProductItem | null>(null);
   const [isMachinesModalOpen, setIsMachinesModalOpen] = useState(false);
@@ -1186,6 +1218,36 @@ export function ProductsView() {
                                 <span>إضافة إلى المخزون</span>
                               </button>
                             )}
+                            {!isSandwich(p) && stockOf(p) && (
+                              <>
+                                <button
+                                  type="button"
+                                  className={styles.menuItem}
+                                  data-testid={`record-loss-${p.id}`}
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    const item = stockOf(p);
+                                    if (item) setLossTarget({ item });
+                                  }}
+                                >
+                                  <Icon n="trash" s={14} />
+                                  <span>سجّل تالف</span>
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.menuItem}
+                                  data-testid={`archive-stock-${p.id}`}
+                                  onClick={() => {
+                                    setMenuOpenId(null);
+                                    const item = stockOf(p);
+                                    if (item) setArchiveItem(item);
+                                  }}
+                                >
+                                  <Icon n="box" s={14} />
+                                  <span>أرشفة من المخزون</span>
+                                </button>
+                              </>
+                            )}
                             {p.is_hidden ? (
                               <button
                                 type="button"
@@ -1740,6 +1802,37 @@ export function ProductsView() {
               promoPricePiasters: Math.round(price * 0.9),
               savingsPiasters: price - Math.round(price * 0.9),
             } as PublishedPromotion);
+          }}
+        />
+      )}
+
+      {lossTarget && (
+        <RecordLossModal
+          item={lossTarget.item}
+          presetReason={lossTarget.reason}
+          onClose={() => setLossTarget(null)}
+          onSaved={(message) => {
+            setLossTarget(null);
+            setNotice(message);
+            loadStockLevels();
+            void loadProducts();
+          }}
+        />
+      )}
+
+      {archiveItem && (
+        <ArchiveStockModal
+          item={archiveItem}
+          onClose={() => setArchiveItem(null)}
+          onArchived={() => {
+            setArchiveItem(null);
+            loadStockLevels();
+            void loadProducts();
+          }}
+          onOpenEditQuantity={() => {
+            const item = archiveItem;
+            setArchiveItem(null);
+            setLossTarget({ item, reason: "missing" });
           }}
         />
       )}
