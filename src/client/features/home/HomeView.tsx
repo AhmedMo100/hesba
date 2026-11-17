@@ -11,9 +11,13 @@ import { Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
+import { fetchDrawer, type DrawerView } from "@/client/shared/api/drawer";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import styles from "./HomeView.module.css";
+
+/** Home → stock: open the barcode scanner straight away (first-run «ابدأ بالباركود»). */
+export const OPEN_STOCK_SCAN_KEY = "hesba_open_stock_scan";
 
 export function formatQtyText(
   unitMode: "piece" | "weight",
@@ -89,6 +93,9 @@ export function HomeView({
 
   // ─── Stock alert counts (out / low / near expiry), from the stock levels ───
   const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0, exp: 0 });
+  // First run: a shop with no products yet sees how to add them (null = not known yet).
+  const [productCount, setProductCount] = useState<number | null>(null);
+  const [onboardDismissed, setOnboardDismissed] = useState(false);
 
   useEffect(() => {
     let ignore = false;
@@ -107,6 +114,7 @@ export function HomeView({
               low: inv.filter((i) => i.status === "low").length,
               exp: inv.filter((i) => i.hasNearExpiry).length,
             });
+            setProductCount(inv.length);
           }
         })
         .catch(() => {});
@@ -119,9 +127,29 @@ export function HomeView({
     };
   }, []);
 
+  // ─── The drawer's real balance (ADR-0031); never today's sales ───
+  const [drawer, setDrawer] = useState<DrawerView | null>(null);
+  const [drawerFailed, setDrawerFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetchDrawer()
+        .then((d) => {
+          if (!alive) return;
+          setDrawer(d);
+          setDrawerFailed(false);
+        })
+        .catch(() => alive && setDrawerFailed(true));
+    void load();
+    window.addEventListener("online", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", load);
+    };
+  }, []);
+
   const todayRevenue = report?.sales.revenuePiasters ?? null;
   const todayProfit = report?.sales.grossProfitPiasters ?? null;
-  const todayCount = report?.sales.count ?? null;
 
   const money = (piasters: number) =>
     `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
@@ -143,27 +171,62 @@ export function HomeView({
     icon: string,
     label: string,
     tone: string | undefined,
-    testId?: string,
+    num?: string,
   ) => (
     <button
       type="button"
-      className={`${styles.t} ${tone ?? ""}`}
+      className={`${styles.tile} ${tone ?? ""}`}
       onClick={() => onNavigate(route)}
-      data-testid={testId}
+      data-testid={`home-tile-${route}`}
     >
+      {num && <span className={styles.tn}>{num}</span>}
       <i aria-hidden="true">{icon}</i>
       {label}
     </button>
   );
 
-  // ─── Dashboard (docs/ui-reference/v19-demo) ───
+  const startWithBarcode = () => {
+    try {
+      sessionStorage.setItem(OPEN_STOCK_SCAN_KEY, "1");
+    } catch {
+      // Storage unavailable: the stock screen still opens.
+    }
+    onNavigate("stock");
+  };
+
+  // ─── Dashboard: V19 summary and drawer, V17 tiles and logout ───
   return (
     <div className={styles.page} data-testid="page-home" dir="rtl">
+      {productCount === 0 && !onboardDismissed && (
+        <div className={styles.banner} data-testid="home-onboarding">
+          <b>⚠️ لسه ماضفتش منتجات محلك</b>
+          <span>امسح الباركود وضيف كل منتجات المحل مرة واحدة.</span>
+          <div className={styles.brow}>
+            <button
+              type="button"
+              className={`${styles.mini} ${styles.miniDark}`}
+              onClick={startWithBarcode}
+              data-testid="home-onboarding-scan"
+            >
+              ابدأ بالباركود ←
+            </button>
+            <button
+              type="button"
+              className={styles.mini}
+              onClick={() => setOnboardDismissed(true)}
+            >
+              بعدين
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className={styles.sumrow}>
         <button
           type="button"
           className={styles.stat}
-          onClick={() => onNavigate("inventory")}
+          onClick={() => onNavigate("reports")}
+          data-testid="home-sold-today"
         >
           <small>{t("home.soldToday")}</small>
           <b>
@@ -179,7 +242,8 @@ export function HomeView({
         <button
           type="button"
           className={`${styles.stat} ${styles.good}`}
-          onClick={() => onNavigate("inventory")}
+          onClick={() => onNavigate("reports")}
+          data-testid="home-profit-today"
         >
           <small>{t("home.profitToday")}</small>
           <b>
@@ -194,58 +258,65 @@ export function HomeView({
         </button>
       </div>
 
-      {/* The drawer: today's sales in the sales screen */}
+      {/* The drawer (V19): what should be in it now, from the last count */}
       <button
         type="button"
         className={styles.drw}
-        onClick={() => onNavigate("sales")}
+        onClick={() => onNavigate("drawer")}
         aria-label={t("home.cashDrawer")}
         data-testid="home-drawer"
       >
         <div>
-          <small>{t("home.drawerLabel")}</small>
+          <small>
+            {drawer && !drawer.lastCount
+              ? "🧮 الدرج"
+              : "🧮 المفروض في الدرج دلوقتي"}
+          </small>
           <b>
-            {reportLoading ? (
-              <Skeleton width={60} height={24} />
-            ) : todayCount === null ? (
-              "—"
+            {!drawer && !drawerFailed ? (
+              <Skeleton width={80} height={24} />
+            ) : drawer?.expectedPiasters != null ? (
+              money(drawer.expectedPiasters)
+            ) : drawer && !drawer.lastCount ? (
+              "عدّه أول مرة"
             ) : (
-              t("home.drawerCount", { count: todayCount })
+              "—"
             )}
           </b>
         </div>
-        <span>{t("home.drawerOpen")}</span>
+        <span>عدّ ←</span>
       </button>
 
       {alertText && (
         <button
           type="button"
           className={styles.warn}
-          onClick={() => onNavigate("inventory")}
+          onClick={() => onNavigate("notifications")}
           data-testid="home-alerts"
         >
           ⚠️ {alertText}
         </button>
       )}
 
-      <div className={styles.tiles}>
-        {tile("stock", "📦", t("home.addStock"), styles.cIn)}
-        {tile("expenses", "💰", t("home.expenses"), styles.cOut)}
-        {tile("sales", "🛒", t("home.sell"), `${styles.cSell} ${styles.wide}`)}
-        {tile("people", "👥", t("home.people"), styles.cPpl)}
-        {tile("ai", "💬", t("home.askHesba"), "")}
-        {tile("alerts", "💳", t("home.walletsMachines"), styles.cMach)}
-        {tile("products", "🧃", t("home.myProducts"), "")}
-        {tile(
-          "inventory",
-          "📋",
-          t("home.inventory"),
-          `${styles.cInv} ${styles.wide}`,
-        )}
+      {/* V17 tiles: the three steps of the day numbered, «بيع حاجة» stands out */}
+      <div className={styles.tiles17}>
+        {tile("stock", "📦", t("home.addStock"), styles.tileNum, "١")}
+        {tile("expenses", "💰", t("home.expenses"), styles.tileNum, "٢")}
+        {tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
+        {tile("people", "👥", t("home.people"), undefined)}
+        {tile("alerts", "💳", t("home.walletsMachines"), undefined)}
+        {tile("products", "🧃", t("home.myProducts"), undefined)}
+        {tile("inventory", "📋", t("home.inventory"), styles.tileAlt)}
+        {tile("ai", "💬", t("home.askHesba"), styles.tileAlt)}
       </div>
 
       {onLogout && (
-        <button type="button" className={styles.link} onClick={onLogout}>
+        <button
+          type="button"
+          className={styles.logout17}
+          onClick={onLogout}
+          data-testid="home-logout"
+        >
           {t("home.logout")}
         </button>
       )}

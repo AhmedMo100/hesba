@@ -51,7 +51,10 @@
     "alerts": "المحافظ والماكينات",
     "products": "بضاعتي",
     "ai": "اسأل حسبة",
-    "inventory": "الجرد"
+    "inventory": "الجرد",
+    "reports": "التقارير",
+    "drawer": "الدرج",
+    "notifications": "التنبيهات"
   },
   "storeMenu": {
     "online": "متصل",

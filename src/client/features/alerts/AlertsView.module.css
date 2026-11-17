@@ -706,3 +706,104 @@
   font-size: 36px;
   font-weight: 800;
 }
+
+/* ─── V17 alerts page: h2 .tabs.fill .tab .row-item .mini ─── */
+
+.h2 {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 4px 0 8px;
+}
+
+.tabsFill {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tab {
+  flex: 1;
+  text-align: center;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--chip);
+  border: 0;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  cursor: pointer;
+  min-height: 48px;
+}
+
+.tabOn {
+  background: var(--dark);
+  color: var(--cream);
+}
+
+.rowItem {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 15px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.rowWrap {
+  flex-wrap: wrap;
+}
+
+.rowItem .rowEm {
+  font-size: 32px;
+}
+
+.rowItem .rowT b {
+  font-size: 21px;
+  display: block;
+  color: var(--ink);
+}
+
+.rowItem .rowT span {
+  color: var(--muted);
+  font-size: 16px;
+}
+
+.rowActions {
+  width: 100%;
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.mini {
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+  color: var(--ink);
+  white-space: nowrap;
+  min-height: 44px;
+}
+
+.miniDark {
+  background: var(--dark);
+  color: var(--cream);
+  border-color: var(--dark);
+}
+
+.miniGold {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: #1f3326;
+}
+
+.miniRed {
+  color: var(--red);
+}

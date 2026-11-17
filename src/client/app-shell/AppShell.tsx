@@ -39,6 +39,8 @@ const loadPeopleView = () => import("../features/people/PeopleView");
 const loadAlertsView = () => import("../features/alerts/AlertsView");
 const loadAiView = () => import("../features/ai/AiView");
 const loadInventoryView = () => import("../features/home/InventoryView");
+const loadReportsView = () => import("../features/home/ReportsView");
+const loadDrawerView = () => import("../features/home/DrawerView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -48,6 +50,8 @@ const PeopleView = lazy(loadPeopleView);
 const AlertsView = lazy(loadAlertsView);
 const AiView = lazy(loadAiView);
 const InventoryView = lazy(loadInventoryView);
+const ReportsView = lazy(loadReportsView);
+const DrawerView = lazy(loadDrawerView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -59,6 +63,9 @@ const VALID_ROUTES: NavRoute[] = [
   "alerts",
   "ai",
   "inventory",
+  "reports",
+  "drawer",
+  "notifications",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -230,6 +237,8 @@ function AppShellInner() {
     loadAlertsView();
     loadAiView();
     loadInventoryView();
+    loadReportsView();
+    loadDrawerView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -286,7 +295,13 @@ function AppShellInner() {
       case "people":
         return <PeopleView />;
       case "alerts":
-        return <AlertsView />;
+        return <AlertsView mode="machines" />;
+      case "notifications":
+        return <AlertsView mode="alerts" onNavigate={navigate} />;
+      case "reports":
+        return <ReportsView />;
+      case "drawer":
+        return <DrawerView />;
       case "ai":
         return <AiView />;
       case "inventory":

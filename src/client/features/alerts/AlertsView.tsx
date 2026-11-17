@@ -2,7 +2,7 @@
 
 import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, Icon, Modal, Seg, useToast } from "@/client/shared/ui";
+import { Icon, Modal, useToast } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import {
   isServiceProduct,
@@ -29,11 +29,18 @@ import { unitWord as unitWordOf } from "@/client/shared/unit-labels";
 import { MachineTopupModal } from "../stock/MachineTopupModal";
 import styles from "./AlertsView.module.css";
 
-export function AlertsView() {
+export function AlertsView({
+  mode = "machines",
+  onNavigate,
+}: {
+  /** "machines": wallets & machines (V19). "alerts": the stand-alone alerts page (V17). */
+  mode?: "machines" | "alerts";
+  onNavigate?: (route: "stock") => void;
+} = {}) {
   const { session } = useAuth();
   const storeId = session?.store?.id;
 
-  const [tab, setTab] = useState<"all" | "stock" | "exp">("all");
+  const [tab, setTab] = useState<"stock" | "exp">("stock");
   const [loading, setLoading] = useState(true);
   const [outOfStock, setOutOfStock] = useState<StockAlertItem[]>([]);
   const [lowStock, setLowStock] = useState<StockAlertItem[]>([]);
@@ -224,10 +231,9 @@ export function AlertsView() {
   const totalStockAlerts =
     outOfStock.length + lowStock.length + lowMachines.length;
   const totalExpiryAlerts = expired.length + nearExpiry.length;
-  const totalAlerts = totalStockAlerts + totalExpiryAlerts;
 
-  const showStock = tab !== "exp";
-  const showExp = tab !== "stock";
+  const showStock = tab === "stock";
+  const showExp = tab === "exp";
 
   // Stock Depletion List: contains both completely out AND low stock
   const stockAlertsList = useMemo(() => {
@@ -274,24 +280,6 @@ export function AlertsView() {
     }
 
     return `${qtyBase} ${unitWord}`;
-  };
-
-  const formatExpirySubtitle = (item: ExpiryAlertItem) => {
-    const qtyStr = formatQtyText(
-      item.unitMode,
-      item.remainingQtyBase,
-      item.packQty,
-      item.unit,
-    );
-
-    if (item.isExpired) {
-      const days = Math.abs(item.daysUntilExpiry);
-      return `انتهت من ${days} يوم · ${qtyStr}`;
-    }
-    if (item.daysUntilExpiry === 0) {
-      return `بتنتهي النهارده · ${qtyStr}`;
-    }
-    return `بتنتهي بعد ${item.daysUntilExpiry} يوم · ${qtyStr}`;
   };
 
   // Submit waste to /api/stock
@@ -375,6 +363,32 @@ export function AlertsView() {
     await handleApprovePromotion(promo);
   };
 
+  /** «🏷️ خصم» on one batch: a discount offer for that product, edited before it is published. */
+  const startPromoFor = (item: ExpiryAlertItem) => {
+    const origPrice = item.sellPricePiasters;
+    const promoPrice = Math.max(100, Math.round(origPrice * 0.8));
+    setEditingPromo({
+      id: `custom_promo_${item.batchId ?? item.id}`,
+      title: `عرض توفير: ${item.name}`,
+      description: "عرض لتصريف دفعة قربت صلاحيتها تخلص",
+      type: "single_discount",
+      items: [
+        {
+          productId: item.productId,
+          variantId: item.variantId,
+          productName: item.name,
+          quantityBase: item.unitMode === "weight" ? 1000 : 1,
+          unit: item.unit,
+          regularPricePiasters: origPrice,
+        },
+      ],
+      originalPricePiasters: origPrice,
+      promoPricePiasters: promoPrice,
+      savingsPiasters: origPrice - promoPrice,
+      expiryDaysMin: 7,
+    });
+  };
+
   const handleStartCreateCustomPromo = () => {
     const firstExp = nearExpiry[0] || expired[0];
     const initialItem = firstExp
@@ -412,153 +426,168 @@ export function AlertsView() {
   };
 
   return (
-    <div className={styles.page} data-testid="page-alerts" dir="rtl">
-      {/* V19: wallets & machines with their balances, then the services */}
-      <div className={styles.two}>
-        <button
-          type="button"
-          className={styles.btn}
-          data-testid="machines-add"
-          onClick={() => setMachinesOpen(true)}
-        >
-          + ماكينة / محفظة
-        </button>
-        <button
-          type="button"
-          className={`${styles.btn} ${styles.btnGhost}`}
-          data-testid="service-add"
-          onClick={() => setServiceForm({ product: null })}
-        >
-          + خدمة
-        </button>
-      </div>
-      <div className={styles.mgrid}>
-        {machines.map((m) => (
-          <button
-            key={m.id}
-            type="button"
-            className={styles.mcard}
-            data-testid="machine-card"
-            onClick={() => setSheetMachineId(m.id)}
-          >
-            <span aria-hidden="true">💳</span>
-            <b>{m.name}</b>
-            <big>{formatMoney(m.currentBalancePiasters || 0)}</big>
-          </button>
-        ))}
-      </div>
-      {machines.length === 0 && (
-        <div className={styles.note}>لسه مفيش ماكينات أو محافظ</div>
+    <div
+      className={styles.page}
+      data-testid={mode === "alerts" ? "page-notifications" : "page-alerts"}
+      dir="rtl"
+    >
+      {mode === "machines" && (
+        <>
+          {/* V19: wallets & machines with their balances, then the services */}
+          <div className={styles.two}>
+            <button
+              type="button"
+              className={styles.btn}
+              data-testid="machines-add"
+              onClick={() => setMachinesOpen(true)}
+            >
+              + ماكينة / محفظة
+            </button>
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnGhost}`}
+              data-testid="service-add"
+              onClick={() => setServiceForm({ product: null })}
+            >
+              + خدمة
+            </button>
+          </div>
+          <div className={styles.mgrid}>
+            {machines.map((m) => (
+              <button
+                key={m.id}
+                type="button"
+                className={styles.mcard}
+                data-testid="machine-card"
+                onClick={() => setSheetMachineId(m.id)}
+              >
+                <span aria-hidden="true">💳</span>
+                <b>{m.name}</b>
+                <big>{formatMoney(m.currentBalancePiasters || 0)}</big>
+              </button>
+            ))}
+          </div>
+          {machines.length === 0 && (
+            <div className={styles.note}>لسه مفيش ماكينات أو محافظ</div>
+          )}
+
+          <h3 className={styles.sech}>⚡ الخدمات</h3>
+          <div className={styles.chips}>
+            {[
+              ["all", "الكل"] as const,
+              ...machines.map((m) => [m.id, m.name] as const),
+            ].map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                className={`${styles.chip} ${serviceFilter === k ? styles.chipOn : ""}`}
+                onClick={() => setServiceFilter(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {(() => {
+            const services = allProducts
+              .filter((p) => isServiceProduct(p))
+              .map((p) => ({
+                p,
+                linked: machines.filter((m) =>
+                  getServiceLinkedMachineIds(p.id, storeId).includes(m.id),
+                ),
+              }))
+              .filter(
+                ({ linked }) =>
+                  serviceFilter === "all" ||
+                  linked.some((m) => m.id === serviceFilter),
+              );
+            if (services.length === 0) {
+              return <div className={styles.note}>مفيش خدمات</div>;
+            }
+            return services.map(({ p, linked }) => (
+              <button
+                key={p.id}
+                type="button"
+                className={styles.row}
+                onClick={() => setServiceForm({ product: p })}
+              >
+                <span className={styles.rowEm} aria-hidden="true">
+                  ⚡
+                </span>
+                <span className={styles.rowT}>
+                  <b>{p.name_ar}</b>
+                  <small>
+                    عمولة {formatMoney(p.sell_price_piasters || 0)} · من:{" "}
+                    {linked.map((m) => m.name).join("، ") || "مش مربوطة"}
+                  </small>
+                </span>
+                <span aria-hidden="true">›</span>
+              </button>
+            ));
+          })()}
+        </>
       )}
 
-      <h3 className={styles.sech}>⚡ الخدمات</h3>
-      <div className={styles.chips}>
-        {[
-          ["all", "الكل"] as const,
-          ...machines.map((m) => [m.id, m.name] as const),
-        ].map(([k, label]) => (
-          <button
-            key={k}
-            type="button"
-            className={`${styles.chip} ${serviceFilter === k ? styles.chipOn : ""}`}
-            onClick={() => setServiceFilter(k)}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      {(() => {
-        const services = allProducts
-          .filter((p) => isServiceProduct(p))
-          .map((p) => ({
-            p,
-            linked: machines.filter((m) =>
-              getServiceLinkedMachineIds(p.id, storeId).includes(m.id),
-            ),
-          }))
-          .filter(
-            ({ linked }) =>
-              serviceFilter === "all" ||
-              linked.some((m) => m.id === serviceFilter),
-          );
-        if (services.length === 0) {
-          return <div className={styles.note}>مفيش خدمات</div>;
-        }
-        return services.map(({ p, linked }) => (
-          <button
-            key={p.id}
-            type="button"
-            className={styles.row}
-            onClick={() => setServiceForm({ product: p })}
-          >
-            <span className={styles.rowEm} aria-hidden="true">
-              ⚡
-            </span>
-            <span className={styles.rowT}>
-              <b>{p.name_ar}</b>
-              <small>
-                عمولة {formatMoney(p.sell_price_piasters || 0)} · من:{" "}
-                {linked.map((m) => m.name).join("، ") || "مش مربوطة"}
-              </small>
-            </span>
-            <span aria-hidden="true">›</span>
-          </button>
-        ));
-      })()}
+      {mode === "alerts" && (
+        <>
+          {/* V17 alerts form, as a page: نفاد / صلاحية */}
+          <h2 className={styles.h2}>التنبيهات</h2>
+          <div className={styles.tabsFill} role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "stock"}
+              className={`${styles.tab} ${tab === "stock" ? styles.tabOn : ""}`}
+              onClick={() => setTab("stock")}
+              data-testid="alerts-tab-stock"
+            >
+              نفاد ({totalStockAlerts})
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "exp"}
+              className={`${styles.tab} ${tab === "exp" ? styles.tabOn : ""}`}
+              onClick={() => setTab("exp")}
+              data-testid="alerts-tab-exp"
+            >
+              صلاحية ({totalExpiryAlerts})
+            </button>
+          </div>
 
-      <h3 className={styles.sech}>⚠️ التنبيهات</h3>
-      {/* Seg tabs control matching demo */}
-      <Seg
-        value={tab}
-        onChange={setTab}
-        options={[
-          ["all", `الكل (${totalAlerts})`],
-          ["stock", `نفاد (${totalStockAlerts})`],
-          ["exp", `صلاحية (${totalExpiryAlerts})`],
-        ]}
-      />
-
-      {/* Empty State */}
-      {!loading && totalAlerts === 0 && (
-        <Empty
-          icon="check"
-          title="مفيش تنبيهات"
-          sub="المخزون والصلاحيات تمام وكل حاجة مظبوطة"
-        />
-      )}
-
-      {/* Stock Depletion Section (نفاد المخزون — خلصان خالص + قرب يخلص + الماكينات المنخفضة) */}
-      {showStock && (stockAlertsList.length > 0 || lowMachines.length > 0) && (
-        <section>
-          <h2 className={styles.secTitle}>نفاد المخزون والماكينات</h2>
-          <div className={styles.listCard}>
-            {/* Products Low / Out of Stock */}
-            {stockAlertsList.map((item) => (
-              <div key={item.id} className={styles.lrow}>
-                <div className={styles.rowInfo}>
-                  <div className={styles.rowTitleGroup}>
-                    <span
-                      className={`${styles.dot} ${
-                        item.lv === "out" ? styles.dotRed : styles.dotYellow
-                      }`}
-                    />
-                    <span className={styles.itemName}>{item.name}</span>
-                  </div>
-                  <span className={styles.itemSub}>
+          {showStock &&
+            !loading &&
+            stockAlertsList.length === 0 &&
+            lowMachines.length === 0 && (
+              <div className={styles.note}>كل حاجة متوفرة ✅</div>
+            )}
+          {showStock &&
+            stockAlertsList.map((item) => (
+              <div
+                key={item.id}
+                className={styles.rowItem}
+                data-testid="alert-stock-row"
+              >
+                <span className={styles.rowEm} aria-hidden="true">
+                  {item.unitMode === "weight" ? "⚖️" : "📦"}
+                </span>
+                <div className={styles.rowT}>
+                  <b>{item.name}</b>
+                  <span>
                     {item.lv === "out"
                       ? "خلصان خالص"
-                      : `فاضل ${formatQtyText(
+                      : `المتاح: ${formatQtyText(
                           item.unitMode,
                           item.currentStockBase,
                           item.packQty,
                           item.unit,
-                        )} بس`}
+                        )}`}
                   </span>
                 </div>
                 <button
                   type="button"
-                  className={styles.doneBtn}
-                  onClick={() => {
+                  className={`${styles.mini} ${styles.miniDark}`}
+                  onClick={() =>
                     setRestockProductObj({
                       id: item.productId,
                       name_ar: item.name,
@@ -578,92 +607,110 @@ export function AlertsView() {
                           stock_quantity: item.currentStockBase,
                         },
                       ],
-                    });
-                  }}
-                  title="إضافة بضاعة للمخزون"
+                    })
+                  }
                 >
-                  <Icon n="check" s={14} />
-                  <span>تم</span>
+                  + دخلت
                 </button>
               </div>
             ))}
-
-            {/* POS Machines with Balance < 200 EGP */}
-            {lowMachines.map((m) => {
-              const balPiasters = m.currentBalancePiasters || 0;
-              const isOut = balPiasters <= 0;
+          {showStock &&
+            lowMachines.map((m) => {
+              const bal = m.currentBalancePiasters || 0;
               return (
-                <div key={m.id} className={styles.lrow}>
-                  <div className={styles.rowInfo}>
-                    <div className={styles.rowTitleGroup}>
-                      <span
-                        className={`${styles.dot} ${
-                          isOut ? styles.dotRed : styles.dotYellow
-                        }`}
-                      />
-                      <span className={styles.itemName}>
-                        {m.name} (ماكينة دفع)
-                      </span>
-                    </div>
-                    <span className={styles.itemSub}>
-                      {isOut
-                        ? "رصيد منتهي (0 ج.م)"
-                        : `فاضل ${(balPiasters / 100).toFixed(1)} ج.م بس (أقل من 200 ج.م)`}
+                <div key={m.id} className={styles.rowItem}>
+                  <span className={styles.rowEm} aria-hidden="true">
+                    💳
+                  </span>
+                  <div className={styles.rowT}>
+                    <b>{m.name}</b>
+                    <span>
+                      {bal <= 0
+                        ? "الرصيد خلص"
+                        : `فاضل ${formatMoney(bal)} بس (أقل من 200 ج)`}
                     </span>
                   </div>
                   <button
                     type="button"
-                    className={styles.doneBtn}
-                    onClick={() => setTopupMachine(m)}
-                    title="شحن رصيد الماكينة"
+                    className={`${styles.mini} ${styles.miniDark}`}
+                    onClick={() => {
+                      setTopupMode("topup");
+                      setTopupMachine(m);
+                    }}
                   >
-                    <Icon n="check" s={14} />
-                    <span>تم</span>
+                    + رصيد
                   </button>
                 </div>
               );
             })}
-          </div>
-        </section>
-      )}
+          {showStock && onNavigate && (
+            <button
+              type="button"
+              className={`${styles.btn} ${styles.btnGhost}`}
+              onClick={() => onNavigate("stock")}
+            >
+              📦 دخلت بضاعة
+            </button>
+          )}
 
-      {/* Expiry Section (الصلاحية) */}
-      {showExp && expiryAlertsList.length > 0 && (
-        <section>
-          <h2 className={styles.secTitle}>الصلاحية</h2>
-          <div className={styles.listCard}>
-            {expiryAlertsList.map((item) => (
-              <div key={item.id} className={styles.lrow}>
-                <div className={styles.rowInfo}>
-                  <div className={styles.rowTitleGroup}>
-                    <span
-                      className={`${styles.dot} ${
-                        item.isExpired ? styles.dotRed : styles.dotYellow
-                      }`}
-                    />
-                    <span className={styles.itemName}>{item.name}</span>
-                  </div>
-                  <span className={styles.itemSub}>
-                    {formatExpirySubtitle(item)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  className={styles.doneBtn}
-                  onClick={() => setWasteTarget(item)}
-                  title="التعامل مع الصلاحية"
+          {showExp && !loading && expiryAlertsList.length === 0 && (
+            <div className={styles.note}>مفيش دفعات قربت على الصلاحية ✅</div>
+          )}
+          {showExp &&
+            expiryAlertsList.map((item) => {
+              const d = item.daysUntilExpiry;
+              const text = item.isExpired
+                ? "صلاحية الدفعة دي خلصت ⛔"
+                : d === 0
+                  ? "الدفعة دي بتخلص صلاحيتها النهارده ⚠️"
+                  : `باقي ${d} يوم على صلاحية الدفعة دي ⚠️`;
+              return (
+                <div
+                  key={item.id}
+                  className={`${styles.rowItem} ${styles.rowWrap}`}
+                  data-testid="alert-expiry-row"
                 >
-                  <Icon n="check" s={14} />
-                  <span>تم</span>
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
+                  <span className={styles.rowEm} aria-hidden="true">
+                    {item.unitMode === "weight" ? "⚖️" : "📦"}
+                  </span>
+                  <div className={styles.rowT}>
+                    <b>
+                      {item.name} ·{" "}
+                      {formatQtyText(
+                        item.unitMode,
+                        item.remainingQtyBase,
+                        item.packQty,
+                        item.unit,
+                      )}
+                    </b>
+                    <span>{text}</span>
+                  </div>
+                  <div className={styles.rowActions}>
+                    {!item.isExpired && (
+                      <button
+                        type="button"
+                        className={`${styles.mini} ${styles.miniGold}`}
+                        onClick={() => startPromoFor(item)}
+                      >
+                        🏷️ خصم
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`${styles.mini} ${styles.miniRed}`}
+                      onClick={() => setWasteTarget(item)}
+                    >
+                      🗑️ سجّل كتالف
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+        </>
       )}
 
       {/* Promotional Clearance Offers: ONLY visible in the Expiry Tab! */}
-      {tab === "exp" && (
+      {mode === "alerts" && tab === "exp" && (
         <section className={styles.promoSection}>
           {allPromos.length === 0 ? (
             <div className={styles.emptyPromoCard}>
@@ -728,7 +775,7 @@ export function AlertsView() {
                                       ? it.quantityBase / 1000
                                       : it.quantityBase
                                   } كجم`
-                                : `${it.quantityBase} ${it.unit}`
+                                : `${it.quantityBase} ${unitWordOf(it.unit)}`
                             })`,
                         )
                         .join(" · ")}

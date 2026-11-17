@@ -22,6 +22,9 @@ const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
   products: "pageTitle.products",
   ai: "pageTitle.ai",
   inventory: "pageTitle.inventory",
+  reports: "pageTitle.reports",
+  drawer: "pageTitle.drawer",
+  notifications: "pageTitle.notifications",
 };
 
 export interface HeaderProps extends StoreMenuProps {
