@@ -54,13 +54,10 @@ DROP POLICY IF EXISTS "tenant_isolation" ON "cash_drawer_counts";
 CREATE POLICY "tenant_isolation" ON "cash_drawer_counts"
   USING (store_id = NULLIF(current_setting('app.store_id', true), '')::uuid)
   WITH CHECK (store_id = NULLIF(current_setting('app.store_id', true), '')::uuid);
+-- No migrator bypass policy on a tenant table (QA-34).
+DROP POLICY IF EXISTS "cash_drawer_counts_migrator_all" ON "cash_drawer_counts";
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'hesba_migrator') THEN
-    DROP POLICY IF EXISTS "cash_drawer_counts_migrator_all" ON "cash_drawer_counts";
-    CREATE POLICY "cash_drawer_counts_migrator_all" ON "cash_drawer_counts"
-      AS PERMISSIVE FOR ALL TO hesba_migrator USING (true) WITH CHECK (true);
-  END IF;
   IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'hesba_app') THEN
     GRANT SELECT, INSERT ON "cash_drawer_counts" TO hesba_app;
     REVOKE UPDATE, DELETE ON "cash_drawer_counts" FROM hesba_app;
