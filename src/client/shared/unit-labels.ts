@@ -43,3 +43,36 @@ export function packWord(packName?: string | null, packQty?: number): string {
   if (p && !SIZE_CODES.has(code) && !/^[a-z]+$/i.test(p)) return p;
   return packQty === 12 ? "دستة" : "عبوة";
 }
+
+const UNIT_PLURALS: Record<string, string> = {
+  piece: "القطع",
+  unit: "القطع",
+  can: "العلب",
+  box: "العلب",
+  jar: "البرطمانات",
+  bag: "الأكياس",
+  carton: "الكراتين",
+  dozen: "الدست",
+};
+
+/**
+ * «عدد …» for a count of this unit: `jar` → البرطمانات, `carton` → الكراتين. A word the owner
+ * typed (a custom selling method) is used as is.
+ */
+export function unitPluralWord(unit?: string | null): string {
+  const u = (unit ?? "").trim();
+  if (!u) return "القطع";
+  return UNIT_PLURALS[u.toLowerCase()] ?? u;
+}
+
+/** The pack's plural, from its word or code: كرتونة → الكراتين, كيس → الأكياس. */
+export function packPluralWord(word: string): string {
+  const byWord: Record<string, string> = {
+    كرتونة: "الكراتين",
+    كيس: "الأكياس",
+    دستة: "الدست",
+    علبة: "العلب",
+    عبوة: "العبوات",
+  };
+  return byWord[word] ?? word;
+}

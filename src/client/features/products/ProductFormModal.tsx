@@ -46,6 +46,8 @@ export interface ProductFormModalProps {
     }>;
   } | null;
   presetName?: string;
+  /** A barcode just scanned that no product has (ADR-0031): prefilled, still editable. */
+  presetBarcode?: string;
   initialCatalogProduct?: CatalogSearchResult | null;
   defaultCategory?: string;
   existingProducts?: Array<{
@@ -81,6 +83,7 @@ const PRODUCT_CATEGORIES = [
 export function ProductFormModal({
   product,
   presetName,
+  presetBarcode,
   initialCatalogProduct,
   defaultCategory,
   existingProducts,
@@ -306,7 +309,7 @@ export function ProductFormModal({
   }, [packMethod, customPackMethod]);
 
   const [barcode, setBarcode] = useState(
-    product?.barcode || firstVariant?.barcode || "",
+    product?.barcode || firstVariant?.barcode || presetBarcode || "",
   );
 
   const [brandName, setBrandName] = useState(

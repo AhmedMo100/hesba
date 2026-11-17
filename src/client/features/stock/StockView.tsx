@@ -19,15 +19,20 @@ import {
 } from "@/client/shared/store-items";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import { useAuth } from "@/client/shared/auth";
-import { packWord } from "@/client/shared/unit-labels";
+import {
+  packPluralWord,
+  packWord,
+  unitPluralWord,
+} from "@/client/shared/unit-labels";
+import { OPEN_STOCK_SCAN_KEY } from "../home/HomeView";
 import { ProductFormModal } from "../products/ProductFormModal";
 import { resolveSellingMethod, type StockProductOption } from "./AddStockModal";
 import styles from "./StockView.module.css";
 
 type Overlay = null | "manual" | "scan" | "quantity" | "confirm";
 
-/** How the goods were paid: a paid invoice, or on credit to a supplier (آجل). */
-type PayMode = "paid" | "credit";
+/** How the goods were paid: from the drawer, from a wallet, or on credit to a supplier. */
+type PayMode = "cash" | "wallet" | "credit";
 
 interface Supplier {
   id: string;
@@ -116,7 +121,12 @@ export function StockView() {
   const [costTouched, setCostTouched] = useState(false);
 
   // Paid now, or on credit to a supplier (one purchase invoice, one payable).
-  const [payMode, setPayMode] = useState<PayMode>("paid");
+  const [payMode, setPayMode] = useState<PayMode>("cash");
+  const [paidNowFrom, setPaidNowFrom] = useState<"cash" | "wallet">("cash");
+  // A scanned barcode no product has: offer to register it (ADR-0031).
+  const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
+  const [cameraFailed, setCameraFailed] = useState(false);
+  const [newProductBarcode, setNewProductBarcode] = useState("");
   const [suppliers, setSuppliers] = useState<Supplier[] | null>(null);
   const [supplierId, setSupplierId] = useState<string>("");
   const [newSupplierName, setNewSupplierName] = useState("");
@@ -394,7 +404,7 @@ export function StockView() {
     }
     setCostInput("");
     setCostTouched(false);
-    setPayMode("paid");
+    setPayMode("cash");
     setPaidNowInput("");
     setProdDate(new Date().toISOString().split("T")[0]!);
     setExpiry("");
@@ -437,10 +447,12 @@ export function StockView() {
       lastScannedRef.current = trimmed;
       lastScanTimeRef.current = now;
 
+      const byInventory = inventory.find((i) => i.barcode?.trim() === trimmed);
       const found = storeProducts.find(
         (p) =>
           p.barcode?.trim() === trimmed ||
-          p.variants?.some((v) => v.barcode?.trim() === trimmed),
+          p.variants?.some((v) => v.barcode?.trim() === trimmed) ||
+          (byInventory && p.id === byInventory.productId),
       );
 
       if (found) {
@@ -466,12 +478,15 @@ export function StockView() {
             v?.buy_cost_piasters,
           unit: found.unit,
           category: found.category,
+          packName: invItem?.packName ?? v?.size_unit ?? null,
         };
         stopScanner();
+        setUnknownBarcode(null);
         selectProduct(opt);
         toast.show({ msg: `تم العثور على: ${found.name_ar}`, kind: "ok" });
       } else {
-        setScanError(`الباركود ${trimmed} مش موجود في منتجاتك`);
+        setUnknownBarcode(trimmed);
+        setScanError(`الباركود ${trimmed} مش موجود عندك`);
       }
     },
     [storeProducts, inventory, toast, stopScanner, selectProduct],
@@ -481,6 +496,8 @@ export function StockView() {
 
   const startScanner = useCallback(async () => {
     setScanError("");
+    setCameraFailed(false);
+    setUnknownBarcode(null);
     setScanStatus("جاري فتح الكاميرا...");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
@@ -530,8 +547,9 @@ export function StockView() {
         setScanStatus("الكاميرا شغالة — اكتب الباركود يدوي");
       }
     } catch {
+      setCameraFailed(true);
       setScanError(
-        "تعذر فتح الكاميرا. تأكد من السماح بالكاميرا أو اكتب الباركود يدوي.",
+        "تعذر فتح الكاميرا. اسمح بالكاميرا، أو اكتب الباركود، أو سجّل يدوي.",
       );
       setScanStatus("");
     }
@@ -552,6 +570,27 @@ export function StockView() {
     stopScanner();
     setOverlay(null);
   }, [stopScanner]);
+
+  // Home's first-run «ابدأ بالباركود»: open the scanner straight away.
+  useEffect(() => {
+    let open = false;
+    try {
+      open = sessionStorage.getItem(OPEN_STOCK_SCAN_KEY) === "1";
+      if (open) sessionStorage.removeItem(OPEN_STOCK_SCAN_KEY);
+    } catch {
+      open = false;
+    }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- opening the camera on arrival
+    if (open) openScan();
+  }, [openScan]);
+
+  const registerUnknown = () => {
+    const code = unknownBarcode ?? "";
+    stopScanner();
+    setOverlay(null);
+    setNewProductBarcode(code);
+    setShowNewProduct(true);
+  };
 
   // Physical barcode scanner: listen for rapid keystrokes ending with Enter
   useEffect(() => {
@@ -727,6 +766,7 @@ export function StockView() {
             },
           ],
           paidNowPiasters: Math.round(paidNowNum * 100),
+          ...(paidNowNum > 0 ? { paidFrom: paidNowFrom } : {}),
         };
         const key = JSON.stringify(body);
         if (purchaseOpRef.current?.key !== key) {
@@ -755,6 +795,7 @@ export function StockView() {
           productionDate: noExpiry ? null : prodDate || null,
           expiryDate: noExpiry ? null : expiry || null,
           batchCode: null,
+          paidFrom: payMode,
         };
 
         const res = await fetch("/api/stock", {
@@ -785,7 +826,7 @@ export function StockView() {
       setExpiry("");
       setNoExpiry(false);
       setActivePreset(null);
-      setPayMode("paid");
+      setPayMode("cash");
       setPaidNowInput("");
       setNewSupplierName("");
       setNewSupplierPhone("");
@@ -841,6 +882,29 @@ export function StockView() {
             />
             {scanStatus && <p className={styles.scannerStatus}>{scanStatus}</p>}
             {scanError && <p className={styles.scannerError}>{scanError}</p>}
+            {unknownBarcode && (
+              <button
+                type="button"
+                className={styles.confirmBtn}
+                onClick={registerUnknown}
+                data-testid="stock-register-barcode"
+              >
+                📦 سجّله كمنتج جديد
+              </button>
+            )}
+            {cameraFailed && (
+              <button
+                type="button"
+                className={styles.editBtn}
+                onClick={() => {
+                  stopScanner();
+                  setOverlay("manual");
+                }}
+                data-testid="stock-scan-manual"
+              >
+                ✍️ سجّل يدوي بدل الباركود
+              </button>
+            )}
             <div className={styles.scannerManualRow}>
               <input
                 type="text"
@@ -998,10 +1062,12 @@ export function StockView() {
               </div>
             )}
 
-            <div className={styles.lbl}>
+            <div className={styles.lbl} data-testid="stock-qty-label">
               {isWeight
-                ? "الكمية (كيلو)"
-                : `الكمية (${unitMode === "carton" ? packWordNow : unitWord})`}
+                ? "الوزن اللي دخل (بالكيلو)"
+                : unitMode === "carton"
+                  ? `عدد ${packPluralWord(packWordNow)}`
+                  : `عدد ${isCard ? "الكروت" : unitPluralWord(selectedOption.unit)}`}
             </div>
             {isWeight ? (
               <input
@@ -1012,7 +1078,7 @@ export function StockView() {
                 className={styles.input}
                 value={weightInput}
                 onChange={(e) => setWeightInput(e.target.value)}
-                placeholder="مثال: 5.5"
+                placeholder="مثال: 5.5 كيلو"
                 data-testid="stock-weight"
               />
             ) : (
@@ -1031,6 +1097,12 @@ export function StockView() {
                   inputMode="numeric"
                   min="1"
                   value={qty}
+                  placeholder={`مثال: 12 ${unitMode === "carton" ? packWordNow : unitWord}`}
+                  aria-label={
+                    unitMode === "carton"
+                      ? `عدد ${packPluralWord(packWordNow)}`
+                      : `عدد ${unitPluralWord(selectedOption.unit)}`
+                  }
                   data-testid="stock-qty"
                   onChange={(e) =>
                     setQty(Math.max(1, Math.round(Number(e.target.value) || 1)))
@@ -1050,14 +1122,13 @@ export function StockView() {
               <p className={styles.note}>{qtyEquivDisplay}</p>
             )}
 
-            <div className={styles.lbl}>
-              سعر الشراء (
+            <div className={styles.lbl} data-testid="stock-cost-label">
+              سعر شراء{" "}
               {isWeight
                 ? "الكيلو"
                 : unitMode === "carton"
-                  ? packWordNow
-                  : unitWord}
-              )
+                  ? `ال${packWordNow}`
+                  : `ال${unitWord}`}
             </div>
             <input
               type="number"
@@ -1080,7 +1151,38 @@ export function StockView() {
               </div>
             </div>
 
-            <div className={styles.lbl}>تاريخ الصلاحية</div>
+            {(() => {
+              const batches =
+                inventory
+                  .find((i) => i.variantId === selectedOption.variantId)
+                  ?.batches.filter((b) => b.remainingQty > 0) ?? [];
+              if (batches.length === 0) return null;
+              return (
+                <div className={styles.sumbox} data-testid="stock-batches">
+                  <div className={styles.lbl}>الدفعات اللي عندك دلوقتي</div>
+                  {batches.map((b) => (
+                    <div key={b.id} className={styles.line}>
+                      <span>
+                        {b.expiryDate
+                          ? `تنتهي ${b.expiryDate.slice(0, 10)}`
+                          : "من غير صلاحية"}
+                      </span>
+                      <b>
+                        {isWeight
+                          ? `${b.remainingQty / 1000} كيلو`
+                          : `${b.remainingQty} ${unitWord}`}
+                      </b>
+                    </div>
+                  ))}
+                  <div className={styles.note}>
+                    الكمية الجديدة هتتسجل دفعة لوحدها بصلاحيتها، ومش هتغيّر
+                    صلاحية اللي قبلها.
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div className={styles.lbl}>تاريخ صلاحية الدفعة دي</div>
             <div className={styles.chips}>
               {expiryPresets.map((p) => (
                 <button
@@ -1110,11 +1212,19 @@ export function StockView() {
             <div className={styles.chips}>
               <button
                 type="button"
-                className={`${styles.chip} ${payMode === "paid" ? styles.chipOn : ""}`}
+                className={`${styles.chip} ${payMode === "cash" ? styles.chipOn : ""}`}
                 data-testid="stock-pay-paid"
-                onClick={() => setPayMode("paid")}
+                onClick={() => setPayMode("cash")}
               >
-                🧾 فاتورة
+                🧾 فاتورة · من الدرج
+              </button>
+              <button
+                type="button"
+                className={`${styles.chip} ${payMode === "wallet" ? styles.chipOn : ""}`}
+                data-testid="stock-pay-wallet"
+                onClick={() => setPayMode("wallet")}
+              >
+                📱 فاتورة · من محفظة
               </button>
               <button
                 type="button"
@@ -1208,6 +1318,22 @@ export function StockView() {
                   </>
                 )}
                 <div className={styles.lbl}>دفعت للمورد دلوقتي (اختياري)</div>
+                <div className={styles.chips}>
+                  <button
+                    type="button"
+                    className={`${styles.chip} ${paidNowFrom === "cash" ? styles.chipOn : ""}`}
+                    onClick={() => setPaidNowFrom("cash")}
+                  >
+                    💵 من الدرج
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.chip} ${paidNowFrom === "wallet" ? styles.chipOn : ""}`}
+                    onClick={() => setPaidNowFrom("wallet")}
+                  >
+                    📱 من محفظة
+                  </button>
+                </div>
                 <input
                   className={styles.input}
                   type="number"
@@ -1257,7 +1383,12 @@ export function StockView() {
       {showNewProduct && (
         <ProductFormModal
           presetName={searchQuery}
-          onClose={() => setShowNewProduct(false)}
+          presetBarcode={newProductBarcode}
+          existingProducts={storeProducts}
+          onClose={() => {
+            setShowNewProduct(false);
+            setNewProductBarcode("");
+          }}
           onSaved={(newProduct: unknown) => {
             setShowNewProduct(false);
             const p = newProduct as {
@@ -1265,11 +1396,16 @@ export function StockView() {
               nameAr?: string;
               name_ar?: string;
               unit?: string;
+              category?: string;
+              buyCostPiasters?: number | string | null;
               variants?: Array<{
                 id?: string;
                 packQty?: number;
                 pack_qty?: number;
                 flavor?: string | null;
+                sizeUnit?: string | null;
+                size_unit?: string | null;
+                buyPricePiasters?: number | string | null;
               }>;
             };
             const pName = p.nameAr || p.name_ar || "منتج جديد";
@@ -1284,7 +1420,15 @@ export function StockView() {
               packQty: pVar?.packQty || pVar?.pack_qty || 1,
               currentStockBase: 0,
               unit: p.unit,
+              category: p.category,
+              // What was entered in the product form carries over to the quantity step.
+              buyCostPiasters:
+                Number(pVar?.buyPricePiasters ?? p.buyCostPiasters ?? 0) ||
+                undefined,
+              packName: pVar?.sizeUnit ?? pVar?.size_unit ?? null,
             };
+            setNewProductBarcode("");
+            void loadData();
             setExtraOptions((prev) => [newOpt, ...prev]);
             selectProduct(newOpt);
           }}
