@@ -189,6 +189,15 @@ export function CartSheet({
     };
   }, [askCustomer]);
   const typedKey = phoneKey(customerPhone);
+  // A phone that already belongs to a customer is that customer (never a second record).
+  const phoneOwner = useMemo(
+    () =>
+      askCustomer && typedKey.length >= 7
+        ? (customers.find((c) => phoneKey(c.phone) === typedKey) ?? null)
+        : null,
+    [askCustomer, customers, typedKey],
+  );
+  const hasCustomer = Boolean(customerName.trim() || phoneOwner);
   const matches = useMemo(() => {
     if (!askCustomer) return [];
     const q = normalizeArabic(customerName.trim());
@@ -251,7 +260,7 @@ export function CartSheet({
       setError(t("invoice.invalidAmount"));
       return;
     }
-    if (askCustomer && !customerName.trim()) {
+    if (askCustomer && !hasCustomer) {
       setError(t("credit.nameRequired"));
       return;
     }
@@ -468,7 +477,12 @@ export function CartSheet({
                   onChange={(e) => set({ customerPhone: e.target.value })}
                 />
               </Field>
-              {matches.length > 0 && (
+              {phoneOwner && (
+                <p className={styles.muted} data-testid="credit-phone-owner">
+                  {t("credit.phoneBelongsTo", { name: phoneOwner.name })}
+                </p>
+              )}
+              {!phoneOwner && matches.length > 0 && (
                 <div className={styles.matchChips}>
                   {matches.map((c) => (
                     <button
@@ -567,7 +581,7 @@ export function CartSheet({
             data-testid="cart-checkout"
             disabled={
               isEmpty ||
-              (askCustomer ? !customerName.trim() : isCredit && !creditCustomer)
+              (askCustomer ? !hasCustomer : isCredit && !creditCustomer)
             }
             onClick={() => void submit()}
           >
