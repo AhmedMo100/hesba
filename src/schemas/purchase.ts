@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paidFromSchema } from "./drawer";
 import { expiryDateSchema } from "./dates";
 import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
@@ -43,6 +44,8 @@ export const createPurchaseSchema = z
     paidNowPiasters: piasters("المدفوع غير صحيح")
       .min(0, "المدفوع مينفعش يبقى سالب")
       .default(0),
+    /** Where the paid-now money came from: the drawer or a wallet (ADR-0031). */
+    paidFrom: paidFromSchema.optional(),
     note: z.string().trim().max(500).optional().nullable(),
   })
   .strict();
@@ -53,6 +56,7 @@ export type CreatePurchaseInput = z.infer<typeof createPurchaseSchema>;
 export const purchasePaymentSchema = z
   .object({
     opId: z.string().uuid("رقم العملية غير صحيح"),
+    paidFrom: paidFromSchema.optional(),
     amountPiasters: piasters("المبلغ غير صحيح").positive(
       "المبلغ لازم يكون أكبر من صفر",
     ),

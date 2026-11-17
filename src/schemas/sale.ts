@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paidFromSchema } from "./drawer";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 import { MAX_SALE_QUANTITY_BASE } from "@/domain/sale-pricing";
 
@@ -160,6 +161,8 @@ export const checkoutSchema = z
     customerId: z.string().uuid("الزبون غير صحيح").optional().nullable(),
     /** Credit sale only: what the customer paid now; the rest stays «ليك». */
     paidNowPiasters: salePiasters("المدفوع غير صحيح").default(0),
+    /** Where the paid-now money went: the drawer or a wallet (ADR-0031). */
+    paidFrom: paidFromSchema.optional(),
   })
   .strict()
   .refine((v) => v.paymentMethod !== "debt" || Boolean(v.customerId), {
@@ -181,6 +184,7 @@ export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export const salePaymentSchema = z
   .object({
     opId: z.string().uuid("رقم العملية غير صحيح"),
+    paidFrom: paidFromSchema.optional(),
     amountPiasters: salePiasters("المبلغ غير صحيح").refine(
       (v) => v > 0,
       "المبلغ لازم يكون أكبر من صفر",

@@ -308,6 +308,7 @@ export async function createPurchase(
               note: "دفعة مع فاتورة الشراء",
               purchaseId: purchase.id,
               settlesEntryId: debt.id,
+              paidFrom: input.paidFrom ?? null,
               now,
             });
           }
@@ -413,6 +414,7 @@ export async function payPurchase(
         note: input.note ?? "دفعة لفاتورة شراء",
         purchaseId,
         settlesEntryId: debt?.id ?? null,
+        paidFrom: input.paidFrom ?? null,
         now: new Date(),
       });
       return toView((await loadPurchaseInTx(tx, storeId, purchaseId))!, false);

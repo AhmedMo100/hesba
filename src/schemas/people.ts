@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paidFromSchema } from "./drawer";
 import { businessDateSchema, parseStrictDate } from "./dates";
 import { normalizeNumberString, parseEgpStrict } from "@/domain/money";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
@@ -177,6 +178,8 @@ export const recordDebtTransactionInputSchema = z
     created_at: businessDateSchema.optional().nullable(),
     opId: z.string().uuid().optional(),
     op_id: z.string().uuid().optional(),
+    /** A payment's money: the drawer or a wallet (ADR-0031); absent = not recorded. */
+    paidFrom: paidFromSchema.optional(),
   })
   .transform((data, ctx) => {
     const amount = pickAmount(data, ctx);
@@ -198,6 +201,7 @@ export const recordDebtTransactionInputSchema = z
       note: data.note ?? null,
       date: parsedDate,
       opId: data.op_id || data.opId,
+      paidFrom: data.type === "payment" ? (data.paidFrom ?? null) : null,
     };
   });
 

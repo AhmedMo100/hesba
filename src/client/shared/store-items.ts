@@ -78,6 +78,8 @@ export interface StockInventoryItem {
   hasNearExpiry: boolean;
   unit?: string;
   packName?: string | null;
+  /** Optional shop barcode (ADR-0031). */
+  barcode?: string | null;
   batches: Array<{
     id: string;
     batchCode?: string | null;

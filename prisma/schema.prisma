@@ -173,6 +173,7 @@ model Store {
   aiScanOperations     AiScanOperation[]
   aiUsageEvents        AiUsageEvent[]
   aiAdminAudits        AiAdminAudit[]
+  cashDrawerCounts     CashDrawerCount[]
 
   @@map("stores")
 }
@@ -203,6 +204,7 @@ model User {
   platformAdmin           PlatformAdmin?
   aiAdminAudits           AiAdminAudit[]
   saleReturns             SaleReturn[]
+  cashDrawerCounts        CashDrawerCount[]
 
   @@map("users")
 }
@@ -444,6 +446,8 @@ model StoreVariant {
   packQty           Int      @default(1) @map("pack_qty")
   sellPricePiasters BigInt   @map("sell_price_piasters")
   buyPricePiasters  BigInt?  @default(0) @map("buy_price_piasters")
+  /// Optional, this shop only (ADR-0031): never mandatory, never shared with the catalog.
+  barcode           String?  @db.Text
   isActive          Boolean  @default(true) @map("is_active")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -718,6 +722,8 @@ model DebtEntry {
   purchaseId     String?       @map("purchase_id") @db.Uuid
   /// The credit-sale invoice this entry belongs to (its debt, a payment, or a return).
   saleId         String?       @map("sale_id") @db.Uuid
+  /// A payment's money: 'cash' (the drawer) | 'wallet'; null = not recorded (ADR-0031).
+  paidFrom       String?       @map("paid_from") @db.Text
   createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
   store        Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
@@ -1057,6 +1063,8 @@ model StoreStockBatch {
   supplierId            String?   @map("supplier_id") @db.Uuid
   receivedAt            DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
   paid                  Boolean   @default(true)
+  /// What paid the batch's cost: 'cash' (the drawer) | 'wallet'; null = not recorded (ADR-0031).
+  paidFrom              String?   @map("paid_from") @db.Text
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
@@ -1142,6 +1150,8 @@ model Expense {
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   /// Client operation id (QA-27): the same op_id is recorded at most once per store.
   opId           String?   @map("op_id") @db.Uuid
+  /// 'cash' (the drawer) | 'wallet'; null = not recorded (ADR-0031).
+  paidFrom       String?   @map("paid_from") @db.Text
 
   store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
 
@@ -1189,6 +1199,27 @@ model PosMachineTopup {
   @@unique([storeId, opId], map: "uq_pos_machine_topups_store_op")
   @@index([storeId, machineId, createdAt(sort: Desc)], map: "idx_pos_machine_topups_store_machine")
   @@map("pos_machine_topups")
+}
+
+/// The owner's count of the cash drawer (ADR-0031): append-only. The expected balance is the
+/// last count plus the drawer's cash movements after it.
+model CashDrawerCount {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String   @map("store_id") @db.Uuid
+  opId             String   @map("op_id") @db.Uuid
+  countedPiasters  BigInt   @map("counted_piasters")
+  /// What the screen expected at the count; null for the first count.
+  expectedPiasters BigInt?  @map("expected_piasters")
+  note             String?  @db.Text
+  countedBy        String?  @map("counted_by") @db.Uuid
+  countedAt        DateTime @default(now()) @map("counted_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User? @relation(fields: [countedBy], references: [id], onDelete: SetNull)
+
+  @@unique([storeId, opId], map: "uq_cash_drawer_counts_store_op")
+  @@index([storeId, countedAt(sort: Desc)], map: "idx_cash_drawer_counts_store_at")
+  @@map("cash_drawer_counts")
 }
 
 /// A cancelled supplier purchase (ADR-0027): immutable, one per purchase.

@@ -61,6 +61,8 @@ export async function GET(req: Request) {
       sell_price_piasters: Number(p.sell_price_piasters),
       buy_cost_piasters: Number(p.buy_cost_piasters),
       stock_quantity: Number(p.stock_quantity ?? 0),
+      // Optional shop barcode (ADR-0031).
+      barcode: p.barcode ?? null,
       brand_name: p.brand_name || null,
       // QA-48: the products screen also searches the English catalog names.
       name_en: p.name_en,
@@ -79,6 +81,7 @@ export async function GET(req: Request) {
         sell_price_piasters: Number(v.sell_price_piasters),
         buy_cost_piasters: Number(v.buy_cost_piasters),
         stock_quantity: Number(v.stock_quantity ?? 0),
+        barcode: v.barcode ?? null,
         global_variant_id: v.global_variant_id,
       })),
     }));

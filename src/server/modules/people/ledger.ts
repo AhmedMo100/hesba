@@ -275,6 +275,7 @@ export async function recordLedgerEntryInTx(
       noteAr: input.note?.trim() || null,
       opId,
       entryKind: "transaction",
+      paidFrom: input.type === "payment" ? (input.paidFrom ?? null) : null,
       createdAt: input.date ?? new Date(),
     },
   });
@@ -380,6 +381,8 @@ export async function writeInvoiceEntryInTx(
     purchaseId?: string | null;
     saleId?: string | null;
     settlesEntryId?: string | null;
+    /** A payment's money: the drawer or a wallet (ADR-0031). */
+    paidFrom?: "cash" | "wallet" | null;
     now: Date;
   },
 ): Promise<DebtEntry> {
@@ -400,6 +403,7 @@ export async function writeInvoiceEntryInTx(
       purchaseId: entry.purchaseId ?? null,
       saleId: entry.saleId ?? null,
       settlesEntryId: entry.settlesEntryId ?? null,
+      paidFrom: entry.type === "payment" ? (entry.paidFrom ?? null) : null,
       createdAt: entry.now,
     },
   });

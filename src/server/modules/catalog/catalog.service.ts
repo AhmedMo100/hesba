@@ -382,6 +382,8 @@ export class CatalogService {
           globalVariantId?: string | null;
           is_active: boolean;
           isActive?: boolean;
+          /** Optional shop barcode (ADR-0031). */
+          barcode?: string | null;
           stockLevels?: Array<{ quantityBase: bigint }>;
           storeStockBatches?: Array<{ costPriceMinor: bigint }>;
         };
@@ -399,6 +401,8 @@ export class CatalogService {
           buyPricePiasters: bigint;
           buy_cost_piasters: number;
           stock_quantity: number;
+          /** The first variant's shop barcode, when it has one (ADR-0031). */
+          barcode?: string | null;
           brandName: string | null;
           brand_name: string | null;
           /** English catalog name and brand, for English search (QA-48); null for custom. */
@@ -490,6 +494,7 @@ export class CatalogService {
                       v.globalVariantId ?? primaryGlobalVar?.id ?? null,
                     is_active: v.isActive,
                     isActive: v.isActive,
+                    barcode: v.barcode ?? null,
                     stockLevels: v.stockLevels ?? [],
                     storeStockBatches: [{ costPriceMinor: BigInt(bCost) }],
                   };
@@ -612,6 +617,7 @@ export class CatalogService {
               globalVariantId: null,
               is_active: v.isActive,
               isActive: v.isActive,
+              barcode: v.barcode ?? null,
               stockLevels: v.stockLevels ?? [],
               storeStockBatches: [{ costPriceMinor: BigInt(vBuy) }],
             };
@@ -630,6 +636,7 @@ export class CatalogService {
             buyPricePiasters: BigInt(buyCost),
             buy_cost_piasters: buyCost,
             stock_quantity: customStock,
+            barcode: variants.find((x) => x.barcode)?.barcode ?? null,
             brandName: null,
             brand_name: null,
             name_en: null,
@@ -941,6 +948,29 @@ export class CatalogService {
             });
           }
 
+          // Optional shop barcode (ADR-0031): kept when not sent; one product per barcode.
+          const rawBarcode =
+            v.barcode !== undefined
+              ? v.barcode
+              : input.variants.length === 1
+                ? input.barcode
+                : undefined;
+          const barcode =
+            rawBarcode === undefined ? undefined : rawBarcode?.trim() || null;
+          if (barcode) {
+            const owner = await tx.storeVariant.findFirst({
+              where: {
+                storeId,
+                barcode,
+                ...(existingVar ? { id: { not: existingVar.id } } : {}),
+              },
+              select: { id: true },
+            });
+            if (owner) {
+              throw AppError.conflict("الباركود ده متسجل على منتج تاني");
+            }
+          }
+
           if (existingVar) {
             const updatedVar = await tx.storeVariant.update({
               where: { id: existingVar.id },
@@ -955,6 +985,7 @@ export class CatalogService {
                 globalVariantId:
                   v.globalVariantId ?? existingVar.globalVariantId,
                 isActive: v.isActive ?? true,
+                ...(barcode !== undefined ? { barcode } : {}),
                 updatedAt: now,
               },
             });
@@ -988,6 +1019,7 @@ export class CatalogService {
                 buyPricePiasters: varBuy,
                 globalVariantId: safeGlobalVariantId,
                 isActive: v.isActive ?? true,
+                barcode: barcode ?? null,
                 createdAt: now,
                 updatedAt: now,
               },

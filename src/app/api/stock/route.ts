@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { wasteReasonSchema } from "@/schemas/inventory";
+import { paidFromSchema } from "@/schemas/drawer";
 import { businessDateSchema, expiryDateSchema } from "@/schemas/dates";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
@@ -46,6 +47,8 @@ const addStockSchema = z.object({
   batchCode: z.string().trim().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   opId: z.string().uuid().optional(),
+  /** What paid the cost: the drawer or a wallet (ADR-0031); absent = not recorded. */
+  paidFrom: paidFromSchema.optional(),
 });
 
 const wasteStockSchema = z.object({
@@ -186,6 +189,7 @@ export async function POST(req: Request) {
           batchCode: input.batchCode,
           supplierId: input.supplierId,
           opId: input.opId,
+          paidFrom: input.paidFrom ?? null,
         },
       );
       return NextResponse.json({ success: true, data: result });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paidFromSchema } from "./drawer";
 import { businessDateSchema } from "./dates";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 
@@ -40,6 +41,8 @@ export const createExpenseInputSchema = z.object({
   spentAt: businessDateSchema.optional(),
   /** Idempotency key (QA-27): a retry with the same opId records the expense once. */
   opId: z.string().uuid().optional(),
+  /** The drawer (`cash`) or a wallet (ADR-0031); absent = not recorded. */
+  paidFrom: paidFromSchema.optional(),
 });
 
 export const updateExpenseInputSchema = z.object({

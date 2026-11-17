@@ -375,6 +375,7 @@ export async function checkoutSale(
               note: "دفعة مع فاتورة البيع",
               saleId: sale.id,
               settlesEntryId: debt.id,
+              paidFrom: input.paidFrom ?? null,
               now,
             });
           }
@@ -478,6 +479,7 @@ export async function paySale(
         note: "تحصيل فاتورة آجل",
         saleId,
         settlesEntryId: debt?.id ?? null,
+        paidFrom: input.paidFrom ?? null,
         now: new Date(),
       });
       return toInvoice((await loadInvoiceInTx(tx, storeId, saleId))!, false);

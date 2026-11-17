@@ -276,6 +276,7 @@ export class ExpenseService {
               note: validated.note ?? null,
               spentAt: spentAtDate,
               opId: validated.opId ?? null,
+              paidFrom: validated.paidFrom ?? null,
             },
           });
           return format(created);

@@ -728,6 +728,7 @@ export class InventoryService {
       batchCode?: string | null;
       supplierId?: string | null;
       opId?: string | null;
+      paidFrom?: "cash" | "wallet" | null;
     },
   ) {
     const qtyBase = BigInt(input.receivedQuantityBase);
@@ -897,6 +898,7 @@ export class InventoryService {
             supplierId: input.supplierId ?? null,
             receivedAt: now,
             paid: true,
+            paidFrom: input.paidFrom ?? null,
             createdAt: now,
             updatedAt: now,
           },
@@ -1102,6 +1104,7 @@ export class InventoryService {
             currentStockBase: Number(currentQty),
             status,
             hasNearExpiry,
+            barcode: v.barcode ?? null,
             batches,
           };
         });

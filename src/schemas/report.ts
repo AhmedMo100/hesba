@@ -110,6 +110,15 @@ export const homeReportSchema = z.object({
       }),
     ),
   }),
+  /** Net sales of the period by how they were paid (additive; absent in older answers). */
+  byPaymentMethod: z
+    .object({
+      cash: piasters,
+      wallet: piasters,
+      card: piasters,
+      debt: piasters,
+    })
+    .optional(),
   activity: z.array(
     z.object({
       id: z.string(),
