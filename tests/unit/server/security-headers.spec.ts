@@ -22,7 +22,8 @@ describe("security headers (QA-26)", () => {
     expect(m["Strict-Transport-Security"]).toBe("max-age=31536000");
     expect(m["Strict-Transport-Security"]).not.toContain("preload");
     expect(m["Cross-Origin-Opener-Policy"]).toBe("same-origin");
-    expect(m["Permissions-Policy"]).toContain("camera=()");
+    // The barcode and AI scanners use the camera on this site only.
+    expect(m["Permissions-Policy"]).toContain("camera=(self)");
     expect(m["Permissions-Policy"]).toContain("microphone=(self)");
     const csp = m["Content-Security-Policy"]!;
     for (const d of [
