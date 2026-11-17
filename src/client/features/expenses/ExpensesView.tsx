@@ -125,6 +125,8 @@ export function ExpensesView() {
   const [selectedCat, setSelectedCat] = useState<ExpenseCategory>("كهرباء");
   const [amountStr, setAmountStr] = useState("");
   const [noteStr, setNoteStr] = useState("");
+  // V19 «الدفع إزاي؟»: from the drawer or a wallet (ADR-0031).
+  const [paidFrom, setPaidFrom] = useState<"cash" | "wallet">("cash");
   const [dateStr, setDateStr] = useState(getTodayCairoDateString());
   const [showExtra, setShowExtra] = useState(false);
 
@@ -232,9 +234,11 @@ export function ExpensesView() {
         amountPiasters: number;
         note?: string;
         spentAt?: string;
+        paidFrom: "cash" | "wallet";
       } = {
         category: selectedCat,
         amountPiasters: piasters,
+        paidFrom,
       };
 
       if (noteStr.trim()) {
@@ -345,6 +349,26 @@ export function ExpensesView() {
                 onClick={() => setAmountStr(String(v))}
               >
                 {v} ج
+              </button>
+            ))}
+          </div>
+
+          <span className={styles.lbl}>الدفع إزاي؟</span>
+          <div className={styles.chips}>
+            {(
+              [
+                ["cash", "💵 كاش من الدرج"],
+                ["wallet", "📱 محفظة / ماكينة"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                type="button"
+                key={k}
+                className={`${styles.chip} ${paidFrom === k ? styles.chipOn : ""}`}
+                onClick={() => setPaidFrom(k)}
+                data-testid={`expense-from-${k}`}
+              >
+                {label}
               </button>
             ))}
           </div>

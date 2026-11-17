@@ -15,16 +15,35 @@ interface AddProductChoiceModalProps {
   onClose: () => void;
   onChooseNormal: () => void;
   onChooseSandwich: () => void;
+  /** V19 «🎁 عرض»: a new offer (optional where offers are not managed). */
+  onChooseOffer?: () => void;
 }
 
 export function AddProductChoiceModal({
   onClose,
   onChooseNormal,
   onChooseSandwich,
+  onChooseOffer,
 }: AddProductChoiceModalProps) {
   return (
     <Modal title={t("sandwich.chooseTitle")} onClose={onClose}>
       <div className={styles.choiceList}>
+        {onChooseOffer && (
+          <button
+            type="button"
+            className={styles.choiceBtn}
+            onClick={onChooseOffer}
+            data-testid="add-choice-offer"
+          >
+            <span className={styles.choiceIcon} aria-hidden="true">
+              🎁
+            </span>
+            <span className={styles.choiceText}>
+              <b>عرض</b>
+              <small>خصم أو مجموعة منتجات بسعر واحد</small>
+            </span>
+          </button>
+        )}
         <button
           type="button"
           className={styles.choiceBtn}

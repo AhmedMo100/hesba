@@ -154,6 +154,8 @@ export function PeopleView() {
   const [isDeleting, setIsDeleting] = useState(false);
 
   // Payment / Collection Modal state
+  // V19 «الدفع إزاي؟»: the drawer or a wallet (counted in the drawer, ADR-0031).
+  const [paymentFrom, setPaymentFrom] = useState<"cash" | "wallet">("cash");
   const [paymentTarget, setPaymentTarget] = useState<PaymentModalState | null>(
     null,
   );
@@ -336,6 +338,7 @@ export function PeopleView() {
   };
 
   const openPaymentModal = (person: PersonItem) => {
+    setPaymentFrom("cash");
     setPaymentTarget({
       person,
       isCollection: section === "owedToMe",
@@ -493,6 +496,7 @@ export function PeopleView() {
                 personId: paymentTarget.person.id,
                 type: "payment",
                 amountPiasters: amountNum,
+                paidFrom: paymentFrom,
                 note: paymentNote.trim() || null,
                 date: paymentDate
                   ? new Date(paymentDate).toISOString()
@@ -558,7 +562,6 @@ export function PeopleView() {
         {(
           [
             ["owedToMe", t("pages.people.owedToMe")],
-            ["iOwe", t("pages.people.iOwe")],
             ["suppliers", t("pages.people.suppliers")],
           ] as Array<[PeopleSection, string]>
         ).map(([k, label]) => (
@@ -614,20 +617,7 @@ export function PeopleView() {
       ) : loading && !currentSectionData.loaded ? (
         <ListSkeleton label={t("common.loading")} />
       ) : people.length === 0 ? (
-        <Empty
-          icon="users"
-          title={t("pages.people.empty")}
-          action={
-            <button
-              type="button"
-              className={styles.addBtn}
-              onClick={openAddModal}
-            >
-              <Icon n="plus" s={18} />
-              <span>{t("pages.people.add")}</span>
-            </button>
-          }
-        />
+        <Empty icon="users" title={t("pages.people.empty")} />
       ) : (
         <div className={styles.rows}>
           {people.map((p) => (
@@ -1578,6 +1568,29 @@ export function PeopleView() {
                   placeholder="0"
                   autoFocus
                 />
+              </div>
+              <span className={styles.fieldLabel}>
+                {paymentTarget.isCollection
+                  ? "الفلوس اتدفعت لك إزاي؟"
+                  : "بتدفع إزاي؟"}
+              </span>
+              <div className={styles.chips}>
+                {(
+                  [
+                    ["cash", "💵 كاش (الدرج)"],
+                    ["wallet", "📱 محفظة / ماكينة"],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    className={`${styles.chip} ${paymentFrom === k ? styles.chipOn : ""}`}
+                    onClick={() => setPaymentFrom(k)}
+                    data-testid={`payment-from-${k}`}
+                  >
+                    {label}
+                  </button>
+                ))}
               </div>
               {(() => {
                 // Paying more than is owed is allowed and becomes a visible credit (ADR-0023).

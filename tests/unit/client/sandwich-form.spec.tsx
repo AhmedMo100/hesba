@@ -207,9 +207,9 @@ describe("sandwich UI", () => {
     expect(html).not.toContain('data-testid="sandwich-cost-input"');
   });
 
-  it("always shows the Sandwiches filter chip on the Products screen", () => {
+  it("always shows the Sandwiches chip on the Products screen (V19)", () => {
     const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("ساندوتشات");
+    expect(html).toContain("السندوتشات");
   });
 });
 

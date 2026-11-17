@@ -16,13 +16,15 @@ import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { stockLevel } from "@/domain/alerts";
 import { unitWord } from "@/client/shared/unit-labels";
-import { SANDWICH_CATEGORY } from "@/domain/recipe";
 import { ProductFormModal } from "./ProductFormModal";
 import { AddProductChoiceModal } from "./AddProductChoiceModal";
 import { SandwichFormModal } from "./SandwichFormModal";
 import sandwichStyles from "./SandwichFormModal.module.css";
 import { ServiceFormModal } from "./ServiceFormModal";
 import { AddStockModal } from "../stock/AddStockModal";
+import { EditPromoModal } from "../alerts/EditPromoModal";
+import type { PublishedPromotion } from "@/schemas/promotion";
+import type { SuggestedPromotion } from "@/domain/alerts";
 import { MachinesModal, type PosMachine } from "./MachinesModal";
 import {
   getStoredMachines,
@@ -163,6 +165,51 @@ export function ProductsView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  // V19 chips: the shop's products, its offers, its sandwiches.
+  const [v19Chip, setV19Chip] = useState<"items" | "offers" | "sands">("items");
+  const [promotions, setPromotions] = useState<PublishedPromotion[]>([]);
+  const [editingOffer, setEditingOffer] = useState<PublishedPromotion | null>(
+    null,
+  );
+  const loadPromotions = useCallback(() => {
+    apiGet("/api/promotions")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d?.promotions && Array.isArray(d.promotions)) {
+          setPromotions(d.promotions);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    loadPromotions();
+    window.addEventListener("hesba_promotions_updated", loadPromotions);
+    return () =>
+      window.removeEventListener("hesba_promotions_updated", loadPromotions);
+  }, [loadPromotions]);
+  const saveOffer = async (promo: SuggestedPromotion) => {
+    const res = await fetch("/api/promotions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(promo),
+    });
+    const json = (await res.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    if (!res.ok) {
+      alert(json?.error?.message || "تعذر حفظ العرض");
+      return;
+    }
+    setEditingOffer(null);
+    window.dispatchEvent(new Event("hesba_promotions_updated"));
+  };
+  const deleteOffer = async (id: string) => {
+    await fetch(`/api/promotions?id=${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    }).catch(() => undefined);
+    setEditingOffer(null);
+    window.dispatchEvent(new Event("hesba_promotions_updated"));
+  };
   const [isAdding, setIsAdding] = useState(false);
   const [addingSection, setAddingSection] = useState<"products" | "services">(
     "products",
@@ -567,15 +614,6 @@ export function ProductsView() {
     return products.filter((p) => isServiceProduct(p));
   }, [products]);
 
-  // Distinct physical categories
-  const physicalCategories = useMemo(() => {
-    const cats = new Set<string>([SANDWICH_CATEGORY]);
-    physicalProducts.forEach((p) => {
-      if (p.category) cats.add(p.category);
-    });
-    return Array.from(cats);
-  }, [physicalProducts]);
-
   // Filtered physical products (Tab 1)
   const filteredPhysicalProducts = useMemo(() => {
     let list = physicalProducts;
@@ -593,6 +631,20 @@ export function ProductsView() {
     }
 
     const normQ = normalizeArabic(query.trim());
+    // V19: the shop's own products; a search also finds catalog products to add.
+    if (filterMode !== "hidden") {
+      list =
+        v19Chip === "sands"
+          ? list.filter((p) => p.kind === "sandwich")
+          : list.filter(
+              (p) =>
+                p.kind !== "sandwich" &&
+                (normQ ||
+                  (p.stock_quantity ?? 0) > 0 ||
+                  p.is_custom ||
+                  p.added_by_this_store),
+            );
+    }
     if (!normQ) return list;
 
     return list.filter((p) => {
@@ -612,7 +664,7 @@ export function ProductsView() {
         normEn.includes(normQ)
       );
     });
-  }, [physicalProducts, filterMode, activeCategory, query]);
+  }, [physicalProducts, filterMode, activeCategory, query, v19Chip]);
 
   // Filtered services products (Tab 2)
   const filteredServiceProducts = useMemo(() => {
@@ -745,13 +797,12 @@ export function ProductsView() {
 
               <Button
                 kind="primary"
-                icon="plus"
                 style={{ flex: 1 }}
                 className={styles.addBtnFull}
                 onClick={() => setIsChoosingType(true)}
                 data-testid="add-product-btn"
               >
-                {t("pages.products.add") || "إضافة منتج"}
+                + جديد
               </Button>
             </>
           ) : (
@@ -805,29 +856,43 @@ export function ProductsView() {
         </div>
       </div>
 
-      {/* Top Segmented Tabs: المنتجات vs الفواتير والشحن */}
-      <div className={styles.tabsBar}>
+      {/* V19 chips: products / offers / sandwiches; services kept as a chip */}
+      <div className={styles.v19Chips} role="tablist">
+        {(
+          [
+            ["items", "المنتجات"],
+            ["offers", "العروض"],
+            ["sands", "السندوتشات"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={tab === "products" && v19Chip === k}
+            className={`${styles.v19Chip} ${tab === "products" && v19Chip === k ? styles.v19ChipOn : ""}`}
+            onClick={() => {
+              setTab("products");
+              setV19Chip(k);
+              setFilterMode("all");
+              setActiveCategory("all");
+            }}
+            data-testid={`products-chip-${k}`}
+          >
+            {label}
+          </button>
+        ))}
         <button
           type="button"
-          className={`${styles.tabBtn} ${tab === "products" ? styles.active : ""}`}
-          onClick={() => {
-            setTab("products");
-            setQuery("");
-          }}
-        >
-          <Icon n="box" s={16} />
-          <span>المنتجات</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.tabBtn} ${tab === "services" ? styles.active : ""}`}
+          role="tab"
+          aria-selected={tab === "services"}
+          className={`${styles.v19Chip} ${tab === "services" ? styles.v19ChipOn : ""}`}
           onClick={() => {
             setTab("services");
             setQuery("");
           }}
         >
-          <Icon n="wifi" s={16} />
-          <span>الفواتير والشحن</span>
+          ⚡ الخدمات والفواتير
         </button>
       </div>
 
@@ -875,44 +940,38 @@ export function ProductsView() {
       {tab === "products" ? (
         /* ================= TAB 1: المنتجات الفيزيائية ================= */
         <>
-          {/* Physical Filter Chips */}
-          <Chips>
-            <Chip
-              active={filterMode === "all" && activeCategory === "all"}
-              onClick={() => {
-                setFilterMode("all");
-                setActiveCategory("all");
-              }}
-            >
-              الكل ({physicalProducts.filter((p) => !p.is_hidden).length})
-            </Chip>
-
-            {summary.customCount > 0 && (
-              <Chip
-                active={filterMode === "custom"}
-                onClick={() => {
-                  setFilterMode((prev) =>
-                    prev === "custom" ? "all" : "custom",
-                  );
-                }}
-              >
-                أضافه المحل ({summary.customCount})
-              </Chip>
-            )}
-
-            {physicalCategories.map((cat) => (
-              <Chip
-                key={cat}
-                active={activeCategory === cat && filterMode === "all"}
-                onClick={() => {
-                  setFilterMode("all");
-                  setActiveCategory((prev) => (prev === cat ? "all" : cat));
-                }}
-              >
-                {cat}
-              </Chip>
-            ))}
-          </Chips>
+          {v19Chip === "offers" && filterMode !== "hidden" && (
+            <div className={styles.rowsList} data-testid="products-offers">
+              {promotions.length === 0 ? (
+                <div className={styles.v19Note}>
+                  مفيش عروض لسه — اعمل عرض من «+ جديد»
+                </div>
+              ) : (
+                promotions.map((o) => (
+                  <button
+                    key={o.id}
+                    type="button"
+                    className={styles.prow}
+                    onClick={() => setEditingOffer(o)}
+                  >
+                    <div className={styles.pch}>
+                      <span className={styles.prowEm} aria-hidden="true">
+                        🎁
+                      </span>
+                      <div className={styles.pcn}>
+                        <b>{o.title}</b>
+                        <small>
+                          {o.promoPricePiasters / 100} ج · بدل{" "}
+                          {o.originalPricePiasters / 100} ج
+                        </small>
+                      </div>
+                      <span aria-hidden="true">›</span>
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          )}
 
           {notice && (
             <div
@@ -955,7 +1014,9 @@ export function ProductsView() {
           {/* Physical Products Grid */}
           {loading ? (
             <ListSkeleton label="بيحمّل المنتجات…" />
-          ) : filteredPhysicalProducts.length === 0 ? (
+          ) : v19Chip === "offers" &&
+            filterMode !== "hidden" ? null : filteredPhysicalProducts.length ===
+            0 ? (
             <div className={styles.pcard}>
               <Empty
                 icon={query ? "search" : "box"}
@@ -1651,6 +1712,45 @@ export function ProductsView() {
             setIsChoosingType(false);
             setSandwichForm({ sandwich: null });
           }}
+          onChooseOffer={() => {
+            setIsChoosingType(false);
+            const first = physicalProducts.find(
+              (p) =>
+                p.kind !== "sandwich" &&
+                ((p.stock_quantity ?? 0) > 0 || p.added_by_this_store),
+            );
+            const price = first?.sell_price_piasters ?? 0;
+            setEditingOffer({
+              id: `custom_promo_${first?.id ?? "new"}`,
+              title: first ? `عرض: ${first.name_ar}` : "عرض جديد",
+              type: "single_discount",
+              items: first
+                ? [
+                    {
+                      productId: first.id,
+                      variantId: first.variants?.[0]?.id ?? first.id,
+                      productName: first.name_ar,
+                      quantityBase: 1,
+                      unit: first.unit,
+                      regularPricePiasters: price,
+                    },
+                  ]
+                : [],
+              originalPricePiasters: price,
+              promoPricePiasters: Math.round(price * 0.9),
+              savingsPiasters: price - Math.round(price * 0.9),
+            } as PublishedPromotion);
+          }}
+        />
+      )}
+
+      {editingOffer && (
+        <EditPromoModal
+          initialPromo={editingOffer as unknown as SuggestedPromotion}
+          allProducts={physicalProducts}
+          onClose={() => setEditingOffer(null)}
+          onSaveAndPublish={saveOffer}
+          onDelete={deleteOffer}
         />
       )}
 

@@ -17,13 +17,15 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain('data-testid="page-products"');
     expect(html).toContain("المنتجات");
     expect(html).toContain('data-testid="add-product-btn"');
-    expect(html).toContain("إضافة منتج");
+    expect(html).toContain("+ جديد");
   });
 
-  it("renders top segmented tabs switching between 'المنتجات' and 'الفواتير والشحن'", () => {
+  it("renders the V19 chips: products, offers, sandwiches — services kept as a chip", () => {
     const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("المنتجات");
-    expect(html).toContain("الفواتير والشحن");
+    for (const chip of ["المنتجات", "العروض", "السندوتشات"]) {
+      expect(html).toContain(`>${chip}</button>`);
+    }
+    expect(html).toContain("⚡ الخدمات والفواتير");
   });
 
   it("renders search box with Arabic placeholder and microphone button", () => {
@@ -32,9 +34,8 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain("بحث بالصوت");
   });
 
-  it("renders filter chips for all products and toggle button for hidden products", () => {
+  it("keeps the hidden-products toggle next to «+ جديد»", () => {
     const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("الكل (0)");
     expect(html).toContain("المخفية (0)");
   });
 
