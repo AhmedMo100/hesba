@@ -37,7 +37,7 @@ import React, {
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./SalesView.module.css";
-import { Button, SearchBox, Icon, Modal, Skeleton } from "@/client/shared/ui";
+import { Button, Icon, Modal, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
@@ -93,6 +93,7 @@ import {
   EMPTY_CART_DRAFT,
   type CartDraft,
   type CartLine,
+  type CartOffer,
   type CartOpId,
   type CreditCustomer,
 } from "./CartSheet";
@@ -230,6 +231,9 @@ export function SalesView({
   const [sellUnit, setSellUnit] = useState<"base" | "pack">("base");
   const [sellQty, setSellQty] = useState("1");
   const [sellPay, setSellPay] = useState<"cash" | "wallet" | "card">("cash");
+  // Offers in the invoice: one line each, expanded into items only at checkout.
+  const [cartOffers, setCartOffers] = useState<CartOffer[]>([]);
+  const [offerSheet, setOfferSheet] = useState<PublishedPromotion | null>(null);
   // The AI product scanner: another way to fill the same cart (ADR-0030).
   const [scannerOpen, setScannerOpen] = useState(false);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
@@ -530,7 +534,7 @@ export function SalesView({
         status: inv.currentStockBase <= 0 ? "out" : inv.status || "ok",
         isService: false,
         category: inv.category,
-        hasBarcode: withBarcode.has(inv.productId),
+        hasBarcode: Boolean(inv.barcode) || withBarcode.has(inv.productId),
       });
     });
 
@@ -1183,6 +1187,7 @@ export function SalesView({
     setCreditMode(false);
     setCreditCustomer(null);
     setCartLines([]);
+    setCartOffers([]);
     setCartMode(false);
     setCartOpen(false);
     setCartDraft(EMPTY_CART_DRAFT);
@@ -1208,64 +1213,62 @@ export function SalesView({
     setSellPay("cash");
   };
 
-  /** An offer in an invoice (credit or not): its items join the cart, its saving the discount. */
+  /** An offer joins the invoice as one line (twice = quantity 2); the cart opens on it. */
   const addPromotionToCart = (promo: PublishedPromotion) => {
-    const picked: Array<{ inv: StockInventoryItem; quantityBase: number }> = [];
+    const already = cartOffers.find((o) => o.promoId === promo.id)?.qty ?? 0;
+    const need = new Map<string, number>();
+    for (const l of cartLines) {
+      need.set(l.variantId, (need.get(l.variantId) ?? 0) + l.quantityBase);
+    }
+    for (const o of cartOffers) {
+      for (const it of o.items) {
+        need.set(
+          it.variantId,
+          (need.get(it.variantId) ?? 0) + it.quantityBase * o.qty,
+        );
+      }
+    }
+    let regular = 0;
     for (const it of promo.items) {
-      const inv = inventory.find((i) => i.productId === it.productId);
-      if (!inv || inv.currentStockBase < it.quantityBase) {
+      const inv = inventory.find(
+        (i) => i.variantId === it.variantId || i.productId === it.productId,
+      );
+      const total = (need.get(it.variantId) ?? 0) + it.quantityBase;
+      if (!inv || inv.currentStockBase < total) {
         showToast(
           `الكمية غير كافية بالمخزون لإتمام العرض: «${it.productName}»`,
           "error",
         );
         return;
       }
-      picked.push({ inv, quantityBase: it.quantityBase });
+      regular += saleLineTotalPiasters(
+        inv.unit ?? "piece",
+        inv.sellPricePiasters,
+        it.quantityBase,
+      );
     }
-    const regular = picked.reduce(
-      (sum, p) =>
-        sum +
-        saleLineTotalPiasters(
-          p.inv.unit ?? "piece",
-          p.inv.sellPricePiasters,
-          p.quantityBase,
-        ),
-      0,
+    setCartOffers((prev) =>
+      already > 0
+        ? prev.map((o) =>
+            o.promoId === promo.id ? { ...o, qty: o.qty + 1 } : o,
+          )
+        : [
+            ...prev,
+            {
+              promoId: promo.id,
+              title: promo.title,
+              pricePiasters: promo.promoPricePiasters,
+              regularPiasters: regular,
+              items: promo.items.map((it) => ({
+                variantId: it.variantId,
+                quantityBase: it.quantityBase,
+              })),
+              qty: 1,
+            },
+          ],
     );
-    const saving = Math.max(0, regular - promo.promoPricePiasters);
-    setCartLines((prev) => {
-      const next = [...prev];
-      for (const p of picked) {
-        const i = next.findIndex((l) => l.variantId === p.inv.variantId);
-        if (i >= 0) {
-          const cur = next[i]!;
-          next[i] = {
-            ...cur,
-            quantityBase: Math.min(
-              cur.quantityBase + p.quantityBase,
-              p.inv.currentStockBase,
-            ),
-          };
-        } else {
-          next.push({
-            variantId: p.inv.variantId,
-            name: p.inv.productName,
-            unit: p.inv.unit ?? "piece",
-            quantityBase: p.quantityBase,
-            sellPricePiasters: p.inv.sellPricePiasters,
-            stockBase: p.inv.currentStockBase,
-          });
-        }
-      }
-      return next;
-    });
-    if (saving > 0) {
-      setCartDraft((d) => {
-        const current = Number.parseFloat(d.discount) || 0;
-        const total = Math.round(current * 100) + saving;
-        return { ...d, discount: (total / 100).toFixed(2) };
-      });
-    }
+    setCartMode(true);
+    setOfferSheet(null);
     showToast(`اتضاف العرض «${promo.title}» للفاتورة`, "success");
   };
 
@@ -1504,42 +1507,17 @@ export function SalesView({
   return (
     <div className={viewStyles.view} data-testid="page-sales" dir="rtl">
       <div className={styles.salesContainer}>
-        {/* V19: the scanner and the credit sale, side by side */}
-        <div className={styles.sellTop}>
-          <button
-            type="button"
-            className={styles.scanBig}
-            data-testid="sales-scan"
-            onClick={() => setScannerOpen(true)}
-          >
-            📷 امسح الباركود
-          </button>
-          <button
-            type="button"
-            className={`${styles.creditBtn} ${creditMode || creditCustomer ? styles.on : ""}`}
-            data-testid="credit-start"
-            aria-pressed={creditMode || Boolean(creditCustomer)}
-            onClick={toggleCredit}
-          >
-            {t("credit.toggle")}
-          </button>
-        </div>
-        {(creditMode || creditCustomer) && (
-          <div className={styles.credBox} data-testid="credit-mode">
-            {creditCustomer
-              ? t("credit.sessionLabel", { name: creditCustomer.name })
-              : t("credit.modeHint")}
-          </div>
-        )}
-
-        <div className={styles.searchWrapper}>
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="دوّر على صنف..."
-            voice={true}
-          />
-        </div>
+        {/* V17: the search, at the top of the screen */}
+        <input
+          type="search"
+          className={styles.search17}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="دوّر على صنف..."
+          aria-label="دوّر على صنف..."
+          dir="auto"
+          data-testid="sales-search"
+        />
 
         <div className={styles.chips} role="tablist">
           {(
@@ -1571,10 +1549,40 @@ export function SalesView({
               onClick={() => setCartMode((v) => !v)}
             >
               🧾 {t("invoice.cartToggle")}
-              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
+              {cartLines.length + cartOffers.length > 0
+                ? ` (${cartLines.length + cartOffers.length})`
+                : ""}
             </button>
           )}
         </div>
+
+        {/* V19: the scanner and the credit sale, side by side */}
+        <div className={styles.sellTop}>
+          <button
+            type="button"
+            className={styles.scanBig}
+            data-testid="sales-scan"
+            onClick={() => setScannerOpen(true)}
+          >
+            📷 امسح الباركود
+          </button>
+          <button
+            type="button"
+            className={`${styles.creditBtn} ${creditMode || creditCustomer ? styles.on : ""}`}
+            data-testid="credit-start"
+            aria-pressed={creditMode || Boolean(creditCustomer)}
+            onClick={toggleCredit}
+          >
+            {t("credit.toggle")}
+          </button>
+        </div>
+        {(creditMode || creditCustomer) && (
+          <div className={styles.credBox} data-testid="credit-mode">
+            {creditCustomer
+              ? t("credit.sessionLabel", { name: creditCustomer.name })
+              : t("credit.modeHint")}
+          </div>
+        )}
 
         <div className={styles.legend}>
           <span>
@@ -1599,11 +1607,7 @@ export function SalesView({
                     type="button"
                     className={styles.pcard}
                     data-testid="promo-card"
-                    onClick={() =>
-                      cartMode
-                        ? addPromotionToCart(promo)
-                        : void handleSellPromotion(promo)
-                    }
+                    onClick={() => setOfferSheet(promo)}
                   >
                     <span className={styles.em}>🎁</span>
                     <b>{promo.title}</b>
@@ -1700,7 +1704,7 @@ export function SalesView({
         )}
 
         {/* QA-31 invoice: a small summary that opens the invoice sheet */}
-        {(cartMode || cartLines.length > 0) && (
+        {(cartMode || cartLines.length > 0 || cartOffers.length > 0) && (
           <button
             type="button"
             className={styles.cartSummary}
@@ -1712,7 +1716,7 @@ export function SalesView({
             <span>
               {creditMode || creditCustomer ? `${t("credit.start")} · ` : ""}
               {t("invoice.cartSummary", {
-                count: cartLines.length,
+                count: cartLines.length + cartOffers.length,
                 total: formatMoney(
                   cartLines.reduce(
                     (sum, l) =>
@@ -1723,7 +1727,11 @@ export function SalesView({
                         l.quantityBase,
                       ),
                     0,
-                  ),
+                  ) +
+                    cartOffers.reduce(
+                      (sum, o) => sum + o.pricePiasters * o.qty,
+                      0,
+                    ),
                 ),
               })}
             </span>
@@ -1921,6 +1929,68 @@ export function SalesView({
       )}
 
       {/* Weight Modal Popup matching Image 2 */}
+      {/* An offer: sell it now, or add it to the invoice (it stays one line there) */}
+      {offerSheet && (
+        <Modal
+          title={`🎁 ${offerSheet.title}`}
+          onClose={() => setOfferSheet(null)}
+        >
+          <div className={styles.sellSheet} data-testid="offer-sheet">
+            <div className={styles.sumbox}>
+              {offerSheet.items.map((it) => (
+                <div key={it.variantId} className={styles.line}>
+                  <span>{it.productName}</span>
+                  <b>
+                    {it.unit === "kg" || it.unit === "g"
+                      ? formatWeightLabel(it.quantityBase)
+                      : `${it.quantityBase} قطعة`}
+                  </b>
+                </div>
+              ))}
+              <div className={styles.line}>
+                <span>سعر العرض</span>
+                <b>{formatMoney(offerSheet.promoPricePiasters)}</b>
+              </div>
+              <div className={styles.line}>
+                <span>الوفر للعميل</span>
+                <b>
+                  {formatMoney(
+                    Math.max(
+                      0,
+                      offerSheet.originalPricePiasters -
+                        offerSheet.promoPricePiasters,
+                    ),
+                  )}
+                </b>
+              </div>
+            </div>
+            {!cartMode && (
+              <Button
+                wide
+                data-testid="offer-sell-now"
+                onClick={() => {
+                  const promo = offerSheet;
+                  setOfferSheet(null);
+                  void handleSellPromotion(promo);
+                }}
+              >
+                بيع العرض دلوقتي ✅
+              </Button>
+            )}
+            <Button
+              wide
+              kind={cartMode ? "primary" : "ghost"}
+              data-testid="offer-add-invoice"
+              onClick={() => addPromotionToCart(offerSheet)}
+            >
+              {creditMode || creditCustomer
+                ? "ضيفه لفاتورة الآجل"
+                : "ضيفه للفاتورة"}
+            </Button>
+          </div>
+        </Modal>
+      )}
+
       {/* V19 sell sheet: unit, quantity, total and payment for one product */}
       {sellItem && (
         <Modal
@@ -2240,6 +2310,8 @@ export function SalesView({
           <CartSheet
             lines={cartLines}
             onChange={setCartLines}
+            offers={cartOffers}
+            onOffersChange={setCartOffers}
             draft={cartDraft}
             onDraftChange={setCartDraft}
             opIdRef={cartOpIdRef}
@@ -2248,6 +2320,7 @@ export function SalesView({
             onCancelCredit={cancelCreditSale}
             onDone={(invoice, credited) => {
               setCartLines([]);
+              setCartOffers([]);
               setCartMode(false);
               setCartOpen(false);
               setCartDraft(EMPTY_CART_DRAFT);

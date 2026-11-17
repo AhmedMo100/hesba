@@ -29,13 +29,13 @@ export interface DisplaySaleItem {
 export type SaleFilter = "all" | "weight" | "nobc" | "svc" | "off";
 
 /**
- * The tiles' order: products without a barcode first, then weighed products, then the rest
- * (products with a barcode, sandwiches, services).
+ * The tiles' default order: products sold by count without a barcode first, then products
+ * with a barcode, then weighed products; sandwiches and services last.
  */
 export function saleSortRank(item: DisplaySaleItem): number {
-  if (item.isService || item.isSandwich) return 2;
-  if (item.unitMode === "weight") return 1;
-  return item.hasBarcode ? 2 : 0;
+  if (item.isService || item.isSandwich) return 3;
+  if (item.unitMode === "weight") return 2;
+  return item.hasBarcode ? 1 : 0;
 }
 
 export function matchesSaleFilter(

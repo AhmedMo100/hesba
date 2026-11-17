@@ -247,3 +247,22 @@
   border: 0;
   cursor: pointer;
 }
+
+.matchChipOn {
+  background: var(--dark);
+  color: var(--cream);
+}
+
+.removeOffer {
+  background: none;
+  border: 0;
+  color: var(--red);
+  font-size: 20px;
+  min-width: 44px;
+  min-height: 44px;
+  cursor: pointer;
+}
+
+.offerLine {
+  grid-template-columns: 1fr auto auto auto;
+}

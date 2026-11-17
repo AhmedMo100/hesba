@@ -1227,3 +1227,23 @@
   font-size: 13px;
   cursor: pointer;
 }
+
+/* V17 search: at the top, big and plain */
+.search17 {
+  width: 100%;
+  padding: 16px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  font-family: inherit;
+  font-size: 20px;
+  font-weight: 700;
+  background: var(--card);
+  color: var(--ink);
+  margin: 0 0 4px;
+  min-width: 0;
+}
+
+.search17::placeholder {
+  color: var(--muted);
+  font-weight: 700;
+}

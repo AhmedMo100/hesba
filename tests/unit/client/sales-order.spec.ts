@@ -23,11 +23,11 @@ describe("sale tiles: V19 filters and order", () => {
   const withBarcode = item({ name: "كولا", hasBarcode: true });
   const service = item({ name: "شحن", unitMode: "service", isService: true });
 
-  it("puts products without a barcode first, then weighed, then the rest", () => {
-    const sorted = [service, withBarcode, weighed, noBarcode].sort(
+  it("orders: by count without a barcode, then with a barcode, then weighed, then services", () => {
+    const sorted = [service, weighed, withBarcode, noBarcode].sort(
       (a, b) => saleSortRank(a) - saleSortRank(b),
     );
-    expect(sorted.map((i) => i.name).slice(0, 2)).toEqual(["عيش", "جبنة"]);
+    expect(sorted.map((i) => i.name)).toEqual(["عيش", "كولا", "جبنة", "شحن"]);
   });
 
   it("filters by weight, no barcode and services", () => {
