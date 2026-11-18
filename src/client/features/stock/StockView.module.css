@@ -845,3 +845,41 @@
 .line:last-child {
   border-bottom: 0;
 }
+
+/* V19 .two: two fields side by side (packs + loose units, pack + unit price) */
+.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  align-items: end;
+}
+
+.two > div {
+  min-width: 0;
+}
+
+.muted {
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.sech {
+  font-size: 19px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 10px 0 4px;
+}
+
+.voidBtn {
+  flex: none;
+  background: none;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  color: var(--red);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 800;
+  padding: 6px 10px;
+  min-height: 40px;
+  cursor: pointer;
+}

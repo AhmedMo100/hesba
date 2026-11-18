@@ -53,6 +53,14 @@ const UNIT_PLURALS: Record<string, string> = {
   bag: "الأكياس",
   carton: "الكراتين",
   dozen: "الدست",
+  // The product form stores some units as Arabic words.
+  قطعة: "القطع",
+  علبة: "العلب",
+  برطمان: "البرطمانات",
+  كيس: "الأكياس",
+  كرتونة: "الكراتين",
+  دستة: "الدست",
+  طبق: "الأطباق",
 };
 
 /**

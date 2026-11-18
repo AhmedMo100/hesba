@@ -122,6 +122,9 @@ export async function POST(req: Request) {
       size_unit: v.sizeUnit,
       pack_qty: v.packQty,
       sell_price_piasters: Number(v.sellPricePiasters),
+      buy_cost_piasters:
+        v.buyPricePiasters != null ? Number(v.buyPricePiasters) : null,
+      barcode: v.barcode ?? null,
       global_variant_id: v.globalVariantId,
       is_active: v.isActive,
     }));
@@ -133,6 +136,8 @@ export async function POST(req: Request) {
       category: input.category,
       unit: input.unit,
       sell_price_piasters: input.sellPricePiasters,
+      buy_cost_piasters: input.buyCostPiasters ?? null,
+      barcode: input.barcode ?? null,
       is_custom: input.isCustom ?? true,
       global_product_id: input.globalProductId ?? null,
       variants: formattedVariants,

@@ -9,42 +9,26 @@ import React, {
   useRef,
 } from "react";
 import { Icon, Modal, useToast } from "@/client/shared/ui";
-import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
-import { unitCostFromTotal } from "@/domain/stock/batch-cost";
 import {
   type StoreProductItem,
   isServiceProduct,
 } from "@/client/shared/store-items";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import { useAuth } from "@/client/shared/auth";
-import {
-  packPluralWord,
-  packWord,
-  unitPluralWord,
-} from "@/client/shared/unit-labels";
 import { OPEN_STOCK_SCAN_KEY } from "../home/HomeView";
 import { ProductFormModal } from "../products/ProductFormModal";
-import { resolveSellingMethod, type StockProductOption } from "./AddStockModal";
+import {
+  optionFromInventory,
+  optionFromProduct,
+  type StockProductOption,
+} from "./stock-entry.logic";
+import { StockEntrySheet, formatOptionStock } from "./StockEntrySheet";
+import { BarcodeScanSheet } from "@/client/shared/scanner/BarcodeScanSheet";
 import styles from "./StockView.module.css";
 
-type Overlay = null | "manual" | "scan" | "quantity" | "confirm";
-
-/** How the goods were paid: from the drawer, from a wallet, or on credit to a supplier. */
-type PayMode = "cash" | "wallet" | "credit";
-
-interface Supplier {
-  id: string;
-  name: string;
-  phone: string | null;
-}
-
-const isUuid = (val?: string | null): val is string =>
-  Boolean(
-    val &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(val),
-  );
+type Overlay = null | "manual" | "scan" | "entry";
 
 function physicalOnly(
   items: StockInventoryItem[] | undefined,
@@ -58,34 +42,40 @@ function physicalOnly(
   );
 }
 
-function formatOptionStock(opt?: StockProductOption): string {
-  if (!opt) return "—";
-  if (opt.currentStockBase <= 0) return "خلصان (0)";
-  if (opt.unitMode === "weight") {
-    return `${(opt.currentStockBase / 1000).toLocaleString("en-US", { maximumFractionDigits: 2 })} كجم`;
-  }
-  const pack = opt.packQty || 1;
-  if (pack > 1) {
-    const cartons = Math.floor(opt.currentStockBase / pack);
-    const pieces = opt.currentStockBase % pack;
-    if (cartons > 0 && pieces > 0) return `${cartons} كرتونة و ${pieces} قطعة`;
-    if (cartons > 0) return `${cartons} كرتونة`;
-    return `${pieces} قطعة`;
-  }
-  return `${opt.currentStockBase} قطعة`;
+/** One stock movement as `/api/stock?view=all` returns it. */
+interface StockEntryMove {
+  id: string;
+  batchId?: string | null;
+  productName: string;
+  flavor?: string | null;
+  unitMode?: "piece" | "weight";
+  type: string;
+  quantityBase: number;
+  costTotalMinor?: number | null;
+  createdAt: string;
 }
 
-function getUnitWord(u?: string, isCard?: boolean): string {
-  const val = (u || "").toLowerCase();
-  if (val === "can" || val === "علبة") return "علبة";
-  if (val === "jar" || val === "برطمان") return "برطمان";
-  if (val === "bag" || val === "كيس") return "كيس";
-  if (val === "carton" || val === "كرتونة") return "كرتونة";
-  if (val === "weight" || val === "kg" || val === "g") return "كجم";
-  if (isCard) return "كارت";
-  if (val && !["piece", "unit", "قطعة"].includes(val)) return val;
-  return "قطعة";
+/** The last stock that came in (received batches only), newest first. */
+function recentEntries(moves: StockEntryMove[] | undefined): StockEntryMove[] {
+  return (moves ?? [])
+    .filter(
+      (m) =>
+        (m.type === "purchase" || m.type === "initial_stock") &&
+        m.quantityBase > 0 &&
+        m.batchId,
+    )
+    .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
+    .slice(0, 5);
 }
+
+const whenText = (iso: string) =>
+  new Intl.DateTimeFormat("ar-EG", {
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "Africa/Cairo",
+  }).format(new Date(iso));
 
 export function StockView() {
   const toast = useToast();
@@ -94,6 +84,9 @@ export function StockView() {
   const [overlay, setOverlay] = useState<Overlay>(null);
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [storeProducts, setStoreProducts] = useState<StoreProductItem[]>([]);
+  // The latest stock entries: the place to cancel one (reports only show them).
+  const [entries, setEntries] = useState<StockEntryMove[]>([]);
+  const [voiding, setVoiding] = useState<string | null>(null);
 
   // Manual selection
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -105,50 +98,11 @@ export function StockView() {
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [extraOptions, setExtraOptions] = useState<StockProductOption[]>([]);
 
-  // Quantity form
-  const [unitMode, setUnitMode] = useState<"piece" | "carton">("piece");
-  const [qty, setQty] = useState(1);
-  const [weightInput, setWeightInput] = useState("1");
-  const [weightUnit] = useState<"kg" | "g">("kg");
-  const [prodDate, setProdDate] = useState(
-    () => new Date().toISOString().split("T")[0]!,
-  );
-  const [expiry, setExpiry] = useState("");
-  const [noExpiry, setNoExpiry] = useState(false);
-  const [activePreset, setActivePreset] = useState<string | null>(null);
-  // What one selling unit (piece / pack / kg) cost; empty = the registered buy price.
-  const [costInput, setCostInput] = useState("");
-  const [costTouched, setCostTouched] = useState(false);
-
-  // Paid now, or on credit to a supplier (one purchase invoice, one payable).
-  const [payMode, setPayMode] = useState<PayMode>("cash");
-  const [paidNowFrom, setPaidNowFrom] = useState<"cash" | "wallet">("cash");
   // A scanned barcode no product has: offer to register it (ADR-0031).
   const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
-  const [cameraFailed, setCameraFailed] = useState(false);
   const [newProductBarcode, setNewProductBarcode] = useState("");
-  const [suppliers, setSuppliers] = useState<Supplier[] | null>(null);
-  const [supplierId, setSupplierId] = useState<string>("");
-  const [newSupplierName, setNewSupplierName] = useState("");
-  const [newSupplierPhone, setNewSupplierPhone] = useState("");
-  const [paidNowInput, setPaidNowInput] = useState("");
-  const purchaseOpRef = useRef<{ key: string; id: string } | null>(null);
 
-  // Submission
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-
-  // Scanner
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [barcodeInput, setBarcodeInput] = useState("");
-  const [scanStatus, setScanStatus] = useState("");
-  const [scanError, setScanError] = useState("");
-  const lastScannedRef = useRef<string>("");
-  const lastScanTimeRef = useRef(0);
-
-  // Physical scanner keyboard listener
+  // Physical scanner on the landing / manual screens (the scan sheet has its own).
   const physicalScanBuffer = useRef("");
   const physicalScanTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -163,6 +117,7 @@ export function StockView() {
       if (!stockRes.ok) throw new Error("فشل تحميل بيانات المخزون");
       const data = await stockRes.json();
       setInventory(physicalOnly(data.inventory));
+      setEntries(recentEntries(data.movements));
       if (prodRes && prodRes.ok) {
         const prodData = await prodRes.json();
         setStoreProducts(prodData.products || []);
@@ -184,6 +139,7 @@ export function StockView() {
         if (!stockRes.ok) return;
         const data = await stockRes.json();
         setInventory(physicalOnly(data.inventory));
+        setEntries(recentEntries(data.movements));
         if (prodRes && prodRes.ok) {
           const prodData = await prodRes.json();
           setStoreProducts(prodData.products || []);
@@ -217,46 +173,12 @@ export function StockView() {
         const vId = v?.id || p.id;
         seenIds.add(vId);
         seenIds.add(p.id);
-        const invItem = invMap.get(vId) || invMap.get(p.id);
-        const isWeight =
-          p.unit === "weight" ||
-          p.unit === "kg" ||
-          p.unit === "g" ||
-          invItem?.unitMode === "weight";
-        options.push({
-          variantId: vId,
-          productId: p.id,
-          productName: p.name_ar,
-          flavor: v?.flavor || invItem?.flavor,
-          unitMode: isWeight ? "weight" : "piece",
-          packQty: v?.pack_qty || invItem?.packQty || 12,
-          currentStockBase:
-            invItem?.currentStockBase ?? (p.stock_quantity || 0),
-          buyCostPiasters:
-            invItem?.buyPricePiasters ||
-            p.buy_cost_piasters ||
-            v?.buy_cost_piasters,
-          unit: p.unit,
-          category: p.category,
-          packName: invItem?.packName ?? null,
-        });
+        options.push(optionFromProduct(p, invMap.get(vId) || invMap.get(p.id)));
       });
 
     inventory.forEach((i) => {
       if (!seenIds.has(i.variantId) && !seenIds.has(i.productId)) {
-        options.push({
-          variantId: i.variantId,
-          productId: i.productId,
-          productName: i.productName,
-          flavor: i.flavor,
-          unitMode: i.unitMode,
-          packQty: i.packQty,
-          currentStockBase: i.currentStockBase,
-          buyCostPiasters: i.buyPricePiasters,
-          unit: i.unit || (i.unitMode === "weight" ? "kg" : "piece"),
-          category: i.category,
-          packName: i.packName ?? null,
-        });
+        options.push(optionFromInventory(i));
       }
     });
 
@@ -280,154 +202,11 @@ export function StockView() {
     );
   }, [productOptions, searchQuery]);
 
-  // ─── Derived quantities ───
-
-  const sellingMethod = selectedOption
-    ? resolveSellingMethod(selectedOption.unit)
-    : "piece";
-  const isWeight = sellingMethod === "weight";
-  const packQty = Math.max(1, selectedOption?.packQty || 1);
-  const isCard =
-    selectedOption?.category === "كروت شحن" ||
-    selectedOption?.category === "كروت مرافق";
-  const unitWord = getUnitWord(selectedOption?.unit, isCard);
-
-  const totalBaseQty = useMemo(() => {
-    if (isWeight) {
-      const wNum = parseFloat(weightInput) || 0;
-      return weightUnit === "kg" ? Math.round(wNum * 1000) : Math.round(wNum);
-    }
-    if (unitMode === "carton") return qty * packQty;
-    return qty;
-  }, [isWeight, weightInput, weightUnit, unitMode, qty, packQty]);
-
-  const regPiecePiasters = selectedOption?.buyCostPiasters ?? 0;
-  const regPieceCost = regPiecePiasters > 0 ? regPiecePiasters / 100 : 0;
-  const packWordNow = packWord(selectedOption?.packName, packQty);
-
-  // One unit as chosen: a kg, a pack, or one piece.
-  const unitCount = isWeight
-    ? totalBaseQty / 1000
-    : unitMode === "carton"
-      ? qty
-      : qty;
-  const registeredUnitCost =
-    regPieceCost > 0
-      ? isWeight
-        ? regPieceCost
-        : unitMode === "carton"
-          ? Math.round(regPieceCost * packQty * 100) / 100
-          : regPieceCost
-      : 0;
-  const unitCostEgp = costTouched
-    ? parseFloat(costInput) || 0
-    : registeredUnitCost;
-  const costNum = Math.round(unitCostEgp * unitCount * 100) / 100;
-
-  const totalCostDisplay =
-    costNum > 0 ? formatMoney(Math.round(costNum * 100)) : "—";
-  const paidNowNum = Math.min(
-    costNum,
-    Math.max(0, parseFloat(paidNowInput) || 0),
-  );
-  const creditRest = Math.round((costNum - paidNowNum) * 100) / 100;
-
-  const qtyDisplay = useMemo(() => {
-    if (isWeight) {
-      const wNum = parseFloat(weightInput) || 0;
-      return `${wNum} ${weightUnit === "kg" ? "كجم" : "جم"}`;
-    }
-    if (unitMode === "carton") {
-      return `${qty} ${packWordNow}`;
-    }
-    return `${qty} ${unitWord}`;
-  }, [isWeight, weightInput, weightUnit, unitMode, qty, unitWord, packWordNow]);
-
-  const qtyEquivDisplay = useMemo(() => {
-    if (isWeight) return null;
-    if (unitMode === "carton") return `= ${totalBaseQty} ${unitWord}`;
-    return `= ${totalBaseQty} ${unitWord}`;
-  }, [isWeight, unitMode, totalBaseQty, unitWord]);
-
-  // ─── Expiry helpers ───
-
-  const computeExpiryDate = (baseIso: string, months: number) => {
-    const d = baseIso ? new Date(baseIso) : new Date();
-    d.setMonth(d.getMonth() + months);
-    return d.toISOString().split("T")[0]!;
-  };
-
-  const expiryPresets = [
-    { label: "بعد أسبوع", value: "week" },
-    { label: "بعد شهر", value: "1m" },
-    { label: "بعد 3 شهور", value: "3m" },
-    { label: "بعد سنة", value: "1y" },
-    { label: "من غير نهاية", value: "none" },
-  ];
-
-  const applyPreset = (preset: string) => {
-    setActivePreset(preset);
-    if (preset === "none") {
-      setNoExpiry(true);
-      setExpiry("");
-      return;
-    }
-    setNoExpiry(false);
-    const base = prodDate || new Date().toISOString().split("T")[0]!;
-    const monthsMap: Record<string, number> = {
-      week: 0,
-      "1m": 1,
-      "3m": 3,
-      "1y": 12,
-    };
-    const months = monthsMap[preset] ?? 0;
-    if (preset === "week") {
-      const d = base ? new Date(base) : new Date();
-      d.setDate(d.getDate() + 7);
-      setExpiry(d.toISOString().split("T")[0]!);
-    } else {
-      setExpiry(computeExpiryDate(base, months));
-    }
-  };
-
-  // ─── Select product and go to quantity step ───
+  // ─── Select product and go to the quantity sheet ───
 
   const selectProduct = useCallback((opt: StockProductOption) => {
     setSelectedOption(opt);
-    const method = resolveSellingMethod(opt.unit);
-    const w = method === "weight";
-    if (w) {
-      setWeightInput("1");
-    } else {
-      setQty(1);
-      setUnitMode("piece");
-    }
-    setCostInput("");
-    setCostTouched(false);
-    setPayMode("cash");
-    setPaidNowInput("");
-    setProdDate(new Date().toISOString().split("T")[0]!);
-    setExpiry("");
-    setNoExpiry(false);
-    setActivePreset(null);
-    setSubmitError(null);
-    setOverlay("quantity");
-  }, []);
-
-  // ─── Camera stop ───
-
-  const stopScanner = useCallback(() => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
+    setOverlay("entry");
   }, []);
 
   // ─── Barcode lookup ───
@@ -436,16 +215,6 @@ export function StockView() {
     (code: string) => {
       const trimmed = code.trim();
       if (!trimmed) return;
-
-      const now = Date.now();
-      if (
-        trimmed === lastScannedRef.current &&
-        now - lastScanTimeRef.current < 2000
-      ) {
-        return;
-      }
-      lastScannedRef.current = trimmed;
-      lastScanTimeRef.current = now;
 
       const byInventory = inventory.find((i) => i.barcode?.trim() === trimmed);
       const found = storeProducts.find(
@@ -457,119 +226,34 @@ export function StockView() {
 
       if (found) {
         const v = found.variants?.[0];
-        const vId = v?.id || found.id;
-        const invItem = inventory.find(
-          (i) => i.variantId === vId || i.productId === found.id,
+        const opt = optionFromProduct(
+          found,
+          inventory.find(
+            (i) =>
+              i.variantId === (v?.id || found.id) || i.productId === found.id,
+          ),
         );
-        const isW =
-          found.unit === "weight" || found.unit === "kg" || found.unit === "g";
-        const opt: StockProductOption = {
-          variantId: vId,
-          productId: found.id,
-          productName: found.name_ar,
-          flavor: v?.flavor || invItem?.flavor,
-          unitMode: isW ? "weight" : "piece",
-          packQty: v?.pack_qty || invItem?.packQty || 12,
-          currentStockBase:
-            invItem?.currentStockBase ?? (found.stock_quantity || 0),
-          buyCostPiasters:
-            invItem?.buyPricePiasters ||
-            found.buy_cost_piasters ||
-            v?.buy_cost_piasters,
-          unit: found.unit,
-          category: found.category,
-          packName: invItem?.packName ?? v?.size_unit ?? null,
-        };
-        stopScanner();
         setUnknownBarcode(null);
         selectProduct(opt);
-        toast.show({ msg: `تم العثور على: ${found.name_ar}`, kind: "ok" });
+        toast.show({ msg: `✓ ${found.name_ar}`, kind: "ok" });
       } else {
+        // V19: «الباركود ده مش موجود عندك» → register it.
         setUnknownBarcode(trimmed);
-        setScanError(`الباركود ${trimmed} مش موجود عندك`);
+        setOverlay("scan");
       }
     },
-    [storeProducts, inventory, toast, stopScanner, selectProduct],
+    [storeProducts, inventory, toast, selectProduct],
   );
 
-  // ─── Camera barcode scanner ───
-
-  const startScanner = useCallback(async () => {
-    setScanError("");
-    setCameraFailed(false);
-    setUnknownBarcode(null);
-    setScanStatus("جاري فتح الكاميرا...");
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
-      setScanStatus("وجّه الكاميرا على الباركود");
-
-      if ("BarcodeDetector" in window) {
-        const detector = new (
-          window as unknown as {
-            BarcodeDetector: new (opts: { formats: string[] }) => {
-              detect: (
-                source: HTMLVideoElement,
-              ) => Promise<Array<{ rawValue: string }>>;
-            };
-          }
-        ).BarcodeDetector({
-          formats: [
-            "ean_13",
-            "ean_8",
-            "code_128",
-            "code_39",
-            "upc_a",
-            "upc_e",
-            "qr_code",
-          ],
-        });
-        scanIntervalRef.current = setInterval(async () => {
-          if (videoRef.current && videoRef.current.readyState >= 2) {
-            try {
-              const results = await detector.detect(videoRef.current);
-              if (results.length > 0) {
-                const code = results[0]!.rawValue;
-                lookupBarcode(code);
-              }
-            } catch {
-              // detection failed, continue
-            }
-          }
-        }, 500);
-      } else {
-        setScanStatus("الكاميرا شغالة — اكتب الباركود يدوي");
-      }
-    } catch {
-      setCameraFailed(true);
-      setScanError(
-        "تعذر فتح الكاميرا. اسمح بالكاميرا، أو اكتب الباركود، أو سجّل يدوي.",
-      );
-      setScanStatus("");
-    }
-  }, [lookupBarcode]);
-
-  useEffect(() => {
-    return () => {
-      stopScanner();
-    };
-  }, [stopScanner]);
-
   const openScan = useCallback(() => {
+    setUnknownBarcode(null);
     setOverlay("scan");
-    void startScanner();
-  }, [startScanner]);
+  }, []);
 
   const closeScan = useCallback(() => {
-    stopScanner();
+    setUnknownBarcode(null);
     setOverlay(null);
-  }, [stopScanner]);
+  }, []);
 
   // Home's first-run «ابدأ بالباركود»: open the scanner straight away.
   useEffect(() => {
@@ -586,7 +270,7 @@ export function StockView() {
 
   const registerUnknown = () => {
     const code = unknownBarcode ?? "";
-    stopScanner();
+    setUnknownBarcode(null);
     setOverlay(null);
     setNewProductBarcode(code);
     setShowNewProduct(true);
@@ -594,7 +278,7 @@ export function StockView() {
 
   // Physical barcode scanner: listen for rapid keystrokes ending with Enter
   useEffect(() => {
-    if (overlay !== null && overlay !== "manual" && overlay !== "scan") return;
+    if (overlay !== null && overlay !== "manual") return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
@@ -603,6 +287,9 @@ export function StockView() {
       if (e.key === "Enter") {
         const code = physicalScanBuffer.current.trim();
         if (code.length >= 4) {
+          // The scanner's Enter must not also press the focused button.
+          e.preventDefault();
+          e.stopPropagation();
           lookupBarcode(code);
         }
         physicalScanBuffer.current = "";
@@ -618,223 +305,42 @@ export function StockView() {
       }
     };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [overlay, lookupBarcode]);
 
-  // ─── Suppliers (آجل) ───
-
-  useEffect(() => {
-    if (payMode !== "credit" || suppliers !== null) return;
-    let alive = true;
-    apiGet("/api/people?section=suppliers")
-      .then((r) => (r.ok ? r.json() : null))
-      .then(
-        (
-          d: {
-            people?: Array<{ id: string; name: string; phone: string | null }>;
-          } | null,
-        ) => {
-          if (!alive) return;
-          const list = (d?.people ?? []).map((p) => ({
-            id: p.id,
-            name: p.name,
-            phone: p.phone ?? null,
-          }));
-          setSuppliers(list);
-          if (list[0]) setSupplierId((cur) => cur || list[0]!.id);
-        },
-      )
-      .catch(() => alive && setSuppliers([]));
-    return () => {
-      alive = false;
-    };
-  }, [payMode, suppliers]);
-
-  /** The chosen supplier, or a new one created once (a retry reuses it). */
-  const ensureSupplier = async (): Promise<Supplier> => {
-    const chosen = (suppliers ?? []).find((x) => x.id === supplierId);
-    if (chosen) return chosen;
-    const name = newSupplierName.trim();
-    if (!name) throw new Error("اختار المورد أو اكتب اسم مورد جديد");
-    const res = await fetch("/api/people", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        phone: newSupplierPhone.trim() || undefined,
-        section: "suppliers",
-        amountEgp: "0",
-      }),
-    });
-    const json = (await res.json().catch(() => null)) as {
-      person?: { id: string; name: string; phone: string | null };
-      error?: { message?: string };
-    } | null;
-    if (!res.ok || !json?.person) {
-      throw new Error(json?.error?.message || "تعذر تسجيل المورد");
+  /** Cancels what is left of a stock entry (its quantity leaves the stock). */
+  const voidEntry = async (batchId: string) => {
+    if (
+      !window.confirm("تلغي الدخلة دي؟ اللي فاضل من كميتها هيطلع من المخزون.")
+    ) {
+      return;
     }
-    const created = {
-      id: json.person.id,
-      name: json.person.name,
-      phone: json.person.phone ?? null,
-    };
-    setSuppliers((prev) => [...(prev ?? []), created]);
-    setSupplierId(created.id);
-    return created;
-  };
-
-  const supplierReady =
-    payMode !== "credit" ||
-    (suppliers ?? []).some((x) => x.id === supplierId) ||
-    newSupplierName.trim().length > 0;
-
-  // ─── Submit ───
-
-  const handleSubmit = async () => {
-    if (!selectedOption || totalBaseQty <= 0) return;
-    setIsSubmitting(true);
-    setSubmitError(null);
-
+    setVoiding(batchId);
     try {
-      const costPiasters = Math.round(costNum * 100);
-      let targetVariantId = selectedOption.variantId;
-
-      const isValidUuid = isUuid;
-
-      if (
-        targetVariantId.startsWith("temp_") ||
-        targetVariantId.startsWith("created_") ||
-        !isValidUuid(targetVariantId)
-      ) {
-        const newUnit = selectedOption.unit || (isWeight ? "kg" : "piece");
-        const derivedUnitCost =
-          costPiasters > 0 && totalBaseQty > 0
-            ? unitCostFromTotal(costPiasters, totalBaseQty, newUnit)
-            : null;
-        const calculatedBuyCost =
-          derivedUnitCost !== null
-            ? Number(derivedUnitCost)
-            : (selectedOption.buyCostPiasters ?? 0);
-
-        const prodRes = await fetch("/api/products", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nameAr: selectedOption.productName,
-            category: selectedOption.category || "المخزون",
-            unit: newUnit,
-            sellPricePiasters: costPiasters || 0,
-            buyCostPiasters: calculatedBuyCost,
-            variants: [
-              {
-                flavor: selectedOption.flavor ?? null,
-                packQty: packQty,
-                sellPricePiasters: costPiasters || 0,
-                costPricePiasters: calculatedBuyCost,
-              },
-            ],
-          }),
-        });
-
-        if (!prodRes.ok) {
-          const prodErr = await prodRes.json().catch(() => ({}));
-          throw new Error(
-            prodErr.error?.message || "تعذر تجهيز المنتج للإضافة للمخزون",
-          );
-        }
-
-        const prodData = await prodRes.json();
-        targetVariantId =
-          prodData.data?.variants?.[0]?.id ||
-          prodData.product?.variants?.[0]?.id;
-        if (!targetVariantId)
-          throw new Error("تعذر تحديد معرّف الصنف في المخزون");
+      const res = await fetch("/api/stock", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "void",
+          batchId,
+          opId: crypto.randomUUID(),
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        throw new Error(d.error?.message || "مقدرناش نلغي الدخلة");
       }
-
-      if (payMode === "credit") {
-        // آجل: one supplier purchase — stock in and «عليك» up in one transaction.
-        const supplier = await ensureSupplier();
-        const body = {
-          supplierId: supplier.id,
-          lines: [
-            {
-              storeVariantId: targetVariantId,
-              quantityBase: totalBaseQty,
-              totalCostPiasters: Math.round(costNum * 100),
-              expiryDate: noExpiry ? null : expiry || null,
-            },
-          ],
-          paidNowPiasters: Math.round(paidNowNum * 100),
-          ...(paidNowNum > 0 ? { paidFrom: paidNowFrom } : {}),
-        };
-        const key = JSON.stringify(body);
-        if (purchaseOpRef.current?.key !== key) {
-          purchaseOpRef.current = { key, id: crypto.randomUUID() };
-        }
-        const res = await fetch("/api/purchases", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ opId: purchaseOpRef.current.id, ...body }),
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(data.error?.message || "فشل تسجيل فاتورة المورد");
-        }
-        purchaseOpRef.current = null;
-        toast.show({
-          msg: `اتسجلت الدخلة ✅ — ${formatMoney(Math.round(creditRest * 100))} آجل على ${supplier.name}`,
-          kind: "ok",
-        });
-      } else {
-        const payload = {
-          action: "add",
-          storeVariantId: targetVariantId,
-          quantityBase: totalBaseQty,
-          costTotalPiasters: Math.round(costNum * 100),
-          productionDate: noExpiry ? null : prodDate || null,
-          expiryDate: noExpiry ? null : expiry || null,
-          batchCode: null,
-          paidFrom: payMode,
-        };
-
-        const res = await fetch("/api/stock", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          throw new Error(
-            data.error?.message || "فشل تسجيل البضاعة في المخزون",
-          );
-        }
-
-        toast.show({
-          msg: `تم إضافة ${selectedOption.productName} للمخزون ✓`,
-          kind: "ok",
-        });
-      }
+      toast.show({ msg: "اتلغت الدخلة", kind: "ok" });
+      window.dispatchEvent(new CustomEvent("hesba_stock_updated"));
       void loadData();
-
-      setSelectedOption(null);
-      setOverlay(null);
-      setQty(1);
-      setCostInput("");
-      setCostTouched(false);
-      setExpiry("");
-      setNoExpiry(false);
-      setActivePreset(null);
-      setPayMode("cash");
-      setPaidNowInput("");
-      setNewSupplierName("");
-      setNewSupplierPhone("");
-    } catch (err: unknown) {
-      setSubmitError(err instanceof Error ? err.message : "حدث خطأ غير متوقع");
-      if (payMode !== "credit") setOverlay("quantity");
+    } catch (e: unknown) {
+      toast.show({
+        msg: e instanceof Error ? e.message : "مقدرناش نلغي الدخلة",
+        kind: "err",
+      });
     } finally {
-      setIsSubmitting(false);
+      setVoiding(null);
     }
   };
 
@@ -870,19 +376,56 @@ export function StockView() {
         تفاصيله.
       </p>
 
-      {/* Scanner Bottom Sheet */}
+      {entries.length > 0 && (
+        <>
+          <h3 className={styles.sech}>آخر بضاعة دخلت</h3>
+          <div className={styles.sumbox} data-testid="stock-recent">
+            {entries.map((m) => (
+              <div key={m.id} className={styles.line}>
+                <span>
+                  {m.productName}
+                  {m.flavor ? ` (${m.flavor})` : ""} ·{" "}
+                  {m.unitMode === "weight"
+                    ? `${m.quantityBase / 1000} كيلو`
+                    : m.quantityBase}
+                  <small className={styles.muted}>
+                    {" "}
+                    {whenText(m.createdAt)}
+                  </small>
+                </span>
+                <button
+                  type="button"
+                  className={styles.voidBtn}
+                  disabled={voiding === m.batchId}
+                  onClick={() => void voidEntry(m.batchId!)}
+                  data-testid="stock-void-entry"
+                >
+                  إلغاء
+                </button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {/* Scanner (V19 #scanSheet): the camera opens at once, decoded on the device */}
       {overlay === "scan" && (
-        <Modal title="امسح الباركود" onClose={closeScan}>
-          <div className={styles.scannerBody}>
-            <video
-              ref={videoRef}
-              className={styles.scannerVideo}
-              playsInline
-              muted
-            />
-            {scanStatus && <p className={styles.scannerStatus}>{scanStatus}</p>}
-            {scanError && <p className={styles.scannerError}>{scanError}</p>}
-            {unknownBarcode && (
+        <BarcodeScanSheet
+          onCode={lookupBarcode}
+          onClose={closeScan}
+          paused={unknownBarcode !== null}
+          fallbackAction={{
+            label: "✍️ سجّل يدوي بدل الباركود",
+            onClick: () => setOverlay("manual"),
+            testId: "stock-scan-manual",
+          }}
+        >
+          {unknownBarcode && (
+            <div data-testid="stock-unknown-barcode">
+              <h3 className={styles.sech}>الباركود ده مش موجود عندك</h3>
+              <p className={styles.note} dir="ltr">
+                {unknownBarcode}
+              </p>
               <button
                 type="button"
                 className={styles.confirmBtn}
@@ -891,47 +434,16 @@ export function StockView() {
               >
                 📦 سجّله كمنتج جديد
               </button>
-            )}
-            {cameraFailed && (
               <button
                 type="button"
                 className={styles.editBtn}
-                onClick={() => {
-                  stopScanner();
-                  setOverlay("manual");
-                }}
-                data-testid="stock-scan-manual"
+                onClick={() => setUnknownBarcode(null)}
               >
-                ✍️ سجّل يدوي بدل الباركود
-              </button>
-            )}
-            <div className={styles.scannerManualRow}>
-              <input
-                type="text"
-                className={styles.scannerManualInput}
-                placeholder="أو اكتب الباركود هنا..."
-                value={barcodeInput}
-                onChange={(e) => {
-                  setBarcodeInput(e.target.value);
-                  setScanError("");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    lookupBarcode(barcodeInput);
-                  }
-                }}
-                dir="ltr"
-              />
-              <button
-                type="button"
-                className={styles.scannerSearchBtn}
-                onClick={() => lookupBarcode(barcodeInput)}
-              >
-                ابحث
+                امسح تاني
               </button>
             </div>
-          </div>
-        </Modal>
+          )}
+        </BarcodeScanSheet>
       )}
 
       {/* Manual selection Bottom Sheet */}
@@ -1023,360 +535,21 @@ export function StockView() {
         </Modal>
       )}
 
-      {/* Quantity Bottom Sheet */}
-      {overlay === "quantity" && selectedOption && (
-        <Modal
-          title={selectedOption.productName}
+      {/* Quantity sheet: the product's own units, its batch expiry, how it was paid */}
+      {overlay === "entry" && selectedOption && (
+        <StockEntrySheet
+          option={selectedOption}
+          batches={
+            inventory.find((i) => i.variantId === selectedOption.variantId)
+              ?.batches
+          }
           onClose={() => setOverlay(null)}
-        >
-          <div className={styles.sheetBody}>
-            <p className={styles.note}>
-              المتاح: {formatOptionStock(selectedOption)}
-            </p>
-
-            {submitError && <div className={styles.error}>{submitError}</div>}
-
-            {!isWeight && packQty > 1 && (
-              <div className={styles.chips}>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${unitMode === "carton" ? "" : styles.chipOn}`}
-                  onClick={() => {
-                    setUnitMode("piece");
-                    setCostTouched(false);
-                  }}
-                >
-                  {unitWord}
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.chip} ${unitMode === "carton" ? styles.chipOn : ""}`}
-                  data-testid="stock-unit-pack"
-                  onClick={() => {
-                    setUnitMode("carton");
-                    setCostTouched(false);
-                  }}
-                >
-                  {packWordNow} ({packQty})
-                </button>
-              </div>
-            )}
-
-            <div className={styles.lbl} data-testid="stock-qty-label">
-              {isWeight
-                ? "الوزن اللي دخل (بالكيلو)"
-                : unitMode === "carton"
-                  ? `عدد ${packPluralWord(packWordNow)}`
-                  : `عدد ${isCard ? "الكروت" : unitPluralWord(selectedOption.unit)}`}
-            </div>
-            {isWeight ? (
-              <input
-                type="number"
-                inputMode="decimal"
-                step="0.25"
-                min="0"
-                className={styles.input}
-                value={weightInput}
-                onChange={(e) => setWeightInput(e.target.value)}
-                placeholder="مثال: 5.5 كيلو"
-                data-testid="stock-weight"
-              />
-            ) : (
-              <div className={styles.qty}>
-                <button
-                  type="button"
-                  disabled={qty <= 1}
-                  onClick={() => setQty((v) => Math.max(1, v - 1))}
-                  data-testid="stock-qty-minus"
-                  aria-label="أقل"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  inputMode="numeric"
-                  min="1"
-                  value={qty}
-                  placeholder={`مثال: 12 ${unitMode === "carton" ? packWordNow : unitWord}`}
-                  aria-label={
-                    unitMode === "carton"
-                      ? `عدد ${packPluralWord(packWordNow)}`
-                      : `عدد ${unitPluralWord(selectedOption.unit)}`
-                  }
-                  data-testid="stock-qty"
-                  onChange={(e) =>
-                    setQty(Math.max(1, Math.round(Number(e.target.value) || 1)))
-                  }
-                />
-                <button
-                  type="button"
-                  onClick={() => setQty((v) => v + 1)}
-                  data-testid="stock-qty-plus"
-                  aria-label="أكتر"
-                >
-                  +
-                </button>
-              </div>
-            )}
-            {qtyEquivDisplay && unitMode === "carton" && (
-              <p className={styles.note}>{qtyEquivDisplay}</p>
-            )}
-
-            <div className={styles.lbl} data-testid="stock-cost-label">
-              سعر شراء{" "}
-              {isWeight
-                ? "الكيلو"
-                : unitMode === "carton"
-                  ? `ال${packWordNow}`
-                  : `ال${unitWord}`}
-            </div>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0"
-              className={styles.input}
-              value={costTouched ? costInput : registeredUnitCost || ""}
-              placeholder="0"
-              data-testid="stock-unit-cost"
-              onChange={(e) => {
-                setCostTouched(true);
-                setCostInput(e.target.value);
-              }}
-            />
-
-            <div className={styles.sumbox}>
-              <div className={styles.line}>
-                <span>تكلفة الكمية كلها</span>
-                <b data-testid="stock-total">{totalCostDisplay}</b>
-              </div>
-            </div>
-
-            {(() => {
-              const batches =
-                inventory
-                  .find((i) => i.variantId === selectedOption.variantId)
-                  ?.batches.filter((b) => b.remainingQty > 0) ?? [];
-              if (batches.length === 0) return null;
-              return (
-                <div className={styles.sumbox} data-testid="stock-batches">
-                  <div className={styles.lbl}>الدفعات اللي عندك دلوقتي</div>
-                  {batches.map((b) => (
-                    <div key={b.id} className={styles.line}>
-                      <span>
-                        {b.expiryDate
-                          ? `تنتهي ${b.expiryDate.slice(0, 10)}`
-                          : "من غير صلاحية"}
-                      </span>
-                      <b>
-                        {isWeight
-                          ? `${b.remainingQty / 1000} كيلو`
-                          : `${b.remainingQty} ${unitWord}`}
-                      </b>
-                    </div>
-                  ))}
-                  <div className={styles.note}>
-                    الكمية الجديدة هتتسجل دفعة لوحدها بصلاحيتها، ومش هتغيّر
-                    صلاحية اللي قبلها.
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div className={styles.lbl}>تاريخ صلاحية الدفعة دي</div>
-            <div className={styles.chips}>
-              {expiryPresets.map((p) => (
-                <button
-                  key={p.value}
-                  type="button"
-                  className={`${styles.chip} ${activePreset === p.value ? styles.chipOn : ""}`}
-                  onClick={() => applyPreset(p.value)}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-            {!noExpiry && (
-              <input
-                type="date"
-                className={styles.input}
-                value={expiry}
-                onChange={(e) => {
-                  setExpiry(e.target.value);
-                  setActivePreset(null);
-                }}
-                data-testid="stock-expiry"
-              />
-            )}
-
-            <div className={styles.lbl}>الدفع إزاي؟</div>
-            <div className={styles.chips}>
-              <button
-                type="button"
-                className={`${styles.chip} ${payMode === "cash" ? styles.chipOn : ""}`}
-                data-testid="stock-pay-paid"
-                onClick={() => setPayMode("cash")}
-              >
-                🧾 فاتورة · من الدرج
-              </button>
-              <button
-                type="button"
-                className={`${styles.chip} ${payMode === "wallet" ? styles.chipOn : ""}`}
-                data-testid="stock-pay-wallet"
-                onClick={() => setPayMode("wallet")}
-              >
-                📱 فاتورة · من محفظة
-              </button>
-              <button
-                type="button"
-                className={`${styles.chip} ${payMode === "credit" ? styles.chipOn : ""}`}
-                data-testid="stock-pay-credit"
-                onClick={() => setPayMode("credit")}
-              >
-                📒 آجل على مورد
-              </button>
-            </div>
-
-            <button
-              type="button"
-              className={styles.confirmBtn}
-              disabled={
-                totalBaseQty <= 0 || (payMode === "credit" && costNum <= 0)
-              }
-              onClick={() => setOverlay("confirm")}
-            >
-              كمّل ← التأكيد
-            </button>
-            {payMode === "credit" && costNum <= 0 && (
-              <p className={styles.note}>
-                اكتب سعر الشراء عشان نعرف المبلغ الآجل
-              </p>
-            )}
-          </div>
-        </Modal>
-      )}
-
-      {/* Confirm Bottom Sheet */}
-      {overlay === "confirm" && selectedOption && (
-        <Modal title="تأكيد الدخول" onClose={() => setOverlay(null)}>
-          <div className={styles.sheetBody}>
-            <div className={styles.sumbox}>
-              <div className={styles.line}>
-                <span>{selectedOption.productName}</span>
-                <b>{qtyDisplay}</b>
-              </div>
-              <div className={styles.line}>
-                <span>الصلاحية</span>
-                <b>{noExpiry ? "من غير نهاية" : expiry || "—"}</b>
-              </div>
-              <div className={styles.line}>
-                <span>التكلفة</span>
-                <b>{totalCostDisplay}</b>
-              </div>
-            </div>
-
-            {payMode === "credit" && (
-              <div data-testid="stock-supplier">
-                <div className={styles.lbl}>المورد</div>
-                <div className={styles.chips}>
-                  {(suppliers ?? []).map((x) => (
-                    <button
-                      key={x.id}
-                      type="button"
-                      className={`${styles.chip} ${supplierId === x.id ? styles.chipOn : ""}`}
-                      onClick={() => setSupplierId(x.id)}
-                    >
-                      {x.name}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    className={`${styles.chip} ${supplierId === "" ? styles.chipOn : ""}`}
-                    data-testid="stock-new-supplier"
-                    onClick={() => setSupplierId("")}
-                  >
-                    + مورد جديد
-                  </button>
-                </div>
-                {supplierId === "" && (
-                  <>
-                    <input
-                      className={styles.input}
-                      placeholder="اسم المورد"
-                      dir="auto"
-                      value={newSupplierName}
-                      data-testid="stock-supplier-name"
-                      onChange={(e) => setNewSupplierName(e.target.value)}
-                    />
-                    <input
-                      className={styles.input}
-                      type="tel"
-                      dir="ltr"
-                      placeholder="رقم المورد (اختياري)"
-                      value={newSupplierPhone}
-                      onChange={(e) => setNewSupplierPhone(e.target.value)}
-                    />
-                  </>
-                )}
-                <div className={styles.lbl}>دفعت للمورد دلوقتي (اختياري)</div>
-                <div className={styles.chips}>
-                  <button
-                    type="button"
-                    className={`${styles.chip} ${paidNowFrom === "cash" ? styles.chipOn : ""}`}
-                    onClick={() => setPaidNowFrom("cash")}
-                  >
-                    💵 من الدرج
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.chip} ${paidNowFrom === "wallet" ? styles.chipOn : ""}`}
-                    onClick={() => setPaidNowFrom("wallet")}
-                  >
-                    📱 من محفظة
-                  </button>
-                </div>
-                <input
-                  className={styles.input}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  placeholder="0"
-                  value={paidNowInput}
-                  data-testid="stock-paid-now"
-                  onChange={(e) => setPaidNowInput(e.target.value)}
-                />
-                <div className={styles.sumbox}>
-                  <div className={styles.line}>
-                    <span>الباقي عليك للمورد</span>
-                    <b data-testid="stock-credit-rest">
-                      {formatMoney(Math.round(creditRest * 100))}
-                    </b>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {submitError && <div className={styles.error}>{submitError}</div>}
-
-            <button
-              type="button"
-              className={styles.confirmBtn}
-              disabled={isSubmitting || !supplierReady}
-              onClick={handleSubmit}
-              data-testid="stock-confirm"
-            >
-              {isSubmitting ? "بيتسجّل…" : "سجّل الدخلة ✅"}
-            </button>
-
-            <button
-              type="button"
-              className={styles.editBtn}
-              disabled={isSubmitting}
-              onClick={() => setOverlay("quantity")}
-            >
-              تعديل
-            </button>
-          </div>
-        </Modal>
+          onSaved={() => {
+            void loadData();
+            setSelectedOption(null);
+            setOverlay(null);
+          }}
+        />
       )}
 
       {/* New product modal */}
@@ -1391,41 +564,14 @@ export function StockView() {
           }}
           onSaved={(newProduct: unknown) => {
             setShowNewProduct(false);
-            const p = newProduct as {
-              id?: string;
-              nameAr?: string;
-              name_ar?: string;
-              unit?: string;
-              category?: string;
-              buyCostPiasters?: number | string | null;
-              variants?: Array<{
-                id?: string;
-                packQty?: number;
-                pack_qty?: number;
-                flavor?: string | null;
-                sizeUnit?: string | null;
-                size_unit?: string | null;
-                buyPricePiasters?: number | string | null;
-              }>;
-            };
-            const pName = p.nameAr || p.name_ar || "منتج جديد";
-            const pVar = p.variants?.[0];
-            const vId = pVar?.id || p.id || `created_${Date.now()}`;
+            const p = newProduct as StoreProductItem;
             const newOpt: StockProductOption = {
-              variantId: vId,
-              productId: p.id || `prod_${Date.now()}`,
-              productName: pName,
-              flavor: pVar?.flavor ?? null,
-              unitMode: p.unit === "kg" || p.unit === "g" ? "weight" : "piece",
-              packQty: pVar?.packQty || pVar?.pack_qty || 1,
+              ...optionFromProduct({
+                ...p,
+                name_ar: p.name_ar || "منتج جديد",
+                variants: p.variants ?? [],
+              }),
               currentStockBase: 0,
-              unit: p.unit,
-              category: p.category,
-              // What was entered in the product form carries over to the quantity step.
-              buyCostPiasters:
-                Number(pVar?.buyPricePiasters ?? p.buyCostPiasters ?? 0) ||
-                undefined,
-              packName: pVar?.sizeUnit ?? pVar?.size_unit ?? null,
             };
             setNewProductBarcode("");
             void loadData();
