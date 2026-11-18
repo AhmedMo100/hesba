@@ -241,7 +241,9 @@ export function ReportsView() {
               <small>{report?.losses.count ?? 0} مرة</small>
             </div>
           </div>
-          <div className={`${styles.stat} ${styles.good}`}>
+          <div
+            className={`${styles.stat} ${left !== null && left < 0 ? styles.bad : styles.good}`}
+          >
             <small>💰 اللي فاضل بعد المصروفات والتالف</small>
             <b data-testid="report-left">{money(left)}</b>
           </div>
