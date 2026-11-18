@@ -2,10 +2,11 @@
 
 /**
  * @file ReportsView.tsx
- * @description Reports (V19): the period's sales, profit after the cost of goods, expenses,
- * losses and what is left, how sales were paid, the best sellers and the day-by-day sales —
- * all from the server's Home report for the chosen period. A profit whose cost is not
- * recorded is shown as unknown, never estimated (ADR-0021).
+ * @description Reports, in the order a shop owner asks: how much did I sell, how much did I
+ * earn, how much did I spend, how much stock came in, how much was lost, what sells best —
+ * and how it was paid, last. All from the server's report for the chosen period. A profit
+ * whose cost is not recorded is shown as unknown, never estimated (ADR-0021). Reports only
+ * show: cancelling a stock entry is done from «دخلت بضاعة».
  */
 
 import React, { useEffect, useState } from "react";
@@ -43,6 +44,15 @@ interface StockMove {
   createdAt: string;
 }
 
+/** One expense as `/api/expenses` returns it. */
+interface ExpenseRow {
+  id: string;
+  category: string;
+  amount_piasters: number;
+  note?: string | null;
+  spent_at: string;
+}
+
 const dayLabel = (iso: string) =>
   new Intl.DateTimeFormat("ar-EG", {
     day: "numeric",
@@ -60,8 +70,8 @@ export function ReportsView() {
   const [loading, setLoading] = useState(true);
   // The stock that came in (the old stock screen's additions log), for the same period.
   const [moves, setMoves] = useState<StockMove[] | null>(null);
-  const [voiding, setVoiding] = useState<string | null>(null);
-  const [reloadKey, setReloadKey] = useState(0);
+  // The period's expenses, one by one (the expenses screen shows today only).
+  const [expenseList, setExpenseList] = useState<ExpenseRow[] | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -72,7 +82,7 @@ export function ReportsView() {
     return () => {
       alive = false;
     };
-  }, [reloadKey]);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -90,7 +100,26 @@ export function ReportsView() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [period, from, to, reloadKey]);
+  }, [period, from, to]);
+
+  // The expenses of the report's own range (Cairo days).
+  const rangeFrom = report?.from
+    ? toCairoDateString(new Date(report.from))
+    : null;
+  const rangeTo = report?.to
+    ? toCairoDateString(new Date(Date.parse(report.to) - 1))
+    : null;
+  useEffect(() => {
+    if (!rangeFrom || !rangeTo) return;
+    let alive = true;
+    apiGet(`/api/expenses?period=custom&from=${rangeFrom}&to=${rangeTo}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => alive && setExpenseList(d?.expenses ?? []))
+      .catch(() => alive && setExpenseList([]));
+    return () => {
+      alive = false;
+    };
+  }, [rangeFrom, rangeTo]);
 
   const sales = report?.sales;
   const profit = sales?.grossProfitPiasters ?? null;
@@ -98,47 +127,19 @@ export function ReportsView() {
   const losses = report?.losses.costPiasters ?? 0;
   const left = profit === null ? null : profit - expenses - losses;
   const pay = report?.byPaymentMethod;
-  const points = report?.series.points ?? [];
-  const maxPoint = Math.max(1, ...points.map((p) => p.revenuePiasters));
   const money = (v: number | null | undefined) =>
     v === null || v === undefined ? "—" : formatMoney(v);
 
+  // Only stock that came into the shop: received batches (never a sale or its undo).
   const additions = (moves ?? []).filter((m) => {
-    // A sale undo puts sold stock back; it is not stock that came in (ADR-0022).
-    if (m.type === "sale_void") return false;
-    if (m.type !== "purchase" && m.quantityBase <= 0) return false;
-    if (!report) return false;
+    if (m.type !== "purchase" && m.type !== "initial_stock") return false;
+    if (m.quantityBase <= 0 || !report) return false;
     const at = Date.parse(m.createdAt);
     return (
       (!report.from || at >= Date.parse(report.from)) &&
       at < Date.parse(report.to)
     );
   });
-
-  const voidBatch = async (batchId: string) => {
-    if (
-      !window.confirm("متأكد إنك عاوز تلغي الدفعة دي؟ كميتها هتطلع من المخزون.")
-    ) {
-      return;
-    }
-    setVoiding(batchId);
-    try {
-      const res = await fetch("/api/stock", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "void", batchId }),
-      });
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}));
-        throw new Error(d.error?.message || "مقدرناش نلغي الدفعة");
-      }
-      setReloadKey((k) => k + 1);
-    } catch (e: unknown) {
-      alert(e instanceof Error ? e.message : "مقدرناش نلغي الدفعة");
-    } finally {
-      setVoiding(null);
-    }
-  };
 
   return (
     <div className={styles.page} data-testid="page-reports" dir="rtl">
@@ -198,121 +199,135 @@ export function ReportsView() {
         </div>
       ) : (
         <>
-          <div className={styles.grid2}>
-            <div className={styles.stat}>
-              <small>💵 بعت</small>
-              <b data-testid="report-sales">
-                {loading && !report ? (
-                  <Skeleton width={70} height={24} />
-                ) : (
-                  money(sales?.revenuePiasters)
-                )}
-              </b>
-              <small>{sales?.count ?? 0} عملية</small>
-            </div>
-            <div className={`${styles.stat} ${styles.good}`}>
-              <small>📈 ربحك</small>
-              <b data-testid="report-profit">{money(profit)}</b>
-              <small>
-                {sales && sales.unknownCostCount > 0
-                  ? t("home.unknownCost", { count: sales.unknownCostCount })
-                  : "بعد تكلفة البضاعة"}
-              </small>
-            </div>
-            <div className={styles.stat}>
-              <small>🧾 تكلفة البضاعة اللي اتباعت</small>
-              <b data-testid="report-cogs">{money(sales?.cogsPiasters)}</b>
-            </div>
-            <div className={styles.stat}>
-              <small>🛍️ بضاعة دخلت (بسعر الشراء)</small>
-              <b data-testid="report-purchases">
-                {money(report?.purchases.totalPiasters)}
-              </b>
-              <small>{report?.purchases.count ?? 0} دخلة · مش مصروف</small>
-            </div>
-            <div className={styles.stat}>
-              <small>💸 مصروفات</small>
-              <b data-testid="report-expenses">{money(expenses)}</b>
-              <small>{report?.expenses.count ?? 0} مصروف</small>
-            </div>
-            <div className={`${styles.stat} ${styles.bad}`}>
-              <small>🗑️ تالف</small>
-              <b data-testid="report-losses">{money(losses)}</b>
-              <small>{report?.losses.count ?? 0} مرة</small>
-            </div>
-          </div>
-          <div
-            className={`${styles.stat} ${left !== null && left < 0 ? styles.bad : styles.good}`}
-          >
-            <small>💰 اللي فاضل بعد المصروفات والتالف</small>
-            <b data-testid="report-left">{money(left)}</b>
-          </div>
+          {/* 1. عملت كام؟ */}
+          <section className={styles.qcard}>
+            <h3 className={styles.qtitle}>💵 بعت بكام؟</h3>
+            <b className={styles.qbig} data-testid="report-sales">
+              {loading && !report ? (
+                <Skeleton width={110} height={34} />
+              ) : (
+                money(sales?.revenuePiasters)
+              )}
+            </b>
+            <small className={styles.qsub}>
+              {sales?.count ?? 0} عملية بيع · بعد المرتجعات
+            </small>
+          </section>
 
-          <h3 className={styles.sech}>بعت إزاي؟</h3>
-          <div className={styles.sumbox} data-testid="report-by-payment">
-            <div className={styles.line}>
-              <span>💵 كاش</span>
-              <b>{money(pay?.cash)}</b>
-            </div>
-            <div className={styles.line}>
-              <span>💳 محافظ وماكينات</span>
-              <b>{pay ? formatMoney(pay.wallet + pay.card) : "—"}</b>
-            </div>
-            <div className={styles.line}>
-              <span>🧾 آجل</span>
-              <b>{money(pay?.debt)}</b>
-            </div>
-          </div>
-
-          {points.length > 1 && (
-            <>
-              <h3 className={styles.sech}>
-                {report?.series.granularity === "hour"
-                  ? "البيع على مدار اليوم"
-                  : "البيع يوم بيوم"}
-              </h3>
-              <div className={styles.sumbox} data-testid="report-series">
-                {points
-                  .filter((p) => p.revenuePiasters > 0)
-                  .map((p) => (
-                    <div key={p.key} className={styles.barRow}>
-                      <span className={styles.barKey}>
-                        {report?.series.granularity === "hour"
-                          ? `${p.key}:00`
-                          : dayLabel(`${p.key}T12:00:00Z`)}
-                      </span>
-                      <span className={styles.barTrack}>
-                        <i
-                          style={{
-                            width: `${Math.max(4, (p.revenuePiasters / maxPoint) * 100)}%`,
-                          }}
-                        />
-                      </span>
-                      <b>{formatMoney(p.revenuePiasters)}</b>
-                    </div>
-                  ))}
+          {/* 2. كسبت كام؟ */}
+          <section className={`${styles.qcard} ${styles.qgood}`}>
+            <h3 className={styles.qtitle}>📈 كسبت كام؟</h3>
+            <b className={styles.qbig} data-testid="report-profit">
+              {money(profit)}
+            </b>
+            <small className={styles.qsub}>
+              {sales && sales.unknownCostCount > 0
+                ? t("home.unknownCost", { count: sales.unknownCostCount })
+                : "الفرق بين البيع وتمن البضاعة اللي اتباعت"}
+            </small>
+            <div className={styles.qlines}>
+              <div className={styles.line}>
+                <span>تمن البضاعة اللي اتباعت</span>
+                <b data-testid="report-cogs">{money(sales?.cogsPiasters)}</b>
               </div>
-            </>
-          )}
+              <div className={styles.line}>
+                <span>💰 اللي فاضل بعد المصروفات والتالف</span>
+                <b
+                  data-testid="report-left"
+                  className={left !== null && left < 0 ? styles.redText : ""}
+                >
+                  {money(left)}
+                </b>
+              </div>
+            </div>
+          </section>
 
-          {report && report.topProducts.length > 0 && (
-            <>
-              <h3 className={styles.sech}>أكتر حاجات اتباعت</h3>
-              <div className={styles.sumbox} data-testid="report-top">
-                {report.topProducts.map((p) => (
-                  <div key={`${p.productId}-${p.name}`} className={styles.line}>
-                    <span>{p.name}</span>
-                    <b>{formatMoney(p.revenuePiasters)}</b>
+          {/* 3. صرفت كام؟ */}
+          <section className={styles.qcard}>
+            <h3 className={styles.qtitle}>💸 صرفت كام؟</h3>
+            <b className={styles.qbig} data-testid="report-expenses">
+              {money(expenses)}
+            </b>
+            <small className={styles.qsub}>
+              {report?.expenses.count ?? 0} مصروف
+            </small>
+            {expenseList && expenseList.length > 0 && (
+              <div className={styles.qlines} data-testid="report-expense-list">
+                {expenseList.map((e) => (
+                  <div key={e.id} className={styles.line}>
+                    <span>
+                      {t(`pages.expenses.categories.${e.category}`) ||
+                        e.category}
+                      <small className={styles.muted}>
+                        {" "}
+                        {dayLabel(e.spent_at)}
+                        {e.note ? ` · ${e.note}` : ""}
+                      </small>
+                    </span>
+                    <b>{formatMoney(e.amount_piasters)}</b>
                   </div>
                 ))}
               </div>
-            </>
-          )}
+            )}
+          </section>
 
-          {report && report.losses.recent.length > 0 && (
-            <>
-              <h3 className={styles.sech}>🗑️ التالف والفاقد</h3>
-              <div className={styles.sumbox} data-testid="home-losses">
+          {/* 4. دخل عندي بضاعة بكام؟ */}
+          <section className={styles.qcard}>
+            <h3 className={styles.qtitle}>📦 دخل عندك بضاعة بكام؟</h3>
+            <b className={styles.qbig} data-testid="report-purchases">
+              {money(report?.purchases.totalPiasters)}
+            </b>
+            <small className={styles.qsub}>
+              {report?.purchases.count ?? 0} مرة دخلت بضاعة · بسعر الشراء، مش
+              مصروف
+            </small>
+            <div className={styles.qlines} data-testid="report-additions">
+              {moves === null ? (
+                <Skeleton width={160} height={20} />
+              ) : additions.length === 0 ? (
+                <div className={styles.note}>مفيش بضاعة دخلت في الفترة دي</div>
+              ) : (
+                additions.map((m) => (
+                  <div key={m.id} className={styles.line}>
+                    <span>
+                      {m.productName}
+                      {m.flavor ? ` (${m.flavor})` : ""} ·{" "}
+                      {m.unitMode === "weight"
+                        ? `${m.quantityBase / 1000} كيلو`
+                        : `${m.quantityBase}`}
+                      <small className={styles.muted}>
+                        {" "}
+                        {dayLabel(m.createdAt)}
+                        {m.expiryDate
+                          ? ` · تنتهي ${m.expiryDate.slice(0, 10)}`
+                          : ""}
+                        {m.supplierName ? ` · ${m.supplierName}` : ""}
+                      </small>
+                    </span>
+                    <b>
+                      {m.costTotalMinor || m.costPricePiasters
+                        ? formatMoney(
+                            m.costTotalMinor || m.costPricePiasters || 0,
+                          )
+                        : "—"}
+                    </b>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
+
+          {/* 5. في تالف قد إيه؟ */}
+          <section className={`${styles.qcard} ${styles.qbad}`}>
+            <h3 className={styles.qtitle}>🗑️ في تالف قد إيه؟</h3>
+            <b className={styles.qbig} data-testid="report-losses">
+              {money(losses)}
+            </b>
+            <small className={styles.qsub}>
+              {report?.losses.count ?? 0} مرة · بسعر الشراء
+            </small>
+            {report && report.losses.recent.length > 0 && (
+              <div className={styles.qlines} data-testid="home-losses">
                 {report.losses.recent.map((l) => (
                   <div key={l.id} className={styles.line}>
                     <span>
@@ -330,71 +345,55 @@ export function ReportsView() {
                   </div>
                 ))}
               </div>
-            </>
-          )}
-
-          <h3 className={styles.sech}>📦 البضاعة اللي دخلت</h3>
-          <div className={styles.sumbox} data-testid="report-additions">
-            {moves === null ? (
-              <Skeleton width={160} height={20} />
-            ) : additions.length === 0 ? (
-              <div className={styles.note}>مفيش بضاعة دخلت في الفترة دي</div>
-            ) : (
-              additions.map((m) => (
-                <div key={m.id} className={styles.line}>
-                  <span>
-                    {m.productName}
-                    {m.flavor ? ` (${m.flavor})` : ""} ·{" "}
-                    {m.unitMode === "weight"
-                      ? `${m.quantityBase / 1000} كيلو`
-                      : `${m.quantityBase}`}
-                    <small className={styles.muted}>
-                      {" "}
-                      {dayLabel(m.createdAt)}
-                      {m.expiryDate
-                        ? ` · تنتهي ${m.expiryDate.slice(0, 10)}`
-                        : ""}
-                      {m.supplierName ? ` · ${m.supplierName}` : ""}
-                    </small>
-                  </span>
-                  <span className={styles.lineEnd}>
-                    <b>
-                      {m.costTotalMinor || m.costPricePiasters
-                        ? formatMoney(
-                            m.costTotalMinor || m.costPricePiasters || 0,
-                          )
-                        : "—"}
-                    </b>
-                    {m.type === "purchase" && m.batchId && (
-                      <button
-                        type="button"
-                        className={styles.voidBtn}
-                        disabled={voiding === m.batchId}
-                        onClick={() => void voidBatch(m.batchId!)}
-                        data-testid="report-void-batch"
-                      >
-                        إلغاء
-                      </button>
-                    )}
-                  </span>
-                </div>
-              ))
             )}
-          </div>
+          </section>
 
-          {report && report.byCategory.length > 0 && (
-            <>
-              <h3 className={styles.sech}>البيع حسب القسم</h3>
-              <div className={styles.sumbox}>
-                {report.byCategory.map((c) => (
-                  <div key={c.category} className={styles.line}>
-                    <span>{c.category || "متفرقات"}</span>
-                    <b>{formatMoney(c.revenuePiasters)}</b>
+          {/* 6. إيه المنتجات المهمة؟ */}
+          {report && report.topProducts.length > 0 && (
+            <section className={styles.qcard}>
+              <h3 className={styles.qtitle}>⭐ أكتر حاجات اتباعت</h3>
+              <div className={styles.qlines} data-testid="report-top">
+                {report.topProducts.map((p) => (
+                  <div key={`${p.productId}-${p.name}`} className={styles.line}>
+                    <span>{p.name}</span>
+                    <b>{formatMoney(p.revenuePiasters)}</b>
                   </div>
                 ))}
               </div>
-            </>
+              {report.byCategory.length > 1 && (
+                <>
+                  <div className={styles.lbl}>حسب القسم</div>
+                  <div className={styles.qlines}>
+                    {report.byCategory.map((c) => (
+                      <div key={c.category} className={styles.line}>
+                        <span>{c.category || "متفرقات"}</span>
+                        <b>{formatMoney(c.revenuePiasters)}</b>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </section>
           )}
+
+          {/* 7. بعت إزاي؟ — last */}
+          <section className={styles.qcard}>
+            <h3 className={styles.qtitle}>💳 بعت إزاي؟</h3>
+            <div className={styles.qlines} data-testid="report-by-payment">
+              <div className={styles.line}>
+                <span>💵 كاش</span>
+                <b>{money(pay?.cash)}</b>
+              </div>
+              <div className={styles.line}>
+                <span>💳 محافظ وماكينات</span>
+                <b>{pay ? formatMoney(pay.wallet + pay.card) : "—"}</b>
+              </div>
+              <div className={styles.line}>
+                <span>🧾 آجل</span>
+                <b>{money(pay?.debt)}</b>
+              </div>
+            </div>
+          </section>
         </>
       )}
     </div>

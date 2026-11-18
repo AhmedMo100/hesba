@@ -6,12 +6,11 @@ import { parseEgpStrict } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./ExpensesView.module.css";
-import { Empty, Icon, PeriodFilter, ListSkeleton } from "@/client/shared/ui";
+import { Empty, Icon, ListSkeleton } from "@/client/shared/ui";
 import { t, formatMoney, normDigits } from "@/client/shared/i18n";
 import {
   EXPENSE_CATEGORIES,
   type ExpenseCategory,
-  EXPENSE_PERIODS,
   type ExpensePeriod,
 } from "@/schemas/expense";
 
@@ -130,9 +129,8 @@ export function ExpensesView() {
   const [dateStr, setDateStr] = useState(getTodayCairoDateString());
   const [showExtra, setShowExtra] = useState(false);
 
-  const [period, setPeriod] = useState<ExpensePeriod>("today");
-  const [customFrom, setCustomFrom] = useState(getTodayCairoDateString());
-  const [customTo, setCustomTo] = useState(getTodayCairoDateString());
+  // Only today's expenses here: earlier days live in the reports (التقارير).
+  const period: ExpensePeriod = "today";
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [totalPiasters, setTotalPiasters] = useState(0);
@@ -146,12 +144,7 @@ export function ExpensesView() {
     try {
       setLoading(true);
       setError(null);
-      let url = `/api/expenses?period=${period}`;
-      if (period === "custom") {
-        url += `&from=${customFrom}&to=${customTo}`;
-      }
-
-      const res = await apiGet(url);
+      const res = await apiGet(`/api/expenses?period=${period}`);
       if (!res.ok) {
         throw new Error(
           t("pages.expenses.loadError") ||
@@ -172,16 +165,11 @@ export function ExpensesView() {
     } finally {
       setLoading(false);
     }
-  }, [period, customFrom, customTo]);
+  }, [period]);
 
   useEffect(() => {
     let ignore = false;
-    let url = `/api/expenses?period=${period}`;
-    if (period === "custom") {
-      url += `&from=${customFrom}&to=${customTo}`;
-    }
-
-    apiGet(url)
+    apiGet(`/api/expenses?period=${period}`)
       .then((res) => {
         if (!res.ok) {
           throw new Error(
@@ -215,7 +203,7 @@ export function ExpensesView() {
     return () => {
       ignore = true;
     };
-  }, [period, customFrom, customTo]);
+  }, [period]);
 
   const expenseOp = useRetryOpId();
 
@@ -297,9 +285,7 @@ export function ExpensesView() {
     }
   };
 
-  const periodTitle = useMemo(() => {
-    return t(`pages.expenses.periods.${period}`);
-  }, [period]);
+  const periodTitle = t(`pages.expenses.periods.${period}`);
 
   const activeCategoriesCount = useMemo(() => {
     return Object.keys(byCategory).length;
@@ -418,24 +404,6 @@ export function ExpensesView() {
           </button>
         </form>
 
-        {/* Period filter: the app's one PeriodFilter (shared chips + custom day/range) */}
-        <PeriodFilter<ExpensePeriod>
-          options={EXPENSE_PERIODS.map(
-            (pKey) => [pKey, t(`pages.expenses.periods.${pKey}`)] as const,
-          )}
-          value={period}
-          onChange={setPeriod}
-          customKey="custom"
-          from={customFrom}
-          to={customTo}
-          onRangeChange={(f, to) => {
-            const today = getTodayCairoDateString();
-            setCustomFrom(f || today);
-            setCustomTo(to || f || today);
-          }}
-          max={getTodayCairoDateString()}
-        />
-
         {/* Total Summary Banner */}
         <div className={styles.totalBanner}>
           <span className={styles.totalLabel}>
@@ -510,6 +478,9 @@ export function ExpensesView() {
             ))}
           </div>
         )}
+        <p className={styles.historyNote} data-testid="expenses-history-note">
+          مصروفات الأيام اللي فاتت في التقارير 📊
+        </p>
       </div>
     </div>
   );

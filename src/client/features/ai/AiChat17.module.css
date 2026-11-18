@@ -1,0 +1,271 @@
+/* «اسأل حسبة» — V17 #chat: .chatTop, #chatBody, .msg.u / .msg.b, .chatHello, .chip, .chatIn */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: calc(100dvh - 82px - env(safe-area-inset-bottom, 0px));
+  max-height: calc(100dvh - 82px - env(safe-area-inset-bottom, 0px));
+  overflow: hidden;
+}
+
+@media (min-width: 900px) {
+  .page {
+    height: calc(100dvh - 110px);
+    max-height: calc(100dvh - 110px);
+  }
+}
+
+/* .chatTop{display:flex;gap:8px;margin-bottom:10px} with two .btn.ghost */
+.chatTop {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex: none;
+}
+
+.ghostBtn {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  padding: 13px 6px;
+  border-radius: 18px;
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* #chatBody{display:flex;flex-direction:column;gap:8px} */
+.body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-bottom: 8px;
+}
+
+/* .msg{max-width:84%;padding:11px 14px;border-radius:18px;font-size:17px;line-height:1.6} */
+.msg {
+  max-width: 84%;
+  padding: 11px 14px;
+  border-radius: 18px;
+  font-size: 17px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+/* .msg.u: the owner's question, dark, on the start side */
+.u {
+  align-self: flex-start;
+  background: var(--dark);
+  color: var(--cream);
+  border-bottom-right-radius: 6px;
+  white-space: pre-wrap;
+}
+
+/* .msg.b: Hesba's answer, a card, on the end side */
+.b {
+  align-self: flex-end;
+  background: var(--card);
+  color: var(--ink);
+  border-bottom-left-radius: 6px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+/* .chatHello{background:var(--card);border-radius:18px;padding:16px;font-size:17px;line-height:1.6} */
+.hello {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 16px;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--ink);
+}
+
+/* .chip{padding:12px 16px;border-radius:24px;background:var(--card);border:2px solid var(--line);font:700 18px} */
+.chip {
+  align-self: flex-start;
+  display: inline-block;
+  padding: 12px 16px;
+  border-radius: 24px;
+  background: var(--card);
+  border: 2px solid var(--line);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: start;
+}
+
+.chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.warn {
+  background: var(--yelBg);
+  border: 2px solid var(--yelLine);
+  color: var(--ink);
+  border-radius: 16px;
+  padding: 10px 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.error {
+  align-self: stretch;
+  background: var(--redBg);
+  color: var(--red);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-weight: 700;
+}
+
+.typing {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+}
+
+.typing i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--muted);
+  animation: dot 1.2s infinite ease-in-out;
+}
+
+.typing i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.typing i:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+@keyframes dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.3;
+  }
+  40% {
+    opacity: 1;
+  }
+}
+
+/* .chatHead + .row list: the previous conversations */
+.head {
+  font-size: 19px;
+  font-weight: 800;
+  margin-bottom: 6px;
+  color: var(--ink);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  background: var(--card);
+  border-radius: 18px;
+  padding: 15px;
+  border: 0;
+  font-family: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  text-align: start;
+}
+
+.row .em {
+  font-size: 26px;
+}
+
+.row .t {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.row .t b {
+  font-size: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.row .t span {
+  color: var(--muted);
+  font-size: 15px;
+}
+
+/* .chatIn: input + «إرسال» */
+.chatIn {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  background: var(--bg);
+  padding: 10px 0 4px;
+  box-shadow: 0 -4px 14px rgba(0, 0, 0, 0.06);
+}
+
+.chatIn textarea {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 14px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 700;
+  background: var(--card);
+  color: var(--ink);
+  resize: none;
+  line-height: 1.4;
+  max-height: 132px;
+}
+
+.send {
+  padding: 0 18px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--dark);
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.send:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mic {
+  flex: none;
+  width: 50px;
+  border-radius: 16px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 20px;
+  cursor: pointer;
+}
+
+.micOn {
+  border-color: var(--red);
+  color: var(--red);
+}

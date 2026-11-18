@@ -221,6 +221,11 @@ export function HomeView({
         </div>
       )}
 
+      {/* V17: the greeting above the day's numbers */}
+      <h2 className={styles.hello} data-testid="home-hello">
+        أهلاً بيك 👋
+      </h2>
+
       <div className={styles.sumrow}>
         <button
           type="button"

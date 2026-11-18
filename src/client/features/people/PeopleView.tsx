@@ -549,14 +549,6 @@ export function PeopleView() {
 
   return (
     <div className={styles.container} data-testid="page-people">
-      {/* Header */}
-      <div className={styles.head}>
-        <div>
-          <h1 className={styles.title}>{t("pages.people.title")}</h1>
-          <p className={styles.sub}>{t("pages.people.sub")}</p>
-        </div>
-      </div>
-
       {/* Tabs (V19 chips) */}
       <div className={styles.chips} role="tablist">
         {(
@@ -576,28 +568,6 @@ export function PeopleView() {
             {label}
           </button>
         ))}
-      </div>
-
-      {/* Summary Banner */}
-      <div className={styles.summaryBanner}>
-        <span className={styles.summaryText}>
-          {section === "owedToMe"
-            ? t("pages.people.summaryOwedToMe", {
-                count: currentSectionData.count,
-              })
-            : section === "iOwe"
-              ? t("pages.people.summaryIOwe", {
-                  count: currentSectionData.count,
-                })
-              : t("pages.people.suppliersCountTitle")}
-        </span>
-        <span className={styles.summaryAmount}>
-          {section === "suppliers"
-            ? t("pages.people.suppliersCount", {
-                count: currentSectionData.count,
-              })
-            : formatEgp(currentSectionData.totalPiasters)}
-        </span>
       </div>
 
       {/* Content / States */}
@@ -649,6 +619,27 @@ export function PeopleView() {
               </b>
             </button>
           ))}
+        </div>
+      )}
+
+      {/* The total, at the bottom (owed to me / what I owe the suppliers) */}
+      {!error && currentSectionData.loaded && (
+        <div className={styles.totalRow} data-testid="people-total">
+          <span>
+            {section === "suppliers"
+              ? "المجموع اللي عليك للموردين"
+              : "المجموع اللي ليك عند الناس"}
+            <small>
+              {" "}
+              ·{" "}
+              {section === "suppliers"
+                ? t("pages.people.suppliersCount", {
+                    count: currentSectionData.count,
+                  })
+                : `${currentSectionData.count} شخص`}
+            </small>
+          </span>
+          <b>{formatEgp(currentSectionData.totalPiasters)}</b>
         </div>
       )}
 

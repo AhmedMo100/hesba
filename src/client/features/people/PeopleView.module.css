@@ -1065,3 +1065,30 @@
   font-weight: 800;
   cursor: pointer;
 }
+
+/* The section's total, under the list */
+.totalRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  background: var(--card);
+  border-radius: 18px;
+  padding: 14px;
+  margin: 10px 0 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.totalRow small {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.totalRow b {
+  font-size: 20px;
+  font-weight: 800;
+  white-space: nowrap;
+}

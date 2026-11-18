@@ -16,6 +16,9 @@ import styles from "./HomeView.module.css";
 export function InventoryView() {
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">(
+    "all",
+  );
   const [machines, setMachines] = useState<PosMachine[] | null>(null);
   const [people, setPeople] = useState<{
     owedToMe: number | null;
@@ -90,11 +93,12 @@ export function InventoryView() {
 
   const filteredInventory = useMemo(() => {
     const qNorm = normalizeArabic(query.trim());
-    if (!qNorm) return inventoryRows;
-    return inventoryRows.filter((item) =>
-      normalizeArabic(item.productName).includes(qNorm),
+    return inventoryRows.filter(
+      (item) =>
+        (statusFilter === "all" || item.status === statusFilter) &&
+        (!qNorm || normalizeArabic(item.productName).includes(qNorm)),
     );
-  }, [inventoryRows, query]);
+  }, [inventoryRows, query, statusFilter]);
 
   const totalCostPiasters = useMemo(
     () => inventoryRows.reduce((sum, item) => sum + item.costPiasters, 0),
@@ -238,120 +242,155 @@ export function InventoryView() {
         </div>
       </div>
 
-      <h3 className={styles.sech}>📋 الأصناف</h3>
-      <div className={styles.invBar}>
-        <div className={styles.invSearch}>
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="دوّر في الجرد"
-          />
+      {/* الأصناف: one clear card — its numbers, a filter, then search and export, then the table */}
+      <section className={styles.itemsCard} data-testid="inventory-items">
+        <div className={styles.itemsHead}>
+          <h3>📋 الأصناف</h3>
+          <span className={styles.itemsCount}>{inventory.length} صنف</span>
         </div>
-        <button
-          type="button"
-          className={styles.exportBtn}
-          onClick={exportToExcel}
-          title="تصدير بيانات الجرد إلى Excel"
-        >
-          <Icon n="download" s={15} />
-          <span>تصدير Excel</span>
-        </button>
-      </div>
+        <div className={styles.itemsStats} role="tablist">
+          {(
+            [
+              ["all", "كله", inventory.length, ""],
+              ["low", "قرب يخلص", lowCount, styles.statYel],
+              ["out", "خلصان", outCount, styles.statRed],
+            ] as const
+          ).map(([k, label, n, tone]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={statusFilter === k}
+              className={`${styles.itemsStat} ${tone} ${statusFilter === k ? styles.itemsStatOn : ""}`}
+              onClick={() => setStatusFilter(k)}
+              data-testid={`inventory-filter-${k}`}
+            >
+              <b>{n}</b>
+              <small>{label}</small>
+            </button>
+          ))}
+        </div>
 
-      <div className={styles.tblCard}>
-        <div className={styles.tblW}>
-          <table className={styles.tbl}>
-            <thead>
-              <tr>
-                <th>المنتج</th>
-                <th>الكمية</th>
-                <th>قيمة الشراء</th>
-                <th>قيمة البيع</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredInventory.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    style={{ textAlign: "center", padding: "24px" }}
-                  >
-                    <Empty
-                      icon="search"
-                      title="مفيش أصناف مطابقة"
-                      sub="تأكد من كتابة اسم المنتج بشكل صحيح"
-                    />
-                  </td>
-                </tr>
-              ) : (
-                filteredInventory.map((item) => {
-                  const isOut = item.status === "out";
-                  const isLow = item.status === "low";
-                  return (
-                    <tr key={item.productId}>
-                      <td>
-                        <span
-                          className={`${styles.dot} ${
-                            isOut
-                              ? styles.dotRed
-                              : isLow
-                                ? styles.dotYellow
-                                : styles.dotGreen
-                          }`}
-                        />
-                        <span>{item.productName}</span>
-                      </td>
-                      <td>
-                        {isOut ? (
-                          <span className={styles.tagOut}>خلصان</span>
-                        ) : (
-                          formatQtyText(
-                            item.unitMode,
-                            item.currentStockBase,
-                            item.packQty,
-                            item.unit,
-                            item.packName || undefined,
-                          )
-                        )}
-                      </td>
-                      <td>
-                        {((item.costPiasters || 0) / 100).toLocaleString(
-                          "en-US",
-                          { maximumFractionDigits: 2 },
-                        )}
-                      </td>
-                      <td>
-                        {((item.valPiasters || 0) / 100).toLocaleString(
-                          "en-US",
-                          { maximumFractionDigits: 2 },
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-            {filteredInventory.length > 0 && (
-              <tfoot>
-                <tr>
-                  <td>الإجمالي</td>
-                  <td />
-                  <td>
-                    {(totalCostPiasters / 100).toLocaleString("en-US", {
-                      maximumFractionDigits: 1,
-                    })}
-                  </td>
-                  <td>
-                    {(totalSellPiasters / 100).toLocaleString("en-US", {
-                      maximumFractionDigits: 1,
-                    })}
-                  </td>
-                </tr>
-              </tfoot>
-            )}
-          </table>
+        <div className={styles.invBar}>
+          <div className={styles.invSearch}>
+            <SearchBox
+              value={query}
+              onChange={setQuery}
+              placeholder="دوّر في الجرد"
+            />
+          </div>
+          <button
+            type="button"
+            className={styles.exportBtn}
+            onClick={exportToExcel}
+            title="تصدير بيانات الجرد إلى Excel"
+          >
+            <Icon n="download" s={15} />
+            <span>تصدير Excel</span>
+          </button>
         </div>
-      </div>
+
+        <div className={styles.tblCard}>
+          <div className={styles.tblW}>
+            <table className={styles.tbl}>
+              <thead>
+                <tr>
+                  <th className={styles.colName}>الصنف</th>
+                  <th className={styles.colQty}>الكمية</th>
+                  <th className={styles.colNum}>
+                    بالشراء
+                    <small>ج</small>
+                  </th>
+                  <th className={styles.colNum}>
+                    بالبيع
+                    <small>ج</small>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredInventory.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={4}
+                      style={{ textAlign: "center", padding: "24px" }}
+                    >
+                      <Empty
+                        icon="search"
+                        title="مفيش أصناف مطابقة"
+                        sub="تأكد من كتابة اسم المنتج بشكل صحيح"
+                      />
+                    </td>
+                  </tr>
+                ) : (
+                  filteredInventory.map((item) => {
+                    const isOut = item.status === "out";
+                    const isLow = item.status === "low";
+                    return (
+                      <tr key={item.productId}>
+                        <td>
+                          <span
+                            className={`${styles.dot} ${
+                              isOut
+                                ? styles.dotRed
+                                : isLow
+                                  ? styles.dotYellow
+                                  : styles.dotGreen
+                            }`}
+                          />
+                          <span>{item.productName}</span>
+                        </td>
+                        <td>
+                          {isOut ? (
+                            <span className={styles.tagOut}>خلصان</span>
+                          ) : (
+                            formatQtyText(
+                              item.unitMode,
+                              item.currentStockBase,
+                              item.packQty,
+                              item.unit,
+                              item.packName || undefined,
+                            )
+                          )}
+                        </td>
+                        <td>
+                          {((item.costPiasters || 0) / 100).toLocaleString(
+                            "en-US",
+                            { maximumFractionDigits: 2 },
+                          )}
+                        </td>
+                        <td>
+                          {((item.valPiasters || 0) / 100).toLocaleString(
+                            "en-US",
+                            { maximumFractionDigits: 2 },
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+              {filteredInventory.length > 0 && (
+                <tfoot>
+                  <tr>
+                    <td>الإجمالي</td>
+                    <td />
+                    <td>
+                      {(totalCostPiasters / 100).toLocaleString("en-US", {
+                        maximumFractionDigits: 1,
+                      })}
+                    </td>
+                    <td>
+                      {(totalSellPiasters / 100).toLocaleString("en-US", {
+                        maximumFractionDigits: 1,
+                      })}
+                    </td>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
