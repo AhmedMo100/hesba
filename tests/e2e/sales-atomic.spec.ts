@@ -103,9 +103,15 @@ test.describe("Atomic sale on the sales screen", () => {
     const tile = page.getByRole("button", { name: `بيع ${name}` });
     await expect(tile).toBeVisible(PAGE_LOAD);
     const recent = page.locator("[class*='recentList']");
+    // V19: a tap opens the sell sheet (quantity 1, cash); «بيع ✅» records the sale.
+    const confirm = page.getByTestId("sell-confirm").last();
+    const sell = async () => {
+      await tile.click();
+      await confirm.click();
+    };
 
     // ---- A. A normal sale --------------------------------------------------------------
-    await tile.click();
+    await sell();
     await expect(page.getByText(`تم تسجيل بيع: ${name}`)).toBeVisible(SERVER);
     expect(await stockOf(api, variantId)).toBe(2);
     expect(await salesOf(api, name)).toEqual([
@@ -124,7 +130,7 @@ test.describe("Atomic sale on the sales screen", () => {
     expect(elsewhere.ok()).toBe(true);
     expect(await stockOf(api, variantId)).toBe(0);
 
-    await tile.click();
+    await sell();
     await expect(page.getByText("الكمية في المخزن مش كفاية")).toBeVisible(
       SERVER,
     );
@@ -147,7 +153,7 @@ test.describe("Atomic sale on the sales screen", () => {
     await expect(tile).toBeVisible(PAGE_LOAD);
     const postsBeforeOffline = salePosts.length;
     await page.context().setOffline(true);
-    await tile.click();
+    await sell();
     await expect(page.getByTestId("sale-toast")).toHaveAttribute(
       "data-kind",
       "pending",
@@ -162,13 +168,14 @@ test.describe("Atomic sale on the sales screen", () => {
     expect(await stockOf(api, variantId)).toBe(1);
     expect(await salesOf(api, name)).toHaveLength(3);
 
-    // ---- D. Two fast taps on the last piece -------------------------------------------
+    // ---- D. Two fast taps on «بيع» for the last piece: the sheet closes on the first,
+    // so one sale is sent and the stock never goes below zero.
     await tile.click();
-    await tile.click({ force: true });
+    await confirm.dblclick();
     await expect
       .poll(() => salePosts.length, SERVER)
-      .toBe(postsBeforeOffline + 3);
-    expect(salePosts.slice(-2).sort()).toEqual([200, 409]);
+      .toBe(postsBeforeOffline + 2);
+    expect(salePosts.slice(-1)).toEqual([200]);
     expect(await stockOf(api, variantId)).toBe(0);
     expect(await salesOf(api, name)).toHaveLength(4);
   });

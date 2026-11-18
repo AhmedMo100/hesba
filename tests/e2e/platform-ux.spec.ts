@@ -70,7 +70,7 @@ async function open(page: Page, path: string, testId: string) {
   await expect(page.getByTestId(testId)).toBeVisible(PAGE_LOAD);
 }
 
-test("header: logo, shop menu with theme/sync/logout; no theme button in the bar", async ({
+test("header (V19): title and shop name, theme button, no bell; shop menu keeps theme/sync/logout", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -83,11 +83,14 @@ test("header: logo, shop menu with theme/sync/logout; no theme button in the bar
     `سوبر ماركت ${run}`,
     SERVER,
   );
-  await expect(header.locator('img[src="/logo.png"]')).toBeVisible();
-  await expect(header.getByRole("button", { name: /المظهر/ })).toHaveCount(0);
+  await expect(header.getByRole("button", { name: /الوضع/ })).toBeVisible();
   await expect(
     header.getByRole("button", { name: /جرس التنبيهات/ }),
-  ).toBeVisible();
+  ).toHaveCount(0);
+  // Home has no back arrow; an inner page does, and it goes home.
+  await expect(
+    header.getByRole("button", { name: "رجوع للرئيسية" }),
+  ).toHaveCount(0);
 
   await header.getByTestId("store-button").click();
   const menu = page.getByRole("menu");
@@ -95,7 +98,7 @@ test("header: logo, shop menu with theme/sync/logout; no theme button in the bar
   await expect(menu).toContainText(`سوبر ماركت ${run}`);
   await expect(menu).toContainText("أحمد · متصل");
   await expect(menu).toContainText("بيانات الحساب والمحل");
-  await expect(menu).toContainText("كله متزامن ✓");
+  await expect(menu).toContainText("كل حاجة تمام ✓");
   await expect(menu).toContainText("تسجيل الخروج");
   await menu.getByRole("tab", { name: "غامق" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
@@ -103,53 +106,28 @@ test("header: logo, shop menu with theme/sync/logout; no theme button in the bar
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
 });
 
-test("bottom navigation: six screens around «البيع», alerts from the bell", async ({
+test("navigation: no bottom bar; the home tiles open every screen and the back arrow returns home", async ({
   page,
 }) => {
-  test.skip(
-    (page.viewportSize()?.width ?? 0) >= 900,
-    "the bottom navigation is the phone layout",
-  );
   test.setTimeout(180_000);
   await signup(page.request, "محل التنقل");
   await open(page, "/app", "page-home");
-  const nav = page.locator("nav[aria-label]").last();
-  // Icons only: the names are the accessible labels (and tooltips), no visible text.
-  const labels = await nav
-    .locator("button")
-    .evaluateAll((bs) => bs.map((b) => b.getAttribute("aria-label")));
-  expect(labels).toEqual([
-    "الرئيسية",
-    "المنتجات",
-    "المخزون",
-    "البيع",
-    "المصاريف",
-    "الناس",
-    "المساعد",
-  ]);
-  expect((await nav.innerText()).trim()).toBe("");
-  // RTL: الرئيسية on the right, المساعد on the left, البيع in the middle.
-  const box = async (id: string) => (await page.getByTestId(id).boundingBox())!;
-  const home = await box("bnav-home");
-  const sales = await box("bnav-sales");
-  const ai = await box("bnav-ai");
-  expect(home.x).toBeGreaterThan(sales.x);
-  expect(sales.x).toBeGreaterThan(ai.x);
-  const width = page.viewportSize()!.width;
-  expect(Math.abs(sales.x + sales.width / 2 - width / 2)).toBeLessThan(4);
-  await expect(nav.getByRole("button", { name: "المزيد" })).toHaveCount(0);
-
-  for (const [id, screen] of [
-    ["bnav-expenses", "page-expenses"],
-    ["bnav-people", "page-people"],
-    ["bnav-ai", "page-ai"],
-    ["bnav-stock", "page-stock"],
+  await expect(page.locator('[data-testid^="bnav-"]')).toHaveCount(0);
+  for (const [route, screen] of [
+    ["stock", "page-stock"],
+    ["expenses", "page-expenses"],
+    ["sales", "page-sales"],
+    ["people", "page-people"],
+    ["alerts", "page-alerts"],
+    ["products", "page-products"],
+    ["inventory", "page-inventory"],
+    ["ai", "page-ai"],
   ] as const) {
-    await page.getByTestId(id).click();
+    await page.getByTestId(`home-tile-${route}`).click();
     await expect(page.getByTestId(screen)).toBeVisible(PAGE_LOAD);
+    await page.getByRole("button", { name: "رجوع للرئيسية" }).click();
+    await expect(page.getByTestId("page-home")).toBeVisible(PAGE_LOAD);
   }
-  await page.locator('header button[aria-label^="جرس التنبيهات"]').click();
-  await expect(page.getByTestId("page-alerts")).toBeVisible(PAGE_LOAD);
 });
 
 test("QA-57: the shop name stays in the header when the session cannot be loaded (offline)", async ({
@@ -179,7 +157,7 @@ test("QA-57: the shop name stays in the header when the session cannot be loaded
   expect(sessionCalls.length).toBeGreaterThan(0);
 });
 
-test("stock form: the unit comes from the product; history has the six period filters", async ({
+test("stock form: the quantity follows the product's unit; reports have the six period filters", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -192,28 +170,32 @@ test("stock form: the unit comes from the product; history has the six period fi
     packQty: 20,
   });
   await open(page, "/app/stock", "page-stock");
-  await page.getByRole("button", { name: `مكرونة ${run}` }).click();
-  await page.getByRole("button", { name: /إضافة بضاعة جديدة/ }).click();
-  const unit = page.getByRole("dialog").getByTestId("stock-unit");
-  await expect(unit).toContainText("بـكيس");
-  await expect(unit).toContainText("الكرتونة 20 كيس");
-  await expect(page.getByText("طريقة البيع")).toHaveCount(0);
-  await expect(page.getByText("تصفير")).toHaveCount(0);
+  await page.getByTestId("stock-manual-btn").click();
+  const sheet = page.getByRole("dialog").last();
+  await sheet.getByRole("button", { name: /اختار المنتج/ }).click();
+  await sheet
+    .getByRole("button", { name: new RegExp(`مكرونة ${run}`) })
+    .click();
+  await sheet.getByRole("button", { name: /كمّل/ }).click();
+  const label = page.getByTestId("stock-qty-label").last();
+  await expect(label).toHaveText("عدد الأكياس", SERVER);
+  await expect(page.getByTestId("stock-cost-label").last()).toContainText(
+    "الكيس",
+  );
+  await page.getByTestId("stock-unit-pack").last().click();
+  await expect(label).toContainText("عدد");
   await page.keyboard.press("Escape");
 
-  await page.getByRole("button", { name: "سجل الإضافات" }).click();
-  for (const label of [
-    "اليوم",
-    "امبارح",
-    "الأسبوع",
-    "الشهر",
-    "السنة",
-    "فترة مخصصة",
-  ]) {
-    await expect(page.getByRole("tab", { name: label })).toBeVisible();
+  await open(page, "/app/reports", "page-reports");
+  for (const p of ["today", "yesterday", "week", "month", "year", "custom"]) {
+    await expect(page.getByTestId(`report-period-${p}`)).toBeVisible();
   }
-  await page.getByTestId("period-custom").click();
-  await expect(page.getByTestId("period-from")).toBeVisible();
+  await page.getByTestId("report-period-custom").click();
+  await expect(page.getByTestId("report-from")).toBeVisible();
+  await expect(page.getByTestId("report-additions")).toContainText(
+    `مكرونة ${run}`,
+    SERVER,
+  );
 });
 
 test("«ليك» with products: stock is taken and the customer owes the invoice", async ({
@@ -235,7 +217,8 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   const customerId = (await person.json()).person.id as string;
 
   await open(page, "/app/people", "page-people");
-  await page.getByTestId(`customer-debt-${customerId}`).click();
+  await page.getByTestId(`person-row-${customerId}`).click();
+  await page.getByTestId(`customer-debt-${customerId}`).last().click();
   const sheet = page.getByRole("dialog").getByTestId("customer-debt-sheet");
   await sheet.getByTestId("debt-with-products").click();
   await sheet.getByTestId("lines-search").fill(`شاي ليك ${run}`);
@@ -245,10 +228,9 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   await row.getByTestId("lines-units").fill("1");
   await expect(sheet.getByTestId("debt-estimate")).toContainText("210");
   await page.getByRole("dialog").getByTestId("debt-submit").click();
-  await expect(page.getByTestId(`person-balance-${customerId}`)).toContainText(
-    "210",
-    SERVER,
-  );
+  await expect(
+    page.getByTestId(`person-balance-${customerId}`).last(),
+  ).toContainText("210", SERVER);
 
   const inv = (await (await api.get("/api/stock")).json()).inventory as Array<{
     variantId: string;
@@ -271,9 +253,9 @@ test("P4: record a loss from Stock; Home shows it under «التالف / الف�
     stock: 12,
   });
 
-  await open(page, "/app/stock", "page-stock");
-  await page.getByTestId(`stock-row-${juice}`).click();
-  await page.getByRole("dialog").getByTestId("stock-action-loss").click();
+  await open(page, "/app/products", "page-products");
+  await page.getByRole("button", { name: `خيارات عصير تالف ${run}` }).click();
+  await page.locator('[data-testid^="record-loss-"]').click();
   const form = page.getByRole("dialog").getByTestId("record-loss");
   await form.getByTestId("loss-reason-damaged").click();
   await form.getByTestId("loss-units").fill("2");
@@ -291,14 +273,13 @@ test("P4: record a loss from Stock; Home shows it under «التالف / الف�
     )
     .toBe(10);
 
-  await open(page, "/app", "page-home");
-  await page.getByRole("tab", { name: /التقرير/ }).click();
+  await open(page, "/app/reports", "page-reports");
   const losses = page.getByTestId("home-losses");
   await expect(losses).toContainText(`عصير تالف ${run}`, SERVER);
   await expect(losses).toContainText("تالف");
 
   // The stocktake search: the mic is inside the search box, not under Export.
-  await page.getByRole("tab", { name: /الجرد/ }).click();
+  await open(page, "/app/inventory", "page-inventory");
   const mic = page.getByRole("button", { name: "بحث بالصوت" }).first();
   const box = await mic.evaluate((el) => {
     const sb = el.parentElement!.getBoundingClientRect();

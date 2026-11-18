@@ -125,11 +125,12 @@ test("QA-52: a weighed product under 3 kg is «قرب يخلص» on Alerts", asy
     ),
   ).toBe(true);
 
-  await page.goto("/app/alerts", {
+  // The stand-alone alerts page (the home alert strip opens it).
+  await page.goto("/app/notifications", {
     waitUntil: "domcontentloaded",
     ...PAGE_LOAD,
   });
-  await expect(page.getByTestId("page-alerts")).toBeVisible(PAGE_LOAD);
+  await expect(page.getByTestId("page-notifications")).toBeVisible(PAGE_LOAD);
   await expect(page.getByText(`جبنة رومي ${run}`).first()).toBeVisible(
     PAGE_LOAD,
   );

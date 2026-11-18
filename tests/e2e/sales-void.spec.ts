@@ -119,6 +119,7 @@ test.describe("Sales screen: server-only totals and undo", () => {
 
     // ---- B. One recorded sale, then one the server rejects --------------------------------
     await tile.click();
+    await page.getByTestId("sell-confirm").last().click(); // V19 sell sheet
     await expect(page.getByText(`تم تسجيل بيع: ${name}`)).toBeVisible(SERVER);
     await expect(total).toHaveText("15 ج.م", SERVER);
     // Another device sells the last piece; this screen still shows 1 in stock.
@@ -127,6 +128,7 @@ test.describe("Sales screen: server-only totals and undo", () => {
     });
     expect(elsewhere.ok()).toBe(true);
     await tile.click();
+    await page.getByTestId("sell-confirm").last().click(); // V19 sell sheet
     await expect(page.getByText("الكمية في المخزن مش كفاية")).toBeVisible(
       SERVER,
     );
@@ -155,6 +157,7 @@ test.describe("Sales screen: server-only totals and undo", () => {
         voidPosts.push(r.status());
     });
     await tile.click();
+    await page.getByTestId("sell-confirm").last().click(); // V19 sell sheet
     await expect(page.getByText(`تم تسجيل بيع: ${name}`)).toBeVisible(SERVER);
     // Undo straight from the success toast (it stays a few seconds, like the demo's).
     await page.getByTestId("sale-undo").click();

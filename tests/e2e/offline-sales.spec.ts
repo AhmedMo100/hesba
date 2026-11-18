@@ -149,6 +149,8 @@ test.describe("Offline sales (outbox)", () => {
     await context.setOffline(true);
     for (let i = 0; i < 3; i++) {
       await colaTile.click();
+      await page.getByTestId("sell-confirm").last().click();
+      await expect(page.getByRole("dialog")).toHaveCount(0);
       await expect(toast).toHaveAttribute("data-kind", "pending");
     }
     await expect(rows).toHaveCount(3);
@@ -179,7 +181,10 @@ test.describe("Offline sales (outbox)", () => {
     await expect(rows2).toHaveCount(0, SERVER);
     expect(await serverSales(api, colaName)).toBe(3);
     expect(await stockOf(api, cola)).toBe(7);
-    await expect(page2.getByRole("status").first()).toContainText("متزامن");
+    // Synced: the sync bar is gone (it only shows while something waits).
+    await expect(
+      page2.locator('[role="status"][aria-live="polite"]'),
+    ).toHaveCount(0, SERVER);
 
     // ---- 5. Lost response: the server commits, the answer never arrives ----------------
     await context.route("**/api/sales", async (route) => {
@@ -189,6 +194,8 @@ test.describe("Offline sales (outbox)", () => {
     });
     const colaTile2 = page2.getByRole("button", { name: `بيع ${colaName}` });
     await colaTile2.click();
+    await page2.getByTestId("sell-confirm").last().click();
+    await expect(page2.getByRole("dialog")).toHaveCount(0);
     await expect(page2.getByTestId("sale-toast")).toHaveAttribute(
       "data-kind",
       "pending",
@@ -213,6 +220,8 @@ test.describe("Offline sales (outbox)", () => {
         : route.continue(),
     );
     await colaTile2.click();
+    await page2.getByTestId("sell-confirm").last().click();
+    await expect(page2.getByRole("dialog")).toHaveCount(0);
     await expect(rows2).toHaveCount(1, SERVER);
     await expect(rows2.first()).toHaveAttribute("data-status", "pending");
     await context.unrouteAll({ behavior: "wait" });
@@ -239,7 +248,11 @@ test.describe("Offline sales (outbox)", () => {
     await context.setOffline(true);
     const juiceTile2 = page2.getByRole("button", { name: `بيع ${juiceName}` });
     await juiceTile2.click();
+    await page2.getByTestId("sell-confirm").last().click();
+    await expect(page2.getByRole("dialog")).toHaveCount(0);
     await juiceTile2.click();
+    await page2.getByTestId("sell-confirm").last().click();
+    await expect(page2.getByRole("dialog")).toHaveCount(0);
     await expect(rows2).toHaveCount(2);
     await context.setOffline(false); // the "online" event starts the sync
     await expect(rows2).toHaveCount(1, SERVER);
@@ -259,6 +272,8 @@ test.describe("Offline sales (outbox)", () => {
     // ---- 9. Tenant: shop A's queued sale is never sent while shop B is signed in --------
     await blockSales(context); // the sale stays queued for shop A
     await colaTile2.click();
+    await page2.getByTestId("sell-confirm").last().click();
+    await expect(page2.getByRole("dialog")).toHaveCount(0);
     await expect(rows2).toHaveCount(1, SERVER);
     const tokenB = await signup(api, `b-${run}`); // the browser is now signed in as shop B
     await openSales(page2); // reload as shop B (sales still blocked)

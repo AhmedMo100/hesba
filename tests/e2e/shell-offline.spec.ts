@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test.describe("App Shell Offline Navigation", () => {
-  test("after one online visit, navigation between all 8 pages works offline", async ({
+  test("after one online visit, navigation between all pages works offline", async ({
     page,
     context,
   }) => {
@@ -32,50 +32,31 @@ test.describe("App Shell Offline Navigation", () => {
     // 2. Go offline
     await context.setOffline(true);
 
-    // Six screens around «البيع» in the navigation; Alerts from the top bar's bell.
-    const navigateTo = async (label: string) => {
-      if (label === "التنبيهات") {
-        await page
-          .locator('header button[aria-label^="جرس التنبيهات"]')
-          .click({ force: true });
-        return;
-      }
-      await page
-        .locator(`nav:visible button[aria-label="${label}"]:visible`)
-        .first()
-        .click({ force: true });
-    };
-
-    // 3. Navigate to Products
-    await navigateTo("المنتجات");
-    await expect(page.locator('[data-testid="page-products"]')).toBeVisible();
-
-    // 4. Navigate to Sales
-    await navigateTo("البيع");
-    await expect(page.locator('[data-testid="page-sales"]')).toBeVisible();
-
-    // 5. Navigate to Stock
-    await navigateTo("المخزون");
-    await expect(page.locator('[data-testid="page-stock"]')).toBeVisible();
-
-    // 6. Navigate to Expenses
-    await navigateTo("المصاريف");
-    await expect(page.locator('[data-testid="page-expenses"]')).toBeVisible();
-
-    // 7. Navigate to People
-    await navigateTo("الناس");
-    await expect(page.locator('[data-testid="page-people"]')).toBeVisible();
-
-    // 8. Navigate to Alerts
-    await navigateTo("التنبيهات");
-    await expect(page.locator('[data-testid="page-alerts"]')).toBeVisible();
-
-    // 9. Navigate to AI
-    await navigateTo("المساعد");
-    await expect(page.locator('[data-testid="page-ai"]')).toBeVisible();
-
-    // 10. Navigate back to Home
-    await navigateTo("الرئيسية");
-    await expect(page.locator('[data-testid="page-home"]')).toBeVisible();
+    // No bottom bar: every screen opens from its home tile, and the back arrow returns home.
+    const back = page.getByRole("button", { name: "رجوع للرئيسية" });
+    for (const [route, screen] of [
+      ["products", "page-products"],
+      ["sales", "page-sales"],
+      ["stock", "page-stock"],
+      ["expenses", "page-expenses"],
+      ["people", "page-people"],
+      ["alerts", "page-alerts"],
+      ["inventory", "page-inventory"],
+      ["ai", "page-ai"],
+    ] as const) {
+      await page.getByTestId(`home-tile-${route}`).click({ force: true });
+      await expect(page.getByTestId(screen)).toBeVisible();
+      await back.click({ force: true });
+      await expect(page.getByTestId("page-home")).toBeVisible();
+    }
+    // The reports, drawer and alerts pages load offline too (their data needs the network).
+    for (const [testId, screen] of [
+      ["home-sold-today", "page-reports"],
+      ["home-drawer", "page-drawer"],
+    ] as const) {
+      await page.getByTestId(testId).click({ force: true });
+      await expect(page.getByTestId(screen)).toBeVisible();
+      await back.click({ force: true });
+    }
   });
 });

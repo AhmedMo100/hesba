@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+import { openInvoice, viaSheet } from "./sale-sheet";
 
 /**
  * QA-44 … QA-49 on the real screens, plus the sales screen's invoice and offers sheets, the
@@ -83,12 +84,15 @@ async function open(page: Page, path: string, testId: string) {
   await expect(page.getByTestId(testId)).toBeVisible(PAGE_LOAD);
 }
 
-const isMobile = (page: Page) => (page.viewportSize()?.width ?? 1280) < 900;
-
+/** Layout size (not the on-screen box): a sheet may still be scaling in on desktop. */
 async function size(page: Page, selector: string) {
-  const box = await page.locator(selector).first().boundingBox();
-  expect(box, selector).not.toBeNull();
-  return box!;
+  const el = page.locator(selector).first();
+  await expect(el, selector).toBeVisible();
+  const [width, height] = await el.evaluate((n) => [
+    (n as HTMLElement).offsetWidth,
+    (n as HTMLElement).offsetHeight,
+  ]);
+  return { width: width!, height: height! };
 }
 
 /** WCAG contrast ratio of two CSS rgb() colors. */
@@ -143,6 +147,13 @@ test("QA-44 / QA-43: Home never scrolls sideways with huge numbers, and shows Ar
   await product(api, "صنف عادي", 1250, 19);
 
   await open(page, "/app", "page-home");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth - window.innerWidth,
+    ),
+  ).toBeLessThanOrEqual(0);
+  // The stocktake table lives on «الجرد».
+  await open(page, "/app/inventory", "page-inventory");
   await expect(page.getByText("صنف بأرقام كبيرة جدا")).toBeVisible(SERVER);
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - window.innerWidth,
@@ -167,19 +178,20 @@ test("QA-45 / QA-46: one control per name, and touch targets of 44 px", async ({
   });
   expect(tx.ok()).toBe(true);
 
-  // Navigation: every label names one visible control (the header bell is not «التنبيهات»).
+  // Home: every tile names one control, each at least 44 px.
   await open(page, "/app", "page-home");
-  for (const label of ["الرئيسية", "البيع", "المنتجات", "المخزون"]) {
-    await expect(
-      page.getByRole("button", { name: label, exact: true }),
-    ).toHaveCount(1);
+  for (const route of ["stock", "expenses", "sales", "people", "products"]) {
+    const tile = page.getByTestId(`home-tile-${route}`);
+    await expect(tile).toHaveCount(1);
+    expect((await tile.boundingBox())!.height).toBeGreaterThanOrEqual(
+      MIN_TARGET,
+    );
   }
-  await expect(
-    page.getByRole("button", { name: "التنبيهات", exact: true }),
-  ).toHaveCount(isMobile(page) ? 0 : 1);
 
-  // People: one WhatsApp link per person, and 44 px controls.
+  // People: one WhatsApp link per person (in their sheet), and 44 px controls.
   await open(page, "/app/people", "page-people");
+  await page.getByTestId(`person-row-${personId}`).click();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
   await expect(
     page.getByRole("link", { name: "تواصل واتساب زبون اختبار" }),
   ).toHaveCount(1, SERVER);
@@ -194,15 +206,15 @@ test("QA-45 / QA-46: one control per name, and touch targets of 44 px", async ({
   }
 
   await open(page, "/app/products", "page-products");
-  const chip = await size(page, 'button:has-text("الكل")');
+  const chip = await size(page, '[data-testid="products-chip-items"]');
   expect(chip.height).toBeGreaterThanOrEqual(MIN_TARGET);
 
   await open(page, "/app/expenses", "page-expenses");
   const amount = await size(page, 'input[inputmode="decimal"]');
   expect(amount.height).toBeGreaterThanOrEqual(MIN_TARGET);
 
-  await open(page, "/app/alerts", "page-alerts");
-  const done = page.getByRole("button", { name: "تم" }).first();
+  await open(page, "/app/notifications", "page-notifications");
+  const done = page.getByRole("button", { name: "+ دخلت" }).first();
   await expect(done).toBeVisible(SERVER);
   expect((await done.boundingBox())!.height).toBeGreaterThanOrEqual(MIN_TARGET);
 });
@@ -225,19 +237,19 @@ test("sales: the invoice opens from a small summary, keeps its draft, and sells 
   await expect(screen.getByTestId("cart-sheet")).toHaveCount(0);
   await expect(screen.getByTestId("cart-summary")).toHaveCount(0);
   await screen.getByTestId("cart-toggle").click();
-  await page.getByRole("button", { name: `بيع شاي فاتورة ${run}` }).click();
-  await page.getByRole("button", { name: `بيع شيبسي فاتورة ${run}` }).click();
+  await viaSheet(page, `شاي فاتورة ${run}`);
+  await viaSheet(page, `شيبسي فاتورة ${run}`);
   await expect(screen.getByTestId("cart-sheet")).toHaveCount(0);
   await expect(screen.getByTestId("cart-summary")).toContainText("2 صنف");
 
-  await screen.getByTestId("cart-summary").click();
+  await openInvoice(page);
   await expect(screen.getByTestId("cart-line")).toHaveCount(2);
   await screen.getByTestId("cart-discount").fill("2");
   // Close and add one more: the discount stays.
-  await page.getByRole("button", { name: "إغلاق" }).click();
+  await page.getByRole("button", { name: "إغلاق" }).last().click();
   await expect(screen.getByTestId("cart-sheet")).toHaveCount(0);
-  await page.getByRole("button", { name: `بيع شاي فاتورة ${run}` }).click();
-  await screen.getByTestId("cart-summary").click();
+  await viaSheet(page, `شاي فاتورة ${run}`);
+  await openInvoice(page);
   await expect(screen.getByTestId("cart-discount")).toHaveValue("2");
   await expect(screen.getByTestId("cart-total")).toHaveText("28 ج.م");
   await screen.getByTestId("cart-checkout").click();
@@ -283,23 +295,13 @@ test("sales: no «آجل» on cards — «آجل» above the grid starts a credi
   ).toHaveCount(0);
   await expect(screen.getByTestId("tile-credit")).toHaveCount(0);
   await screen.getByTestId("credit-start").click();
-  // The customer is asked first; then a normal tap on a card joins the credit invoice.
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-name")
-    .fill(`زبون آجل ${run}`);
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-match")
-    .first()
-    .click();
-  await page.getByRole("button", { name: `بيع رز آجل كارت ${run}` }).click();
+  // A normal tap on a card joins the credit invoice; the customer is asked before confirming.
+  await viaSheet(page, `رز آجل كارت ${run}`);
   await expect(screen.getByTestId("cart-summary")).toContainText("1 صنف");
-  await screen.getByTestId("cart-summary").click();
-  const sheet = screen.getByTestId("cart-sheet");
-  await expect(sheet.getByTestId("credit-customer")).toContainText(
-    `زبون آجل ${run}`,
-  );
+  const sheet = await openInvoice(page);
+  await sheet.getByTestId("credit-name").fill(`زبون آجل ${run}`.slice(0, -1));
+  await sheet.getByTestId("credit-match").first().click();
+  await expect(sheet.getByTestId("credit-name")).toHaveValue(`زبون آجل ${run}`);
   expect(buyer).toBeTruthy();
   await screen.getByTestId("cart-checkout").click();
   await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
@@ -352,6 +354,9 @@ test("sales: offers sit behind a small «العروض» control, with readable t
   // copy in <body> for its exit animation.
   const screen = page.getByTestId("page-sales");
   await expect(screen.getByTestId("promos-sheet")).toHaveCount(0);
+  // V19: offers are a chip; their edit/remove sheet opens from under the offers.
+  await screen.getByRole("tab", { name: "🎁 عروض" }).click();
+  await expect(screen.getByTestId("promo-card")).toHaveCount(1, SERVER);
   await screen.getByTestId("promos-toggle").click(SERVER);
   const sheet = screen.getByTestId("promos-sheet");
   await expect(sheet).toBeVisible();
@@ -378,26 +383,27 @@ test("sales: offers sit behind a small «العروض» control, with readable t
   }
 });
 
-test("stock: the card opens its actions (add, record a loss, archive); no free quantity edit", async ({
+test("stock actions live in the product's menu (add, record a loss, archive); no free quantity edit", async ({
   page,
 }) => {
   test.setTimeout(180_000);
   const api = page.request;
   await signup(api);
   const run = Math.random().toString(36).slice(2, 6);
-  const p = await product(api, `صنف مخزون ${run}`, 1000, 7);
+  await product(api, `صنف مخزون ${run}`, 1000, 7);
 
-  await open(page, "/app/stock", "page-stock");
-  const card = page.getByTestId(`stock-row-${p.variantId}`);
-  await expect(card).toBeVisible(SERVER);
-  await expect(card.locator("button")).toHaveCount(0);
-  await card.click();
+  await open(page, "/app/products", "page-products");
+  await page.getByRole("button", { name: `خيارات صنف مخزون ${run}` }).click();
+  await expect(
+    page.getByRole("button", { name: /إضافة إلى المخزون/ }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: /أرشفة من المخزون/ }),
+  ).toBeVisible();
   await expect(
     page.getByRole("button", { name: /تعديل كمية المخزون/ }),
   ).toHaveCount(0);
-  const loss = page.getByRole("dialog").getByTestId("stock-action-loss");
-  await expect(loss).toBeVisible();
-  await loss.click();
+  await page.locator('[data-testid^="record-loss-"]').click();
   await expect(
     page.getByRole("dialog").getByTestId("record-loss"),
   ).toBeVisible();

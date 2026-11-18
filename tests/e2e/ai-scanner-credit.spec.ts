@@ -1,4 +1,3 @@
-import path from "node:path";
 import postgres from "postgres";
 import {
   test,
@@ -16,7 +15,6 @@ import {
 
 const PAGE_LOAD = { timeout: 60_000 };
 const SERVER = { timeout: 30_000 };
-const PHOTO = path.join(process.cwd(), "public/icons/icon-192.png");
 
 async function signup(api: APIRequestContext, storeName: string) {
   const email = `p5-e2e-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@hesba.test`;
@@ -82,49 +80,63 @@ const stockOf = async (api: APIRequestContext, variantId: string) =>
     }>
   ).find((i) => i.variantId === variantId)?.currentStockBase;
 
-/** Photos → «تم» → review: the mock sees Pepsi 330 ml ×2 (sure), Chipsy cheese (unsure), one unreadable item. */
+/**
+ * Live scanner (ADR-0030): the camera opens with the sheet (Chromium's fake camera here) and
+ * changing frames are sent to the vision model (the server's mock: Pepsi 330 ml ×2 sure,
+ * Chipsy cheese unsure, one unreadable item). «إنهاء» → review → confirm into the invoice.
+ */
 async function scanAndConfirm(page: Page, opts: { chooseChips: boolean }) {
-  const sheet = page.getByRole("dialog").getByTestId("product-scanner");
-  await expect(sheet.getByTestId("scan-quota")).toContainText(
-    "متبقي لك",
-    SERVER,
-  );
+  await page.getByTestId("page-sales").getByTestId("sales-scan").click();
+  const dialog = () => page.getByRole("dialog").last();
+  const sheet = () => dialog().getByTestId("product-scanner");
+  // No mode screen and no «open camera» button: scanning starts by itself.
+  await expect(page.getByTestId("scan-mode-select")).toHaveCount(0);
+  await expect(sheet().locator('[data-status="matched"]').first()).toBeVisible({
+    timeout: 90_000,
+  });
   await expect(
-    page.getByRole("dialog").getByTestId("scan-process"),
-  ).toBeDisabled();
-  await sheet.getByTestId("scan-file-input").setInputFiles([PHOTO, PHOTO]);
-  await expect(sheet.getByTestId("scan-photos").locator("img")).toHaveCount(
-    2,
-    SERVER,
-  );
-  // Remove one photo, keep the other.
-  await sheet.getByRole("button", { name: "شيل صورة 2" }).click();
-  await expect(sheet.getByTestId("scan-photos").locator("img")).toHaveCount(1);
-  await page.getByRole("dialog").getByTestId("scan-process").click();
+    sheet().locator('[data-status="uncertain"]').first(),
+  ).toBeVisible(SERVER);
+  await dialog().getByTestId("scan-finish").click();
 
-  const lines = sheet.locator('[data-testid^="scan-line-"]');
-  await expect(lines).toHaveCount(3, SERVER);
-  const matched = sheet.locator('[data-status="matched"]');
-  const unsure = sheet.locator('[data-status="uncertain"]');
-  const unclear = sheet.locator('[data-status="unmatched"]');
-  await expect(matched.getByTestId("scan-candidate").first()).toBeChecked();
-  await expect(unsure.getByTestId("scan-candidate").first()).not.toBeChecked();
-  await expect(unclear).toContainText("لم نتمكن من تحديد المنتج بدقة");
   // Nothing can be added while a line is undecided.
-  await expect(
-    page.getByRole("dialog").getByTestId("scan-confirm"),
-  ).toBeDisabled();
-  await unclear.getByTestId("scan-remove").click();
-  if (opts.chooseChips)
-    await unsure.getByTestId("scan-candidate").first().check();
-  else await unsure.getByTestId("scan-remove").click();
-  // Correct a quantity: 3 cans instead of the 2 seen.
-  await matched.getByTestId("scan-qty").fill("3");
-  await expect(
-    page.getByRole("dialog").getByTestId("scan-confirm"),
-  ).toBeEnabled();
-  await page.getByRole("dialog").getByTestId("scan-confirm").click();
+  await expect(dialog().getByTestId("scan-confirm")).toBeDisabled();
+  const unclear = sheet().locator('[data-status="unmatched"]');
+  while ((await unclear.count()) > 0) {
+    await unclear.first().getByTestId("scan-remove").click();
+  }
+  const unsure = sheet().locator('[data-status="uncertain"]');
+  if (opts.chooseChips) {
+    await unsure.first().getByTestId("scan-candidate").first().check();
+    while ((await unsure.count()) > 1) {
+      await unsure.last().getByTestId("scan-remove").click();
+    }
+  } else {
+    while ((await unsure.count()) > 0) {
+      await unsure.first().getByTestId("scan-remove").click();
+    }
+  }
+  const matched = sheet().locator('[data-status="matched"]');
+  while ((await matched.count()) > 1) {
+    await matched.last().getByTestId("scan-remove").click();
+  }
+  // Correct a quantity: 3 cans.
+  await matched.first().getByTestId("scan-qty").fill("3");
+  if (opts.chooseChips) await unsure.first().getByTestId("scan-qty").fill("1");
+  await expect(dialog().getByTestId("scan-confirm")).toBeEnabled();
+  await dialog().getByTestId("scan-confirm").click();
 }
+
+// The live scanner needs a camera: Chromium's fake device, allowed without a prompt.
+test.use({
+  permissions: ["camera"],
+  launchOptions: {
+    args: [
+      "--use-fake-device-for-media-stream",
+      "--use-fake-ui-for-media-stream",
+    ],
+  },
+});
 
 test("scanner → normal sale: confirmed lines join the cart; checkout takes the stock once", async ({
   page,
@@ -144,14 +156,13 @@ test("scanner → normal sale: confirmed lines join the cart; checkout takes the
   await product(api, `بيبسي 1 لتر ${run}`, { price: 3000, stock: 6 });
 
   await open(page, "/app/sales", "page-sales");
-  await page.getByTestId("scan-start").click();
   await scanAndConfirm(page, { chooseChips: true });
 
-  const cart = page.getByRole("dialog").getByTestId("cart-sheet");
+  const cart = page.getByRole("dialog").last().getByTestId("cart-sheet");
   await expect(cart.getByTestId("cart-line")).toHaveCount(2, SERVER);
   // 3 × 15 + 1 × 10 = 55 EGP, priced by the shop's own prices.
   await expect(cart.getByTestId("cart-total")).toContainText("55", SERVER);
-  await page.getByRole("dialog").getByTestId("cart-checkout").click();
+  await page.getByRole("dialog").last().getByTestId("cart-checkout").click();
   await expect.poll(() => stockOf(api, pepsi), SERVER).toBe(21);
   expect(await stockOf(api, chips)).toBe(4);
   // The scan recorded nothing by itself: exactly one sale.
@@ -174,34 +185,15 @@ test("scanner → credit sale; «ليك» shows the invoice with its products an
 
   await open(page, "/app/sales", "page-sales");
   const screen = page.getByTestId("page-sales");
+  // «بيع آجل», scan, then the customer is typed in the invoice before confirming.
   await screen.getByTestId("credit-start").click();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-name")
-    .fill(`زبون الاسكان ${run}`);
-  await page.getByTestId("page-sales").getByTestId("credit-continue").click();
-  await expect(screen.getByTestId("credit-start")).toContainText(
-    `زبون الاسكان ${run}`,
-    SERVER,
-  );
-  // The credit sale's cart may already be open: close it to reach the scanner.
-  if (
-    await page
-      .getByRole("dialog")
-      .isVisible()
-      .catch(() => false)
-  )
-    await page.keyboard.press("Escape");
-  await screen.getByTestId("scan-start").click();
   await scanAndConfirm(page, { chooseChips: false });
 
-  const cart = page.getByRole("dialog").getByTestId("cart-sheet");
-  await expect(cart.getByTestId("credit-customer")).toContainText(
-    `زبون الاسكان ${run}`,
-  );
+  const cart = page.getByRole("dialog").last().getByTestId("cart-sheet");
+  await cart.getByTestId("credit-name").fill(`زبون الاسكان ${run}`);
   await expect(cart.getByTestId("cart-total")).toContainText("45", SERVER);
   await cart.getByTestId("cart-paid-now").fill("10");
-  await page.getByRole("dialog").getByTestId("cart-checkout").click();
+  await page.getByRole("dialog").last().getByTestId("cart-checkout").click();
   await expect.poll(() => stockOf(api, pepsi), SERVER).toBe(21);
 
   const people = (await (
@@ -215,7 +207,8 @@ test("scanner → credit sale; «ليك» shows the invoice with its products an
   expect(customer.amount_piasters).toBe(3500);
 
   await open(page, "/app/people", "page-people");
-  await page.getByTestId(`customer-invoices-${customer.id}`).click();
+  await page.getByTestId(`person-row-${customer.id}`).click();
+  await page.getByTestId(`customer-invoices-${customer.id}`).last().click();
   const sheet = page.getByRole("dialog").getByTestId("customer-invoices");
   await expect(sheet.getByTestId("customer-outstanding")).toContainText(
     "35",
@@ -236,7 +229,6 @@ test("scanner → credit sale; «ليك» shows the invoice with its products an
   const sales = (await (await api.get("/api/sales")).json()).sales as unknown[];
   expect(sales).toHaveLength(1);
 });
-
 test("assistant: suggestions, a growing input, an answer, and offline keeps the question", async ({
   page,
   context,

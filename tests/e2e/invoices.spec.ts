@@ -4,6 +4,7 @@ import {
   type APIRequestContext,
   type Page,
 } from "@playwright/test";
+import { openInvoice, viaSheet } from "./sale-sheet";
 
 /**
  * QA-30 / QA-31 (ADR-0027) on the real screens: a supplier purchase (create with a partial
@@ -107,7 +108,9 @@ test("supplier purchase: create with a partial payment, pay the rest, cancel ano
     .getByRole("tab", { name: /الموردين/ })
     .first()
     .click();
-  await page.getByTestId(`supplier-purchases-${supplier}`).click();
+  // V19: a supplier's row opens their sheet with every action.
+  await page.getByTestId(`person-row-${supplier}`).click();
+  await page.getByTestId(`supplier-purchases-${supplier}`).last().click();
   // The real sheet lives in the People view (a closing Modal leaves a short-lived ghost copy).
   const sheet = page.getByTestId("page-people");
   await expect(sheet.getByTestId("purchases-sheet")).toBeVisible();
@@ -168,11 +171,11 @@ test("cart: several items, a discount and a card payment, priced by the server",
 
   await open(page, "/app/sales", "page-sales");
   await page.getByTestId("page-sales").getByTestId("cart-toggle").click();
-  await page.getByRole("button", { name: `بيع شاي سلة ${run}` }).click();
-  await page.getByRole("button", { name: `بيع شاي سلة ${run}` }).click();
-  await page.getByRole("button", { name: `بيع شيبسي سلة ${run}` }).click();
+  await viaSheet(page, `شاي سلة ${run}`);
+  await viaSheet(page, `شاي سلة ${run}`);
+  await viaSheet(page, `شيبسي سلة ${run}`);
   // The invoice opens from its small summary (no big cart block on the screen).
-  await page.getByTestId("page-sales").getByTestId("cart-summary").click();
+  await openInvoice(page);
   await expect(
     page.getByTestId("page-sales").getByTestId("cart-line"),
   ).toHaveCount(2);
@@ -216,21 +219,14 @@ test("credit sale: invoice on the customer, collected from the invoice, then par
   const customer = await person(api, `زبون ${run}`, "owedToMe");
 
   await open(page, "/app/sales", "page-sales");
-  // Credit sale: the customer first (picked by name), then the items.
+  // Credit sale: the items first, then the customer (picked by name) before confirming.
   await page.getByTestId("page-sales").getByTestId("credit-start").click();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-name")
-    .fill(`زبون ${run}`);
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-match")
-    .first()
-    .click();
-  for (let i = 0; i < 3; i++)
-    await page.getByRole("button", { name: `بيع رز آجل ${run}` }).click();
-  await page.getByTestId("page-sales").getByTestId("cart-summary").click();
-  await page.getByTestId("page-sales").getByTestId("cart-paid-now").fill("10");
+  for (let i = 0; i < 3; i++) await viaSheet(page, `رز آجل ${run}`);
+  const invoice = await openInvoice(page);
+  await invoice.getByTestId("credit-name").fill(`زبون ${run}`.slice(0, -1));
+  await invoice.getByTestId("credit-match").first().click();
+  await expect(invoice.getByTestId("credit-name")).toHaveValue(`زبون ${run}`);
+  await invoice.getByTestId("cart-paid-now").fill("10");
   await page.getByTestId("page-sales").getByTestId("cart-checkout").click();
   await expect(
     page.getByTestId("page-sales").getByTestId("cart-sheet"),
