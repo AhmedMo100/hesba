@@ -807,3 +807,41 @@
 .miniRed {
   color: var(--red);
 }
+
+/* V19 sheet fields (machine form) */
+.lbl {
+  display: block;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 10px 0 3px;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 13px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+}
+
+.formError {
+  background: var(--redBg);
+  color: var(--red);
+  border-radius: 14px;
+  padding: 10px 12px;
+  font-weight: 700;
+  margin-top: 8px;
+}
+
+/* V19 .btn.red */
+.btnRed {
+  background: var(--red);
+  color: #fff;
+}
