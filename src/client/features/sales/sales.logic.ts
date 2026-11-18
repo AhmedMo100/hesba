@@ -23,10 +23,27 @@ export interface DisplaySaleItem {
   isSandwich?: boolean;
   /** The product has a barcode registered (the «من غير باركود» filter and order). */
   hasBarcode?: boolean;
+  /** The shop's barcodes of this product (ADR-0031): the barcode scanner matches them. */
+  barcodes?: string[];
 }
 
-/** The sale screen's filter chips (V19). */
-export type SaleFilter = "all" | "weight" | "nobc" | "svc" | "off";
+/**
+ * What the grid shows: the section cards (products / offers / services) and, under
+ * products, the filter chips (V19 + الساندوتشات).
+ */
+export type SaleFilter = "all" | "weight" | "nobc" | "sand" | "svc" | "off";
+
+/** The product the scanner read: matched on the shop's own barcodes, never a product API. */
+export function findByBarcode(
+  items: DisplaySaleItem[],
+  code: string,
+): DisplaySaleItem | undefined {
+  const c = code.trim();
+  if (!c) return undefined;
+  return items.find(
+    (i) => !i.isService && (i.barcodes ?? []).some((b) => b === c),
+  );
+}
 
 /**
  * The tiles' default order: products sold by count without a barcode first, then products
@@ -47,12 +64,15 @@ export function matchesSaleFilter(
       return item.unitMode === "weight";
     case "nobc":
       return !item.isService && !item.isSandwich && !item.hasBarcode;
+    case "sand":
+      return Boolean(item.isSandwich);
     case "svc":
       return Boolean(item.isService);
     case "off":
       return false;
     default:
-      return true;
+      // «الكل» of the products card: services have their own card.
+      return !item.isService;
   }
 }
 

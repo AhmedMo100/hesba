@@ -98,10 +98,12 @@ import {
   type CreditCustomer,
 } from "./CartSheet";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
+import { BarcodeScanSheet } from "@/client/shared/scanner/BarcodeScanSheet";
 import {
-  ProductScannerSheet,
-  type ConfirmedScanLine,
-} from "./ProductScannerSheet";
+  legacyCommissionRule,
+  serviceCommission,
+  type ServiceCommissionRule,
+} from "@/domain/service-commission";
 import {
   type DisplaySaleItem,
   generateUuid,
@@ -111,6 +113,7 @@ import {
   formatWeightLabel,
   weightSalePiasters,
   matchesSaleFilter,
+  findByBarcode,
   saleSortRank,
   saleTileEmoji,
   type SaleFilter,
@@ -225,7 +228,39 @@ export function SalesView({
   const [creditCustomer, setCreditCustomer] = useState<CreditCustomer | null>(
     null,
   );
-  const [saleFilter, setSaleFilter] = useState<SaleFilter>("all");
+  // V19: the section cards, then (products) the filter chips.
+  // A service just added to the sale from «بضاعتي» opens on its card.
+  const [section, setSection] = useState<"products" | "offers" | "services">(
+    () => (initial.stagedSaleItem ? "services" : "products"),
+  );
+  const [productFilter, setProductFilter] = useState<
+    "all" | "weight" | "nobc" | "sand"
+  >("all");
+  const saleFilter: SaleFilter =
+    section === "services"
+      ? "svc"
+      : section === "offers"
+        ? "off"
+        : productFilter;
+  // The barcode scanner (no AI): the product it read, waiting for «تم».
+  const [scanHit, setScanHit] = useState<{
+    code: string;
+    item: DisplaySaleItem | null;
+  } | null>(null);
+  const [returnPickerOpen, setReturnPickerOpen] = useState(false);
+  // Each service's commission rule (fixed / percent, with tiers), from the sales settings.
+  const [serviceCommissions, setServiceCommissions] = useState<
+    Record<string, ServiceCommissionRule>
+  >({});
+  const commissionFor = (item: DisplaySaleItem, principalPiasters: number) =>
+    serviceCommission(
+      serviceCommissions[item.productId] ??
+        serviceCommissions[item.id] ??
+        legacyCommissionRule(
+          item.sellPricePiasters > 0 ? item.sellPricePiasters : 500,
+        ),
+      principalPiasters,
+    );
   // The V19 sell sheet: one product, its unit, quantity and payment.
   const [sellItem, setSellItem] = useState<DisplaySaleItem | null>(null);
   const [sellUnit, setSellUnit] = useState<"base" | "pack">("base");
@@ -411,6 +446,9 @@ export function SalesView({
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
+          if (data?.config?.serviceCommissions) {
+            setServiceCommissions(data.config.serviceCommissions);
+          }
           if (
             data?.config?.enabledServiceIds &&
             Array.isArray(data.config.enabledServiceIds)
@@ -508,15 +546,14 @@ export function SalesView({
   // Prepare combined items for the Sales Grid
   const displayItems = useMemo<DisplaySaleItem[]>(() => {
     const list: DisplaySaleItem[] = [];
-    const withBarcode = new Set(
-      allProducts
-        .filter(
-          (p) =>
-            Boolean(p.barcode?.trim()) ||
-            (p.variants ?? []).some((v) => Boolean(v.barcode?.trim())),
-        )
-        .map((p) => p.id),
-    );
+    // The shop's barcodes per product (ADR-0031), for the filter and the scanner.
+    const barcodesOf = new Map<string, string[]>();
+    for (const p of allProducts) {
+      const codes = [p.barcode, ...(p.variants ?? []).map((v) => v.barcode)]
+        .map((c) => c?.trim())
+        .filter((c): c is string => Boolean(c));
+      if (codes.length) barcodesOf.set(p.id, [...new Set(codes)]);
+    }
 
     // 1. Regular physical products present in inventory
     inventory.forEach((inv) => {
@@ -534,7 +571,13 @@ export function SalesView({
         status: inv.currentStockBase <= 0 ? "out" : inv.status || "ok",
         isService: false,
         category: inv.category,
-        hasBarcode: Boolean(inv.barcode) || withBarcode.has(inv.productId),
+        hasBarcode: Boolean(inv.barcode) || barcodesOf.has(inv.productId),
+        barcodes: [
+          ...new Set([
+            ...(inv.barcode ? [inv.barcode.trim()] : []),
+            ...(barcodesOf.get(inv.productId) ?? []),
+          ]),
+        ],
       });
     });
 
@@ -1145,43 +1188,6 @@ export function SalesView({
     return true;
   };
 
-  /**
-   * Lines confirmed in the scanner join the cart: the same product is merged, never added
-   * twice. Names, prices, units and stock come from the server's match; checkout re-checks all.
-   */
-  const addScannedToCart = (lines: ConfirmedScanLine[]) => {
-    setCartLines((prev) => {
-      const next = [...prev];
-      for (const l of lines) {
-        const i = next.findIndex((c) => c.variantId === l.variantId);
-        if (i >= 0) {
-          const cur = next[i]!;
-          next[i] = {
-            ...cur,
-            quantityBase: Math.min(
-              cur.quantityBase + l.quantityBase,
-              l.stockBase,
-            ),
-          };
-        } else {
-          next.push({
-            variantId: l.variantId,
-            name: l.name,
-            unit: l.unit,
-            quantityBase: Math.min(l.quantityBase, l.stockBase),
-            sellPricePiasters: l.sellPricePiasters,
-            stockBase: l.stockBase,
-          });
-        }
-      }
-      return next;
-    });
-    setScannerOpen(false);
-    setCartMode(true);
-    setCartOpen(true);
-    showToast(`اتضاف ${lines.length} صنف للفاتورة من الاسكان`, "success");
-  };
-
   /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
   const cancelCreditSale = () => {
     setCreditMode(false);
@@ -1461,10 +1467,11 @@ export function SalesView({
       return;
     }
 
-    const commissionPiasters =
-      serviceModalItem.sellPricePiasters > 0
-        ? serviceModalItem.sellPricePiasters
-        : 500; // 5 EGP default
+    // The shop's commission on this amount (its rule; older services: their price).
+    const commissionPiasters = commissionFor(
+      serviceModalItem,
+      principalPiasters,
+    );
 
     const totalCustomerPiasters = principalPiasters + commissionPiasters;
 
@@ -1497,17 +1504,107 @@ export function SalesView({
     (chosenServiceMachine?.currentBalancePiasters || 0) <
       principalRequiredPiasters;
 
-  const serviceCommissionEgp =
-    serviceModalItem && serviceModalItem.sellPricePiasters > 0
-      ? serviceModalItem.sellPricePiasters / 100
-      : 5;
+  const serviceCommissionEgp = serviceModalItem
+    ? commissionFor(
+        serviceModalItem,
+        Math.round(
+          (Number.isFinite(serviceAmountNum) ? serviceAmountNum : 0) * 100,
+        ),
+      ) / 100
+    : 0;
   const serviceTotalEgp =
     serviceAmountNum > 0 ? serviceAmountNum + serviceCommissionEgp : 0;
 
   return (
     <div className={viewStyles.view} data-testid="page-sales" dir="rtl">
       <div className={styles.salesContainer}>
-        {/* V17: the search, at the top of the screen */}
+        {/* 1. فاتورة · آجل · مرتجع (V19 .sellTop style) */}
+        <div className={styles.modeRow} role="group" aria-label="نوع البيعة">
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${cartMode && !creditMode && !creditCustomer ? styles.modeOn : ""}`}
+            data-testid="cart-toggle"
+            aria-pressed={cartMode && !creditMode && !creditCustomer}
+            onClick={() => {
+              if (creditMode || creditCustomer) {
+                cancelCreditSale();
+                setCartMode(true);
+                return;
+              }
+              setCartMode((v) => !v);
+            }}
+          >
+            🧾 فاتورة
+            {!creditMode &&
+            !creditCustomer &&
+            cartLines.length + cartOffers.length > 0
+              ? ` (${cartLines.length + cartOffers.length})`
+              : ""}
+          </button>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${creditMode || creditCustomer ? styles.modeOn : ""}`}
+            data-testid="credit-start"
+            aria-pressed={creditMode || Boolean(creditCustomer)}
+            onClick={toggleCredit}
+          >
+            📒 آجل
+          </button>
+          <button
+            type="button"
+            className={styles.modeBtn}
+            data-testid="return-start"
+            onClick={() => setReturnPickerOpen(true)}
+          >
+            ↩️ مرتجع
+          </button>
+        </div>
+        {(creditMode || creditCustomer) && (
+          <div className={styles.credBox} data-testid="credit-mode">
+            {creditCustomer
+              ? t("credit.sessionLabel", { name: creditCustomer.name })
+              : t("credit.modeHint")}
+          </div>
+        )}
+
+        {/* 2. المنتجات · العروض · الخدمات */}
+        <div className={styles.sectionRow} role="tablist">
+          {(
+            [
+              ["products", "📦", "المنتجات"],
+              ["offers", "🎁", "العروض"],
+              ["services", "⚡", "الخدمات"],
+            ] as const
+          ).map(([k, em, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={section === k}
+              className={`${styles.sectionCard} ${section === k ? styles.sectionOn : ""}`}
+              onClick={() => setSection(k)}
+              data-testid={`sales-section-${k}`}
+            >
+              <i aria-hidden="true">{em}</i>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* 3. امسح الباركود: the camera opens at once (no AI) */}
+        <button
+          type="button"
+          className={styles.scanBig}
+          data-testid="sales-scan"
+          onClick={() => {
+            setScanHit(null);
+            setScannerOpen(true);
+          }}
+        >
+          📷 امسح الباركود
+        </button>
+
+        {/* 4. البحث (V17) */}
         <input
           type="search"
           className={styles.search17}
@@ -1519,68 +1616,28 @@ export function SalesView({
           data-testid="sales-search"
         />
 
-        <div className={styles.chips} role="tablist">
-          {(
-            [
-              ["all", "الكل"],
-              ["weight", "بالوزن"],
-              ["nobc", "بدون باركود"],
-              ["svc", "⚡ خدمات"],
-              ["off", "🎁 عروض"],
-            ] as Array<[SaleFilter, string]>
-          ).map(([k, label]) => (
-            <button
-              key={k}
-              type="button"
-              role="tab"
-              aria-selected={saleFilter === k}
-              className={`${styles.chip} ${saleFilter === k ? styles.chipOn : ""}`}
-              onClick={() => setSaleFilter(k)}
-            >
-              {label}
-            </button>
-          ))}
-          {!creditMode && !creditCustomer && (
-            <button
-              type="button"
-              className={`${styles.chip} ${cartMode ? styles.chipOn : ""}`}
-              data-testid="cart-toggle"
-              aria-pressed={cartMode}
-              onClick={() => setCartMode((v) => !v)}
-            >
-              🧾 {t("invoice.cartToggle")}
-              {cartLines.length + cartOffers.length > 0
-                ? ` (${cartLines.length + cartOffers.length})`
-                : ""}
-            </button>
-          )}
-        </div>
-
-        {/* V19: the scanner and the credit sale, side by side */}
-        <div className={styles.sellTop}>
-          <button
-            type="button"
-            className={styles.scanBig}
-            data-testid="sales-scan"
-            onClick={() => setScannerOpen(true)}
-          >
-            📷 امسح الباركود
-          </button>
-          <button
-            type="button"
-            className={`${styles.creditBtn} ${creditMode || creditCustomer ? styles.on : ""}`}
-            data-testid="credit-start"
-            aria-pressed={creditMode || Boolean(creditCustomer)}
-            onClick={toggleCredit}
-          >
-            {t("credit.toggle")}
-          </button>
-        </div>
-        {(creditMode || creditCustomer) && (
-          <div className={styles.credBox} data-testid="credit-mode">
-            {creditCustomer
-              ? t("credit.sessionLabel", { name: creditCustomer.name })
-              : t("credit.modeHint")}
+        {/* 5. الفلاتر (V19) */}
+        {section === "products" && (
+          <div className={styles.chips} role="tablist">
+            {(
+              [
+                ["all", "الكل"],
+                ["weight", "بالوزن"],
+                ["nobc", "من غير باركود"],
+                ["sand", "الساندوتشات"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={productFilter === k}
+                className={`${styles.chip} ${productFilter === k ? styles.chipOn : ""}`}
+                onClick={() => setProductFilter(k)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
 
@@ -2278,27 +2335,111 @@ export function SalesView({
         </>
       )}
 
-      {/* AI product scanner: confirmed lines join the same cart (normal or credit sale) */}
+      {/* The barcode scanner: read → ✓ the product → «تم» → the usual sale flow (no AI) */}
       {scannerOpen && (
-        <ProductScannerSheet
-          catalog={displayItems
-            .filter((i) => i.variantId && !i.isService && !i.isSandwich)
-            .map((i) => ({
-              variantId: i.variantId!,
-              name: i.name,
-              unit: i.unit ?? "piece",
-              sellPricePiasters: i.sellPricePiasters,
-              stockBase: i.currentStockBase,
-            }))}
-          creditCustomerName={
-            creditCustomer?.name ??
-            (creditMode
-              ? cartDraft.customerName.trim() || "اسم العميل قبل التأكيد"
-              : null)
+        <BarcodeScanSheet
+          onCode={(code) =>
+            setScanHit({
+              code,
+              item: findByBarcode(displayItems, code) ?? null,
+            })
           }
-          onClose={() => setScannerOpen(false)}
-          onConfirm={addScannedToCart}
-        />
+          onClose={() => {
+            setScannerOpen(false);
+            setScanHit(null);
+          }}
+          paused={scanHit !== null}
+        >
+          {scanHit &&
+            (scanHit.item ? (
+              <div className={styles.scanHit} data-testid="scan-hit">
+                <div className={styles.scanHitName}>
+                  <span aria-hidden="true">✅</span>
+                  <b>{scanHit.item.name}</b>
+                </div>
+                <div className={styles.note}>
+                  {formatMoney(scanHit.item.sellPricePiasters)}
+                  {scanHit.item.unitMode === "weight" ? " / كيلو" : ""} ·{" "}
+                  {formatStockText(scanHit.item)}
+                </div>
+                <button
+                  type="button"
+                  className={styles.scanDone}
+                  data-testid="scan-done"
+                  onClick={() => {
+                    const item = scanHit.item!;
+                    setScannerOpen(false);
+                    setScanHit(null);
+                    void handleCardClick(item);
+                  }}
+                >
+                  تم ✓
+                </button>
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => setScanHit(null)}
+                >
+                  امسح غيره
+                </button>
+              </div>
+            ) : (
+              <div className={styles.scanHit} data-testid="scan-unknown">
+                <b>الباركود ده مش موجود عندك</b>
+                <div className={styles.note} dir="ltr">
+                  {scanHit.code}
+                </div>
+                <div className={styles.note}>
+                  سجّله من «دخلت بضاعة» أو «بضاعتي» عشان تبيعه بالباركود.
+                </div>
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => setScanHit(null)}
+                >
+                  امسح تاني
+                </button>
+              </div>
+            ))}
+        </BarcodeScanSheet>
+      )}
+
+      {/* مرتجع: pick the invoice the goods came back from (returns are against a sale) */}
+      {returnPickerOpen && (
+        <Modal
+          title="↩️ مرتجع من أنهي بيعة؟"
+          onClose={() => setReturnPickerOpen(false)}
+        >
+          <div data-testid="return-picker">
+            {todaySales.filter((x) => !x.voided).length === 0 ? (
+              <div className={styles.note}>مفيش بيعات النهارده ترجع منها</div>
+            ) : (
+              todaySales
+                .filter((x) => !x.voided)
+                .map((sale) => (
+                  <button
+                    key={sale.id}
+                    type="button"
+                    className={styles.returnRow}
+                    data-testid="return-pick"
+                    onClick={() => {
+                      setReturnPickerOpen(false);
+                      setDetailsSaleId(sale.id);
+                    }}
+                  >
+                    <span>
+                      {sale.name}
+                      <small> · {formatCairoTime(sale.timestamp)}</small>
+                    </span>
+                    <b>{formatMoney(sale.amountPiasters)}</b>
+                  </button>
+                ))
+            )}
+            <div className={styles.note}>
+              دي بيعات النهارده. اختار البيعة وحدد اللي رجع منها.
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* The invoice (cart) sheet */}

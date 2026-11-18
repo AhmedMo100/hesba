@@ -34,7 +34,8 @@ describe("sale tiles: V19 filters and order", () => {
     const all = [noBarcode, weighed, withBarcode, service];
     const names = (f: Parameters<typeof matchesSaleFilter>[1]) =>
       all.filter((i) => matchesSaleFilter(i, f)).map((i) => i.name);
-    expect(names("all")).toHaveLength(4);
+    // «الكل» of the products card; services have their own card.
+    expect(names("all")).toEqual(["عيش", "جبنة", "كولا"]);
     expect(names("weight")).toEqual(["جبنة"]);
     expect(names("nobc")).toEqual(["عيش", "جبنة"]);
     expect(names("svc")).toEqual(["شحن"]);
