@@ -5,6 +5,7 @@ import type { WasteReason } from "@/schemas/inventory";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+import { changeMachineBalanceInTx } from "@/server/modules/machines";
 import {
   depleteStockFEFO,
   isNearExpiry,
@@ -729,6 +730,8 @@ export class InventoryService {
       supplierId?: string | null;
       opId?: string | null;
       paidFrom?: "cash" | "wallet" | null;
+      /** A machine / wallet of this shop paid the cost: its balance goes down here. */
+      paidFromMachineId?: string | null;
     },
   ) {
     const qtyBase = BigInt(input.receivedQuantityBase);
@@ -898,11 +901,25 @@ export class InventoryService {
             supplierId: input.supplierId ?? null,
             receivedAt: now,
             paid: true,
-            paidFrom: input.paidFrom ?? null,
+            paidFrom: input.paidFromMachineId
+              ? "wallet"
+              : (input.paidFrom ?? null),
             createdAt: now,
             updatedAt: now,
           },
         });
+
+        // 3b. Paid from a machine / wallet: its balance goes down with the batch (locked, no
+        // overdraft — a short balance rolls the whole stock-in back).
+        if (input.paidFromMachineId && costTotal !== null && costTotal > ZERO) {
+          await changeMachineBalanceInTx(
+            tx,
+            storeId,
+            input.paidFromMachineId,
+            { kind: "delta", amountPiasters: -Number(costTotal) },
+            { source: "دفع بضاعة", reference: batch.id },
+          );
+        }
 
         // 4. The new ledger balance, written to the stock level cache
         const newBalance = currentQty + qtyBase;

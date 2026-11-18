@@ -29,6 +29,7 @@ import { Prisma } from "@prisma/client";
 import { prisma } from "@/server/infra/db/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+import { changeMachineBalanceInTx } from "@/server/modules/machines";
 import {
   lockStockLevelsInTx,
   writeLevelInTx,
@@ -301,6 +302,17 @@ export async function createPurchase(
             now,
           });
           if (paidNow > ZERO) {
+            if (input.paidFromMachineId) {
+              // Paid from one of the shop's machines / wallets: its balance goes down with
+              // the invoice (no overdraft; a short balance rolls the whole purchase back).
+              await changeMachineBalanceInTx(
+                tx,
+                storeId,
+                input.paidFromMachineId,
+                { kind: "delta", amountPiasters: -Number(paidNow) },
+                { source: "دفعة لمورد مع فاتورة شراء", reference: purchase.id },
+              );
+            }
             await writeInvoiceEntryInTx(tx, storeId, owner, {
               type: "payment",
               amountPiasters: paidNow,
@@ -308,7 +320,9 @@ export async function createPurchase(
               note: "دفعة مع فاتورة الشراء",
               purchaseId: purchase.id,
               settlesEntryId: debt.id,
-              paidFrom: input.paidFrom ?? null,
+              paidFrom: input.paidFromMachineId
+                ? "wallet"
+                : (input.paidFrom ?? null),
               now,
             });
           }

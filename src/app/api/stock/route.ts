@@ -49,6 +49,11 @@ const addStockSchema = z.object({
   opId: z.string().uuid().optional(),
   /** What paid the cost: the drawer or a wallet (ADR-0031); absent = not recorded. */
   paidFrom: paidFromSchema.optional(),
+  /**
+   * The shop's machine / wallet that paid the cost: its balance goes down in the same
+   * transaction as the batch (implies `paidFrom: "wallet"`).
+   */
+  paidFromMachineId: z.string().uuid().optional(),
 });
 
 const wasteStockSchema = z.object({
@@ -190,6 +195,7 @@ export async function POST(req: Request) {
           supplierId: input.supplierId,
           opId: input.opId,
           paidFrom: input.paidFrom ?? null,
+          paidFromMachineId: input.paidFromMachineId ?? null,
         },
       );
       return NextResponse.json({ success: true, data: result });

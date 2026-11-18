@@ -46,6 +46,11 @@ export const createPurchaseSchema = z
       .default(0),
     /** Where the paid-now money came from: the drawer or a wallet (ADR-0031). */
     paidFrom: paidFromSchema.optional(),
+    /**
+     * The shop's machine / wallet that paid the paid-now part: its balance goes down in the
+     * same transaction (implies `paidFrom: "wallet"`).
+     */
+    paidFromMachineId: z.string().uuid("الماكينة غير صحيحة").optional(),
     note: z.string().trim().max(500).optional().nullable(),
   })
   .strict();
