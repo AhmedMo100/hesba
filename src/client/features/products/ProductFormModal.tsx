@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { Modal, Field, Seg, Icon } from "@/client/shared/ui";
+import { Modal } from "@/client/shared/ui";
+import { BarcodeScanSheet } from "@/client/shared/scanner/BarcodeScanSheet";
 import { HesbaDatabase } from "@/client/offline/db";
 import {
   searchOfflineCatalog,
@@ -21,6 +22,7 @@ import {
   SECONDARY_PACKAGING_PRESETS,
 } from "@/client/shared/api/custom-taxonomy";
 import styles from "./ProductsView.module.css";
+import f from "./ProductFormModal.module.css";
 
 export interface ProductFormModalProps {
   product?: {
@@ -305,7 +307,7 @@ export function ProductFormModal({
       return customPackMethod.trim() || "عبوة";
     }
     const found = SECONDARY_PACKAGING_PRESETS.find((p) => p.key === packMethod);
-    return found ? found.label.split(" ")[0] : "عبوة";
+    return found ? (found.label.split(" ")[0] ?? "عبوة") : "عبوة";
   }, [packMethod, customPackMethod]);
 
   const [barcode, setBarcode] = useState(
@@ -341,6 +343,7 @@ export function ProductFormModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [scanning, setScanning] = useState(false);
 
   // Live offline search against IndexedDB when name changes (new product mode)
   useEffect(() => {
@@ -771,139 +774,137 @@ export function ProductFormModal({
     }
   };
 
+  const unitOne = getUnitNameLabel(sellingMethod) ?? "قطعة";
+  const unitThe = getUnitSingularLabel(sellingMethod) ?? "القطعة";
+  const packThe =
+    packMethod === "carton" || secondaryPackTitle === "كرتونة"
+      ? "الكرتونة"
+      : secondaryPackTitle.startsWith("ال")
+        ? secondaryPackTitle
+        : `ال${secondaryPackTitle}`;
+  const priceErr = errors.price ? (
+    <div className={f.err} role="alert">
+      {errors.price}
+    </div>
+  ) : null;
+  const buySell = (
+    label: string,
+    buy: string,
+    onBuy: (v: string) => void,
+    sell: string,
+    onSell: (v: string) => void,
+    testId: string,
+  ) => (
+    <div className={f.two}>
+      <div>
+        <label className={f.lbl}>سعر الشراء ({label})</label>
+        <input
+          className={f.input}
+          type="number"
+          inputMode="decimal"
+          step="any"
+          min="0"
+          value={buy}
+          onChange={(e) => onBuy(e.target.value)}
+          placeholder="0"
+          data-testid={`${testId}-buy`}
+        />
+      </div>
+      <div>
+        <label className={f.lbl}>سعر البيع ({label})</label>
+        <input
+          className={`${f.input} ${errors.price && !sell ? f.inputErr : ""}`}
+          type="number"
+          inputMode="decimal"
+          step="any"
+          min="0"
+          value={sell}
+          onChange={(e) => onSell(e.target.value)}
+          placeholder="0"
+          data-testid={`${testId}-sell`}
+        />
+      </div>
+    </div>
+  );
+  const chip = (
+    on: boolean,
+    label: string,
+    onClick: () => void,
+    testId?: string,
+  ) => (
+    <button
+      type="button"
+      className={`${f.chip} ${on ? f.chipOn : ""}`}
+      onClick={onClick}
+      aria-pressed={on}
+      data-testid={testId}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <>
       <Modal
-        title={product ? "تعديل المنتج" : "إضافة منتج"}
+        title={product ? "✏️ تعديل المنتج" : "📦 منتج جديد"}
         onClose={onClose}
-        footer={
-          <div className={styles.modalFooter}>
-            {product ? (
-              <button
-                type="button"
-                className={styles.modalFooterBtnDelete}
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={isSubmitting || isDeleting}
-              >
-                <Icon n="trash" s={16} />
-                <span>حذف</span>
-              </button>
-            ) : (
-              <span />
-            )}
-            <div className={styles.modalFooterLeft}>
-              <button
-                type="button"
-                className={styles.modalFooterBtnCancel}
-                onClick={onClose}
-                disabled={isSubmitting || isDeleting}
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                className={styles.modalFooterBtnSave}
-                onClick={handleSubmit}
-                disabled={isSubmitting || isDeleting}
-              >
-                <Icon n="check" s={16} />
-                <span>{product ? "حفظ" : "إضافة"}</span>
-              </button>
-            </div>
-          </div>
-        }
       >
-        <form onSubmit={handleSubmit} className={styles.modalDark}>
+        <form
+          onSubmit={handleSubmit}
+          className={f.form}
+          data-testid="product-form"
+          dir="rtl"
+        >
           {errors.submit && (
-            <div
-              style={{
-                color: "var(--red, #cf3c3c)",
-                fontSize: 13,
-                fontWeight: 700,
-              }}
-            >
+            <div className={f.errBox} role="alert">
               {errors.submit}
             </div>
           )}
 
-          {/* اسم المنتج */}
-          <Field label="اسم المنتج" err={errors.name}>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="Pepsi 1L"
-              autoFocus={!product}
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1.5px solid var(--line)",
-                fontSize: 15,
-                background: "var(--sf)",
-                color: "var(--ink)",
-              }}
-            />
-          </Field>
+          {/* ─── V19: اسم المنتج ─── */}
+          <label className={f.lbl} htmlFor="pf-name">
+            اسم المنتج
+          </label>
+          <input
+            id="pf-name"
+            className={`${f.input} ${errors.name ? f.inputErr : ""}`}
+            type="text"
+            dir="auto"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="مثلاً: شيبسي كبير"
+            autoFocus={!product}
+            data-testid="product-name"
+          />
+          {errors.name && <div className={f.err}>{errors.name}</div>}
 
-          {/* Autocomplete suggestions from Egyptian Global Catalog */}
+          {/* The Egyptian catalog: the same product, already described */}
           {matches.length > 0 && !selectedGlobalProduct && (
-            <div className={styles.catalogMatches}>
-              <div className={styles.catalogMatchesTitle}>
-                هل تقصد أحد هذه الأصناف من الكتالوج المصري؟
-              </div>
+            <div className={f.matches}>
+              <div className={f.note}>تقصد واحد من دول؟</div>
               {matches.map((m) => (
-                <div
+                <button
                   key={m.product.id}
-                  className={styles.matchCard}
+                  type="button"
+                  className={f.match}
                   onClick={() => handleSelectCatalogMatch(m)}
                 >
-                  <div className={styles.matchInfo}>
-                    <span className={styles.matchName}>
-                      {m.product.nameAr} {m.brand ? `(${m.brand.nameAr})` : ""}
-                    </span>
-                    <span className={styles.matchCategory}>
-                      {m.product.category}
-                    </span>
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: "var(--ok, #108e5c)",
-                    }}
-                  >
-                    اختيار
+                  <span>
+                    {m.product.nameAr} {m.brand ? `(${m.brand.nameAr})` : ""}
+                    <br />
+                    <small>{m.product.category}</small>
                   </span>
-                </div>
+                  <span>اختار</span>
+                </button>
               ))}
             </div>
           )}
-
           {selectedGlobalProduct && (
-            <div
-              style={{
-                background: "var(--sf2, #fbf7ef)",
-                padding: "8px 12px",
-                borderRadius: 10,
-                border: "1px solid var(--line)",
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  color: "var(--ok, #108e5c)",
-                }}
-              >
-                ✓ مربوط بالكتالوج: {selectedGlobalProduct.product.nameAr}
-              </span>
+            <div className={f.linked}>
+              <span>✓ من الكتالوج: {selectedGlobalProduct.product.nameAr}</span>
               <button
                 type="button"
-                className={styles.unhideBtn}
+                className={f.linkBtn}
                 onClick={handleClearCatalogMatch}
               >
                 إلغاء الربط
@@ -911,862 +912,389 @@ export function ProductFormModal({
             </div>
           )}
 
-          {/* تصنيف وبراند وباركود المنتج الفيزيائي */}
-          <div className={styles.metaFieldsGrid}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  width: "100%",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "var(--ink)",
-                  }}
-                >
-                  التصنيف
-                </span>
-                {product ? (
-                  <span className={styles.categoryAlreadyBadge}>
-                    <Icon n="check" s={11} />
-                    <span>مصنف بالفعل</span>
-                  </span>
-                ) : (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: "var(--ink2)",
-                      fontWeight: 500,
-                    }}
-                  >
-                    إلزامي للإضافة
-                  </span>
-                )}
-              </div>
-              <div className={styles.selectWrapper}>
-                <select
-                  value={isCustomCategory ? "أخرى" : category}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    if (val === "أخرى") {
-                      setIsCustomCategory(true);
-                      setCategory("أخرى");
-                    } else {
-                      setIsCustomCategory(false);
-                      setCategory(val);
-                      setCustomCategoryName("");
-                      setErrors((prev) => {
-                        const next = { ...prev };
-                        delete next.category;
-                        return next;
-                      });
-                    }
-                  }}
-                  className={styles.styledSelect}
-                >
-                  {availableCategories.map((cat) => (
-                    <option key={cat} value={cat}>
-                      {cat === "أخرى" ? "أخرى (إنشاء تصنيف جديد...)" : cat}
-                    </option>
-                  ))}
-                </select>
-                <span className={styles.selectArrow}>
-                  <Icon n="down" s={14} />
-                </span>
-              </div>
-              {isCustomCategory && (
-                <div className={styles.categoryCustomBox}>
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 6 }}
-                  >
-                    <span style={{ fontSize: 13 }}>🏷️</span>
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 700,
-                        color: "var(--br, #5a7d5a)",
-                      }}
-                    >
-                      إنشاء تصنيف جديد للمحل:
-                    </span>
-                  </div>
-                  <input
-                    type="text"
-                    value={customCategoryName}
-                    onChange={(e) => {
-                      setCustomCategoryName(e.target.value);
-                      if (errors.category) {
-                        setErrors((prev) => {
-                          const next = { ...prev };
-                          delete next.category;
-                          return next;
-                        });
-                      }
-                    }}
-                    placeholder="اكتب اسم التصنيف الجديد هنا..."
-                    style={{
-                      width: "100%",
-                      padding: "10px 12px",
-                      borderRadius: 10,
-                      border: errors.category
-                        ? "1.5px solid var(--red, #cf3c3c)"
-                        : "1.5px solid var(--br, #5a7d5a)",
-                      background: "var(--sf)",
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--ink)",
-                      boxSizing: "border-box",
-                    }}
-                    autoFocus
-                  />
-                  {errors.category && (
-                    <div
-                      style={{
-                        color: "var(--red, #cf3c3c)",
-                        fontSize: 11.5,
-                        fontWeight: 700,
-                        marginTop: 2,
-                      }}
-                    >
-                      {errors.category}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            <Field label="البراند / الماركة (اختياري)">
-              <input
-                type="text"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                placeholder="مثال: جهينة، عبور لاند..."
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                  fontSize: 13.5,
-                  background: "var(--sf)",
-                  color: "var(--ink)",
-                  boxSizing: "border-box",
-                }}
-              />
-            </Field>
-          </div>
-
-          <Field label="الباركود (اختياري)">
+          {/* ─── الباركود: امسحه أو اكتبه (اختياري) ─── */}
+          <label className={f.lbl} htmlFor="pf-barcode">
+            الباركود (اختياري)
+          </label>
+          <div className={f.barRow}>
             <input
-              type="text"
+              id="pf-barcode"
+              className={f.input}
+              inputMode="numeric"
               value={barcode}
               onChange={(e) => setBarcode(e.target.value)}
-              placeholder="مثال: 6223000..."
-              style={{
-                width: "100%",
-                padding: "8px 10px",
-                borderRadius: 8,
-                border: "1.5px solid var(--line)",
-                fontSize: 13,
-                background: "var(--sf)",
-                color: "var(--ink)",
-              }}
+              placeholder="امسحه أو اكتبه"
+              data-testid="product-barcode"
             />
-          </Field>
-
-          {/* طريقة البيع - بيتباع إزاي؟ */}
-          <div style={{ marginBottom: 6 }}>
-            <span
-              style={{
-                display: "block",
-                fontSize: 12.5,
-                fontWeight: 700,
-                marginBottom: 6,
-                color: "var(--ink2)",
-              }}
+            <button
+              type="button"
+              className={f.scanBtn}
+              onClick={() => setScanning(true)}
+              data-testid="product-barcode-scan"
             >
-              طريقة البيع (بيتباع إزاي؟):
-            </span>
-            <div className={styles.sellingMethodsGrid}>
-              {availableSellingMethods.map((m) => {
-                const titleText =
-                  m.key === "piece"
-                    ? "بالقطعة / الكرتونة"
-                    : m.key === "weight"
-                      ? "بالوزن"
-                      : m.key === "bag"
-                        ? "بالكيس"
-                        : m.key === "can"
-                          ? "بالعلبة"
-                          : m.key === "jar"
-                            ? "بالبرطمان"
-                            : m.key === "carton"
-                              ? "بالكرتونة"
-                              : m.label;
-                return (
-                  <button
-                    key={m.key}
-                    type="button"
-                    className={`${styles.methodCard} ${sellingMethod === m.key ? styles.active : ""}`}
-                    onClick={() => {
-                      setSellingMethod(m.key);
-                      if (
-                        m.key !== "custom" &&
-                        ![
-                          "piece",
-                          "can",
-                          "jar",
-                          "bag",
-                          "carton",
-                          "weight",
-                        ].includes(m.key)
-                      ) {
-                        setCustomSellingMethod(m.label);
-                      }
-                    }}
-                    aria-label={m.label}
-                    title={titleText}
-                  >
-                    <Icon
-                      n={m.icon as Parameters<typeof Icon>[0]["n"]}
-                      s={18}
-                    />
-                    <span className={styles.methodTitle}>{m.label}</span>
-                  </button>
-                );
-              })}
-            </div>
-
-            {sellingMethod === "custom" && (
-              <div className={styles.categoryCustomBox}>
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: "var(--br, #5a7d5a)",
-                  }}
-                >
-                  طريقة البيع المخصصة:
-                </span>
-                <input
-                  type="text"
-                  value={customSellingMethod}
-                  onChange={(e) => {
-                    setCustomSellingMethod(e.target.value);
-                    if (errors.sellingMethod) {
-                      setErrors((prev) => {
-                        const next = { ...prev };
-                        delete next.sellingMethod;
-                        return next;
-                      });
-                    }
-                  }}
-                  placeholder="مثال: شيكارة، لتر، دستة، طرد..."
-                  style={{
-                    width: "100%",
-                    padding: "9px 12px",
-                    borderRadius: 9,
-                    border: errors.sellingMethod
-                      ? "1.5px solid var(--red, #cf3c3c)"
-                      : "1.5px solid var(--br, #5a7d5a)",
-                    background: "var(--sf)",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: "var(--ink)",
-                    boxSizing: "border-box",
-                  }}
-                  autoFocus
-                />
-                {errors.sellingMethod && (
-                  <div
-                    style={{
-                      color: "var(--red, #cf3c3c)",
-                      fontSize: 11.5,
-                      fontWeight: 700,
-                      marginTop: 2,
-                    }}
-                  >
-                    {errors.sellingMethod}
-                  </div>
-                )}
-              </div>
-            )}
+              📷 امسح
+            </button>
           </div>
 
-          {sellingMethod === "weight" ? (
-            <div className={styles.priceCardGroup}>
-              {/* خيارات وحدة تسعير الوزن */}
-              <div style={{ marginBottom: 12 }}>
-                <span
-                  style={{
-                    display: "block",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    marginBottom: 6,
-                    color: "var(--ink2)",
-                  }}
-                >
-                  التسعير بالوزن:
-                </span>
-                <Seg
-                  value={weightUnit}
-                  onChange={(val) => setWeightUnit(val as "kg" | "g")}
-                  options={[
-                    ["kg", "بالكيلو (كجم)"],
-                    ["g", "بالجرام (جم)"],
-                  ]}
-                />
-              </div>
-
-              <div className={styles.priceCardTitle}>
-                {weightUnit === "kg" ? "سعر الكيلو" : "سعر الجرام"}
-              </div>
-              <div className={styles.priceInputsGrid}>
-                <div className={styles.priceInputCol}>
-                  <span className={styles.priceInputLabel}>شراء</span>
-                  <div className={styles.inputWithBadge}>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={wBuy}
-                      onChange={(e) => setWBuy(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className={styles.inputBadge}>ج.م</span>
-                  </div>
-                </div>
-                <div className={styles.priceInputCol}>
-                  <span className={styles.priceInputLabel}>بيع</span>
-                  <div className={styles.inputWithBadge}>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={wSell}
-                      onChange={(e) => setWSell(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className={styles.inputBadge}>ج.م</span>
-                  </div>
-                </div>
-              </div>
-              {Number(wSell) > 0 && (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "var(--ink2)",
-                    marginTop: 8,
-                    fontWeight: 600,
-                  }}
-                >
-                  {weightUnit === "kg"
-                    ? `(100 جرام تعادل ${(Number(wSell) / 10).toFixed(2)} ج.م)`
-                    : `(الكيلو يعادل ${(Number(wSell) * 1000).toLocaleString("ar-EG")} ج.م)`}
-                </div>
-              )}
-              {errors.price && (
-                <div
-                  style={{
-                    color: "var(--red, #cf3c3c)",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    marginTop: 6,
-                  }}
-                >
-                  {errors.price}
-                </div>
-              )}
-            </div>
-          ) : sellingMethod === "carton" ? (
-            /* بيع مباشر بالكرتونة */
-            <div className={styles.priceCardGroup}>
-              <div className={styles.priceCardTitle}>سعر الكرتونة</div>
-              <div className={styles.priceInputsGrid}>
-                <div className={styles.priceInputCol}>
-                  <span className={styles.priceInputLabel}>شراء</span>
-                  <div className={styles.inputWithBadge}>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={pkBuy}
-                      onChange={(e) => setPkBuy(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className={styles.inputBadge}>ج.م</span>
-                  </div>
-                </div>
-                <div className={styles.priceInputCol}>
-                  <span className={styles.priceInputLabel}>بيع</span>
-                  <div className={styles.inputWithBadge}>
-                    <input
-                      type="number"
-                      step="any"
-                      min="0"
-                      value={pkSell}
-                      onChange={(e) => setPkSell(e.target.value)}
-                      placeholder="0"
-                    />
-                    <span className={styles.inputBadge}>ج.م</span>
-                  </div>
-                </div>
-              </div>
-              {errors.price && (
-                <div
-                  style={{
-                    color: "var(--red, #cf3c3c)",
-                    fontSize: 12,
-                    fontWeight: 700,
-                    marginTop: 6,
-                  }}
-                >
-                  {errors.price}
-                </div>
-              )}
-            </div>
-          ) : sellingMethod === "bag" ? (
-            <>
-              {/* إعدادات محتوى الكيس */}
-              <div className={styles.priceCardGroup}>
-                <div style={{ marginBottom: 12 }}>
-                  <span
-                    style={{
-                      display: "block",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      marginBottom: 6,
-                      color: "var(--ink2)",
-                    }}
-                  >
-                    محتوى الكيس:
-                  </span>
-                  <Seg
-                    value={bagContentType}
-                    onChange={(val) =>
-                      setBagContentType(val as "weight" | "count")
+          {/* ─── بتبيعه إزاي؟ every selling unit the shop uses ─── */}
+          <div className={f.lbl}>بتبيعه إزاي؟</div>
+          <div className={f.chips} data-testid="product-methods">
+            {availableSellingMethods.map((m) => (
+              <React.Fragment key={m.key}>
+                {chip(
+                  sellingMethod === m.key,
+                  m.key === "weight" ? "بالوزن" : m.label,
+                  () => {
+                    setSellingMethod(m.key);
+                    if (
+                      m.key !== "custom" &&
+                      ![
+                        "piece",
+                        "can",
+                        "jar",
+                        "bag",
+                        "carton",
+                        "weight",
+                      ].includes(m.key)
+                    ) {
+                      setCustomSellingMethod(m.label);
                     }
-                    size="sm"
-                    className={styles.compactSeg}
-                    options={[
-                      ["weight", "بالوزن (جرام / كجم)"],
-                      ["count", "بالعدد (قطع)"],
-                    ]}
-                  />
-                </div>
+                  },
+                  `product-method-${m.key}`,
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+          {sellingMethod === "custom" && (
+            <>
+              <input
+                className={`${f.input} ${errors.sellingMethod ? f.inputErr : ""}`}
+                dir="auto"
+                value={customSellingMethod}
+                onChange={(e) => {
+                  setCustomSellingMethod(e.target.value);
+                  setErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.sellingMethod;
+                    return next;
+                  });
+                }}
+                placeholder="اسم الوحدة: شيكارة، لفة، طبق…"
+                data-testid="product-method-custom-name"
+              />
+              {errors.sellingMethod && (
+                <div className={f.err}>{errors.sellingMethod}</div>
+              )}
+            </>
+          )}
 
-                {bagContentType === "weight" ? (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "2fr 1fr",
-                      gap: 8,
-                    }}
-                  >
-                    <Field label="وزن الكيس">
-                      <input
-                        type="number"
-                        step="any"
-                        min="1"
-                        value={bagWeightVal}
-                        onChange={(e) => setBagWeightVal(e.target.value)}
-                        placeholder="500"
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          borderRadius: 10,
-                          border: "1.5px solid var(--line)",
-                          fontSize: 14,
-                          background: "var(--sf)",
-                          color: "var(--ink)",
-                        }}
-                      />
-                    </Field>
-                    <Field label="الوحدة">
-                      <Seg
-                        value={bagWeightUnit}
-                        onChange={(val) => setBagWeightUnit(val as "g" | "kg")}
-                        size="sm"
-                        options={[
-                          ["g", "جم"],
-                          ["kg", "كجم"],
-                        ]}
-                      />
-                    </Field>
+          {sellingMethod === "weight" ? (
+            <>
+              <div className={f.chips}>
+                {chip(weightUnit === "kg", "بالكيلو", () =>
+                  setWeightUnit("kg"),
+                )}
+                {chip(weightUnit === "g", "بالجرام", () => setWeightUnit("g"))}
+              </div>
+              {buySell(
+                weightUnit === "kg" ? "الكيلو" : "الجرام",
+                wBuy,
+                setWBuy,
+                wSell,
+                setWSell,
+                "product-price",
+              )}
+              {Number(wSell) > 0 && (
+                <div className={f.note}>
+                  {weightUnit === "kg"
+                    ? `الـ 100 جرام بـ ${(Number(wSell) / 10).toFixed(2)} ج`
+                    : `الكيلو بـ ${(Number(wSell) * 1000).toLocaleString("en-US")} ج`}
+                </div>
+              )}
+              {priceErr}
+            </>
+          ) : sellingMethod === "carton" ? (
+            <>
+              {buySell(
+                "الكرتونة",
+                pkBuy,
+                setPkBuy,
+                pkSell,
+                setPkSell,
+                "product-price",
+              )}
+              {priceErr}
+            </>
+          ) : (
+            <>
+              {sellingMethod === "bag" && (
+                <>
+                  <div className={f.lbl}>الكيس فيه</div>
+                  <div className={f.chips}>
+                    {chip(bagContentType === "weight", "وزن", () =>
+                      setBagContentType("weight"),
+                    )}
+                    {chip(bagContentType === "count", "عدد قطع", () =>
+                      setBagContentType("count"),
+                    )}
                   </div>
-                ) : (
-                  <Field label="عدد القطع داخل الكيس">
-                    <div className={styles.inputWithBadge}>
+                  {bagContentType === "weight" ? (
+                    <div className={f.two}>
+                      <div>
+                        <label className={f.lbl}>وزن الكيس</label>
+                        <input
+                          className={f.input}
+                          type="number"
+                          inputMode="decimal"
+                          min="1"
+                          value={bagWeightVal}
+                          onChange={(e) => setBagWeightVal(e.target.value)}
+                          placeholder="500"
+                          data-testid="product-bag-weight"
+                        />
+                      </div>
+                      <div className={f.chips}>
+                        {chip(bagWeightUnit === "g", "جرام", () =>
+                          setBagWeightUnit("g"),
+                        )}
+                        {chip(bagWeightUnit === "kg", "كيلو", () =>
+                          setBagWeightUnit("kg"),
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <label className={f.lbl}>عدد القطع في الكيس</label>
                       <input
+                        className={f.input}
                         type="number"
+                        inputMode="numeric"
                         min="1"
                         value={bagCountVal}
                         onChange={(e) => setBagCountVal(e.target.value)}
                         placeholder="10"
+                        data-testid="product-bag-count"
                       />
-                      <span className={styles.inputBadge}>قطعة</span>
-                    </div>
-                  </Field>
-                )}
-              </div>
-
-              {/* بيتباع كرتونة كمان للأكياس */}
-              <div
-                className={styles.cartonToggleCard}
-                onClick={() => setHasPack(!hasPack)}
-                role="checkbox"
-                aria-checked={hasPack}
-                tabIndex={0}
-              >
-                <span className={styles.cartonToggleLabel}>
-                  بيتباع كرتونة كمان (تحتوي على أكياس)
-                </span>
-                <div
-                  className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
-                >
-                  {hasPack && <Icon n="check" s={14} />}
-                </div>
-              </div>
-
-              {hasPack && (
-                <>
-                  <Field label="عدد الأكياس في الكرتونة" err={errors.packN}>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        min="2"
-                        value={packN}
-                        onChange={(e) => handlePackNChange(e.target.value)}
-                        placeholder="20"
-                      />
-                      <span className={styles.inputBadge}>كيس</span>
-                    </div>
-                  </Field>
-
-                  <div className={styles.priceCardGroup}>
-                    <div className={styles.priceCardTitle}>سعر الكرتونة</div>
-                    <div className={styles.priceInputsGrid}>
-                      <div className={styles.priceInputCol}>
-                        <span className={styles.priceInputLabel}>شراء</span>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={pkBuy}
-                            onChange={(e) =>
-                              handlePackBuyChange(e.target.value)
-                            }
-                            placeholder="0"
-                          />
-                          <span className={styles.inputBadge}>ج.م</span>
-                        </div>
-                      </div>
-                      <div className={styles.priceInputCol}>
-                        <span className={styles.priceInputLabel}>بيع</span>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={pkSell}
-                            onChange={(e) =>
-                              handlePackSellChange(e.target.value)
-                            }
-                            placeholder="0"
-                          />
-                          <span className={styles.inputBadge}>ج.م</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                    </>
+                  )}
                 </>
               )}
 
-              {/* سعر الكيس الواحد */}
-              <div className={styles.priceCardGroup}>
-                <div className={styles.priceCardTitle}>سعر الكيس الواحد</div>
-                <div className={styles.priceInputsGrid}>
-                  <div className={styles.priceInputCol}>
-                    <span className={styles.priceInputLabel}>شراء</span>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={pcBuy}
-                        onChange={(e) => handlePieceBuyChange(e.target.value)}
-                        placeholder="0"
-                      />
-                      <span className={styles.inputBadge}>ج.م</span>
-                    </div>
-                  </div>
-                  <div className={styles.priceInputCol}>
-                    <span className={styles.priceInputLabel}>بيع</span>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={pcSell}
-                        onChange={(e) => handlePieceSellChange(e.target.value)}
-                        placeholder="0"
-                      />
-                      <span className={styles.inputBadge}>ج.م</span>
-                    </div>
-                  </div>
-                </div>
-                {errors.price && (
-                  <div
-                    style={{
-                      color: "var(--red, #cf3c3c)",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      marginTop: 6,
-                    }}
-                  >
-                    {errors.price}
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            /* للقطع والعلب والبرطمانات والطرق المخصصة */
-            <>
-              {/* بيتباع بطريقة بيع تانية كمان (مثل كرتونة، كيس، دستة) */}
-              <div
-                className={styles.cartonToggleCard}
-                onClick={() => setHasPack(!hasPack)}
-                role="checkbox"
-                aria-checked={hasPack}
-                tabIndex={0}
-              >
-                <div
-                  style={{ display: "flex", flexDirection: "column", gap: 2 }}
-                >
-                  <span className={styles.cartonToggleLabel}>
-                    بيتباع كرتونة كمان أو طريقة بيع تانية؟ (دستة، كيس، علبة...)
-                  </span>
-                  <span style={{ fontSize: 11.5, color: "var(--ink2)" }}>
-                    تتيح للمحل بيع الصنف بأكثر من طريقة (مفرد + جملة أو عبوة)
-                  </span>
-                </div>
-                <div
-                  className={`${styles.customCheckbox} ${hasPack ? styles.checked : ""}`}
-                >
-                  {hasPack && <Icon n="check" s={14} />}
-                </div>
-              </div>
+              {buySell(
+                category === "كروت شحن" ? "الكارت" : unitThe,
+                pcBuy,
+                handlePieceBuyChange,
+                pcSell,
+                handlePieceSellChange,
+                "product-price",
+              )}
+              {priceErr}
 
+              {/* V19: «كمان بتتباع بالكرتونة» — a second selling unit */}
+              <label className={f.chk}>
+                <input
+                  type="checkbox"
+                  checked={hasPack}
+                  onChange={(e) => setHasPack(e.target.checked)}
+                  data-testid="product-has-pack"
+                />
+                {sellingMethod === "bag"
+                  ? "كمان بتتباع بالكرتونة"
+                  : "كمان بتتباع بعبوة أكبر (كرتونة، دستة…)"}
+              </label>
               {hasPack && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 12,
-                    background: "var(--sf2)",
-                    padding: 12,
-                    borderRadius: 12,
-                    border: "1px solid var(--line)",
-                    marginBottom: 12,
-                  }}
-                >
-                  <div>
-                    <span
-                      style={{
-                        display: "block",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        marginBottom: 6,
-                        color: "var(--ink2)",
-                      }}
-                    >
-                      نوع طريقة البيع الإضافية (العبوة):
-                    </span>
-                    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                <div className={f.packBox} data-testid="product-pack">
+                  {sellingMethod !== "bag" && (
+                    <div className={f.chips}>
                       {SECONDARY_PACKAGING_PRESETS.map((p) => (
-                        <button
-                          key={p.key}
-                          type="button"
-                          className={`${styles.methodCard} ${packMethod === p.key ? styles.active : ""}`}
-                          onClick={() => {
+                        <React.Fragment key={p.key}>
+                          {chip(packMethod === p.key, p.label, () => {
                             setPackMethod(p.key);
                             if (p.defaultPack && p.key !== "custom") {
                               handlePackNChange(p.defaultPack.toString());
                             }
-                          }}
-                          style={{
-                            padding: "6px 12px",
-                            minWidth: 70,
-                            height: 38,
-                            flexDirection: "row",
-                            gap: 4,
-                          }}
-                        >
-                          <span className={styles.methodTitle}>{p.label}</span>
-                        </button>
+                          })}
+                        </React.Fragment>
                       ))}
                     </div>
-                  </div>
-
-                  {packMethod === "custom" && (
-                    <Field label="اسم طريقة البيع المخصصة (مثال: شيكارة، باكت، دستة)">
-                      <input
-                        type="text"
-                        value={customPackMethod}
-                        onChange={(e) => setCustomPackMethod(e.target.value)}
-                        placeholder="اكتب اسم العبوة (مثال: شيكارة، دستة، طرد)..."
-                        style={{
-                          width: "100%",
-                          padding: "8px 10px",
-                          borderRadius: 8,
-                          border: "1.5px solid var(--line)",
-                        }}
-                      />
-                    </Field>
                   )}
-
-                  {/* عدد الوحدات في هذه العبوة */}
-                  <Field
-                    label={
-                      packMethod === "carton" || secondaryPackTitle === "كرتونة"
-                        ? "عدد القطع في الكرتونة"
-                        : `عدد الـ ${getUnitPluralLabel(sellingMethod)} في ${secondaryPackTitle}`
-                    }
-                    err={errors.packN}
-                  >
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        min="2"
-                        value={packN}
-                        onChange={(e) => handlePackNChange(e.target.value)}
-                        placeholder="12"
-                      />
-                      <span className={styles.inputBadge}>
-                        {getUnitNameLabel(sellingMethod)}
-                      </span>
+                  {packMethod === "custom" && sellingMethod !== "bag" && (
+                    <input
+                      className={f.input}
+                      dir="auto"
+                      value={customPackMethod}
+                      onChange={(e) => setCustomPackMethod(e.target.value)}
+                      placeholder="اسم العبوة: شيكارة، طرد…"
+                    />
+                  )}
+                  <label className={f.lbl}>
+                    عدد ال{getUnitPluralLabel(sellingMethod)} في {packThe}
+                  </label>
+                  <input
+                    className={`${f.input} ${errors.packN ? f.inputErr : ""}`}
+                    type="number"
+                    inputMode="numeric"
+                    min="2"
+                    value={packN}
+                    onChange={(e) => handlePackNChange(e.target.value)}
+                    placeholder="12"
+                    data-testid="product-pack-qty"
+                  />
+                  {errors.packN && <div className={f.err}>{errors.packN}</div>}
+                  {buySell(
+                    packThe,
+                    pkBuy,
+                    handlePackBuyChange,
+                    pkSell,
+                    handlePackSellChange,
+                    "product-pack-price",
+                  )}
+                  {Number(packN) > 1 && (
+                    <div className={f.note}>
+                      {packThe} = {packN} {unitOne}
                     </div>
-                  </Field>
-
-                  {/* سعر العبوة */}
-                  <div
-                    className={styles.priceCardGroup}
-                    style={{ background: "var(--sf)" }}
-                  >
-                    <div className={styles.priceCardTitle}>
-                      {packMethod === "carton" ||
-                      secondaryPackTitle === "كرتونة"
-                        ? "سعر الكرتونة"
-                        : `سعر ${secondaryPackTitle}`}
-                    </div>
-                    <div className={styles.priceInputsGrid}>
-                      <div className={styles.priceInputCol}>
-                        <span className={styles.priceInputLabel}>شراء</span>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={pkBuy}
-                            onChange={(e) =>
-                              handlePackBuyChange(e.target.value)
-                            }
-                            placeholder="0"
-                          />
-                          <span className={styles.inputBadge}>ج.م</span>
-                        </div>
-                      </div>
-                      <div className={styles.priceInputCol}>
-                        <span className={styles.priceInputLabel}>بيع</span>
-                        <div className={styles.inputWithBadge}>
-                          <input
-                            type="number"
-                            step="any"
-                            min="0"
-                            value={pkSell}
-                            onChange={(e) =>
-                              handlePackSellChange(e.target.value)
-                            }
-                            placeholder="0"
-                          />
-                          <span className={styles.inputBadge}>ج.م</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  )}
                 </div>
               )}
-
-              {/* سعر الوحدة المنفردة */}
-              <div className={styles.priceCardGroup}>
-                <div className={styles.priceCardTitle}>
-                  {category === "كروت شحن"
-                    ? "سعر الكارت"
-                    : sellingMethod === "piece"
-                      ? "سعر القطعة"
-                      : `سعر ${getUnitSingularLabel(sellingMethod)} الواحد`}
-                </div>
-                <div className={styles.priceInputsGrid}>
-                  <div className={styles.priceInputCol}>
-                    <span className={styles.priceInputLabel}>شراء</span>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={pcBuy}
-                        onChange={(e) => handlePieceBuyChange(e.target.value)}
-                        placeholder="0"
-                      />
-                      <span className={styles.inputBadge}>ج.م</span>
-                    </div>
-                  </div>
-                  <div className={styles.priceInputCol}>
-                    <span className={styles.priceInputLabel}>بيع</span>
-                    <div className={styles.inputWithBadge}>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={pcSell}
-                        onChange={(e) => handlePieceSellChange(e.target.value)}
-                        placeholder="0"
-                      />
-                      <span className={styles.inputBadge}>ج.م</span>
-                    </div>
-                  </div>
-                </div>
-                {errors.price && (
-                  <div
-                    style={{
-                      color: "var(--red, #cf3c3c)",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      marginTop: 6,
-                    }}
-                  >
-                    {errors.price}
-                  </div>
-                )}
-              </div>
             </>
           )}
 
-          {profitHint && (
-            <div
-              className={styles.profitLine}
-              style={{ padding: "8px 12px", fontSize: 12 }}
+          {/* ─── التصنيف ─── */}
+          <label className={f.lbl} htmlFor="pf-category">
+            التصنيف
+          </label>
+          <select
+            id="pf-category"
+            className={f.select}
+            value={isCustomCategory ? "أخرى" : category}
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val === "أخرى") {
+                setIsCustomCategory(true);
+                setCategory("أخرى");
+              } else {
+                setIsCustomCategory(false);
+                setCategory(val);
+                setCustomCategoryName("");
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.category;
+                  return next;
+                });
+              }
+            }}
+          >
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat === "أخرى" ? "تصنيف جديد…" : cat}
+              </option>
+            ))}
+          </select>
+          {isCustomCategory && (
+            <input
+              className={`${f.input} ${errors.category ? f.inputErr : ""}`}
+              dir="auto"
+              value={customCategoryName}
+              onChange={(e) => {
+                setCustomCategoryName(e.target.value);
+                setErrors((prev) => {
+                  const next = { ...prev };
+                  delete next.category;
+                  return next;
+                });
+              }}
+              placeholder="اسم التصنيف الجديد"
+              style={{ marginTop: 8 }}
+            />
+          )}
+          {errors.category && <div className={f.err}>{errors.category}</div>}
+
+          {/* ─── V19: تفاصيل أكتر (اختياري) ─── */}
+          <details className={f.details}>
+            <summary>تفاصيل أكتر (اختياري)</summary>
+            <label className={f.lbl}>البراند</label>
+            <input
+              className={f.input}
+              dir="auto"
+              value={brandName}
+              onChange={(e) => setBrandName(e.target.value)}
+              placeholder="مثلاً: جهينة"
+            />
+            <label className={f.lbl}>النكهة</label>
+            <input
+              className={f.input}
+              dir="auto"
+              value={flavor}
+              onChange={(e) => setFlavor(e.target.value)}
+            />
+            {sellingMethod !== "bag" && sellingMethod !== "weight" && (
+              <>
+                <label className={f.lbl}>الوزن / الحجم</label>
+                <div className={f.two}>
+                  <input
+                    className={f.input}
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    value={sizeValue}
+                    onChange={(e) => setSizeValue(e.target.value)}
+                    placeholder="مثلاً: 1"
+                  />
+                  <select
+                    className={f.select}
+                    value={sizeUnit}
+                    onChange={(e) =>
+                      setSizeUnit(e.target.value as typeof sizeUnit)
+                    }
+                  >
+                    <option value="g">جرام</option>
+                    <option value="kg">كيلو</option>
+                    <option value="ml">مللي</option>
+                    <option value="l">لتر</option>
+                    <option value="piece">قطعة</option>
+                  </select>
+                </div>
+              </>
+            )}
+          </details>
+
+          {profitHint && <div className={f.sumbox}>📈 {profitHint}</div>}
+
+          <button
+            type="submit"
+            className={f.btn}
+            disabled={isSubmitting || isDeleting}
+            data-testid="product-save"
+          >
+            {isSubmitting
+              ? "بيتحفظ…"
+              : product
+                ? "حفظ التعديل ✅"
+                : "حفظ المنتج ✅"}
+          </button>
+          {product && (
+            <button
+              type="button"
+              className={`${f.btn} ${f.danger}`}
+              onClick={() => setShowDeleteConfirm(true)}
+              disabled={isSubmitting || isDeleting}
+              data-testid="product-delete"
             >
-              <span>📈 {profitHint}</span>
-            </div>
+              🗑️ احذف المنتج
+            </button>
           )}
         </form>
       </Modal>
+
+      {scanning && (
+        <BarcodeScanSheet
+          onCode={(code) => {
+            setBarcode(code);
+            setScanning(false);
+          }}
+          onClose={() => setScanning(false)}
+        />
+      )}
 
       {/* Delete / Hide Confirmation Dialog */}
       {showDeleteConfirm && (

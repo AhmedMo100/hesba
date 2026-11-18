@@ -1551,3 +1551,75 @@ button.prow {
   font-family: inherit;
   color: var(--ink);
 }
+
+/* ─── V19 Products: «+ جديد», rows as buttons, the product sheet ─── */
+.v19Btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 15px;
+  margin: 8px 0;
+  border-radius: 16px;
+  background: var(--dark);
+  color: var(--cream);
+  border: 0;
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.v19Ghost {
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+}
+
+.v19Red {
+  background: var(--red);
+  color: #fff;
+}
+
+button.prow {
+  display: block;
+  width: 100%;
+  border: 2px solid transparent;
+  font-family: inherit;
+  color: var(--ink);
+  text-align: start;
+}
+
+.sheet19 {
+  display: flex;
+  flex-direction: column;
+}
+
+.line19 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.lbl19 {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 12px 0 2px;
+}
+
+.hiddenLink {
+  display: block;
+  margin: 12px auto 4px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  text-decoration: underline;
+  cursor: pointer;
+}

@@ -2,16 +2,7 @@
 
 import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import {
-  Chip,
-  Chips,
-  Empty,
-  SearchBox,
-  Button,
-  Icon,
-  Modal,
-  ListSkeleton,
-} from "@/client/shared/ui";
+import { Empty, Button, Modal, ListSkeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { stockLevel } from "@/domain/alerts";
@@ -20,26 +11,19 @@ import { ProductFormModal } from "./ProductFormModal";
 import { AddProductChoiceModal } from "./AddProductChoiceModal";
 import { SandwichFormModal } from "./SandwichFormModal";
 import sandwichStyles from "./SandwichFormModal.module.css";
-import { ServiceFormModal } from "./ServiceFormModal";
-import { AddStockModal } from "../stock/AddStockModal";
+import { StockEntrySheet } from "../stock/StockEntrySheet";
+import { optionFromProduct } from "../stock/stock-entry.logic";
 import { EditPromoModal } from "../alerts/EditPromoModal";
 import { RecordLossModal } from "../stock/RecordLossModal";
 import { ArchiveStockModal } from "../stock/ArchiveStockModal";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import type { PublishedPromotion } from "@/schemas/promotion";
 import type { SuggestedPromotion } from "@/domain/alerts";
-import { MachinesModal, type PosMachine } from "./MachinesModal";
-import {
-  getStoredMachines,
-  fetchStoreMachines,
-  setServiceLinkedMachineIds,
-} from "@/client/shared/api/machines";
 import {
   fetchSandwiches,
   stageSandwichForSale,
   type Sandwich,
 } from "@/client/shared/api/sandwiches";
-import { useAuth } from "@/client/shared/auth";
 import {
   type StoreProductItem,
   isServiceProduct,
@@ -50,7 +34,6 @@ import {
   fmtMoney,
   sandwichSubtitle as sandwichSubtitlePure,
   isWeightProduct,
-  getServiceNature,
 } from "./products.logic";
 
 /** Cost / sell / profit of a sandwich card. Cost is the live recipe cost from the server. */
@@ -102,60 +85,9 @@ function sandwichSubtitle(sandwich: Sandwich | undefined): string {
   return sandwichSubtitlePure(sandwich, t);
 }
 
-function getBrandBadge(p: StoreProductItem) {
-  const text = (p.brand_name || p.name_ar).toLowerCase();
-  if (text.includes("فودافون") || text.includes("vodafone")) {
-    return { name: "فودافون", className: styles.brandVodafone };
-  }
-  if (
-    text.includes("وي") ||
-    text.includes("we") ||
-    text.includes("المصرية للاتصالات") ||
-    text.includes("الأرضي")
-  ) {
-    return { name: "وي (WE)", className: styles.brandWe };
-  }
-  if (
-    text.includes("أورانج") ||
-    text.includes("اورانج") ||
-    text.includes("orange")
-  ) {
-    return { name: "أورانج", className: styles.brandOrange };
-  }
-  if (
-    text.includes("اتصالات") ||
-    text.includes("etisalat") ||
-    text.includes("e&")
-  ) {
-    return { name: "اتصالات (e&)", className: styles.brandEtisalat };
-  }
-  if (
-    text.includes("كهرباء") ||
-    text.includes("مياه") ||
-    text.includes("غاز") ||
-    text.includes("مرافق")
-  ) {
-    return { name: "مرافق عامة", className: styles.brandUtility };
-  }
-  if (text.includes("فوري") || text.includes("fawry")) {
-    return { name: "فوري", className: styles.brandFawry };
-  }
-  if (
-    text.includes("إنستاباي") ||
-    text.includes("انستاباي") ||
-    text.includes("instapay")
-  ) {
-    return { name: "إنستاباي", className: styles.brandInstapay };
-  }
-  return { name: p.brand_name || "خدمة عامة", className: styles.brandUtility };
-}
-
 export function ProductsView() {
-  const [tab, setTab] = useState<"products" | "services">("products");
   const [products, setProducts] = useState<StoreProductItem[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>("all");
-  const [serviceCategory, setServiceCategory] = useState<string>("utilities");
-  const [companyFilter, setCompanyFilter] = useState<string>("all");
   const [filterMode, setFilterMode] = useState<"all" | "custom" | "hidden">(
     "all",
   );
@@ -167,7 +99,8 @@ export function ProductsView() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
+  // V19 has no search on this screen (the sale screen has one).
+  const query = "";
   // V19 chips: the shop's products, its offers, its sandwiches.
   const [v19Chip, setV19Chip] = useState<"items" | "offers" | "sands">("items");
   const [promotions, setPromotions] = useState<PublishedPromotion[]>([]);
@@ -231,8 +164,6 @@ export function ProductsView() {
     () => new Map(sandwiches.map((sw) => [sw.id, sw])),
     [sandwiches],
   );
-  const { session } = useAuth();
-  const storeId = session?.store?.id;
 
   // Stock actions on one product (V19 product sheet): record a loss, archive.
   const [stockLevels, setStockLevels] = useState<StockInventoryItem[]>([]);
@@ -265,122 +196,25 @@ export function ProductsView() {
     );
   const [stockModalProduct, setStockModalProduct] =
     useState<StoreProductItem | null>(null);
-  const [isMachinesModalOpen, setIsMachinesModalOpen] = useState(false);
-  const [machineAssignProduct, setMachineAssignProduct] =
-    useState<StoreProductItem | null>(null);
-  const [posMachines, setPosMachines] = useState<PosMachine[]>(() => {
-    return getStoredMachines(storeId);
-  });
-  const [assignedMachines, setAssignedMachines] = useState<
-    Record<string, string[]>
-  >(() => {
-    if (typeof window === "undefined") return {};
-    try {
-      const storageKey = `hesba_service_machines_${storeId || "default"}`;
-      const savedAssigned = localStorage.getItem(storageKey);
-      if (!savedAssigned) return {};
-      const parsed = JSON.parse(savedAssigned);
-      const normalized: Record<string, string[]> = {};
-      Object.keys(parsed).forEach((k) => {
-        const v = parsed[k];
-        normalized[k] = Array.isArray(v) ? v : v ? [v] : [];
-      });
-      return normalized;
-    } catch {
-      return {};
-    }
-  });
-  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  // V19 prodSheet: one product's details and every action on it.
+  const [sheetProduct, setSheetProduct] = useState<StoreProductItem | null>(
+    null,
+  );
   const [isOnline, setIsOnline] = useState<boolean>(() => {
     return typeof navigator !== "undefined" ? navigator.onLine : true;
   });
 
-  // Re-sync assigned machines when active store changes
+  // Online / offline banner
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    const storageKey = `hesba_service_machines_${storeId || "default"}`;
-    const reload = () => {
-      try {
-        const savedAssigned = localStorage.getItem(storageKey);
-        if (!savedAssigned) {
-          setAssignedMachines({});
-          return;
-        }
-        const parsed = JSON.parse(savedAssigned);
-        const normalized: Record<string, string[]> = {};
-        Object.keys(parsed).forEach((k) => {
-          const v = parsed[k];
-          normalized[k] = Array.isArray(v) ? v : v ? [v] : [];
-        });
-        setAssignedMachines(normalized);
-      } catch {
-        setAssignedMachines({});
-      }
-    };
-    reload();
-    window.addEventListener("hesba_service_machines_updated", reload);
+    const onOn = () => setIsOnline(true);
+    const onOff = () => setIsOnline(false);
+    window.addEventListener("online", onOn);
+    window.addEventListener("offline", onOff);
     return () => {
-      window.removeEventListener("hesba_service_machines_updated", reload);
+      window.removeEventListener("online", onOn);
+      window.removeEventListener("offline", onOff);
     };
-  }, [storeId]);
-
-  // Check online status listeners & fetch POS machines from DB
-  useEffect(() => {
-    let isMounted = true;
-    // Wait for the signed-in shop: running first without it and again with it loaded
-    // everything twice (QA-32 request audit), and the local caches are keyed by shop.
-    if (storeId) {
-      void fetchStoreMachines(storeId).then((remote) => {
-        if (isMounted && remote) {
-          setPosMachines(remote);
-        }
-      });
-    }
-
-    if (typeof window !== "undefined") {
-      const onOn = () => setIsOnline(true);
-      const onOff = () => setIsOnline(false);
-      window.addEventListener("online", onOn);
-      window.addEventListener("offline", onOff);
-
-      const handleMachinesUpdated = () => {
-        setPosMachines(getStoredMachines(storeId));
-      };
-      window.addEventListener("hesba_machines_updated", handleMachinesUpdated);
-
-      return () => {
-        isMounted = false;
-        window.removeEventListener("online", onOn);
-        window.removeEventListener("offline", onOff);
-        window.removeEventListener(
-          "hesba_machines_updated",
-          handleMachinesUpdated,
-        );
-      };
-    }
-  }, [storeId]);
-
-  // Close card menu on outside click
-  useEffect(() => {
-    if (!menuOpenId) return;
-    const handleClick = () => setMenuOpenId(null);
-    window.addEventListener("click", handleClick);
-    return () => window.removeEventListener("click", handleClick);
-  }, [menuOpenId]);
-
-  const handleToggleMachineAssignment = (
-    productId: string,
-    machineId: string,
-  ) => {
-    const current = assignedMachines[productId] || [];
-    const next = current.includes(machineId)
-      ? current.filter((id) => id !== machineId)
-      : [...current, machineId];
-
-    const updated = { ...assignedMachines, [productId]: next };
-    setAssignedMachines(updated);
-    setServiceLinkedMachineIds(productId, next, storeId);
-  };
+  }, []);
 
   const loadProducts = useCallback(async () => {
     try {
@@ -583,67 +417,9 @@ export function ProductsView() {
     }
   };
 
-  const handleAddToSale = (product: StoreProductItem) => {
-    // Must be linked to at least one payment machine first
-    const linkedIds = assignedMachines[product.id] || [];
-    if (linkedIds.length === 0) {
-      alert(
-        "⚠️ لا يمكن إضافة هذه الخدمة إلى شاشة البيع قبل ربطها بماكينة دفع واحدة على الأقل.\nيرجى تحديد ماكينة الدفع المسؤولة عنها أولاً.",
-      );
-      setMachineAssignProduct(product);
-      return;
-    }
-
-    if (typeof window !== "undefined") {
-      try {
-        const storageKey = `hesba_sales_enabled_services_${storeId || "default"}`;
-        const raw = localStorage.getItem(storageKey);
-        const currentList: string[] = raw ? JSON.parse(raw) : [];
-        if (currentList.includes(product.id)) {
-          alert(
-            `⚠️ هذه الخدمة «${product.name_ar}» مضافة بالفعل إلى صفحة البيع ومتاحة للبيع الآن!`,
-          );
-          return;
-        }
-
-        currentList.push(product.id);
-        localStorage.setItem(storageKey, JSON.stringify(currentList));
-
-        // Persist to supermarket database configuration
-        void fetch("/api/sales/config", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ enabledServiceIds: currentList }),
-        }).catch(() => {});
-
-        window.dispatchEvent(new CustomEvent("hesba_sales_config_updated"));
-
-        const stagedItem = {
-          id: product.id,
-          name: product.name_ar,
-          sellPricePiasters: product.sell_price_piasters,
-          category: product.category,
-          unit: product.unit,
-        };
-        sessionStorage.setItem(
-          "hesba_staged_sale_item",
-          JSON.stringify(stagedItem),
-        );
-      } catch {
-        // Ignore storage error
-      }
-      window.history.pushState(null, "", "/app/sales");
-      window.dispatchEvent(new PopStateEvent("popstate"));
-    }
-  };
-
   // Split into Physical Products vs Digital Services / Cards
   const physicalProducts = useMemo(() => {
     return products.filter((p) => !isServiceProduct(p));
-  }, [products]);
-
-  const serviceProducts = useMemo(() => {
-    return products.filter((p) => isServiceProduct(p));
   }, [products]);
 
   // Filtered physical products (Tab 1)
@@ -698,197 +474,46 @@ export function ProductsView() {
     });
   }, [physicalProducts, filterMode, activeCategory, query, v19Chip]);
 
-  // Filtered services products (Tab 2)
-  const filteredServiceProducts = useMemo(() => {
-    let list = serviceProducts;
-
-    if (filterMode === "hidden") {
-      list = list.filter((p) => p.is_hidden);
-    } else {
-      list = list.filter((p) => !p.is_hidden);
-    }
-
-    // Category filter
-    if (serviceCategory === "utilities") {
-      list = list.filter(
-        (p) =>
-          p.category === "خدمات مرافق" ||
-          p.category === "كروت مرافق" ||
-          p.name_ar.includes("كهرباء") ||
-          p.name_ar.includes("مياه") ||
-          p.name_ar.includes("غاز"),
-      );
-      if (companyFilter === "electricity") {
-        list = list.filter(
-          (p) => p.name_ar.includes("كهرباء") || p.name_ar.includes("كهربا"),
-        );
-      } else if (companyFilter === "water") {
-        list = list.filter(
-          (p) => p.name_ar.includes("مياه") || p.name_ar.includes("ميه"),
-        );
-      } else if (companyFilter === "gas") {
-        list = list.filter((p) => p.name_ar.includes("غاز"));
-      }
-    } else if (serviceCategory === "internet") {
-      list = list.filter((p) => p.category === "فواتير إنترنت");
-    } else if (serviceCategory === "cards") {
-      list = list.filter(
-        (p) => p.category === "كروت شحن" || p.name_ar.includes("كارت شحن"),
-      );
-    } else if (serviceCategory === "transfer") {
-      list = list.filter((p) => p.category === "تحويل أموال");
-    } else if (serviceCategory === "airtime") {
-      list = list.filter((p) => p.category === "شحن رصيد");
-    }
-
-    // Company filter (when not utilities, since utilities has its own electricity/water/gas filters above)
-    if (companyFilter !== "all" && serviceCategory !== "utilities") {
-      const target = companyFilter.toLowerCase();
-      list = list.filter((p) => {
-        const text = `${p.brand_name || ""} ${p.name_ar}`.toLowerCase();
-        if (target === "vodafone")
-          return text.includes("فودافون") || text.includes("vodafone");
-        if (target === "we")
-          return (
-            text.includes("وي") ||
-            text.includes("we") ||
-            text.includes("الأرضي")
-          );
-        if (target === "orange")
-          return (
-            text.includes("أورانج") ||
-            text.includes("اورانج") ||
-            text.includes("orange")
-          );
-        if (target === "etisalat")
-          return (
-            text.includes("اتصالات") ||
-            text.includes("etisalat") ||
-            text.includes("e&")
-          );
-        if (target === "fawry")
-          return text.includes("فوري") || text.includes("fawry");
-        if (target === "instapay")
-          return (
-            text.includes("إنستاباي") ||
-            text.includes("انستاباي") ||
-            text.includes("instapay")
-          );
-        return true;
-      });
-    }
-
-    const normQ = normalizeArabic(query.trim());
-    if (!normQ) return list;
-
-    return list.filter((p) => {
-      const normName = normalizeArabic(p.name_ar || "");
-      const normCat = normalizeArabic(p.category || "");
-      const normBrand = normalizeArabic(p.brand_name || "");
-      return (
-        normName.includes(normQ) ||
-        normCat.includes(normQ) ||
-        normBrand.includes(normQ)
-      );
-    });
-  }, [serviceProducts, filterMode, serviceCategory, companyFilter, query]);
+  // V19 rows: out of stock first, then running low, then the rest (the list's order kept).
+  const sortedProducts = useMemo(() => {
+    const rank = { out: 0, low: 1, ok: 2 } as const;
+    return filteredPhysicalProducts
+      .map((p, i) => {
+        const isWeight = isWeightProduct(p);
+        const packQty = p.variants?.[0]?.pack_qty ?? 1;
+        const stock = p.stock_quantity ?? 0;
+        const inShop =
+          stock > 0 || Boolean(p.is_custom || p.added_by_this_store);
+        const level: "out" | "low" | "ok" =
+          inShop && p.kind !== "sandwich"
+            ? stockLevel(isWeight ? "weight" : "piece", packQty, stock)
+            : "ok";
+        const stockTxt =
+          p.kind === "sandwich"
+            ? sandwichSubtitle(sandwichById.get(p.id))
+            : !inShop
+              ? "مش في محلك لسه"
+              : isWeight
+                ? `${Math.round(stock / 10) / 100} كيلو`
+                : `${stock} ${unitWord(p.unit)}`;
+        return { p, level, stockTxt, i };
+      })
+      .sort((a, b) => rank[a.level] - rank[b.level] || a.i - b.i);
+  }, [filteredPhysicalProducts, sandwichById]);
 
   return (
     <div className={styles.view} data-testid="page-products">
-      {/* Header */}
-      <div className={styles.phead}>
-        <div className={styles.pheadTitle}>
-          <h1>{t("pages.products.title") || "المنتجات"}</h1>
-          <p>
-            {tab === "products"
-              ? `${physicalProducts.length} منتج مادي`
-              : `${serviceProducts.length} خدمات وفواتير وشحن`}
-          </p>
-        </div>
-        <div className={styles.pact}>
-          {tab === "products" ? (
-            <>
-              {/* زر أيقونة صغير جانبي لعرض المنتجات المخفية */}
-              <button
-                type="button"
-                className={`${styles.hiddenIconBtn} ${filterMode === "hidden" ? styles.active : ""}`}
-                onClick={() =>
-                  setFilterMode((prev) =>
-                    prev === "hidden" ? "all" : "hidden",
-                  )
-                }
-                title={
-                  filterMode === "hidden"
-                    ? "العودة لكافة المنتجات"
-                    : `المخفية (${summary.hiddenCount})`
-                }
-                aria-label={`المخفية (${summary.hiddenCount})`}
-              >
-                <Icon n={filterMode === "hidden" ? "eye" : "eyeoff"} s={18} />
-              </button>
+      {/* V19: «+ جديد» (offer / sandwich / product) */}
+      <button
+        type="button"
+        className={styles.v19Btn}
+        onClick={() => setIsChoosingType(true)}
+        data-testid="add-product-btn"
+      >
+        + جديد
+      </button>
 
-              <Button
-                kind="primary"
-                style={{ flex: 1 }}
-                className={styles.addBtnFull}
-                onClick={() => setIsChoosingType(true)}
-                data-testid="add-product-btn"
-              >
-                + جديد
-              </Button>
-            </>
-          ) : (
-            <>
-              {/* زر أيقونة صغير جانبي لعرض الخدمات المخفية */}
-              <button
-                type="button"
-                className={`${styles.hiddenIconBtn} ${filterMode === "hidden" ? styles.active : ""}`}
-                onClick={() =>
-                  setFilterMode((prev) =>
-                    prev === "hidden" ? "all" : "hidden",
-                  )
-                }
-                title={filterMode === "hidden" ? "العودة للخدمات" : "المخفية"}
-                aria-label="المخفية"
-              >
-                <Icon n={filterMode === "hidden" ? "eye" : "eyeoff"} s={18} />
-              </button>
-
-              <button
-                type="button"
-                className={styles.manageMachinesBtn}
-                onClick={() => setIsMachinesModalOpen(true)}
-                title="إدارة ماكينات الدفع والشبكات"
-              >
-                <Icon n="store" s={16} />
-                <span className={styles.manageMachinesTextDesktop}>
-                  ماكينات الدفع
-                </span>
-                <span className={styles.manageMachinesTextMobile}>
-                  الماكينات
-                </span>
-              </button>
-
-              <Button
-                kind="primary"
-                style={{ flex: 1, minWidth: 0 }}
-                className={styles.addBtnFull}
-                onClick={() => {
-                  setAddingSection("services");
-                  setIsAdding(true);
-                }}
-              >
-                <span className={styles.addBtnTextDesktop}>
-                  + إضافة خدمة أو كارت
-                </span>
-                <span className={styles.addBtnTextMobile}>+ إضافة خدمة</span>
-              </Button>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* V19 chips: products / offers / sandwiches; services kept as a chip */}
+      {/* V19 chips: المنتجات · العروض · السندوتشات */}
       <div className={styles.v19Chips} role="tablist">
         {(
           [
@@ -901,10 +526,9 @@ export function ProductsView() {
             key={k}
             type="button"
             role="tab"
-            aria-selected={tab === "products" && v19Chip === k}
-            className={`${styles.v19Chip} ${tab === "products" && v19Chip === k ? styles.v19ChipOn : ""}`}
+            aria-selected={v19Chip === k && filterMode !== "hidden"}
+            className={`${styles.v19Chip} ${v19Chip === k && filterMode !== "hidden" ? styles.v19ChipOn : ""}`}
             onClick={() => {
-              setTab("products");
               setV19Chip(k);
               setFilterMode("all");
               setActiveCategory("all");
@@ -914,18 +538,6 @@ export function ProductsView() {
             {label}
           </button>
         ))}
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "services"}
-          className={`${styles.v19Chip} ${tab === "services" ? styles.v19ChipOn : ""}`}
-          onClick={() => {
-            setTab("services");
-            setQuery("");
-          }}
-        >
-          ⚡ الخدمات والفواتير
-        </button>
       </div>
 
       {/* Hidden view notification banner */}
@@ -933,10 +545,7 @@ export function ProductsView() {
         <div className={styles.hiddenActiveBanner}>
           <span>
             أنت تشاهد حالياً الأصناف المخفية من المحل (
-            {tab === "products"
-              ? filteredPhysicalProducts.length
-              : filteredServiceProducts.length}{" "}
-            عنصر)
+            {filteredPhysicalProducts.length} عنصر)
           </span>
           <button
             type="button"
@@ -957,20 +566,8 @@ export function ProductsView() {
         </div>
       )}
 
-      {/* Search Bar */}
-      <SearchBox
-        value={query}
-        onChange={setQuery}
-        placeholder={
-          tab === "products"
-            ? t("pages.products.searchPlaceholder") ||
-              "دوّر على منتج… اكتب أو اتكلم"
-            : "دوّر في الفواتير أو كروت الشحن أو الشركات..."
-        }
-      />
-
-      {tab === "products" ? (
-        /* ================= TAB 1: المنتجات الفيزيائية ================= */
+      {
+        /* ================= المنتجات · العروض · السندوتشات ================= */
         <>
           {v19Chip === "offers" && filterMode !== "hidden" && (
             <div className={styles.rowsList} data-testid="products-offers">
@@ -1073,634 +670,257 @@ export function ProductsView() {
             </div>
           ) : (
             <div className={styles.rowsList}>
-              {filteredPhysicalProducts.map((p) => {
-                const firstVariant = p.variants?.[0];
-                const hasPack = Boolean(
-                  firstVariant?.pack_qty && firstVariant.pack_qty > 1,
-                );
-                const isWeight = isWeightProduct(p);
-                const packQty = firstVariant?.pack_qty ?? 1;
-
-                // Calculations for prices
-                const pieceSell = p.sell_price_piasters;
-
-                const isMenuOpen = menuOpenId === p.id;
-                // V19 row: stock · price, yellow when low and red when out (shop items only).
-                const stock = p.stock_quantity ?? 0;
-                const inShop =
-                  stock > 0 || Boolean(p.is_custom || p.added_by_this_store);
-                const level =
-                  inShop && !isSandwich(p)
-                    ? stockLevel(isWeight ? "weight" : "piece", packQty, stock)
-                    : "ok";
-                const stockTxt = isSandwich(p)
-                  ? sandwichSubtitle(sandwichById.get(p.id))
-                  : !inShop
-                    ? "مش في محلك لسه"
-                    : isWeight
-                      ? `${Math.round(stock / 10) / 100} كيلو`
-                      : `${stock} ${unitWord(p.unit)}`;
-
-                return (
-                  <div
-                    className={`${styles.prow} ${level === "out" ? styles.prowRed : level === "low" ? styles.prowYel : ""} ${p.is_hidden ? styles.cardHidden : ""} ${isMenuOpen ? styles.activeMenuCard : ""}`}
-                    key={p.id}
-                    data-testid={`product-card-${p.id}`}
-                    onClick={() => openProduct(p)}
-                  >
-                    {/* Card Top: 3-dots Menu + Title */}
-                    <div className={styles.pch}>
-                      <span className={styles.prowEm} aria-hidden="true">
-                        {isSandwich(p) ? "🥪" : isWeight ? "⚖️" : "📦"}
-                      </span>
-                      <div className={styles.pcn}>
-                        <div
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 6,
-                            flexWrap: "wrap",
-                          }}
-                        >
-                          <b>{p.name_ar}</b>
-                          {(p.is_custom || p.added_by_this_store) && (
-                            <span
-                              className={styles.customStoreBadge}
-                              title="منتج تم إنشاؤه بواسطة هذا المحل"
-                            >
-                              <Icon n="store" s={11} />
-                              <span>من محلك</span>
-                            </span>
-                          )}
-                        </div>
-                        <small>
-                          {stockTxt}
-                          {pieceSell > 0 ? ` · ${pieceSell / 100} ج` : ""}
-                          {hasPack ? ` · ${packQty} في العبوة` : ""}
-                        </small>
-                      </div>
-
-                      {/* 3-dots menu button */}
-                      <div
-                        style={{ position: "relative" }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          className={styles.menuBtn}
-                          aria-label={`خيارات ${p.name_ar}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMenuOpenId((prev) =>
-                              prev === p.id ? null : p.id,
-                            );
-                          }}
-                          title="خيارات المنتج"
-                        >
-                          <Icon n="more" s={20} />
-                        </button>
-
-                        {isMenuOpen && (
-                          <div
-                            className={styles.menuDropdown}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              className={styles.menuItem}
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                openProduct(p);
-                              }}
-                            >
-                              <Icon n="edit" s={14} />
-                              <span>تعديل الأسعار</span>
-                            </button>
-                            {isSandwich(p) && !p.is_hidden && (
-                              <button
-                                type="button"
-                                className={styles.menuItem}
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  // Opens the Sales screen with a quantity step; nothing is
-                                  // sold until the user confirms there.
-                                  stageSandwichForSale(p.id);
-                                  window.history.pushState(
-                                    null,
-                                    "",
-                                    "/app/sales",
-                                  );
-                                  window.dispatchEvent(
-                                    new PopStateEvent("popstate"),
-                                  );
-                                }}
-                                data-testid={`add-to-sale-${p.id}`}
-                              >
-                                <Icon n="cart" s={14} />
-                                <span>{t("sandwich.addToSale")}</span>
-                              </button>
-                            )}
-                            {!isSandwich(p) && (
-                              <button
-                                type="button"
-                                className={styles.menuItem}
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  if ((p.stock_quantity ?? 0) > 0) {
-                                    alert(
-                                      `⚠️ هذا المنتج «${p.name_ar}» مضاف بالفعل في المخزون (الرصيد المتاح: ${p.stock_quantity}). يمكنك إضافة دفعة توريد جديدة أو تعديل رصيده.`,
-                                    );
-                                  }
-                                  setStockModalProduct(p);
-                                }}
-                              >
-                                <Icon n="plus" s={14} />
-                                <span>إضافة إلى المخزون</span>
-                              </button>
-                            )}
-                            {!isSandwich(p) && stockOf(p) && (
-                              <>
-                                <button
-                                  type="button"
-                                  className={styles.menuItem}
-                                  data-testid={`record-loss-${p.id}`}
-                                  onClick={() => {
-                                    setMenuOpenId(null);
-                                    const item = stockOf(p);
-                                    if (item) setLossTarget({ item });
-                                  }}
-                                >
-                                  <Icon n="trash" s={14} />
-                                  <span>سجّل تالف</span>
-                                </button>
-                                <button
-                                  type="button"
-                                  className={styles.menuItem}
-                                  data-testid={`archive-stock-${p.id}`}
-                                  onClick={() => {
-                                    setMenuOpenId(null);
-                                    const item = stockOf(p);
-                                    if (item) setArchiveItem(item);
-                                  }}
-                                >
-                                  <Icon n="box" s={14} />
-                                  <span>أرشفة من المخزون</span>
-                                </button>
-                              </>
-                            )}
-                            {p.is_hidden ? (
-                              <button
-                                type="button"
-                                className={styles.menuItem}
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  handleToggleHide(p);
-                                }}
-                              >
-                                <Icon n="eye" s={14} />
-                                <span>إعادة إظهار</span>
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className={`${styles.menuItem} ${styles.danger}`}
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  handleToggleHide(p);
-                                }}
-                              >
-                                <Icon n="eyeoff" s={14} />
-                                <span>إخفاء من المحل</span>
-                              </button>
-                            )}
-                            {isShopCreated(p) && (
-                              <button
-                                type="button"
-                                className={`${styles.menuItem} ${styles.danger}`}
-                                onClick={() => {
-                                  setMenuOpenId(null);
-                                  setDeleteError(null);
-                                  setDeleteTarget(p);
-                                }}
-                                data-testid={`delete-product-${p.id}`}
-                              >
-                                <Icon n="trash" s={14} />
-                                <span>{t("productDelete.menu")}</span>
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
+              {sortedProducts.map(({ p, level, stockTxt }) => (
+                <button
+                  type="button"
+                  className={`${styles.prow} ${level === "out" ? styles.prowRed : level === "low" ? styles.prowYel : ""} ${p.is_hidden ? styles.cardHidden : ""}`}
+                  key={p.id}
+                  data-testid={`product-card-${p.id}`}
+                  onClick={() => setSheetProduct(p)}
+                >
+                  <div className={styles.pch}>
+                    <span className={styles.prowEm} aria-hidden="true">
+                      {isSandwich(p) ? "🥪" : isWeightProduct(p) ? "⚖️" : "📦"}
+                    </span>
+                    <div className={styles.pcn}>
+                      <b>{p.name_ar}</b>
+                      <small>
+                        {stockTxt}
+                        {p.sell_price_piasters > 0
+                          ? ` · ${p.sell_price_piasters / 100} ج`
+                          : ""}
+                      </small>
                     </div>
-                    {isSandwich(p) && (
-                      <SandwichPriceBox
-                        sandwich={sandwichById.get(p.id)}
-                        sellPricePiasters={p.sell_price_piasters}
-                      />
-                    )}
+                    <span aria-hidden="true">›</span>
                   </div>
-                );
-              })}
+                  {isSandwich(p) && (
+                    <SandwichPriceBox
+                      sandwich={sandwichById.get(p.id)}
+                      sellPricePiasters={p.sell_price_piasters}
+                    />
+                  )}
+                </button>
+              ))}
             </div>
           )}
+
+          {summary.hiddenCount > 0 && filterMode !== "hidden" && (
+            <button
+              type="button"
+              className={styles.hiddenLink}
+              onClick={() => setFilterMode("hidden")}
+              data-testid="products-hidden-link"
+            >
+              المخفية ({summary.hiddenCount})
+            </button>
+          )}
         </>
-      ) : (
-        /* ================= TAB 2: الفواتير والشحن والخدمات ================= */
-        <>
-          {/* Exactly 5 Main Service Category Chips in a single scrollable row */}
-          <Chips>
-            <Chip
-              active={serviceCategory === "utilities"}
-              onClick={() => {
-                setServiceCategory("utilities");
-                setCompanyFilter("all");
-              }}
+      }
+
+      {/* V19 prodSheet: المتاح, the prices, the batches, then the actions */}
+      {sheetProduct &&
+        (() => {
+          const p = sheetProduct;
+          const stock = stockOf(p);
+          const sandwich = isSandwich(p);
+          const isWeight = isWeightProduct(p);
+          const v = p.variants?.[0];
+          const packQty = v?.pack_qty ?? 1;
+          const close = () => setSheetProduct(null);
+          const live = (stock?.batches ?? [])
+            .filter((b) => b.remainingQty > 0)
+            .sort((a, b) =>
+              (a.expiryDate ?? "9999").localeCompare(b.expiryDate ?? "9999"),
+            );
+          const expired = live.some(
+            (b) =>
+              b.expiryDate &&
+              b.expiryDate.slice(0, 10) < new Date().toISOString().slice(0, 10),
+          );
+          return (
+            <Modal
+              title={`${sandwich ? "🥪" : isWeight ? "⚖️" : "📦"} ${p.name_ar}`}
+              onClose={close}
             >
-              شحن المرافق
-            </Chip>
-            <Chip
-              active={serviceCategory === "internet"}
-              onClick={() => {
-                setServiceCategory("internet");
-                setCompanyFilter("all");
-              }}
-            >
-              فواتير الإنترنت
-            </Chip>
-            <Chip
-              active={serviceCategory === "cards"}
-              onClick={() => {
-                setServiceCategory("cards");
-                setCompanyFilter("all");
-              }}
-            >
-              كروت الشحن
-            </Chip>
-            <Chip
-              active={serviceCategory === "transfer"}
-              onClick={() => {
-                setServiceCategory("transfer");
-                setCompanyFilter("all");
-              }}
-            >
-              تحويل الأموال
-            </Chip>
-            <Chip
-              active={serviceCategory === "airtime"}
-              onClick={() => {
-                setServiceCategory("airtime");
-                setCompanyFilter("all");
-              }}
-            >
-              شحن الرصيد
-            </Chip>
-          </Chips>
+              <div className={styles.sheet19} data-testid="product-sheet">
+                <div className={styles.line19}>
+                  <span>المتاح</span>
+                  <b>
+                    {sandwich
+                      ? sandwichSubtitle(sandwichById.get(p.id))
+                      : isWeight
+                        ? `${Math.round((p.stock_quantity ?? 0) / 10) / 100} كيلو`
+                        : `${p.stock_quantity ?? 0} ${unitWord(p.unit)}`}
+                  </b>
+                </div>
+                <div className={styles.line19}>
+                  <span>سعر {isWeight ? "الكيلو" : unitWord(p.unit)}</span>
+                  <b>{p.sell_price_piasters / 100} ج</b>
+                </div>
+                {packQty > 1 && !isWeight && (
+                  <div className={styles.line19}>
+                    <span>سعر العبوة ({packQty})</span>
+                    <b>{(p.sell_price_piasters * packQty) / 100} ج</b>
+                  </div>
+                )}
+                {!sandwich && (
+                  <>
+                    <div className={styles.lbl19}>الدفعات</div>
+                    {live.length === 0 ? (
+                      <div className={styles.v19Note}>مفيش كمية</div>
+                    ) : (
+                      live.map((b) => (
+                        <div key={b.id} className={styles.line19}>
+                          <span>
+                            {b.expiryDate
+                              ? `تنتهي ${b.expiryDate.slice(0, 10)}`
+                              : "من غير صلاحية"}
+                          </span>
+                          <b>
+                            {isWeight
+                              ? `${b.remainingQty / 1000} كيلو`
+                              : `${b.remainingQty} ${unitWord(p.unit)}`}
+                          </b>
+                        </div>
+                      ))
+                    )}
+                  </>
+                )}
+                {(p.barcode || v?.barcode) && (
+                  <div className={styles.v19Note}>
+                    الباركود: <span dir="ltr">{p.barcode || v?.barcode}</span>
+                  </div>
+                )}
 
-          {/* Contextual Subcategory / Company Chips based on active service category */}
-          <Chips>
-            <Chip
-              active={companyFilter === "all"}
-              onClick={() => setCompanyFilter("all")}
-            >
-              الكل
-            </Chip>
-
-            {serviceCategory === "utilities" && (
-              <>
-                <Chip
-                  active={companyFilter === "electricity"}
-                  onClick={() => setCompanyFilter("electricity")}
+                {sandwich ? (
+                  <>
+                    {!p.is_hidden && (
+                      <button
+                        type="button"
+                        className={styles.v19Btn}
+                        data-testid={`add-to-sale-${p.id}`}
+                        onClick={() => {
+                          close();
+                          // Opens the Sales screen with a quantity step; nothing is
+                          // sold until the user confirms there.
+                          stageSandwichForSale(p.id);
+                          window.history.pushState(null, "", "/app/sales");
+                          window.dispatchEvent(new PopStateEvent("popstate"));
+                        }}
+                      >
+                        🛒 {t("sandwich.addToSale")}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className={`${styles.v19Btn} ${styles.v19Ghost}`}
+                      onClick={() => {
+                        close();
+                        openProduct(p);
+                      }}
+                    >
+                      ✏️ عدّل
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className={styles.v19Btn}
+                      data-testid={`stock-in-${p.id}`}
+                      onClick={() => {
+                        close();
+                        setStockModalProduct(p);
+                      }}
+                    >
+                      📦 دخلت كمية
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.v19Btn} ${styles.v19Ghost}`}
+                      data-testid={`edit-product-${p.id}`}
+                      onClick={() => {
+                        close();
+                        openProduct(p);
+                      }}
+                    >
+                      ✏️ عدّل السعر والتفاصيل
+                    </button>
+                    {stock && (
+                      <>
+                        {expired && (
+                          <button
+                            type="button"
+                            className={`${styles.v19Btn} ${styles.v19Red}`}
+                            onClick={() => {
+                              close();
+                              setLossTarget({ item: stock, reason: "expired" });
+                            }}
+                          >
+                            🗑️ سجّل المنتهي كتالف
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          className={`${styles.v19Btn} ${styles.v19Ghost}`}
+                          data-testid={`record-loss-${p.id}`}
+                          onClick={() => {
+                            close();
+                            setLossTarget({ item: stock });
+                          }}
+                        >
+                          🗑️ سجّل تالف
+                        </button>
+                        <button
+                          type="button"
+                          className={`${styles.v19Btn} ${styles.v19Ghost}`}
+                          data-testid={`archive-stock-${p.id}`}
+                          onClick={() => {
+                            close();
+                            setArchiveItem(stock);
+                          }}
+                        >
+                          🗃️ أرشفة من المخزون
+                        </button>
+                      </>
+                    )}
+                  </>
+                )}
+                <button
+                  type="button"
+                  className={`${styles.v19Btn} ${styles.v19Ghost}`}
+                  onClick={() => {
+                    close();
+                    void handleToggleHide(p);
+                  }}
                 >
-                  الكهرباء
-                </Chip>
-                <Chip
-                  active={companyFilter === "water"}
-                  onClick={() => setCompanyFilter("water")}
-                >
-                  المياه
-                </Chip>
-                <Chip
-                  active={companyFilter === "gas"}
-                  onClick={() => setCompanyFilter("gas")}
-                >
-                  الغاز الطبيعي
-                </Chip>
-              </>
-            )}
-
-            {serviceCategory === "internet" && (
-              <>
-                <Chip
-                  active={companyFilter === "we"}
-                  onClick={() => setCompanyFilter("we")}
-                >
-                  وي (WE)
-                </Chip>
-                <Chip
-                  active={companyFilter === "vodafone"}
-                  onClick={() => setCompanyFilter("vodafone")}
-                >
-                  فودافون
-                </Chip>
-                <Chip
-                  active={companyFilter === "orange"}
-                  onClick={() => setCompanyFilter("orange")}
-                >
-                  أورانج
-                </Chip>
-                <Chip
-                  active={companyFilter === "etisalat"}
-                  onClick={() => setCompanyFilter("etisalat")}
-                >
-                  اتصالات (e&)
-                </Chip>
-              </>
-            )}
-
-            {serviceCategory === "cards" && (
-              <>
-                <Chip
-                  active={companyFilter === "vodafone"}
-                  onClick={() => setCompanyFilter("vodafone")}
-                >
-                  فودافون
-                </Chip>
-                <Chip
-                  active={companyFilter === "orange"}
-                  onClick={() => setCompanyFilter("orange")}
-                >
-                  أورانج
-                </Chip>
-                <Chip
-                  active={companyFilter === "etisalat"}
-                  onClick={() => setCompanyFilter("etisalat")}
-                >
-                  اتصالات (e&)
-                </Chip>
-                <Chip
-                  active={companyFilter === "we"}
-                  onClick={() => setCompanyFilter("we")}
-                >
-                  وي (WE)
-                </Chip>
-              </>
-            )}
-
-            {serviceCategory === "transfer" && (
-              <>
-                <Chip
-                  active={companyFilter === "instapay"}
-                  onClick={() => setCompanyFilter("instapay")}
-                >
-                  إنستاباي (InstaPay)
-                </Chip>
-                <Chip
-                  active={companyFilter === "vodafone"}
-                  onClick={() => setCompanyFilter("vodafone")}
-                >
-                  فودافون كاش
-                </Chip>
-                <Chip
-                  active={companyFilter === "fawry"}
-                  onClick={() => setCompanyFilter("fawry")}
-                >
-                  فوري (Fawry)
-                </Chip>
-              </>
-            )}
-
-            {serviceCategory === "airtime" && (
-              <>
-                <Chip
-                  active={companyFilter === "vodafone"}
-                  onClick={() => setCompanyFilter("vodafone")}
-                >
-                  فودافون
-                </Chip>
-                <Chip
-                  active={companyFilter === "orange"}
-                  onClick={() => setCompanyFilter("orange")}
-                >
-                  أورانج
-                </Chip>
-                <Chip
-                  active={companyFilter === "etisalat"}
-                  onClick={() => setCompanyFilter("etisalat")}
-                >
-                  اتصالات (e&)
-                </Chip>
-                <Chip
-                  active={companyFilter === "we"}
-                  onClick={() => setCompanyFilter("we")}
-                >
-                  وي (WE)
-                </Chip>
-              </>
-            )}
-          </Chips>
-
-          {/* Services Grid */}
-          {loading ? (
-            <ListSkeleton label="بيحمّل الخدمات…" />
-          ) : filteredServiceProducts.length === 0 ? (
-            <div className={styles.pcard}>
-              <Empty
-                icon="wifi"
-                title={query ? "مفيش خدمة تطابق البحث" : "مفيش خدمات مسجلة"}
-                sub="اضغط على زر إضافة خدمة / كارت لتفعيل خدمات الدفع والشحن في محلك"
-                action={
-                  <Button
-                    kind="primary"
-                    icon="plus"
+                  {p.is_hidden ? "👁️ رجّعه يظهر" : "🙈 خبّيه من المحل"}
+                </button>
+                {isShopCreated(p) && (
+                  <button
+                    type="button"
+                    className={`${styles.v19Btn} ${styles.v19Red}`}
+                    data-testid={`delete-product-${p.id}`}
                     onClick={() => {
-                      setAddingSection("services");
-                      setIsAdding(true);
+                      close();
+                      setDeleteError(null);
+                      setDeleteTarget(p);
                     }}
                   >
-                    + إضافة خدمة أو كارت
-                  </Button>
-                }
-              />
-            </div>
-          ) : (
-            <div className={styles.serviceGrid}>
-              {filteredServiceProducts.map((p) => {
-                const brand = getBrandBadge(p);
-                const nature = getServiceNature(p);
-                const linkedMachineIds = assignedMachines[p.id] || [];
-                const linkedMachines = posMachines.filter((m) =>
-                  linkedMachineIds.includes(m.id),
-                );
-                const isMenuOpen = menuOpenId === p.id;
-
-                const pieceSell = p.sell_price_piasters;
-                const pieceBuy = p.buy_cost_piasters ?? 0;
-                const profitPiasters = Math.max(0, pieceSell - pieceBuy);
-
-                return (
-                  <div
-                    className={`${styles.serviceCard} ${p.is_hidden ? styles.cardHidden : ""} ${isMenuOpen ? styles.activeMenuCard : ""}`}
-                    key={p.id}
-                    onClick={() => setEditingProduct(p)}
-                  >
-                    <div className={styles.serviceCardHeader}>
-                      <div className={styles.serviceCardInfo}>
-                        <b>{p.name_ar}</b>
-                        <div className={styles.serviceCardBadges}>
-                          <span
-                            className={`${styles.brandBadge} ${brand.className}`}
-                          >
-                            {brand.name}
-                          </span>
-                          <span
-                            className={`${styles.natureBadge} ${nature.isStock ? styles.natureBadgeStock : ""}`}
-                          >
-                            {nature.label}
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* 3-dots Menu */}
-                      <div
-                        style={{ position: "relative" }}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          className={styles.menuBtn}
-                          aria-label={`خيارات ${p.name_ar}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setMenuOpenId((prev) =>
-                              prev === p.id ? null : p.id,
-                            );
-                          }}
-                          title="خيارات الخدمة"
-                        >
-                          <Icon n="more" s={20} />
-                        </button>
-
-                        {isMenuOpen && (
-                          <div
-                            className={styles.menuDropdown}
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <button
-                              type="button"
-                              className={styles.menuItem}
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                setEditingProduct(p);
-                              }}
-                            >
-                              <Icon n="edit" s={14} />
-                              <span>تعديل العمولة</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={styles.menuItem}
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                setMachineAssignProduct(p);
-                              }}
-                            >
-                              <Icon n="store" s={14} />
-                              <span>ربط بماكينة</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={styles.menuItem}
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                handleAddToSale(p);
-                              }}
-                            >
-                              <Icon n="cart" s={14} />
-                              <span>إضافة إلى البيع</span>
-                            </button>
-
-                            <button
-                              type="button"
-                              className={`${styles.menuItem} ${styles.danger}`}
-                              onClick={() => {
-                                setMenuOpenId(null);
-                                handleToggleHide(p);
-                              }}
-                            >
-                              <Icon n={p.is_hidden ? "eye" : "eyeoff"} s={14} />
-                              <span>
-                                {p.is_hidden ? "إعادة إظهار" : "إخفاء الخدمة"}
-                              </span>
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Economics & Details Row */}
-                    <div className={styles.serviceDetailsRow}>
-                      {nature.isStock ? (
-                        <div className={styles.serviceEconomics}>
-                          <span>
-                            سعر البيع: <b>{fmtMoney(pieceSell)} ج.م</b>
-                          </span>
-                          <span>
-                            التكلفة: <b>{fmtMoney(pieceBuy)} ج.م</b>
-                          </span>
-                          <span className={styles.serviceProfitPill}>
-                            ربحك: {fmtMoney(profitPiasters)} ج.م
-                          </span>
-                        </div>
-                      ) : (
-                        <div className={styles.serviceEconomics}>
-                          <span>
-                            عمولة المحل: <b>{fmtMoney(pieceSell)} ج.م</b>
-                          </span>
-                          {pieceBuy > 0 && (
-                            <span
-                              style={{ color: "var(--ink2)", fontSize: 11.5 }}
-                            >
-                              رسوم المزود: {fmtMoney(pieceBuy)} ج.م
-                            </span>
-                          )}
-                          <span className={styles.serviceProfitPill}>
-                            صافي ربحك: {fmtMoney(profitPiasters)} ج.م
-                          </span>
-                        </div>
-                      )}
-
-                      {linkedMachines.length > 0 ? (
-                        <div className={styles.serviceMachineTag}>
-                          <span>
-                            📱 ماكينات الدفع ({linkedMachines.length}):
-                          </span>
-                          <b>{linkedMachines.map((m) => m.name).join("، ")}</b>
-                        </div>
-                      ) : (
-                        <div
-                          style={{
-                            fontSize: 11.5,
-                            color: "var(--red, #cf3c3c)",
-                            fontWeight: 700,
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 4,
-                          }}
-                        >
-                          <span>⚠️</span>
-                          <span>غير مربوط بماكينة (مطلوب للبيع)</span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
+                    🗑️ {t("productDelete.menu")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className={`${styles.v19Btn} ${styles.v19Ghost}`}
+                  onClick={close}
+                >
+                  إغلاق
+                </button>
+              </div>
+            </Modal>
+          );
+        })()}
 
       {/* Delete a shop-created product: confirmation */}
       {deleteTarget && (
@@ -1885,216 +1105,16 @@ export function ProductsView() {
         />
       )}
 
-      {/* Digital Services & Bills / Recharge Form Modal (Add / Edit) */}
-      {((isAdding && addingSection === "services") ||
-        (editingProduct && isServiceProduct(editingProduct))) && (
-        <ServiceFormModal
-          product={editingProduct}
-          existingServices={serviceProducts}
-          presetCategory={
-            editingProduct?.category ||
-            (serviceCategory === "utilities"
-              ? "خدمات مرافق"
-              : serviceCategory === "cards"
-                ? "كروت شحن"
-                : serviceCategory === "transfer"
-                  ? "تحويل أموال"
-                  : serviceCategory === "airtime"
-                    ? "شحن رصيد"
-                    : "فواتير إنترنت")
-          }
-          onClose={() => {
-            setIsAdding(false);
-            setEditingProduct(null);
-          }}
-          onSaved={() => {
-            setIsAdding(false);
-            setEditingProduct(null);
-            void loadProducts();
-          }}
-          onDeleted={() => {
-            setIsAdding(false);
-            setEditingProduct(null);
-            void loadProducts();
-          }}
-        />
-      )}
-
       {/* Add Stock Modal */}
       {stockModalProduct && (
-        <AddStockModal
-          targetProduct={stockModalProduct}
+        <StockEntrySheet
+          option={optionFromProduct(stockModalProduct)}
           onClose={() => setStockModalProduct(null)}
-          onAdded={() => {
+          onSaved={() => {
             setStockModalProduct(null);
             void loadProducts();
           }}
         />
-      )}
-
-      {/* POS Machines & Providers Management Modal */}
-      {isMachinesModalOpen && (
-        <MachinesModal
-          storeId={storeId}
-          onClose={() => setIsMachinesModalOpen(false)}
-          onMachinesUpdated={(updated) => setPosMachines(updated)}
-        />
-      )}
-
-      {/* Machine Assignment Modal */}
-      {machineAssignProduct && (
-        <Modal
-          title={`ربط بماكينات الدفع: ${machineAssignProduct.name_ar}`}
-          onClose={() => setMachineAssignProduct(null)}
-          footer={
-            <div style={{ display: "flex", gap: 10, width: "100%" }}>
-              <Button
-                kind="primary"
-                size="lg"
-                type="button"
-                onClick={() => setMachineAssignProduct(null)}
-                style={{ flex: 1 }}
-              >
-                تأكيد وحفظ الماكينات
-              </Button>
-            </div>
-          }
-        >
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <p
-              style={{
-                margin: 0,
-                fontSize: 13,
-                color: "var(--ink2)",
-                lineHeight: 1.5,
-              }}
-            >
-              حدد ماكينات الدفع المسؤولة عن تقديم خدمة{" "}
-              <b>{machineAssignProduct.name_ar}</b> داخل المحل (يمكنك اختيار
-              أكثر من ماكينة):
-            </p>
-
-            {posMachines.length === 0 ? (
-              <div
-                style={{
-                  padding: "20px 14px",
-                  textAlign: "center",
-                  background: "var(--sf2)",
-                  borderRadius: 12,
-                  fontSize: 13,
-                  color: "var(--ink2)",
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "center",
-                  gap: 10,
-                }}
-              >
-                <span>لا توجد ماكينات دفع مسجلة لهذا المتجر بعد</span>
-                <Button
-                  kind="primary"
-                  size="sm"
-                  type="button"
-                  onClick={() => {
-                    setMachineAssignProduct(null);
-                    setIsMachinesModalOpen(true);
-                  }}
-                >
-                  + إضافة ماكينة دفع الآن
-                </Button>
-              </div>
-            ) : (
-              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                {posMachines.map((m) => {
-                  const currentLinked =
-                    assignedMachines[machineAssignProduct.id] || [];
-                  const isChecked = currentLinked.includes(m.id);
-
-                  return (
-                    <div
-                      key={m.id}
-                      onClick={() =>
-                        handleToggleMachineAssignment(
-                          machineAssignProduct.id,
-                          m.id,
-                        )
-                      }
-                      style={{
-                        padding: "12px 14px",
-                        borderRadius: 10,
-                        border: isChecked
-                          ? "1.5px solid var(--br, #5a7d5a)"
-                          : "1px solid var(--line)",
-                        background: isChecked ? "var(--sf2)" : "var(--sf)",
-                        display: "flex",
-                        justifyContent: "space-between",
-                        alignItems: "center",
-                        cursor: "pointer",
-                        transition: "all 0.15s ease",
-                      }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                        }}
-                      >
-                        <div
-                          style={{
-                            width: 22,
-                            height: 22,
-                            borderRadius: 6,
-                            border: `2px solid ${isChecked ? "var(--br, #5a7d5a)" : "var(--line)"}`,
-                            background: isChecked
-                              ? "var(--br, #5a7d5a)"
-                              : "transparent",
-                            color: "#fff",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            fontSize: 13,
-                            fontWeight: 800,
-                          }}
-                        >
-                          {isChecked && "✓"}
-                        </div>
-                        <div>
-                          <b
-                            style={{
-                              fontSize: 14,
-                              color: "var(--ink)",
-                              display: "block",
-                            }}
-                          >
-                            {m.name} ({m.provider})
-                          </b>
-                          <small style={{ color: "var(--ink2)", fontSize: 12 }}>
-                            الرصيد المتاح:{" "}
-                            {(m.currentBalancePiasters / 100).toLocaleString(
-                              "ar-EG",
-                            )}{" "}
-                            ج.م
-                          </small>
-                        </div>
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 700,
-                          color: isChecked
-                            ? "var(--br, #5a7d5a)"
-                            : "var(--ink2)",
-                        }}
-                      >
-                        {isChecked ? "مربوطة بالخدمة" : "اضغط للربط"}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </Modal>
       )}
     </div>
   );
