@@ -7,10 +7,10 @@ import {
 } from "@playwright/test";
 
 /**
- * Prompt 2 on the real app (a server on a safe local database, AI on the local mock — no key,
- * nothing leaves the machine): the AI product scanner fills the same cart for a cash or a
- * credit sale; «ليك» shows the customer's invoices and collects one; the assistant page; the
- * platform admin page (admin vs shop owner).
+ * On the real app (a server on a safe local database, AI on the local mock — no key, nothing
+ * leaves the machine): the sale screen's barcode scanner (no AI, no quota) fills the same
+ * invoice for a cash or a credit sale; «ليك» shows the customer's invoices and collects one;
+ * the assistant page; the platform admin page (admin vs shop owner).
  */
 
 const PAGE_LOAD = { timeout: 60_000 };
@@ -36,7 +36,7 @@ async function signup(api: APIRequestContext, storeName: string) {
 async function product(
   api: APIRequestContext,
   nameAr: string,
-  opts: { price: number; stock: number; unit?: string },
+  opts: { price: number; stock: number; unit?: string; barcode?: string },
 ) {
   const res = await api.post("/api/products", {
     data: {
@@ -45,7 +45,14 @@ async function product(
       unit: opts.unit ?? "piece",
       sellPricePiasters: opts.price,
       isCustom: true,
-      variants: [{ packQty: 1, sellPricePiasters: opts.price }],
+      barcode: opts.barcode ?? null,
+      variants: [
+        {
+          packQty: 1,
+          sellPricePiasters: opts.price,
+          barcode: opts.barcode ?? null,
+        },
+      ],
     },
   });
   expect(res.ok()).toBe(true);
@@ -81,53 +88,38 @@ const stockOf = async (api: APIRequestContext, variantId: string) =>
   ).find((i) => i.variantId === variantId)?.currentStockBase;
 
 /**
- * Live scanner (ADR-0030): the camera opens with the sheet (Chromium's fake camera here) and
- * changing frames are sent to the vision model (the server's mock: Pepsi 330 ml ×2 sure,
- * Chipsy cheese unsure, one unreadable item). «إنهاء» → review → confirm into the invoice.
+ * The barcode scanner (no AI): the camera opens with the sheet (Chromium's fake camera here);
+ * a code — read by the camera or typed by a physical scanner — shows ✓ and the product, «تم»
+ * opens the usual sell sheet, which adds it to the open invoice.
  */
-async function scanAndConfirm(page: Page, opts: { chooseChips: boolean }) {
-  await page.getByTestId("page-sales").getByTestId("sales-scan").click();
-  const dialog = () => page.getByRole("dialog").last();
-  const sheet = () => dialog().getByTestId("product-scanner");
-  // No mode screen and no «open camera» button: scanning starts by itself.
-  await expect(page.getByTestId("scan-mode-select")).toHaveCount(0);
-  await expect(sheet().locator('[data-status="matched"]').first()).toBeVisible({
-    timeout: 90_000,
+async function scanToInvoice(
+  page: Page,
+  code: string,
+  name: string,
+  qty: string,
+) {
+  const aiCalls: string[] = [];
+  page.on("request", (r) => {
+    if (r.url().includes("/api/ai/scan")) aiCalls.push(r.url());
   });
-  await expect(
-    sheet().locator('[data-status="uncertain"]').first(),
-  ).toBeVisible(SERVER);
-  await dialog().getByTestId("scan-finish").click();
-
-  // Nothing can be added while a line is undecided.
-  await expect(dialog().getByTestId("scan-confirm")).toBeDisabled();
-  const unclear = sheet().locator('[data-status="unmatched"]');
-  while ((await unclear.count()) > 0) {
-    await unclear.first().getByTestId("scan-remove").click();
-  }
-  const unsure = sheet().locator('[data-status="uncertain"]');
-  if (opts.chooseChips) {
-    await unsure.first().getByTestId("scan-candidate").first().check();
-    while ((await unsure.count()) > 1) {
-      await unsure.last().getByTestId("scan-remove").click();
-    }
-  } else {
-    while ((await unsure.count()) > 0) {
-      await unsure.first().getByTestId("scan-remove").click();
-    }
-  }
-  const matched = sheet().locator('[data-status="matched"]');
-  while ((await matched.count()) > 1) {
-    await matched.last().getByTestId("scan-remove").click();
-  }
-  // Correct a quantity: 3 cans.
-  await matched.first().getByTestId("scan-qty").fill("3");
-  if (opts.chooseChips) await unsure.first().getByTestId("scan-qty").fill("1");
-  await expect(dialog().getByTestId("scan-confirm")).toBeEnabled();
-  await dialog().getByTestId("scan-confirm").click();
+  await page.getByTestId("page-sales").getByTestId("sales-scan").click();
+  await expect(page.getByTestId("barcode-scan-sheet")).toHaveCount(1);
+  await page.waitForTimeout(800);
+  // A physical scanner: fast keystrokes ending with Enter.
+  await page.keyboard.type(code, { delay: 10 });
+  await page.keyboard.press("Enter");
+  const hit = page.getByTestId("scan-hit").last();
+  await expect(hit).toContainText(name, SERVER);
+  await hit.getByTestId("scan-done").click();
+  await expect(page.getByTestId("sell-sheet")).toHaveCount(1, SERVER);
+  const sheet = page.getByTestId("sell-sheet").last();
+  await sheet.getByTestId("sell-qty").fill(qty);
+  await sheet.getByTestId("sell-confirm").click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(aiCalls).toEqual([]);
 }
 
-// The live scanner needs a camera: Chromium's fake device, allowed without a prompt.
+// The scanner sheet opens the camera: Chromium's fake device, allowed without a prompt.
 test.use({
   permissions: ["camera"],
   launchOptions: {
@@ -138,7 +130,7 @@ test.use({
   },
 });
 
-test("scanner → normal sale: confirmed lines join the cart; checkout takes the stock once", async ({
+test("barcode scanner → invoice: ✓ the product, «تم», checkout takes the stock once (no AI)", async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -148,16 +140,21 @@ test("scanner → normal sale: confirmed lines join the cart; checkout takes the
   const pepsi = await product(api, `بيبسي كانز 330 مل ${run}`, {
     price: 1500,
     stock: 24,
+    barcode: `62210${run}01`,
   });
   const chips = await product(api, `شيبسي جبنة ${run}`, {
     price: 1000,
     stock: 5,
+    barcode: `62210${run}02`,
   });
   await product(api, `بيبسي 1 لتر ${run}`, { price: 3000, stock: 6 });
 
   await open(page, "/app/sales", "page-sales");
-  await scanAndConfirm(page, { chooseChips: true });
+  await page.getByTestId("page-sales").getByTestId("cart-toggle").click();
+  await scanToInvoice(page, `62210${run}01`, `بيبسي كانز 330 مل ${run}`, "3");
+  await scanToInvoice(page, `62210${run}02`, `شيبسي جبنة ${run}`, "1");
 
+  await page.getByTestId("page-sales").getByTestId("cart-summary").click();
   const cart = page.getByRole("dialog").last().getByTestId("cart-sheet");
   await expect(cart.getByTestId("cart-line")).toHaveCount(2, SERVER);
   // 3 × 15 + 1 × 10 = 55 EGP, priced by the shop's own prices.
@@ -165,12 +162,12 @@ test("scanner → normal sale: confirmed lines join the cart; checkout takes the
   await page.getByRole("dialog").last().getByTestId("cart-checkout").click();
   await expect.poll(() => stockOf(api, pepsi), SERVER).toBe(21);
   expect(await stockOf(api, chips)).toBe(4);
-  // The scan recorded nothing by itself: exactly one sale.
+  // Scanning recorded nothing by itself: exactly one sale.
   const sales = (await (await api.get("/api/sales")).json()).sales as unknown[];
   expect(sales).toHaveLength(1);
 });
 
-test("scanner → credit sale; «ليك» shows the invoice with its products and collects part of it", async ({
+test("barcode scanner → credit sale; «ليك» shows the invoice with its products and collects part of it", async ({
   page,
 }) => {
   test.setTimeout(300_000);
@@ -180,15 +177,17 @@ test("scanner → credit sale; «ليك» shows the invoice with its products an
   const pepsi = await product(api, `بيبسي كانز 330 مل ${run}`, {
     price: 1500,
     stock: 24,
+    barcode: `62211${run}01`,
   });
   await product(api, `شيبسي جبنة ${run}`, { price: 1000, stock: 5 });
 
   await open(page, "/app/sales", "page-sales");
   const screen = page.getByTestId("page-sales");
-  // «بيع آجل», scan, then the customer is typed in the invoice before confirming.
+  // «آجل», scan, then the customer is typed in the invoice before confirming.
   await screen.getByTestId("credit-start").click();
-  await scanAndConfirm(page, { chooseChips: false });
+  await scanToInvoice(page, `62211${run}01`, `بيبسي كانز 330 مل ${run}`, "3");
 
+  await screen.getByTestId("cart-summary").click();
   const cart = page.getByRole("dialog").last().getByTestId("cart-sheet");
   await cart.getByTestId("credit-name").fill(`زبون الاسكان ${run}`);
   await expect(cart.getByTestId("cart-total")).toContainText("45", SERVER);
@@ -237,19 +236,26 @@ test("assistant: suggestions, a growing input, an answer, and offline keeps the 
   await signup(page.request, "محل المساعد");
   await open(page, "/app/ai", "page-ai");
   await expect(page.getByTestId("ai-empty-suggestions")).toBeVisible();
+  await expect(page.getByTestId("ai-new-chat")).toBeVisible();
+  await expect(page.getByTestId("ai-history")).toBeVisible();
   const input = page.getByTestId("ai-input");
   await expect(input).toHaveJSProperty("tagName", "TEXTAREA");
   await input.fill("كسبت كام النهارده؟");
   await page.getByRole("button", { name: "إرسال" }).click();
-  await expect(page.locator('[class*="msgA"]').last()).not.toBeEmpty(SERVER);
-  await expect(page.getByTestId("ai-quota-badge")).toContainText("4", SERVER);
+  await expect(page.getByTestId("ai-msg-bot").last()).not.toBeEmpty(SERVER);
+  // V17 shows no quota badge; the server still counts the question (4 of 5 left).
+  await expect
+    .poll(async () => {
+      const q = await (await page.request.get("/api/ai/quota")).json();
+      return (q.data ?? q).remaining;
+    }, SERVER)
+    .toBe(4);
 
   await context.setOffline(true);
   await input.fill("مصروفاتي الشهر ده كام؟");
   await page.getByRole("button", { name: "إرسال" }).click();
   await expect(page.getByText("مفيش نت دلوقتي")).toBeVisible();
   await expect(input).toHaveValue("مصروفاتي الشهر ده كام؟");
-  await expect(page.getByTestId("ai-quota-badge")).toContainText("4");
   await context.setOffline(false);
 });
 

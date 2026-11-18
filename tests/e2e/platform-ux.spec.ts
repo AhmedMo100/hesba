@@ -177,13 +177,20 @@ test("stock form: the quantity follows the product's unit; reports have the six 
     .getByRole("button", { name: new RegExp(`مكرونة ${run}`) })
     .click();
   await sheet.getByRole("button", { name: /كمّل/ }).click();
-  const label = page.getByTestId("stock-qty-label").last();
-  await expect(label).toHaveText("عدد الأكياس", SERVER);
-  await expect(page.getByTestId("stock-cost-label").last()).toContainText(
-    "الكيس",
+  // Bags sold in packs of 20: packs and loose bags, a pack price and a bag price.
+  const entry = page.getByTestId("stock-entry").last();
+  await expect(page.getByTestId("stock-qty-label").last()).toHaveText(
+    "عدد العبوات",
+    SERVER,
   );
-  await page.getByTestId("stock-unit-pack").last().click();
-  await expect(label).toContainText("عدد");
+  await expect(entry).toContainText("أكياس زيادة");
+  await expect(entry.getByTestId("stock-pack-relation")).toContainText(
+    "العبوة = 20 كيس",
+  );
+  await expect(page.getByTestId("stock-cost-label").last()).toContainText(
+    "العبوة",
+  );
+  await expect(entry).toContainText("سعر شراء الكيس");
   await page.keyboard.press("Escape");
 
   await open(page, "/app/reports", "page-reports");
@@ -254,8 +261,15 @@ test("P4: record a loss from Stock; Home shows it under «التالف / الف�
   });
 
   await open(page, "/app/products", "page-products");
-  await page.getByRole("button", { name: `خيارات عصير تالف ${run}` }).click();
-  await page.locator('[data-testid^="record-loss-"]').click();
+  await page
+    .locator('[data-testid^="product-card-"]')
+    .filter({ hasText: `عصير تالف ${run}` })
+    .click();
+  await page
+    .getByTestId("product-sheet")
+    .last()
+    .locator('[data-testid^="record-loss-"]')
+    .click();
   const form = page.getByRole("dialog").getByTestId("record-loss");
   await form.getByTestId("loss-reason-damaged").click();
   await form.getByTestId("loss-units").fill("2");

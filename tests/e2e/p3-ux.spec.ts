@@ -354,8 +354,8 @@ test("sales: offers sit behind a small «العروض» control, with readable t
   // copy in <body> for its exit animation.
   const screen = page.getByTestId("page-sales");
   await expect(screen.getByTestId("promos-sheet")).toHaveCount(0);
-  // V19: offers are a chip; their edit/remove sheet opens from under the offers.
-  await screen.getByRole("tab", { name: "🎁 عروض" }).click();
+  // Offers are a section card; their edit/remove sheet opens from under the offers.
+  await screen.getByTestId("sales-section-offers").click();
   await expect(screen.getByTestId("promo-card")).toHaveCount(1, SERVER);
   await screen.getByTestId("promos-toggle").click(SERVER);
   const sheet = screen.getByTestId("promos-sheet");
@@ -383,7 +383,7 @@ test("sales: offers sit behind a small «العروض» control, with readable t
   }
 });
 
-test("stock actions live in the product's menu (add, record a loss, archive); no free quantity edit", async ({
+test("stock actions live in the product's sheet (add, record a loss, archive); no free quantity edit", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -393,17 +393,22 @@ test("stock actions live in the product's menu (add, record a loss, archive); no
   await product(api, `صنف مخزون ${run}`, 1000, 7);
 
   await open(page, "/app/products", "page-products");
-  await page.getByRole("button", { name: `خيارات صنف مخزون ${run}` }).click();
+  // V19 prodSheet: the row opens the product's sheet with its actions.
+  await page
+    .locator('[data-testid^="product-card-"]')
+    .filter({ hasText: `صنف مخزون ${run}` })
+    .click();
+  const sheet = page.getByTestId("product-sheet").last();
+  await expect(sheet.getByRole("button", { name: /دخلت كمية/ })).toBeVisible(
+    SERVER,
+  );
   await expect(
-    page.getByRole("button", { name: /إضافة إلى المخزون/ }),
+    sheet.getByRole("button", { name: /أرشفة من المخزون/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole("button", { name: /أرشفة من المخزون/ }),
-  ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: /تعديل كمية المخزون/ }),
+    sheet.getByRole("button", { name: /تعديل كمية المخزون/ }),
   ).toHaveCount(0);
-  await page.locator('[data-testid^="record-loss-"]').click();
+  await sheet.locator('[data-testid^="record-loss-"]').click();
   await expect(
     page.getByRole("dialog").getByTestId("record-loss"),
   ).toBeVisible();

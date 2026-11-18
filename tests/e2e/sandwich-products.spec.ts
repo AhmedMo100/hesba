@@ -265,7 +265,13 @@ test.describe("Sandwich products", () => {
     await expect(card).toBeVisible(SERVER);
 
     // ---- B. Edit: luncheon 5 g → 10 g ---------------------------------------------------
+    // V19: the row opens the product sheet; «✏️ عدّل» opens the sandwich form.
     await card.click();
+    await page
+      .getByTestId("product-sheet")
+      .last()
+      .getByRole("button", { name: "✏️ عدّل" })
+      .click();
     await expect(form).toBeVisible();
     await expect(dialog.getByTestId("sandwich-name")).toHaveValue(name);
     await expect(dialog.getByTestId("sandwich-total-cost")).toHaveText(
@@ -310,8 +316,16 @@ test.describe("Sandwich products", () => {
       await page
         .getByRole("tab", { name: "السندوتشات", exact: true })
         .click(SERVER);
-      await page.getByRole("button", { name: `خيارات ${name}` }).click(SERVER);
-      await page.getByTestId(/^add-to-sale-/).click();
+      // V19: the row opens the product sheet; «إضافة إلى البيع» is there.
+      await page
+        .locator('[data-testid^="product-card-"]')
+        .filter({ hasText: name })
+        .click(SERVER);
+      await page
+        .getByTestId("product-sheet")
+        .last()
+        .getByTestId(/^add-to-sale-/)
+        .click();
       await expect(page.getByTestId("page-sales")).toBeVisible(SERVER);
       await expect(dialog.getByTestId("sandwich-qty-sheet")).toBeVisible(
         PAGE_LOAD,
@@ -450,8 +464,8 @@ test.describe("Sandwich products", () => {
     await hideDevOverlay(page);
     const doomedCard = page.getByTestId(`product-card-${doomedId}`);
     await expect(doomedCard).toBeVisible(SERVER);
-    await page.getByRole("button", { name: `خيارات ${doomedName}` }).click();
-    await page.getByTestId(`delete-product-${doomedId}`).click();
+    await doomedCard.click();
+    await page.getByTestId(`delete-product-${doomedId}`).last().click();
     await expect(dialog.getByTestId("delete-product-dialog")).toContainText(
       doomedName,
     );
