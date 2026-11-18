@@ -279,3 +279,17 @@ button.secondaryLink:focus-visible {
     letter-spacing: 7px !important;
   }
 }
+
+.forgotLink {
+  display: block;
+  margin: 10px auto 0;
+  min-height: 44px;
+  padding: 0 12px;
+  background: none;
+  border: 0;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+}
