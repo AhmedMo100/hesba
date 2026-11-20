@@ -50,7 +50,10 @@ export const serviceCommissionRuleSchema = z
   })
   .strict()
   .superRefine((rule, ctx) => {
-    for (const message of commissionRuleErrors(rule as ServiceCommissionRule)) {
+    // The service form is slabs only: a rule without slabs is not saved anymore.
+    for (const message of commissionRuleErrors(rule as ServiceCommissionRule, {
+      slabsRequired: true,
+    })) {
       ctx.addIssue({ code: "custom", message });
     }
   });

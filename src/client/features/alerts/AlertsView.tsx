@@ -394,6 +394,7 @@ export function AlertsView({
                 type="button"
                 className={styles.row}
                 onClick={() => setServiceForm({ product: p })}
+                data-testid="service-row"
               >
                 <span className={styles.rowEm} aria-hidden="true">
                   ⚡

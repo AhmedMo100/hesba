@@ -5,9 +5,11 @@
  * («من 100 لحد 1000 → 5 جنيه»). Pure and unit-tested.
  *
  * Tiers are half-open — `from ≤ amount < to` — so 100–1000 and 1000–5000 do not overlap and
- * 1000 belongs to the second; the top of the highest tier is included. An amount outside every
- * tier takes the base commission. Money is integer piasters; a percentage is a plain number
- * (1.5 = 1.5%).
+ * 1000 belongs to the second; the top of the highest tier is included. A rule made on the
+ * service form is slabs only (no separate commission field): an amount outside every slab has
+ * no commission and is not sold (`slabFor` → undefined). A rule saved before slabs (a single
+ * fixed / percent value, no tiers) still applies to every amount. Money is integer piasters; a
+ * percentage is a plain number (1.5 = 1.5%).
  */
 
 export type CommissionType = "fixed" | "percent";
@@ -29,8 +31,14 @@ export interface ServiceCommissionRule {
 export const MAX_PERCENT = 100;
 
 /** Arabic problems with a rule; empty when it is valid. */
-export function commissionRuleErrors(rule: ServiceCommissionRule): string[] {
+export function commissionRuleErrors(
+  rule: ServiceCommissionRule,
+  opts: { slabsRequired?: boolean } = {},
+): string[] {
   const errors: string[] = [];
+  if (opts.slabsRequired && rule.tiers.length === 0) {
+    errors.push("ضيف شريحة واحدة على الأقل");
+  }
   const checkValue = (type: CommissionType, value: number, where: string) => {
     if (!Number.isFinite(value) || value < 0) {
       errors.push(`${where}: العمولة مينفعش تبقى سالبة`);
@@ -60,7 +68,12 @@ export function commissionRuleErrors(rule: ServiceCommissionRule): string[] {
   for (let k = 1; k < sorted.length; k++) {
     const prev = sorted[k - 1]!;
     const cur = sorted[k]!;
-    if (cur.fromPiasters < prev.toPiasters) {
+    if (
+      cur.fromPiasters === prev.fromPiasters &&
+      cur.toPiasters === prev.toPiasters
+    ) {
+      errors.push(`الشريحة ${prev.i + 1} والشريحة ${cur.i + 1} نفس المدى`);
+    } else if (cur.fromPiasters < prev.toPiasters) {
       errors.push(`الشريحة ${prev.i + 1} والشريحة ${cur.i + 1} داخلين في بعض`);
     }
   }
@@ -91,6 +104,33 @@ export function serviceCommission(
   return Math.max(0, Math.round((amountPiasters * r.value) / 100));
 }
 
+/**
+ * The commission on this amount, and the slab it came from. Undefined when the rule has slabs
+ * and the amount is in none of them: the sale is refused, never charged a guessed commission.
+ */
+export function slabFor(
+  rule: ServiceCommissionRule,
+  amountPiasters: number,
+): { tier: CommissionTier | null; piasters: number } | undefined {
+  if (rule.tiers.length === 0) {
+    return { tier: null, piasters: serviceCommission(rule, amountPiasters) };
+  }
+  const tier = tierFor(rule, amountPiasters);
+  if (!tier) return undefined;
+  return { tier, piasters: serviceCommission(rule, amountPiasters) };
+}
+
+/** «100 → 1000: 5 ج» / «1000 → 10000: 2%». */
+export function describeSlab(t: CommissionTier): string {
+  const from = Number((t.fromPiasters / 100).toFixed(2));
+  const to = Number((t.toPiasters / 100).toFixed(2));
+  const v =
+    t.type === "fixed"
+      ? `${Number((t.value / 100).toFixed(2))} ج`
+      : `${Number(t.value.toFixed(2))}%`;
+  return `${from} → ${to}: ${v}`;
+}
+
 /** A service saved before rules existed: its price was the fixed commission. */
 export function legacyCommissionRule(
   sellPricePiasters: number,
@@ -104,7 +144,9 @@ export function describeCommission(rule: ServiceCommissionRule): string {
     type === "fixed"
       ? `${Number((value / 100).toFixed(2))} ج`
       : `${Number(value.toFixed(2))}%`;
-  return rule.tiers.length > 0
-    ? `${rule.tiers.length} شرائح · غير كده ${one(rule.type, rule.value)}`
-    : one(rule.type, rule.value);
+  if (rule.tiers.length === 0) return one(rule.type, rule.value);
+  const first = rule.tiers[0]!;
+  return rule.tiers.length === 1
+    ? describeSlab(first)
+    : `${rule.tiers.length} شرائح`;
 }

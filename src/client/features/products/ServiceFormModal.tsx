@@ -3,10 +3,11 @@
 /**
  * @file ServiceFormModal.tsx
  * @description V19 serviceForm — the same form to add and to edit a service: its name, the
- * shop's commission (a fixed amount or a percentage, optionally by tiers of the operation's
- * amount), and the machines / wallets it is charged from. The commission rule is kept in the
- * shop's sales settings and validated there (no overlapping tiers, no negative commission,
- * a top above the bottom). A saved service is offered in the sale at once.
+ * shop's commission as slabs of the operation's amount (each slab a fixed amount or a
+ * percentage; no separate commission field), and the machines / wallets it is charged from.
+ * The rule is kept in the shop's sales settings and validated there too (no overlapping or
+ * repeated slabs, no negative commission, a top above the bottom, a percentage up to 100%).
+ * A saved service is offered in the sale at once.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -16,8 +17,8 @@ import { normalizeArabic } from "@/domain/normalize";
 import { parseEgpStrict } from "@/domain/money";
 import {
   commissionRuleErrors,
-  legacyCommissionRule,
-  serviceCommission,
+  describeSlab,
+  slabFor,
   type CommissionType,
   type ServiceCommissionRule,
 } from "@/domain/service-commission";
@@ -73,12 +74,18 @@ interface TierRow {
 
 const egp = (piasters: number) => String(Number((piasters / 100).toFixed(2)));
 
-/** The rule the form describes (amounts in piasters), or why it cannot be read. */
-function ruleFromForm(
-  type: CommissionType,
-  value: string,
-  tiers: TierRow[],
-): { rule: ServiceCommissionRule | null; errors: string[] } {
+const emptySlab = (from = ""): TierRow => ({
+  from,
+  to: "",
+  type: "fixed",
+  value: "",
+});
+
+/** The slabs-only rule the form describes (amounts in piasters), or why it cannot be read. */
+function ruleFromForm(tiers: TierRow[]): {
+  rule: ServiceCommissionRule | null;
+  errors: string[];
+} {
   const errors: string[] = [];
   const readValue = (t: CommissionType, v: string, where: string) => {
     if (v.trim() === "") {
@@ -87,7 +94,8 @@ function ruleFromForm(
     }
     if (t === "percent") {
       const n = Number(v);
-      if (!Number.isFinite(n)) errors.push(`${where}: النسبة لازم تكون رقم`);
+      if (!Number.isFinite(n) || n < 0 || n > 100)
+        errors.push(`${where}: النسبة لازم تكون من 0 لحد 100%`);
       return n;
     }
     const p = parseEgpStrict(v);
@@ -97,7 +105,6 @@ function ruleFromForm(
     }
     return p;
   };
-  const base = readValue(type, value, "العمولة");
   const parsed = tiers.map((t, i) => {
     const where = `الشريحة ${i + 1}`;
     const from = parseEgpStrict(t.from);
@@ -113,8 +120,13 @@ function ruleFromForm(
     };
   });
   if (errors.length) return { rule: null, errors };
-  const rule: ServiceCommissionRule = { type, value: base, tiers: parsed };
-  const ruleErrors = commissionRuleErrors(rule);
+  // No commission outside the slabs: the sale asks for an amount inside one of them.
+  const rule: ServiceCommissionRule = {
+    type: "fixed",
+    value: 0,
+    tiers: parsed,
+  };
+  const ruleErrors = commissionRuleErrors(rule, { slabsRequired: true });
   return ruleErrors.length
     ? { rule: null, errors: ruleErrors }
     : { rule, errors: [] };
@@ -133,10 +145,18 @@ export function ServiceFormModal({
 
   const [name, setName] = useState(product?.name_ar || "");
   const [category, setCategory] = useState(product?.category || presetCategory);
-  const legacy = legacyCommissionRule(product?.sell_price_piasters ?? 500);
-  const [type, setType] = useState<CommissionType>(legacy.type);
-  const [value, setValue] = useState(product ? egp(legacy.value) : "5");
-  const [tiers, setTiers] = useState<TierRow[]>([]);
+  // A new service starts with one slab to fill; an older service (one fixed commission, no
+  // slabs) starts with that commission in a slab whose range the owner sets.
+  const [tiers, setTiers] = useState<TierRow[]>(() =>
+    product
+      ? [
+          {
+            ...emptySlab("1"),
+            value: egp(Math.max(0, product.sell_price_piasters ?? 0)),
+          },
+        ]
+      : [emptySlab()],
+  );
   const [machines, setMachines] = useState<PosMachine[]>([]);
   const [linked, setLinked] = useState<string[]>(() =>
     product ? getServiceLinkedMachineIds(product.id, storeId) : [],
@@ -166,17 +186,24 @@ export function ServiceFormModal({
           ) => {
             const rule = d?.config?.serviceCommissions?.[product.id];
             if (!alive || !rule) return;
-            setType(rule.type);
-            setValue(
-              rule.type === "fixed" ? egp(rule.value) : String(rule.value),
-            );
             setTiers(
-              rule.tiers.map((t) => ({
-                from: egp(t.fromPiasters),
-                to: egp(t.toPiasters),
-                type: t.type,
-                value: t.type === "fixed" ? egp(t.value) : String(t.value),
-              })),
+              rule.tiers.length > 0
+                ? rule.tiers.map((t) => ({
+                    from: egp(t.fromPiasters),
+                    to: egp(t.toPiasters),
+                    type: t.type,
+                    value: t.type === "fixed" ? egp(t.value) : String(t.value),
+                  }))
+                : [
+                    {
+                      ...emptySlab("1"),
+                      type: rule.type,
+                      value:
+                        rule.type === "fixed"
+                          ? egp(rule.value)
+                          : String(rule.value),
+                    },
+                  ],
             );
           },
         )
@@ -187,14 +214,15 @@ export function ServiceFormModal({
     };
   }, [product, storeId]);
 
-  const { rule, errors } = useMemo(
-    () => ruleFromForm(type, value, tiers),
-    [type, value, tiers],
-  );
-  const example = 50000; // 500 ج
-  const exampleTier = rule?.tiers.find(
-    (t) => t.fromPiasters <= example && example < t.toPiasters,
-  );
+  const { rule, errors } = useMemo(() => ruleFromForm(tiers), [tiers]);
+  // The example: an operation in the first slab's range.
+  const example = rule?.tiers[0]
+    ? Math.max(
+        rule.tiers[0].fromPiasters,
+        Math.min(50000, rule.tiers[0].toPiasters),
+      )
+    : 50000;
+  const exampleSlab = rule ? slabFor(rule, example) : undefined;
 
   const setTier = (i: number, patch: Partial<TierRow>) =>
     setTiers((prev) => prev.map((t, k) => (k === i ? { ...t, ...patch } : t)));
@@ -216,11 +244,16 @@ export function ServiceFormModal({
       return;
     }
     setNameError(null);
-    if (!rule) return;
+    if (!rule) {
+      setSubmitError(errors[0] ?? "راجع الشرائح");
+      return;
+    }
     setBusy(true);
     try {
-      // The product keeps the fixed commission as its price (older screens read it).
-      const sellPricePiasters = rule.type === "fixed" ? rule.value : 0;
+      // The product's price: the first slab's fixed commission (older screens read it).
+      const first = rule.tiers[0];
+      const sellPricePiasters =
+        first && first.type === "fixed" ? first.value : 0;
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -354,45 +387,10 @@ export function ServiceFormModal({
           ))}
         </select>
 
-        {/* ─── العمولة: مبلغ ثابت أو نسبة ─── */}
-        <div className={f.lbl}>عمولتك</div>
-        <div className={f.chips}>
-          {chip(
-            type === "fixed",
-            "مبلغ ثابت",
-            () => setType("fixed"),
-            "service-fee-fixed",
-          )}
-          {chip(
-            type === "percent",
-            "نسبة مئوية",
-            () => setType("percent"),
-            "service-fee-percent",
-          )}
-        </div>
-        <label className={f.lbl} htmlFor="sv-fee">
-          {type === "fixed"
-            ? "العمولة (جنيه لكل عملية)"
-            : "النسبة (%) من قيمة العملية"}
-        </label>
-        <input
-          id="sv-fee"
-          className={f.input}
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="any"
-          value={value}
-          onChange={(e) => setValue(e.target.value)}
-          placeholder={type === "fixed" ? "5" : "1.5"}
-          data-testid="service-fee"
-        />
-
-        {/* ─── شرائح حسب قيمة العملية ─── */}
-        <div className={f.lbl}>شرائح حسب قيمة العملية (اختياري)</div>
+        {/* ─── عمولتك: شرائح حسب قيمة العملية (كل شريحة مبلغ ثابت أو نسبة) ─── */}
+        <div className={f.lbl}>عمولتك حسب قيمة العملية</div>
         <div className={f.note}>
-          مثلاً: من 100 لحد 1000 → 5 جنيه. أي مبلغ برّه الشرائح بياخد العمولة
-          اللي فوق.
+          مثلاً: من 100 لحد 1000 → 5 جنيه، ومن 1000 لحد 10000 → 10 جنيه.
         </div>
         {tiers.map((t, i) => (
           <div key={i} className={f.packBox} data-testid="service-tier">
@@ -423,11 +421,17 @@ export function ServiceFormModal({
               </div>
             </div>
             <div className={f.chips}>
-              {chip(t.type === "fixed", "مبلغ ثابت", () =>
-                setTier(i, { type: "fixed" }),
+              {chip(
+                t.type === "fixed",
+                "مبلغ ثابت",
+                () => setTier(i, { type: "fixed" }),
+                "service-tier-fixed",
               )}
-              {chip(t.type === "percent", "نسبة", () =>
-                setTier(i, { type: "percent" }),
+              {chip(
+                t.type === "percent",
+                "نسبة %",
+                () => setTier(i, { type: "percent" }),
+                "service-tier-percent",
               )}
             </div>
             <div className={f.barRow}>
@@ -444,16 +448,19 @@ export function ServiceFormModal({
                 }
                 data-testid="service-tier-value"
               />
-              <button
-                type="button"
-                className={f.scanBtn}
-                onClick={() =>
-                  setTiers((prev) => prev.filter((_, k) => k !== i))
-                }
-                aria-label={`امسح الشريحة ${i + 1}`}
-              >
-                ✕
-              </button>
+              {tiers.length > 1 && (
+                <button
+                  type="button"
+                  className={f.scanBtn}
+                  onClick={() =>
+                    setTiers((prev) => prev.filter((_, k) => k !== i))
+                  }
+                  aria-label={`امسح الشريحة ${i + 1}`}
+                  data-testid="service-tier-remove"
+                >
+                  ✕
+                </button>
+              )}
             </div>
           </div>
         ))}
@@ -462,28 +469,26 @@ export function ServiceFormModal({
           className={`${f.btn} ${f.ghost}`}
           onClick={() => {
             const last = tiers[tiers.length - 1];
-            setTiers((prev) => [
-              ...prev,
-              { from: last?.to ?? "", to: "", type: "fixed", value: "" },
-            ]);
+            setTiers((prev) => [...prev, emptySlab(last?.to ?? "")]);
           }}
           data-testid="service-tier-add"
         >
           + شريحة
         </button>
 
-        {(touched || tiers.length > 0) && errors.length > 0 && (
-          <div className={f.errBox} role="alert" data-testid="service-errors">
-            {errors.map((e) => (
-              <div key={e}>{e}</div>
-            ))}
-          </div>
-        )}
-        {rule && (
+        {(touched || tiers.some((t) => t.to.trim() && t.value.trim())) &&
+          errors.length > 0 && (
+            <div className={f.errBox} role="alert" data-testid="service-errors">
+              {errors.map((e) => (
+                <div key={e}>{e}</div>
+              ))}
+            </div>
+          )}
+        {rule && exampleSlab && (
           <div className={f.sumbox} data-testid="service-example">
             عملية بـ {formatMoney(example)} → عمولتك{" "}
-            {formatMoney(serviceCommission(rule, example))}
-            {exampleTier ? " (من الشرائح)" : ""}
+            {formatMoney(exampleSlab.piasters)}
+            {exampleSlab.tier ? ` (${describeSlab(exampleSlab.tier)})` : ""}
           </div>
         )}
 

@@ -70,3 +70,75 @@ describe("service commission", () => {
     ).toBe(false);
   });
 });
+
+describe("slabs only (the service form)", () => {
+  const rule = {
+    type: "fixed" as const,
+    value: 0,
+    tiers: [
+      {
+        fromPiasters: 10000,
+        toPiasters: 100000,
+        type: "fixed" as const,
+        value: 500,
+      },
+      {
+        fromPiasters: 100000,
+        toPiasters: 1000000,
+        type: "percent" as const,
+        value: 2,
+      },
+    ],
+  };
+
+  it("picks the slab of the amount and its commission", async () => {
+    const { slabFor } = await import("@/domain/service-commission");
+    expect(slabFor(rule, 75000)).toEqual({
+      tier: rule.tiers[0],
+      piasters: 500,
+    });
+    expect(slabFor(rule, 100000)?.piasters).toBe(2000);
+    expect(slabFor(rule, 1000000)?.piasters).toBe(20000);
+  });
+
+  it("an amount outside every slab has no commission (the sale is refused)", async () => {
+    const { slabFor } = await import("@/domain/service-commission");
+    expect(slabFor(rule, 5000)).toBeUndefined();
+    expect(slabFor(rule, 1000001)).toBeUndefined();
+  });
+
+  it("an older rule without slabs still applies to every amount", async () => {
+    const { slabFor, legacyCommissionRule } =
+      await import("@/domain/service-commission");
+    expect(slabFor(legacyCommissionRule(500), 123456)).toEqual({
+      tier: null,
+      piasters: 500,
+    });
+  });
+
+  it("refuses no slab, a repeated range, a bad percentage", async () => {
+    const { commissionRuleErrors } =
+      await import("@/domain/service-commission");
+    expect(
+      commissionRuleErrors({ ...rule, tiers: [] }, { slabsRequired: true }),
+    ).toContain("ضيف شريحة واحدة على الأقل");
+    expect(
+      commissionRuleErrors({
+        ...rule,
+        tiers: [rule.tiers[0]!, rule.tiers[0]!],
+      }).join(),
+    ).toContain("نفس المدى");
+    expect(
+      commissionRuleErrors({
+        ...rule,
+        tiers: [{ ...rule.tiers[1]!, value: 150 }],
+      }).join(),
+    ).toContain("100%");
+  });
+
+  it("describes a slab: «100 → 1000: 5 ج» / «1000 → 10000: 2%»", async () => {
+    const { describeSlab } = await import("@/domain/service-commission");
+    expect(describeSlab(rule.tiers[0]!)).toBe("100 → 1000: 5 ج");
+    expect(describeSlab(rule.tiers[1]!)).toBe("1000 → 10000: 2%");
+  });
+});
