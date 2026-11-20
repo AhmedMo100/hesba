@@ -15,22 +15,9 @@ import { parseEgpStrict } from "@/domain/money";
 import {
   countDrawer,
   fetchDrawer,
-  type DrawerFlow,
   type DrawerView as Drawer,
 } from "@/client/shared/api/drawer";
 import styles from "./HomeView.module.css";
-
-const FLOW_LABEL: Record<DrawerFlow["key"], string> = {
-  cashSales: "💵 بيع كاش",
-  collections: "🤝 تحصيل من الزباين",
-  expenseCancels: "↩️ مصروفات اتلغت ورجعت للدرج",
-  refunds: "↩️ مرتجعات اترجعت كاش",
-  voids: "🚫 بيعات اتلغت",
-  expenses: "💸 مصروفات من الدرج",
-  supplierPayments: "🚚 دفعت للموردين",
-  stockPurchases: "📦 بضاعة اتدفعت من الدرج",
-  machineTopups: "💳 رصيد للماكينات",
-};
 
 const when = (iso: string) =>
   new Intl.DateTimeFormat("ar-EG", {
@@ -50,13 +37,28 @@ export function DrawerView() {
   const [done, setDone] = useState<string | null>(null);
   const opRef = useRef<{ key: string; id: string } | null>(null);
 
+  // The server's figures, read again when the page comes back into view (a sale made on
+  // another screen moves the drawer): the preview never runs on stale numbers.
   useEffect(() => {
     let alive = true;
-    fetchDrawer()
-      .then((d) => alive && setDrawer(d))
-      .catch(() => alive && setFailed(true));
+    const load = () =>
+      fetchDrawer()
+        .then((d) => {
+          if (!alive) return;
+          setDrawer(d);
+          setFailed(false);
+        })
+        .catch(() => alive && setFailed(true));
+    void load();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") void load();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
     return () => {
       alive = false;
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
     };
   }, []);
 
@@ -84,12 +86,14 @@ export function DrawerView() {
       opRef.current = null;
       setDrawer(next);
       setCounted("");
+      // The difference the server recorded at the close (its expected amount at that moment).
+      const recorded = next.lastCount?.differencePiasters ?? null;
       setDone(
-        diff === null
+        recorded === null
           ? "اتسجل العدّ ✅ — من دلوقتي هنحسب الدرج"
-          : diff === 0
+          : recorded === 0
             ? "اتقفل الدرج، مطابق ✅"
-            : `اتقفل الدرج، والفرق ${diff > 0 ? "+" : ""}${formatMoney(diff)}`,
+            : `اتقفل الدرج، والفرق ${recorded > 0 ? "+" : ""}${formatMoney(recorded)}`,
       );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "مقدرناش نسجّل العدّ");
@@ -199,45 +203,60 @@ export function DrawerView() {
 
           {drawer?.lastCount && (
             <>
-              <h3 className={styles.sech}>من آخر عدّ</h3>
+              <h3 className={styles.sech}>الحركات الكاش من آخر قفل</h3>
               <div className={styles.sumbox} data-testid="drawer-flows">
                 <div className={styles.line}>
                   <span>
-                    الفلوس وقت آخر عدّ{" "}
+                    الفلوس وقت آخر قفل{" "}
                     <small className={styles.muted}>
                       ({when(drawer.lastCount.countedAt)})
                     </small>
                   </span>
-                  <b>{formatMoney(drawer.lastCount.countedPiasters)}</b>
+                  <b data-testid="drawer-base" className={styles.nowrap}>
+                    {formatMoney(drawer.lastCount.countedPiasters)}
+                  </b>
                 </div>
-                {drawer.flows
-                  .filter((f) => f.count > 0)
-                  .map((f) => (
-                    <div key={f.key} className={styles.line}>
-                      <span>
-                        {FLOW_LABEL[f.key]}{" "}
-                        <small className={styles.muted}>({f.count})</small>
-                      </span>
-                      <b
-                        className={
-                          f.direction === "in"
-                            ? styles.goodText
-                            : styles.redText
-                        }
-                      >
-                        {f.direction === "in" ? "+" : "−"}
-                        {formatMoney(f.amountPiasters)}
-                      </b>
-                    </div>
-                  ))}
                 <div className={styles.line}>
-                  <b>داخل كاش / خارج كاش</b>
-                  <b>
-                    {formatMoney(drawer.inPiasters)} /{" "}
+                  <span>داخل كاش</span>
+                  <b className={styles.goodText} data-testid="drawer-in">
+                    {formatMoney(drawer.inPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>خارج كاش</span>
+                  <b className={styles.redText} data-testid="drawer-out">
                     {formatMoney(drawer.outPiasters)}
                   </b>
                 </div>
               </div>
+              {drawer.movements.length === 0 ? (
+                <div className={styles.note}>مفيش حركات كاش من آخر قفل</div>
+              ) : (
+                <div data-testid="drawer-movements">
+                  {drawer.movements.map((m) => (
+                    <div
+                      key={m.id}
+                      className={styles.line}
+                      data-testid="drawer-movement"
+                    >
+                      <span>
+                        {m.title}{" "}
+                        <small className={styles.muted}>{when(m.at)}</small>
+                      </span>
+                      <b
+                        className={
+                          m.direction === "in"
+                            ? styles.goodText
+                            : styles.redText
+                        }
+                      >
+                        {m.direction === "in" ? "+" : "−"}
+                        {formatMoney(m.amountPiasters)}
+                      </b>
+                    </div>
+                  ))}
+                </div>
+              )}
               {drawer.unknown.count > 0 && (
                 <div className={styles.warn} data-testid="drawer-unknown">
                   ⚠️ {drawer.unknown.count} حركة بـ{" "}
@@ -253,10 +272,7 @@ export function DrawerView() {
               <h3 className={styles.sech}>آخر مرات العدّ</h3>
               <div className={styles.sumbox}>
                 {drawer.recentCounts.map((c) => {
-                  const d =
-                    c.expectedPiasters === null
-                      ? null
-                      : c.countedPiasters - c.expectedPiasters;
+                  const d = c.differencePiasters;
                   return (
                     <div key={c.countedAt} className={styles.line}>
                       <span>{when(c.countedAt)}</span>

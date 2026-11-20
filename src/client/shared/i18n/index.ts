@@ -62,12 +62,13 @@ export function t(
  * Example: 1550 piasters -> "15.50 ج.م"
  */
 export function formatMoney(piasters: number): string {
-  const pounds = (piasters || 0) / 100;
-  const formatted = pounds.toLocaleString("en-US", {
-    minimumFractionDigits: pounds % 1 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  });
-  return `${formatted} ج.م`;
+  // Integer arithmetic only: whole pounds and the piasters left, never a float division.
+  const p = Math.round(piasters || 0);
+  const abs = Math.abs(p);
+  const whole = Math.floor(abs / 100).toLocaleString("en-US");
+  const frac = abs % 100;
+  const sign = p < 0 ? "-" : "";
+  return `${sign}${whole}${frac ? `.${String(frac).padStart(2, "0")}` : ""} ج.م`;
 }
 
 /**

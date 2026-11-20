@@ -43,22 +43,37 @@ export interface DrawerFlow {
   amountPiasters: number;
 }
 
+/** One cash movement since the last count (V19 «الحركات الكاش من آخر قفل»). */
+export interface DrawerMovement {
+  id: string;
+  kind: DrawerFlow["key"];
+  direction: "in" | "out";
+  title: string;
+  amountPiasters: number;
+  at: string;
+}
+
 /** `GET /api/drawer`. Money is piasters; `expectedPiasters` is null before the first count. */
 export interface DrawerView {
   lastCount: {
     countedPiasters: number;
     expectedPiasters: number | null;
+    /** counted − expected at that close, computed on the server; null for the first count. */
+    differencePiasters: number | null;
     countedAt: string;
   } | null;
   expectedPiasters: number | null;
   inPiasters: number;
   outPiasters: number;
   flows: DrawerFlow[];
+  /** The latest cash movements since the last count, newest first (at most 40). */
+  movements: DrawerMovement[];
   /** Movements since the last count whose source (drawer or wallet) was not recorded. */
   unknown: { count: number; amountPiasters: number };
   recentCounts: Array<{
     countedPiasters: number;
     expectedPiasters: number | null;
+    differencePiasters: number | null;
     countedAt: string;
   }>;
 }
