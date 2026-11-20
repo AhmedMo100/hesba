@@ -1367,3 +1367,25 @@
   color: var(--muted);
   font-weight: 600;
 }
+
+/* V19 input (the service sheet's amount) */
+.v19Input {
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  width: 100%;
+  padding: 13px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  margin: 4px 0 10px;
+  min-width: 0;
+  display: block;
+}
+
+/* The slab the amount falls in */
+.slabOn {
+  font-weight: 800;
+  color: var(--ok);
+}

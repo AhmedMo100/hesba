@@ -3,6 +3,8 @@
  * No React, no fetch, no side effects.
  */
 
+import { productEmoji } from "@/client/shared/product-emoji";
+
 /** Display model for a sale item tile. */
 export interface DisplaySaleItem {
   id: string;
@@ -25,6 +27,9 @@ export interface DisplaySaleItem {
   hasBarcode?: boolean;
   /** The shop's barcodes of this product (ADR-0031): the barcode scanner matches them. */
   barcodes?: string[];
+  /** A bag's contents: how many pieces / grams one unit holds. */
+  sizeValue?: number | null;
+  sizeUnit?: string | null;
 }
 
 /**
@@ -80,8 +85,12 @@ export function matchesSaleFilter(
 export function saleTileEmoji(item: DisplaySaleItem): string {
   if (item.isService) return "⚡";
   if (item.isSandwich) return "🥪";
-  if (item.unitMode === "weight") return "⚖️";
-  return "📦";
+  return productEmoji({
+    name: item.name,
+    category: item.category,
+    unit: item.unit,
+    weighed: item.unitMode === "weight",
+  });
 }
 
 /**

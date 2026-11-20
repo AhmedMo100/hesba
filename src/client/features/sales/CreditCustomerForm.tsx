@@ -40,9 +40,9 @@ export async function loadCreditCustomers(): Promise<CreditCustomer[]> {
 
 /**
  * The customer of a credit invoice from what the owner typed: the customer who already has
- * this phone, else (no phone typed) the customer with exactly this name, else a new customer
- * with no opening balance — the receivable comes from the invoice itself. Never two records
- * for one person, even when a checkout is retried.
+ * this phone, else (no phone typed) the customer with exactly this name, else someone new
+ * (`id: ""`) whom the checkout records together with the sale. Never two records for one
+ * person, even when a checkout is retried.
  */
 export async function resolveCreditCustomer(
   name: string,
@@ -61,28 +61,9 @@ export async function resolveCreditCustomer(
     const same = customers.find((c) => normalizeArabic(c.name) === n);
     if (same) return same;
   }
-  const res = await fetch("/api/people", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: trimmed,
-      phone: phone.trim() || undefined,
-      section: "owedToMe",
-      amountEgp: "0",
-    }),
-  });
-  const json = (await res.json().catch(() => null)) as {
-    person?: { id: string; name: string; phone: string | null };
-    error?: { message?: string };
-  } | null;
-  if (!res.ok || !json?.person) {
-    throw new Error(json?.error?.message || t("invoice.loadFailed"));
-  }
-  return {
-    id: json.person.id,
-    name: json.person.name,
-    phone: json.person.phone ?? null,
-  };
+  // Someone new: no record yet (id ""). The checkout creates the customer in the sale's
+  // own transaction, so a sale that fails never leaves a customer owing nothing.
+  return { id: "", name: trimmed, phone: phone.trim() || null };
 }
 
 export function CreditCustomerForm({

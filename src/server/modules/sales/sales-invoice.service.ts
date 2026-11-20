@@ -198,15 +198,34 @@ export async function checkoutSale(
   input: CheckoutInput,
 ): Promise<SaleInvoice> {
   const credit = input.paymentMethod === "debt";
-  const owner: LedgerOwner | null =
-    credit && input.customerId
-      ? { table: "customers", customerId: input.customerId }
-      : null;
   try {
     return await withTenant(
       storeId,
       userId,
       async (tx) => {
+        // A new customer is created here, inside the sale: no sale, no customer.
+        let customerId = input.customerId ?? null;
+        if (credit && !customerId && input.newCustomer) {
+          const replayed = await tx.sale.findFirst({
+            where: { storeId, opId: input.opId },
+            select: { customerId: true },
+          });
+          if (replayed) {
+            customerId = replayed.customerId;
+          } else {
+            const created = await tx.customer.create({
+              data: {
+                storeId,
+                nameAr: input.newCustomer.name.trim(),
+                phone: input.newCustomer.phone?.trim() || null,
+              },
+              select: { id: true },
+            });
+            customerId = created.id;
+          }
+        }
+        const owner: LedgerOwner | null =
+          credit && customerId ? { table: "customers", customerId } : null;
         if (owner && !(await lockLedgerOwnerInTx(tx, storeId, owner))) {
           throw AppError.notFound("الزبون ده مش موجود أو اتحذف");
         }
@@ -223,7 +242,7 @@ export async function checkoutSale(
             (await loadInvoiceInTx(tx, storeId, dup.id))!,
             true,
           );
-          assertSameCheckout(invoice, input);
+          assertSameCheckout(invoice, { ...input, customerId });
           return invoice;
         }
 
@@ -321,7 +340,7 @@ export async function checkoutSale(
             paymentMethod: input.paymentMethod,
             totalPiasters: BigInt(total),
             discountPiasters: BigInt(input.discountPiasters),
-            customerId: credit ? input.customerId! : null,
+            customerId: credit ? customerId : null,
             opId: input.opId,
             createdAt: now,
           },
@@ -404,7 +423,12 @@ export async function checkoutSale(
         prisma,
       );
       if (winner) {
-        assertSameCheckout(winner, input);
+        assertSameCheckout(winner, {
+          ...input,
+          customerId: input.newCustomer
+            ? winner.customerId
+            : (input.customerId ?? null),
+        });
         return winner;
       }
     }

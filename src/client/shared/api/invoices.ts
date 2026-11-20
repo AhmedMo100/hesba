@@ -113,7 +113,10 @@ export async function checkout(body: {
   discountPiasters: number;
   paymentMethod: PaymentMethod;
   customerId?: string | null;
+  /** A credit sale to someone new: created with the sale, in its transaction. */
+  newCustomer?: { name: string; phone?: string | null };
   paidNowPiasters: number;
+  paidFrom?: "cash" | "wallet";
 }): Promise<SaleInvoice> {
   return (
     await send<{ invoice: SaleInvoice }>("POST", "/api/sales/checkout", body)

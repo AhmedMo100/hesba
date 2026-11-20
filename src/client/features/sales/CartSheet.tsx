@@ -264,6 +264,10 @@ export function CartSheet({
       setError(t("credit.nameRequired"));
       return;
     }
+    if (method === "debt" && total !== null && paidPiasters > total) {
+      setError("المدفوع أكبر من إجمالي الفاتورة");
+      return;
+    }
     setBusy(true);
     try {
       let customer: CreditCustomer | null = creditCustomer;
@@ -278,26 +282,39 @@ export function CartSheet({
             customers,
           );
           resolvedRef.current = { key: who, customer };
-          const found = customer;
-          setCustomers((prev) =>
-            prev.some((c) => c.id === found.id) ? prev : [...prev, found],
-          );
         }
       }
       const customerId = customer?.id ?? "";
+      const isNew = method === "debt" && customer !== null && !customerId;
       const invoice = await checkout({
-        opId: opIdFor(draftKeyFor(customerId)),
+        opId: opIdFor(
+          draftKeyFor(customerId || `new:${customer?.name}|${customer?.phone}`),
+        ),
         lines: mergeCheckoutLines(lines, offers),
         discountPiasters,
         paymentMethod: method,
-        customerId: method === "debt" ? customerId || null : null,
+        customerId: method === "debt" && customerId ? customerId : null,
+        ...(isNew && customer
+          ? { newCustomer: { name: customer.name, phone: customer.phone } }
+          : {}),
         paidNowPiasters: method === "debt" ? paidPiasters : 0,
         ...(method === "debt" && paidPiasters > 0
           ? { paidFrom: draft.paidNowFrom ?? "cash" }
           : {}),
       });
       opIdRef.current = null;
-      onDone(invoice, isCredit ? customer : null);
+      // The customer as recorded (a new one now has its id from the sale).
+      const recorded =
+        customer && isNew && invoice.customerId
+          ? { ...customer, id: invoice.customerId }
+          : customer;
+      if (recorded?.id) {
+        setCustomers((prev) =>
+          prev.some((c) => c.id === recorded.id) ? prev : [...prev, recorded],
+        );
+        resolvedRef.current = null;
+      }
+      onDone(invoice, isCredit ? recorded : null);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : t("invoice.loadFailed"));
     } finally {

@@ -36,6 +36,17 @@ import React, {
   useRef,
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
+import {
+  saleAmount,
+  saleBaseNote,
+  saleBaseQty,
+  saleLineLabel,
+  salePriceLine,
+  saleQtyLabel,
+  saleShape,
+  type SaleUnit,
+  type WeightUnit,
+} from "./sale-quantity";
 import styles from "./SalesView.module.css";
 import { Button, Icon, Modal, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
@@ -100,8 +111,10 @@ import {
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
 import { BarcodeScanSheet } from "@/client/shared/scanner/BarcodeScanSheet";
 import {
+  describeCommission,
+  describeSlab,
   legacyCommissionRule,
-  serviceCommission,
+  slabFor,
   type ServiceCommissionRule,
 } from "@/domain/service-commission";
 import {
@@ -109,9 +122,7 @@ import {
   generateUuid,
   formatCairoTime,
   formatStockText as formatStockTextPure,
-  getPackLabel,
   formatWeightLabel,
-  weightSalePiasters,
   matchesSaleFilter,
   findByBarcode,
   saleSortRank,
@@ -252,19 +263,21 @@ export function SalesView({
   const [serviceCommissions, setServiceCommissions] = useState<
     Record<string, ServiceCommissionRule>
   >({});
-  const commissionFor = (item: DisplaySaleItem, principalPiasters: number) =>
-    serviceCommission(
-      serviceCommissions[item.productId] ??
-        serviceCommissions[item.id] ??
-        legacyCommissionRule(
-          item.sellPricePiasters > 0 ? item.sellPricePiasters : 500,
-        ),
-      principalPiasters,
+  /** The service's commission rule (its slabs; an older service: its price, fixed). */
+  const ruleOf = (item: DisplaySaleItem) =>
+    serviceCommissions[item.productId] ??
+    serviceCommissions[item.id] ??
+    legacyCommissionRule(
+      item.sellPricePiasters > 0 ? item.sellPricePiasters : 500,
     );
+  /** The commission on this amount from its slab; undefined when no slab covers it. */
+  const commissionFor = (item: DisplaySaleItem, principalPiasters: number) =>
+    slabFor(ruleOf(item), principalPiasters)?.piasters;
   // The V19 sell sheet: one product, its unit, quantity and payment.
   const [sellItem, setSellItem] = useState<DisplaySaleItem | null>(null);
-  const [sellUnit, setSellUnit] = useState<"base" | "pack">("base");
+  const [sellUnit, setSellUnit] = useState<SaleUnit>("base");
   const [sellQty, setSellQty] = useState("1");
+  const [sellWeightUnit, setSellWeightUnit] = useState<WeightUnit>("kg");
   const [sellPay, setSellPay] = useState<"cash" | "wallet" | "card">("cash");
   // Offers in the invoice: one line each, expanded into items only at checkout.
   const [cartOffers, setCartOffers] = useState<CartOffer[]>([]);
@@ -556,8 +569,14 @@ export function SalesView({
     }
 
     // 1. Regular physical products present in inventory
+    const variantOf = new Map(
+      allProducts.flatMap((p) => (p.variants ?? []).map((v) => [v.id, v])),
+    );
     inventory.forEach((inv) => {
+      const v = variantOf.get(inv.variantId);
       list.push({
+        sizeValue: v?.size_value ?? null,
+        sizeUnit: v?.size_unit ?? null,
         id: inv.productId,
         variantId: inv.variantId,
         productId: inv.productId,
@@ -1208,14 +1227,14 @@ export function SalesView({
     setCreditMode(true);
     setCartMode(true);
     setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
-    showToast(t("credit.modeOn"), "success");
   };
 
   /** A stocked product opens the V19 sell sheet: unit, quantity, payment. */
   const openSellSheet = (item: DisplaySaleItem) => {
     setSellItem(item);
     setSellUnit("base");
-    setSellQty(item.unitMode === "weight" ? "0.25" : "1");
+    setSellWeightUnit("kg");
+    setSellQty(saleShape(item).kind === "weight" ? "0.25" : "1");
     setSellPay("cash");
   };
 
@@ -1308,7 +1327,7 @@ export function SalesView({
       if (linkedMachs.length === 0) {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
-          msg: `الخدمة «${item.name}» مش مربوطة بأي ماكينة دفع — اربطها من قسم المنتجات أولاً`,
+          msg: `الخدمة «${item.name}» مش مربوطة بأي ماكينة — اربطها من «المحافظ والماكينات»`,
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
@@ -1318,7 +1337,11 @@ export function SalesView({
       // If service is variable (utility charging, topup, transfer)
       const name = item.name.toLowerCase();
       const cat = (item.category || "").toLowerCase();
+      // A service with slabs or a percentage always asks for the operation's amount.
+      const rule = ruleOf(item);
       const isVariable =
+        rule.tiers.length > 0 ||
+        rule.type === "percent" ||
         name.includes("كهرباء") ||
         name.includes("مياه") ||
         name.includes("غاز") ||
@@ -1384,30 +1407,19 @@ export function SalesView({
     openSellSheet(item);
   };
 
-  // ─── The sell sheet (V19) ───
-  const sellIsWeight = sellItem?.unitMode === "weight";
-  const sellPackQty = sellItem?.packQty ?? 1;
-  const sellHasPack = Boolean(sellItem && !sellIsWeight && sellPackQty > 1);
+  // ─── The sell sheet (V19): the product's own selling units (sale-quantity.ts) ───
+  const sellShape = sellItem ? saleShape(sellItem) : null;
+  const sellIsWeight = sellShape?.kind === "weight";
+  const sellPack = sellShape?.kind === "count" ? sellShape.pack : null;
   const sellQtyNum = Number.parseFloat(sellQty.replace(",", ".")) || 0;
-  const sellBase = !sellItem
-    ? 0
-    : sellIsWeight
-      ? Math.round(sellQtyNum * 1000)
-      : sellUnit === "pack"
-        ? Math.round(sellQtyNum) * sellPackQty
-        : Math.round(sellQtyNum);
-  const sellAmount = !sellItem
-    ? 0
-    : sellIsWeight
-      ? weightSalePiasters(sellBase, sellItem.sellPricePiasters)
-      : sellBase * sellItem.sellPricePiasters;
+  const sellBase = sellShape
+    ? saleBaseQty(sellShape, sellQty, sellUnit, sellWeightUnit)
+    : 0;
+  const sellAmount = sellItem ? saleAmount(sellItem, sellBase) : 0;
   const sellShort = Boolean(sellItem && sellBase > sellItem.currentStockBase);
-  const sellPackLabel = sellItem
-    ? getPackLabel(sellItem.packName, sellItem.packQty)
-    : "";
 
   const stepSellQty = (dir: 1 | -1) => {
-    const step = sellIsWeight ? 0.25 : 1;
+    const step = sellIsWeight ? (sellWeightUnit === "kg" ? 0.25 : 50) : 1;
     const next = Math.max(
       step,
       Math.round((sellQtyNum + dir * step) * 100) / 100,
@@ -1423,11 +1435,9 @@ export function SalesView({
       addToCart(item, sellBase);
       return;
     }
-    const label = sellIsWeight
-      ? formatWeightLabel(sellBase)
-      : sellUnit === "pack"
-        ? `${Math.round(sellQtyNum)} ${sellPackLabel}`
-        : `${sellBase} قطعة`;
+    const label = sellShape
+      ? saleLineLabel(sellShape, sellQty, sellUnit, sellBase)
+      : formatWeightLabel(sellBase);
     void recordSale({
       item,
       quantityBase: sellBase,
@@ -1467,11 +1477,19 @@ export function SalesView({
       return;
     }
 
-    // The shop's commission on this amount (its rule; older services: their price).
+    // The shop's commission on this amount, from its slab (older services: their price).
     const commissionPiasters = commissionFor(
       serviceModalItem,
       principalPiasters,
     );
+    if (commissionPiasters === undefined) {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({
+        msg: "المبلغ ده برّه شرائح العمولة بتاعة الخدمة",
+        type: "error",
+      });
+      return;
+    }
 
     const totalCustomerPiasters = principalPiasters + commissionPiasters;
 
@@ -1504,16 +1522,16 @@ export function SalesView({
     (chosenServiceMachine?.currentBalancePiasters || 0) <
       principalRequiredPiasters;
 
-  const serviceCommissionEgp = serviceModalItem
-    ? commissionFor(
-        serviceModalItem,
-        Math.round(
-          (Number.isFinite(serviceAmountNum) ? serviceAmountNum : 0) * 100,
-        ),
-      ) / 100
-    : 0;
-  const serviceTotalEgp =
-    serviceAmountNum > 0 ? serviceAmountNum + serviceCommissionEgp : 0;
+  const serviceRule = serviceModalItem ? ruleOf(serviceModalItem) : null;
+  const serviceSlab =
+    serviceRule && principalRequiredPiasters > 0
+      ? slabFor(serviceRule, principalRequiredPiasters)
+      : undefined;
+  const serviceCommissionPiasters = serviceSlab?.piasters ?? null;
+  const serviceTotalPiasters =
+    serviceCommissionPiasters === null
+      ? null
+      : principalRequiredPiasters + serviceCommissionPiasters;
 
   return (
     <div className={viewStyles.view} data-testid="page-sales" dir="rtl">
@@ -1734,12 +1752,13 @@ export function SalesView({
                   <b>{item.name}</b>
                   <small>
                     {item.isService
-                      ? item.sellPricePiasters > 0
-                        ? `عمولة ${item.sellPricePiasters / 100} ج`
-                        : "شحن فوري"
-                      : item.unitMode === "weight"
-                        ? `${item.sellPricePiasters / 100} ج / كيلو`
-                        : `${item.sellPricePiasters / 100} ج / قطعة`}
+                      ? `عمولة ${describeCommission(ruleOf(item))}`
+                      : (() => {
+                          // V19: «15 ج / قطعة», in the product's own unit.
+                          const shape = saleShape(item);
+                          const price = salePriceLine(item, shape, "base");
+                          return `${price.piasters / 100} ج / ${shape.kind === "weight" ? "كيلو" : shape.one}`;
+                        })()}
                   </small>
                   <small className={styles.st}>
                     {item.isService
@@ -2058,17 +2077,25 @@ export function SalesView({
             <div className={styles.note}>
               المتاح: {formatStockText(sellItem)}
             </div>
-            {sellHasPack && (
-              <div className={styles.chips}>
+            {sellShape?.kind === "count" && sellShape.content && (
+              <div className={styles.note} data-testid="sell-content">
+                {sellShape.content.unit === "piece"
+                  ? `ال${sellShape.one.replace(/^ال/, "")} فيه ${sellShape.content.amount} قطعة`
+                  : `وزن ال${sellShape.one.replace(/^ال/, "")} ${sellShape.content.amount} ${sellShape.content.unit === "kg" ? "كيلو" : "جرام"}`}
+              </div>
+            )}
+            {sellPack && (
+              <div className={styles.chips} data-testid="sell-units">
                 <button
                   type="button"
                   className={`${styles.chip} ${sellUnit === "base" ? styles.chipOn : ""}`}
+                  data-testid="sell-unit-base"
                   onClick={() => {
                     setSellUnit("base");
                     setSellQty("1");
                   }}
                 >
-                  قطعة
+                  {sellShape?.kind === "count" ? sellShape.one : "قطعة"}
                 </button>
                 <button
                   type="button"
@@ -2079,12 +2106,39 @@ export function SalesView({
                     setSellQty("1");
                   }}
                 >
-                  {sellPackLabel} ({sellPackQty})
+                  {sellPack.one} ({sellPack.qty})
                 </button>
               </div>
             )}
-            <div className={styles.lbl}>
-              {sellIsWeight ? "الكمية بالكيلو" : "الكمية"}
+            {sellIsWeight && (
+              <div className={styles.chips} data-testid="sell-weight-units">
+                {(["kg", "g"] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    className={`${styles.chip} ${sellWeightUnit === u ? styles.chipOn : ""}`}
+                    data-testid={`sell-weight-${u}`}
+                    onClick={() => {
+                      if (u === sellWeightUnit) return;
+                      setSellQty(
+                        String(
+                          u === "g"
+                            ? Math.round(sellQtyNum * 1000)
+                            : Math.round(sellQtyNum) / 1000,
+                        ),
+                      );
+                      setSellWeightUnit(u);
+                    }}
+                  >
+                    {u === "kg" ? "كيلو" : "جرام"}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className={styles.lbl} data-testid="sell-qty-label">
+              {sellShape
+                ? saleQtyLabel(sellShape, sellUnit, sellWeightUnit)
+                : "الكمية"}
             </div>
             <div className={styles.qty}>
               <button
@@ -2097,7 +2151,7 @@ export function SalesView({
               <input
                 type="number"
                 inputMode="decimal"
-                step={sellIsWeight ? 0.25 : 1}
+                step={sellIsWeight ? (sellWeightUnit === "kg" ? 0.25 : 50) : 1}
                 value={sellQty}
                 data-testid="sell-qty"
                 onChange={(e) => setSellQty(e.target.value)}
@@ -2111,6 +2165,18 @@ export function SalesView({
               </button>
             </div>
             <div className={styles.sumbox}>
+              {sellItem && sellShape && (
+                <div className={styles.line} data-testid="sell-unit-price">
+                  <span>
+                    {salePriceLine(sellItem, sellShape, sellUnit).label}
+                  </span>
+                  <span>
+                    {formatMoney(
+                      salePriceLine(sellItem, sellShape, sellUnit).piasters,
+                    )}
+                  </span>
+                </div>
+              )}
               <div className={styles.line}>
                 <span>الإجمالي</span>
                 <b data-testid="sell-total">{formatMoney(sellAmount)}</b>
@@ -2118,8 +2184,8 @@ export function SalesView({
               <div className={styles.note}>
                 {sellShort
                   ? "الكمية أكبر من المتاح"
-                  : sellBase > 0
-                    ? `= ${sellIsWeight ? `${sellBase} جرام` : `${sellBase} قطعة`}`
+                  : sellShape
+                    ? saleBaseNote(sellShape, sellBase)
                     : ""}
               </div>
             </div>
@@ -2165,174 +2231,120 @@ export function SalesView({
       )}
 
       {/* Service Sale Modal Popup */}
-      {serviceModalItem && (
-        <>
-          <div
-            className={styles.wpShield}
-            onClick={() => setServiceModalItem(null)}
-          />
-          <div className={styles.wpop} role="dialog" aria-modal="true">
-            <div className={styles.wpHeader}>
-              <span className={styles.wpTitle}>{serviceModalItem.name}</span>
-              <span className={styles.wpSubtitle}>
-                {serviceModalItem.brandName || "دفع إلكتروني"}
-              </span>
-            </div>
-
-            {/* Machine selection or indicator */}
-            {linkedServiceMachines.length > 1 ? (
-              <div className={styles.machineSelector}>
-                <span className={styles.machineSelectorLabel}>
-                  اختر ماكينة الخصم:
-                </span>
-                <div className={styles.machinePills}>
-                  {linkedServiceMachines.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      className={`${styles.machinePill} ${
-                        (chosenServiceMachine?.id || "") === m.id
-                          ? styles.active
-                          : ""
-                      }`}
-                      onClick={() => setUserSelectedMachineId(m.id)}
-                    >
-                      <span>{m.name}</span>
-                      <span className={styles.machinePillBal}>
-                        {((m.currentBalancePiasters || 0) / 100).toFixed(0)} ج
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            ) : linkedServiceMachines.length === 1 &&
-              linkedServiceMachines[0] ? (
-              <div className={styles.singleMachineBadge}>
-                <Icon n="check" s={14} />
-                <span>
-                  ماكينة: <b>{linkedServiceMachines[0].name}</b>
-                </span>
-                <span className={styles.machineBalanceTag}>
-                  (الرصيد المتاح:{" "}
-                  {(
-                    (linkedServiceMachines[0].currentBalancePiasters || 0) / 100
-                  ).toFixed(2)}{" "}
-                  ج.م)
-                </span>
-              </div>
-            ) : (
-              <div className={styles.balanceAlert}>
-                <Icon n="alert" s={16} />
-                <span>تحذير: لا توجد ماكينة دفع مربوطة بهذه الخدمة!</span>
-              </div>
-            )}
-
-            {/* Insufficient balance alert */}
-            {isBalanceInsufficient && chosenServiceMachine && (
-              <div className={styles.balanceAlert}>
-                <Icon n="alert" s={16} />
-                <span>
-                  رصيد ماكينة {chosenServiceMachine.name} غير كافٍ! المتاح{" "}
-                  {(
-                    (chosenServiceMachine.currentBalancePiasters || 0) / 100
-                  ).toFixed(2)}{" "}
-                  ج.م فقط
-                </span>
-              </div>
-            )}
-
-            <div className={styles.wpRow}>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoFocus
-                className={styles.wpInput}
-                placeholder="المبلغ المطلوب (ج.م)"
-                value={serviceAmountEgp}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/[^0-9.]/g, "");
-                  setServiceAmountEgp(cleaned);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && serviceAmountNum > 0) {
-                    handleServiceSubmit();
-                  }
-                }}
-              />
-            </div>
-
-            {/* Quick Chips for Services */}
-            <div className={styles.wpChips}>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("50")}
-              >
-                50
-              </button>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("100")}
-              >
-                100
-              </button>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("200")}
-              >
-                200
-              </button>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("500")}
-              >
-                500
-              </button>
-            </div>
-
-            {/* Live Commission Breakdown */}
-            {serviceAmountNum > 0 && (
-              <div className={styles.serviceBreakdown}>
-                <div className={styles.serviceBreakdownRow}>
-                  <span>مبلغ الشحن (يُخصم من رصيد الماكينة):</span>
-                  <b>{serviceAmountNum} ج.م</b>
-                </div>
-                <div className={styles.serviceBreakdownRow}>
-                  <span>عمولة المحل (تُحصّل كاش في الدرج):</span>
-                  <b style={{ color: "var(--br, #8db68a)" }}>
-                    + {serviceCommissionEgp} ج.م
-                  </b>
-                </div>
-                <div
-                  className={`${styles.serviceBreakdownRow} ${styles.total}`}
+      {/* V19 svcSaleSheet: the amount, the commission from its slab, the machine, confirm */}
+      {serviceModalItem && serviceRule && (
+        <Modal
+          title={`⚡ ${serviceModalItem.name}`}
+          onClose={() => setServiceModalItem(null)}
+        >
+          <div className={styles.sellSheet} data-testid="service-sale-sheet">
+            <label className={styles.lbl} htmlFor="service-amount">
+              قيمة العملية
+            </label>
+            <input
+              id="service-amount"
+              type="text"
+              inputMode="decimal"
+              autoFocus
+              className={styles.v19Input}
+              placeholder="0"
+              value={serviceAmountEgp}
+              onChange={(e) =>
+                setServiceAmountEgp(e.target.value.replace(/[^0-9.]/g, ""))
+              }
+              data-testid="service-amount"
+            />
+            <div className={styles.chips}>
+              {[100, 500, 1000].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={styles.chip}
+                  onClick={() => setServiceAmountEgp(String(v))}
                 >
-                  <span>المطلوب من الزبون كاش:</span>
-                  <b>{serviceTotalEgp} ج.م</b>
-                </div>
-              </div>
-            )}
+                  {v} ج
+                </button>
+              ))}
+            </div>
 
-            <button
-              type="button"
-              className={styles.wpActionBtn}
+            {serviceRule.tiers.length > 0 ? (
+              <>
+                <div className={styles.lbl}>شرائح العمولة</div>
+                <div className={styles.sumbox} data-testid="service-slabs">
+                  {serviceRule.tiers.map((t, i) => {
+                    const on = serviceSlab?.tier === t;
+                    return (
+                      <div
+                        key={i}
+                        className={`${styles.line} ${on ? styles.slabOn : ""}`}
+                        data-testid="service-slab"
+                        aria-current={on ? "true" : undefined}
+                      >
+                        <span>{describeSlab(t)}</span>
+                        <span>{on ? "✓" : ""}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            <div className={styles.sumbox}>
+              <div className={styles.line}>
+                <span>العمولة</span>
+                <b data-testid="service-commission">
+                  {serviceCommissionPiasters === null
+                    ? "—"
+                    : formatMoney(serviceCommissionPiasters)}
+                </b>
+              </div>
+              <div className={styles.line}>
+                <span>الإجمالي من الزبون</span>
+                <b data-testid="service-total">
+                  {serviceTotalPiasters === null
+                    ? "—"
+                    : formatMoney(serviceTotalPiasters)}
+                </b>
+              </div>
+              <div className={styles.note} data-testid="service-note">
+                {principalRequiredPiasters > 0 && serviceSlab === undefined
+                  ? "المبلغ ده برّه شرائح العمولة بتاعة الخدمة"
+                  : isBalanceInsufficient && chosenServiceMachine
+                    ? `رصيد ${chosenServiceMachine.name} مش كافي للمبلغ ده`
+                    : ""}
+              </div>
+            </div>
+
+            <div className={styles.lbl}>من أنهي ماكينة؟</div>
+            <div className={styles.chips}>
+              {linkedServiceMachines.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`${styles.chip} ${(chosenServiceMachine?.id || "") === m.id ? styles.chipOn : ""}`}
+                  onClick={() => setUserSelectedMachineId(m.id)}
+                  data-testid="service-machine-pick"
+                >
+                  💳 {m.name} · {formatMoney(m.currentBalancePiasters || 0)}
+                </button>
+              ))}
+            </div>
+
+            <Button
+              wide
+              data-testid="service-confirm"
               disabled={
                 !(serviceAmountNum > 0) ||
+                serviceSlab === undefined ||
                 Boolean(isBalanceInsufficient) ||
                 !chosenServiceMachine
               }
               onClick={handleServiceSubmit}
             >
-              {isBalanceInsufficient && chosenServiceMachine
-                ? `رصيد غير كافٍ (المتاح ${((chosenServiceMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م)`
-                : serviceAmountNum > 0
-                  ? `تأكيد وتسجيل العملية — ${serviceTotalEgp} ج.م`
-                  : "اكتب المبلغ المطلوب"}
-            </button>
+              تأكيد الخدمة ✅
+            </Button>
           </div>
-        </>
+        </Modal>
       )}
 
       {/* The barcode scanner: read → ✓ the product → «تم» → the usual sale flow (no AI) */}
