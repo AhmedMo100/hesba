@@ -30,6 +30,7 @@ import { prisma } from "@/server/infra/db/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
+import { applyRegisteredPricesInTx } from "@/server/modules/inventory";
 import {
   lockStockLevelsInTx,
   writeLevelInTx,
@@ -241,6 +242,18 @@ export async function createPurchase(
           const expiry = line.expiryDate
             ? new Date(`${line.expiryDate}T00:00:00Z`)
             : null;
+          const production = line.productionDate
+            ? new Date(`${line.productionDate}T00:00:00Z`)
+            : null;
+          if (production && expiry && expiry < production) {
+            throw AppError.badRequest(
+              "تاريخ الانتهاء يجب ألا يكون قبل تاريخ الإنتاج",
+            );
+          }
+          await applyRegisteredPricesInTx(tx, storeId, v.id, {
+            sellPricePiasters: line.sellPricePiasters,
+            buyPricePiasters: line.buyPricePiasters,
+          });
           const batch = await tx.storeStockBatch.create({
             data: {
               storeId,
@@ -250,6 +263,7 @@ export async function createPurchase(
               remainingQuantityBase: qty,
               costPriceMinor: unitCost,
               costTotalMinor: cost,
+              productionDate: production,
               expiryDate: expiry,
               supplierId: input.supplierId,
               receivedAt: now,

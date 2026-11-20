@@ -54,6 +54,19 @@ const addStockSchema = z.object({
    * transaction as the batch (implies `paidFrom: "wallet"`).
    */
   paidFromMachineId: z.string().uuid().optional(),
+  /** Registered prices changed on the form (per selling unit): saved with the batch. */
+  sellPricePiasters: z
+    .number()
+    .int()
+    .positive("سعر البيع لازم يكون أكبر من صفر")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
+    .optional(),
+  buyPricePiasters: z
+    .number()
+    .int()
+    .min(0, "سعر الشراء مينفعش يبقى سالب")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
+    .optional(),
 });
 
 const wasteStockSchema = z.object({
@@ -196,6 +209,8 @@ export async function POST(req: Request) {
           opId: input.opId,
           paidFrom: input.paidFrom ?? null,
           paidFromMachineId: input.paidFromMachineId ?? null,
+          sellPricePiasters: input.sellPricePiasters ?? null,
+          buyPricePiasters: input.buyPricePiasters ?? null,
         },
       );
       return NextResponse.json({ success: true, data: result });

@@ -98,8 +98,6 @@ export function StockView() {
   const [showNewProduct, setShowNewProduct] = useState(false);
   const [extraOptions, setExtraOptions] = useState<StockProductOption[]>([]);
 
-  // A scanned barcode no product has: offer to register it (ADR-0031).
-  const [unknownBarcode, setUnknownBarcode] = useState<string | null>(null);
   const [newProductBarcode, setNewProductBarcode] = useState("");
 
   // Physical scanner on the landing / manual screens (the scan sheet has its own).
@@ -233,27 +231,22 @@ export function StockView() {
               i.variantId === (v?.id || found.id) || i.productId === found.id,
           ),
         );
-        setUnknownBarcode(null);
         selectProduct(opt);
         toast.show({ msg: `✓ ${found.name_ar}`, kind: "ok" });
       } else {
-        // V19: «الباركود ده مش موجود عندك» → register it.
-        setUnknownBarcode(trimmed);
-        setOverlay("scan");
+        // A barcode no product has: straight to the new-product form with the code already
+        // in it (no second scan, nothing typed again); saving it goes on to the quantity.
+        setOverlay(null);
+        setNewProductBarcode(trimmed);
+        setShowNewProduct(true);
+        toast.show({ msg: "الباركود ده مش موجود عندك: سجّل المنتج" });
       }
     },
     [storeProducts, inventory, toast, selectProduct],
   );
 
-  const openScan = useCallback(() => {
-    setUnknownBarcode(null);
-    setOverlay("scan");
-  }, []);
-
-  const closeScan = useCallback(() => {
-    setUnknownBarcode(null);
-    setOverlay(null);
-  }, []);
+  const openScan = useCallback(() => setOverlay("scan"), []);
+  const closeScan = useCallback(() => setOverlay(null), []);
 
   // Home's first-run «ابدأ بالباركود»: open the scanner straight away.
   useEffect(() => {
@@ -267,14 +260,6 @@ export function StockView() {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- opening the camera on arrival
     if (open) openScan();
   }, [openScan]);
-
-  const registerUnknown = () => {
-    const code = unknownBarcode ?? "";
-    setUnknownBarcode(null);
-    setOverlay(null);
-    setNewProductBarcode(code);
-    setShowNewProduct(true);
-  };
 
   // Physical barcode scanner: listen for rapid keystrokes ending with Enter
   useEffect(() => {
@@ -413,37 +398,12 @@ export function StockView() {
         <BarcodeScanSheet
           onCode={lookupBarcode}
           onClose={closeScan}
-          paused={unknownBarcode !== null}
           fallbackAction={{
             label: "✍️ سجّل يدوي بدل الباركود",
             onClick: () => setOverlay("manual"),
             testId: "stock-scan-manual",
           }}
-        >
-          {unknownBarcode && (
-            <div data-testid="stock-unknown-barcode">
-              <h3 className={styles.sech}>الباركود ده مش موجود عندك</h3>
-              <p className={styles.note} dir="ltr">
-                {unknownBarcode}
-              </p>
-              <button
-                type="button"
-                className={styles.confirmBtn}
-                onClick={registerUnknown}
-                data-testid="stock-register-barcode"
-              >
-                📦 سجّله كمنتج جديد
-              </button>
-              <button
-                type="button"
-                className={styles.editBtn}
-                onClick={() => setUnknownBarcode(null)}
-              >
-                امسح تاني
-              </button>
-            </div>
-          )}
-        </BarcodeScanSheet>
+        />
       )}
 
       {/* Manual selection Bottom Sheet */}

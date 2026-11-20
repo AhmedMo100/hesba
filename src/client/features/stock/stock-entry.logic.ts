@@ -46,6 +46,8 @@ export interface StockProductOption {
   currentStockBase: number;
   /** Registered buy price per selling unit (per kg for weighed goods). */
   buyCostPiasters?: number;
+  /** Registered sell price per selling unit (per kilo for `kg`, per gram for `g`). */
+  sellPricePiasters?: number;
   unit?: string;
   category?: string;
   /** The product's pack word (كرتونة / كيس / دستة), when it is sold in packs too. */
@@ -81,6 +83,11 @@ export function optionFromProduct(
       v?.buy_cost_piasters ||
       p.buy_cost_piasters ||
       undefined,
+    sellPricePiasters:
+      v?.sell_price_piasters ||
+      p.sell_price_piasters ||
+      inv?.sellPricePiasters ||
+      undefined,
     unit: p.unit,
     category: p.category,
     packName: packQty > 1 ? (inv?.packName ?? v?.size_unit ?? null) : null,
@@ -101,6 +108,7 @@ export function optionFromInventory(i: StockInventoryItem): StockProductOption {
     packQty: Math.max(1, i.packQty || 1),
     currentStockBase: i.currentStockBase,
     buyCostPiasters: i.buyPricePiasters,
+    sellPricePiasters: i.sellPricePiasters || undefined,
     unit: i.unit || (i.unitMode === "weight" ? "kg" : "piece"),
     category: i.category,
     packName: i.packName ?? null,
@@ -232,8 +240,12 @@ export function registeredPrices(
   shape: EntryShape,
   buyCostPiasters: number | undefined,
   weightUnit: "kg" | "g" = "kg",
+  productUnit?: string,
 ): { unitPrice: string; packPrice: string } {
-  const per = (buyCostPiasters ?? 0) / 100;
+  // A `g` product stores its price per gram; the form starts in kilos.
+  const per =
+    ((buyCostPiasters ?? 0) / 100) *
+    (shape.kind === "weight" && productUnit === "g" ? 1000 : 1);
   if (!(per > 0)) return { unitPrice: "", packPrice: "" };
   if (shape.kind === "weight") {
     return {
@@ -252,4 +264,21 @@ export function priceText(n: number): string {
   if (!(n > 0)) return "";
   const digits = n < 0.1 ? 4 : 2;
   return String(Number(n.toFixed(digits)));
+}
+
+/** What the sell price input shows: per kilo (`kg`), per gram (`g`), per unit otherwise. */
+export function sellPriceWord(shape: EntryShape, productUnit?: string): string {
+  if (shape.kind === "weight") return productUnit === "g" ? "الجرام" : "الكيلو";
+  return withAl(shape.one);
+}
+
+/** The registered sell price for its input (EGP), "" when none is registered. */
+export function registeredSellText(sellPricePiasters?: number): string {
+  return priceText((sellPricePiasters ?? 0) / 100);
+}
+
+/** EGP typed in an input → whole piasters, or null when empty / not a positive number. */
+export function piastersOf(v: string): number | null {
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n * 100) : null;
 }

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { paidFromSchema } from "./drawer";
-import { expiryDateSchema } from "./dates";
+import { businessDateSchema, expiryDateSchema } from "./dates";
 import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 /**
@@ -36,6 +36,15 @@ export const createPurchaseSchema = z
             "التكلفة مينفعش تبقى سالبة",
           ),
           expiryDate: expiryDateSchema.optional().nullable(),
+          /** The batch's own production date (start of its shelf life). */
+          productionDate: businessDateSchema.optional().nullable(),
+          /** Registered prices changed on the form (per selling unit): saved with the line. */
+          sellPricePiasters: piasters("سعر البيع غير صحيح")
+            .positive("سعر البيع لازم يكون أكبر من صفر")
+            .optional(),
+          buyPricePiasters: piasters("سعر الشراء غير صحيح")
+            .min(0, "سعر الشراء مينفعش يبقى سالب")
+            .optional(),
         }),
       )
       .min(1, "الفاتورة لازم يكون فيها صنف واحد على الأقل")

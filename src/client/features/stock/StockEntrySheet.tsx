@@ -22,11 +22,15 @@ import type { StockInventoryItem } from "@/client/shared/store-items";
 import {
   entryShape,
   entryTotals,
+  piastersOf,
   priceText,
   registeredPrices,
+  registeredSellText,
+  sellPriceWord,
   withAl,
   type StockProductOption,
 } from "./stock-entry.logic";
+import { productEmoji } from "@/client/shared/product-emoji";
 import styles from "./StockView.module.css";
 
 interface Supplier {
@@ -114,13 +118,22 @@ export function StockEntrySheet({
   const isWeight = shape.kind === "weight";
   const pack = shape.kind === "count" ? shape.pack : null;
 
-  const initial = registeredPrices(shape, option.buyCostPiasters, "kg");
+  const initial = registeredPrices(
+    shape,
+    option.buyCostPiasters,
+    "kg",
+    option.unit,
+  );
+  const initialSell = registeredSellText(option.sellPricePiasters);
   const [packs, setPacks] = useState(pack ? "1" : "");
   const [units, setUnits] = useState(pack ? "" : isWeight ? "" : "1");
   const [weight, setWeight] = useState(isWeight ? "1" : "");
   const [weightUnit, setWeightUnit] = useState<"kg" | "g">("kg");
   const [unitPrice, setUnitPrice] = useState(initial.unitPrice);
   const [packPrice, setPackPrice] = useState(initial.packPrice);
+  // The registered sell price, shown and editable; saved with the batch when changed.
+  const [sellPrice, setSellPrice] = useState(initialSell);
+  const [production, setProduction] = useState("");
 
   const [expiry, setExpiry] = useState("");
   const [noExpiry, setNoExpiry] = useState(false);
@@ -193,6 +206,24 @@ export function StockEntrySheet({
     total,
     Math.max(0, Math.round((parseFloat(paidNow) || 0) * 100)),
   );
+  const productUnit = option.unit || (isWeight ? "kg" : "piece");
+  /** The registered prices to save with the batch: only those the owner changed. */
+  const priceChanges = (): {
+    sellPricePiasters?: number;
+    buyPricePiasters?: number;
+  } => {
+    const out: { sellPricePiasters?: number; buyPricePiasters?: number } = {};
+    const sell = piastersOf(sellPrice);
+    if (sell !== null && sellPrice !== initialSell)
+      out.sellPricePiasters = sell;
+    const buyEdited =
+      unitPrice !== initial.unitPrice || packPrice !== initial.packPrice;
+    if (buyEdited && total > 0 && totals.baseQty > 0) {
+      const perUnit = unitCostFromTotal(total, totals.baseQty, productUnit);
+      if (perUnit !== null) out.buyPricePiasters = Number(perUnit);
+    }
+    return out;
+  };
   const machineOf = (p: string) =>
     p.startsWith("m:") ? machines.find((m) => `m:${m.id}` === p) : undefined;
   const payMachine = machineOf(pay);
@@ -243,13 +274,15 @@ export function StockEntrySheet({
   const ensureVariant = async (): Promise<string> => {
     if (isUuid(option.variantId)) return option.variantId;
     if (variantRef.current) return variantRef.current;
-    const unit = option.unit || (isWeight ? "kg" : "piece");
+    const unit = productUnit;
     const derived =
       total > 0 && totals.baseQty > 0
         ? unitCostFromTotal(total, totals.baseQty, unit)
         : null;
     const buyCost =
       derived !== null ? Number(derived) : (option.buyCostPiasters ?? 0);
+    // The sell price typed here (or the catalog's), never the buy price or zero.
+    const sell = piastersOf(sellPrice) ?? option.sellPricePiasters ?? 0;
     const res = await fetch("/api/products", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -257,13 +290,13 @@ export function StockEntrySheet({
         nameAr: option.productName,
         category: option.category || "المخزون",
         unit,
-        sellPricePiasters: buyCost || 0,
+        sellPricePiasters: sell,
         buyCostPiasters: buyCost,
         variants: [
           {
             flavor: option.flavor ?? null,
             packQty: Math.max(1, option.packQty || 1),
-            sellPricePiasters: buyCost || 0,
+            sellPricePiasters: sell,
             costPricePiasters: buyCost,
           },
         ],
@@ -321,6 +354,10 @@ export function StockEntrySheet({
         : `اكتب عدد ${shape.kind === "count" ? shape.plural : "القطع"} اللي دخلت`;
     }
     if (!noExpiry && !expiry) return "اختار تاريخ الصلاحية أو «من غير صلاحية»";
+    if (!noExpiry && production && expiry && expiry < production)
+      return "نهاية الصلاحية لازم تكون بعد بدايتها";
+    if (piastersOf(sellPrice) === null)
+      return `اكتب سعر بيع ${sellPriceWord(shape, productUnit)}`;
     if (pay === "credit" && total <= 0)
       return "اكتب سعر الشراء عشان نعرف المبلغ الآجل";
     if (payMachine && total <= 0)
@@ -353,6 +390,9 @@ export function StockEntrySheet({
     try {
       const variantId = await ensureVariant();
       const expiryDate = noExpiry ? null : expiry || null;
+      const productionDate = noExpiry ? null : production || null;
+      // A product created just now already has the typed prices.
+      const prices = isUuid(option.variantId) ? priceChanges() : {};
       if (pay === "credit") {
         // آجل لمورد: one supplier purchase — the batch and the payable in one transaction.
         const supplier = await ensureSupplier();
@@ -364,6 +404,8 @@ export function StockEntrySheet({
               quantityBase: totals.baseQty,
               totalCostPiasters: total,
               expiryDate,
+              productionDate,
+              ...prices,
             },
           ],
           paidNowPiasters,
@@ -396,6 +438,8 @@ export function StockEntrySheet({
           quantityBase: totals.baseQty,
           costTotalPiasters: total,
           expiryDate,
+          productionDate,
+          ...prices,
           batchCode: null,
           ...(payMachine
             ? { paidFrom: "wallet", paidFromMachineId: payMachine.id }
@@ -435,7 +479,10 @@ export function StockEntrySheet({
   const weightWord = weightUnit === "kg" ? "الكيلو" : "الجرام";
 
   return (
-    <Modal title={`📦 ${option.productName}`} onClose={onClose}>
+    <Modal
+      title={`${productEmoji({ name: option.productName, category: option.category, unit: option.unit, weighed: isWeight })} ${option.productName}`}
+      onClose={onClose}
+    >
       <div className={styles.sheetBody} data-testid="stock-entry">
         <p className={styles.note}>المتاح: {formatOptionStock(option)}</p>
 
@@ -592,6 +639,27 @@ export function StockEntrySheet({
           </>
         )}
 
+        {/* ─── Sell price: the registered one, editable ─── */}
+        <div className={styles.lbl} data-testid="stock-sell-label">
+          سعر بيع {sellPriceWord(shape, productUnit)}
+        </div>
+        <input
+          type="number"
+          inputMode="decimal"
+          min="0"
+          className={styles.input}
+          value={sellPrice}
+          onChange={(e) => setSellPrice(e.target.value)}
+          placeholder="0"
+          data-testid="stock-sell-price"
+        />
+        {pack && piastersOf(sellPrice) !== null && (
+          <p className={styles.note} data-testid="stock-pack-sell">
+            {withAl(pack.one)} بـ{" "}
+            {formatMoney(piastersOf(sellPrice)! * pack.qty)}
+          </p>
+        )}
+
         <div className={styles.sumbox}>
           <div className={styles.line}>
             <span>الكمية كلها</span>
@@ -621,7 +689,9 @@ export function StockEntrySheet({
               <div key={b.id} className={styles.line}>
                 <span>
                   {b.expiryDate
-                    ? `تنتهي ${b.expiryDate.slice(0, 10)}`
+                    ? b.productionDate
+                      ? `${b.productionDate.slice(0, 10)} ← ${b.expiryDate.slice(0, 10)}`
+                      : `تنتهي ${b.expiryDate.slice(0, 10)}`
                     : "من غير صلاحية"}
                 </span>
                 <b>
@@ -651,16 +721,35 @@ export function StockEntrySheet({
           ))}
         </div>
         {!noExpiry && (
-          <input
-            type="date"
-            className={styles.input}
-            value={expiry}
-            onChange={(e) => {
-              setExpiry(e.target.value);
-              setPreset(null);
-            }}
-            data-testid="stock-expiry"
-          />
+          <div className={styles.two}>
+            <div>
+              <div className={styles.lbl}>بداية الصلاحية (الإنتاج)</div>
+              <input
+                type="date"
+                className={styles.input}
+                value={production}
+                max={
+                  expiry && expiry < ymd(new Date()) ? expiry : ymd(new Date())
+                }
+                onChange={(e) => setProduction(e.target.value)}
+                data-testid="stock-production"
+              />
+            </div>
+            <div>
+              <div className={styles.lbl}>نهاية الصلاحية</div>
+              <input
+                type="date"
+                className={styles.input}
+                value={expiry}
+                min={production || undefined}
+                onChange={(e) => {
+                  setExpiry(e.target.value);
+                  setPreset(null);
+                }}
+                data-testid="stock-expiry"
+              />
+            </div>
+          </div>
         )}
 
         {/* ─── Paid how (V19 payChips + «آجل لمورد») ─── */}

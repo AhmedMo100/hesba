@@ -6,6 +6,7 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
+import { applyRegisteredPricesInTx } from "./registered-prices";
 import {
   depleteStockFEFO,
   isNearExpiry,
@@ -732,6 +733,9 @@ export class InventoryService {
       paidFrom?: "cash" | "wallet" | null;
       /** A machine / wallet of this shop paid the cost: its balance goes down here. */
       paidFromMachineId?: string | null;
+      /** New registered prices typed on the form (per selling unit); saved with the batch. */
+      sellPricePiasters?: number | null;
+      buyPricePiasters?: number | null;
     },
   ) {
     const qtyBase = BigInt(input.receivedQuantityBase);
@@ -907,6 +911,12 @@ export class InventoryService {
             createdAt: now,
             updatedAt: now,
           },
+        });
+
+        // 3a. Prices the owner changed on the form: saved with the batch, never apart.
+        await applyRegisteredPricesInTx(tx, storeId, resolvedVariantId, {
+          sellPricePiasters: input.sellPricePiasters,
+          buyPricePiasters: input.buyPricePiasters,
         });
 
         // 3b. Paid from a machine / wallet: its balance goes down with the batch (locked, no
@@ -1090,6 +1100,9 @@ export class InventoryService {
               b.costPriceMinor === null ? null : Number(b.costPriceMinor),
             costTotalPiasters:
               b.costTotalMinor === null ? null : Number(b.costTotalMinor),
+            productionDate: b.productionDate
+              ? b.productionDate.toISOString()
+              : null,
             expiryDate: b.expiryDate ? b.expiryDate.toISOString() : null,
             isNearExpiry: isNearExpiry(b.expiryDate, now, 7),
             receivedAt: b.receivedAt.toISOString(),
