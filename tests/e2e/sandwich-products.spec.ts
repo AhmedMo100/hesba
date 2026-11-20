@@ -465,7 +465,9 @@ test.describe("Sandwich products", () => {
     const doomedCard = page.getByTestId(`product-card-${doomedId}`);
     await expect(doomedCard).toBeVisible(SERVER);
     await doomedCard.click();
-    await page.getByTestId(`delete-product-${doomedId}`).last().click();
+    // V19: an item is deleted from its edit form (the same delete dialog).
+    await page.getByTestId(`edit-product-${doomedId}`).last().click();
+    await page.getByTestId("product-delete").last().click();
     await expect(dialog.getByTestId("delete-product-dialog")).toContainText(
       doomedName,
     );

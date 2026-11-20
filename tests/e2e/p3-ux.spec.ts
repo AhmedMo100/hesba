@@ -159,9 +159,13 @@ test("QA-44 / QA-43: Home never scrolls sideways with huge numbers, and shows Ar
     () => document.documentElement.scrollWidth - window.innerWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
-  const table = page.locator("table").first();
-  await expect(table).toContainText("19 قطعة");
-  await expect(table).not.toContainText("piece");
+  // «الأصناف»: every item at once (no filter tabs), its stock in Arabic units.
+  const items = page.getByTestId("inventory-items");
+  await expect(items).toContainText("19 قطعة");
+  await expect(items).not.toContainText("piece");
+  await expect(page.locator('[data-testid^="inventory-filter"]')).toHaveCount(
+    0,
+  );
 });
 
 test("QA-45 / QA-46: one control per name, and touch targets of 44 px", async ({
@@ -383,7 +387,7 @@ test("sales: offers sit behind a small «العروض» control, with readable t
   }
 });
 
-test("stock actions live in the product's sheet (add, record a loss, archive); no free quantity edit", async ({
+test("stock actions live in the product's sheet (add, record a loss); no hide, no archive, no free quantity edit", async ({
   page,
 }) => {
   test.setTimeout(180_000);
@@ -402,9 +406,10 @@ test("stock actions live in the product's sheet (add, record a loss, archive); n
   await expect(sheet.getByRole("button", { name: /دخلت كمية/ })).toBeVisible(
     SERVER,
   );
-  await expect(
-    sheet.getByRole("button", { name: /أرشفة من المخزون/ }),
-  ).toBeVisible();
+  // V19 «بضاعتي»: no «خبّيه» / «أرشفة» anywhere on the sheet.
+  await expect(sheet.getByRole("button", { name: /أرشفة|خبّيه/ })).toHaveCount(
+    0,
+  );
   await expect(
     sheet.getByRole("button", { name: /تعديل كمية المخزون/ }),
   ).toHaveCount(0);
