@@ -1092,3 +1092,100 @@
   font-weight: 800;
   white-space: nowrap;
 }
+
+/* ─── V19 personSheet: .line .lbl input .btn ─── */
+.v19Sheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 17px;
+  color: var(--ink);
+}
+
+.tel {
+  color: var(--ink);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 4px;
+}
+
+.lbl {
+  display: block;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 8px 0 2px;
+}
+
+.v19Input {
+  font: 700 16px inherit;
+  font-family: inherit;
+  width: 100%;
+  padding: 13px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  margin: 4px 0 10px;
+  min-width: 0;
+  display: block;
+}
+
+.v19Note {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 6px 0;
+}
+
+.v19Error {
+  color: var(--red);
+  background: var(--redBg);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  margin: 6px 0;
+}
+
+.v19Btn:disabled {
+  opacity: 0.6;
+}
+
+.sheetActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+/* V19 .btn.ghost */
+.ghostBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 48px;
+  padding: 10px;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  text-decoration: none;
+  text-align: center;
+}
+
+.ghostDanger {
+  color: var(--red);
+}

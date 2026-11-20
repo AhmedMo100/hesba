@@ -13,6 +13,7 @@ import "server-only";
 import type { DebtEntry } from "@prisma/client";
 import type { TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+import { changeMachineBalanceInTx } from "@/server/modules/machines";
 import {
   adjustmentEntry,
   allocateLedgerToInvoices,
@@ -279,6 +280,25 @@ export async function recordLedgerEntryInTx(
       createdAt: input.date ?? new Date(),
     },
   });
+  // Through one of the shop's machines / wallets: a collection puts the money in it, a payment
+  // takes it out (no overdraft) — with the entry, or not at all.
+  if (input.type === "payment" && input.paidFromMachineId) {
+    const into = side === "receivable";
+    await changeMachineBalanceInTx(
+      tx,
+      storeId,
+      input.paidFromMachineId,
+      {
+        kind: "delta",
+        amountPiasters: into ? input.amountPiasters : -input.amountPiasters,
+      },
+      {
+        source: into ? "تحصيل من زبون" : "دفعة لمورد",
+        reference: created.id,
+        notes: input.note?.trim() || null,
+      },
+    );
+  }
   const history = historyOf(side, await entriesOf(tx, storeId, owner), labels);
   const item = history.find((h) => h.id === created.id);
   if (!item) throw AppError.internal();
