@@ -21,7 +21,6 @@ import {
   saveCustomTaxonomy,
   SECONDARY_PACKAGING_PRESETS,
 } from "@/client/shared/api/custom-taxonomy";
-import styles from "./ProductsView.module.css";
 import f from "./ProductFormModal.module.css";
 
 export interface ProductFormModalProps {
@@ -61,6 +60,11 @@ export interface ProductFormModalProps {
   onClose: () => void;
   onSaved: (savedProduct: unknown) => void;
   onDeleted?: (productId: string) => void;
+  /**
+   * «🗑️ احذف المنتج»: the screen's real delete (removed when it has no history, kept as an
+   * archive when it has invoices — the server decides). Without it the form has no delete.
+   */
+  onRequestDelete?: () => void;
 }
 
 const PRODUCT_CATEGORIES = [
@@ -91,7 +95,7 @@ export function ProductFormModal({
   existingProducts,
   onClose,
   onSaved,
-  onDeleted,
+  onRequestDelete,
 }: ProductFormModalProps) {
   const firstVariant = product?.variants?.[0];
 
@@ -341,8 +345,6 @@ export function ProductFormModal({
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [scanning, setScanning] = useState(false);
 
   // Live offline search against IndexedDB when name changes (new product mode)
@@ -752,25 +754,6 @@ export function ProductFormModal({
       setErrors({ submit: message });
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleDelete = async () => {
-    if (!product) return;
-    setIsDeleting(true);
-    try {
-      const res = await fetch(`/api/products?id=${product.id}`, {
-        method: "DELETE",
-      });
-      if (!res.ok) throw new Error("فشل إخفاء/حذف المنتج");
-      if (onDeleted) onDeleted(product.id);
-      onClose();
-    } catch (err) {
-      console.error("Delete failed:", err);
-      alert("تعذر حذف المنتج، برجاء المحاولة لاحقاً");
-    } finally {
-      setIsDeleting(false);
-      setShowDeleteConfirm(false);
     }
   };
 
@@ -1263,7 +1246,7 @@ export function ProductFormModal({
           <button
             type="submit"
             className={f.btn}
-            disabled={isSubmitting || isDeleting}
+            disabled={isSubmitting}
             data-testid="product-save"
           >
             {isSubmitting
@@ -1272,12 +1255,12 @@ export function ProductFormModal({
                 ? "حفظ التعديل ✅"
                 : "حفظ المنتج ✅"}
           </button>
-          {product && (
+          {product && onRequestDelete && (
             <button
               type="button"
               className={`${f.btn} ${f.danger}`}
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={isSubmitting || isDeleting}
+              onClick={onRequestDelete}
+              disabled={isSubmitting}
               data-testid="product-delete"
             >
               🗑️ احذف المنتج
@@ -1294,48 +1277,6 @@ export function ProductFormModal({
           }}
           onClose={() => setScanning(false)}
         />
-      )}
-
-      {/* Delete / Hide Confirmation Dialog */}
-      {showDeleteConfirm && (
-        <Modal
-          title="حذف المنتج من المحل"
-          onClose={() => setShowDeleteConfirm(false)}
-          footer={
-            <div
-              style={{
-                display: "flex",
-                gap: 8,
-                justifyContent: "flex-end",
-                width: "100%",
-              }}
-            >
-              <button
-                type="button"
-                className={styles.modalFooterBtnCancel}
-                onClick={() => setShowDeleteConfirm(false)}
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                className={styles.modalFooterBtnDelete}
-                onClick={handleDelete}
-                disabled={isDeleting}
-              >
-                تأكيد الحذف
-              </button>
-            </div>
-          }
-        >
-          <div style={{ fontSize: 14, lineHeight: 1.5, color: "var(--ink)" }}>
-            هل أنت متأكد من إخفاء المنتج <b>«{product?.name_ar}»</b> من محلك؟
-            <div style={{ marginTop: 8, color: "var(--ink2)", fontSize: 12 }}>
-              لن يظهر المنتج في قائمة البيع اليومية، مع الحفاظ الكامل على
-              فواتيرك السابقة. يمكنك إعادة إظهاره في أي وقت من فلتر «المخفية».
-            </div>
-          </div>
-        </Modal>
       )}
     </>
   );

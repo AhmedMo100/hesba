@@ -145,11 +145,22 @@ describe("ProductFormModal Component", () => {
         product={sampleProduct}
         onClose={() => {}}
         onSaved={() => {}}
+        onRequestDelete={() => {}}
       />,
     );
     expect(html).toContain("✏️ تعديل المنتج");
     expect(html).toContain("بيبسي 330 مل");
+    // The real delete (the screen's dialog), never a «hide» in disguise.
     expect(html).toContain("احذف المنتج");
+    expect(
+      renderToStaticMarkup(
+        <ProductFormModal
+          product={sampleProduct}
+          onClose={() => {}}
+          onSaved={() => {}}
+        />,
+      ),
+    ).not.toContain("احذف المنتج");
     expect(html).toContain("حفظ التعديل");
     expect(html).not.toContain("المخزون الحالي:");
   });
@@ -298,12 +309,15 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
     expect(html).toContain("تعديل الخدمة");
     expect(html).toContain("اسم الخدمة");
     expect(html).toContain("دفع فاتورة إنترنت منزلي وي");
-    // Commission: fixed or percent, then the optional tiers.
+    // Commission: slabs only (no separate commission field), each fixed or a percentage;
+    // an older service's commission (its price, 5 ج) starts in the first slab.
+    expect(html).toContain("عمولتك حسب قيمة العملية");
+    expect(html).toContain('data-testid="service-tier"');
     expect(html).toContain("مبلغ ثابت");
-    expect(html).toContain("نسبة مئوية");
-    expect(html).toContain("العمولة (جنيه لكل عملية)");
+    expect(html).toContain("نسبة %");
     expect(html).toContain('value="5"');
-    expect(html).toContain("شرائح حسب قيمة العملية (اختياري)");
+    expect(html).not.toContain('data-testid="service-fee"');
+    expect(html).not.toContain("العمولة (جنيه لكل عملية)");
     expect(html).toContain("+ شريحة");
     expect(html).toContain("بتتشحن من أنهي ماكينات / محافظ؟");
     expect(html).toContain("حفظ الخدمة");
@@ -318,7 +332,9 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
     );
     expect(html).toContain("خدمة جديدة");
     expect(html).toContain("مثلاً: تحويل فودافون كاش");
-    expect(html).toContain("شرائح حسب قيمة العملية (اختياري)");
+    // One empty slab to fill, and no single commission field.
+    expect(html.match(/data-testid="service-tier"/g)?.length).toBe(1);
+    expect(html).not.toContain('data-testid="service-fee"');
     expect(html).not.toContain("امسح الخدمة");
   });
 

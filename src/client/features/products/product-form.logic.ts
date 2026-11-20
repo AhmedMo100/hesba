@@ -12,7 +12,10 @@ export function formatPrice(value: number): string {
 }
 
 /** Pack price → piece price: packPrice / packQty. */
-export function packToPiecePrice(packPrice: string, packQty: string): string | null {
+export function packToPiecePrice(
+  packPrice: string,
+  packQty: string,
+): string | null {
   const n = parseFloat(packQty);
   const p = parseFloat(packPrice);
   if (isNaN(n) || n <= 0 || isNaN(p)) return null;
@@ -20,7 +23,10 @@ export function packToPiecePrice(packPrice: string, packQty: string): string | n
 }
 
 /** Piece price → pack price: piecePrice × packQty. */
-export function pieceToPackPrice(piecePrice: string, packQty: string): string | null {
+export function pieceToPackPrice(
+  piecePrice: string,
+  packQty: string,
+): string | null {
   const n = parseFloat(packQty);
   const p = parseFloat(piecePrice);
   if (isNaN(n) || n <= 0 || isNaN(p)) return null;

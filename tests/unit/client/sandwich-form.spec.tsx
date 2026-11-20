@@ -177,16 +177,21 @@ describe("sandwich form submit", () => {
 });
 
 describe("sandwich UI", () => {
-  it("'إضافة منتج' offers a normal product or a sandwich", () => {
+  it("«+ جديد» (V19 addMenu) offers an offer, a sandwich or a new product", () => {
     const html = renderToStaticMarkup(
       <AddProductChoiceModal
         onClose={() => {}}
         onChooseNormal={() => {}}
         onChooseSandwich={() => {}}
+        onChooseOffer={() => {}}
       />,
     );
-    expect(html).toContain("منتج عادي");
-    expect(html).toContain("ساندوتش");
+    expect(html).toContain("إيه اللي عاوز تضيفه؟");
+    expect(html).toContain("🎁 عرض");
+    expect(html).toContain("🥪 ساندوتش");
+    expect(html).toContain("📦 منتج جديد");
+    expect(html).toContain("إلغاء");
+    expect(html).toContain('data-testid="add-choice-offer"');
     expect(html).toContain('data-testid="add-choice-normal"');
     expect(html).toContain('data-testid="add-choice-sandwich"');
   });

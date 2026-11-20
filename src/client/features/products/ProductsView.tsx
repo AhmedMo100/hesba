@@ -8,14 +8,13 @@ import { normalizeArabic } from "@/domain/normalize";
 import { stockLevel } from "@/domain/alerts";
 import { unitWord } from "@/client/shared/unit-labels";
 import { ProductFormModal } from "./ProductFormModal";
+import { OfferSheet } from "./OfferSheet";
 import { AddProductChoiceModal } from "./AddProductChoiceModal";
 import { SandwichFormModal } from "./SandwichFormModal";
 import sandwichStyles from "./SandwichFormModal.module.css";
 import { StockEntrySheet } from "../stock/StockEntrySheet";
 import { optionFromProduct } from "../stock/stock-entry.logic";
-import { EditPromoModal } from "../alerts/EditPromoModal";
 import { RecordLossModal } from "../stock/RecordLossModal";
-import { ArchiveStockModal } from "../stock/ArchiveStockModal";
 import type { StockInventoryItem } from "@/client/shared/store-items";
 import type { PublishedPromotion } from "@/schemas/promotion";
 import type { SuggestedPromotion } from "@/domain/alerts";
@@ -28,6 +27,7 @@ import {
   type StoreProductItem,
   isServiceProduct,
 } from "@/client/shared/store-items";
+import { productEmoji } from "@/client/shared/product-emoji";
 import styles from "./ProductsView.module.css";
 
 import {
@@ -91,7 +91,7 @@ export function ProductsView() {
   const [filterMode, setFilterMode] = useState<"all" | "custom" | "hidden">(
     "all",
   );
-  const [summary, setSummary] = useState({
+  const [, setSummary] = useState({
     total: 0,
     hiddenCount: 0,
     customCount: 0,
@@ -104,9 +104,10 @@ export function ProductsView() {
   // V19 chips: the shop's products, its offers, its sandwiches.
   const [v19Chip, setV19Chip] = useState<"items" | "offers" | "sands">("items");
   const [promotions, setPromotions] = useState<PublishedPromotion[]>([]);
-  const [editingOffer, setEditingOffer] = useState<PublishedPromotion | null>(
-    null,
-  );
+  // V19 offerSheet: a new offer (offer: null) or one to edit.
+  const [offerSheet, setOfferSheet] = useState<{
+    offer: PublishedPromotion | null;
+  } | null>(null);
   const loadPromotions = useCallback(() => {
     apiGet("/api/promotions")
       .then((r) => (r.ok ? r.json() : null))
@@ -123,7 +124,7 @@ export function ProductsView() {
     return () =>
       window.removeEventListener("hesba_promotions_updated", loadPromotions);
   }, [loadPromotions]);
-  const saveOffer = async (promo: SuggestedPromotion) => {
+  const saveOffer = async (promo: SuggestedPromotion | PublishedPromotion) => {
     const res = await fetch("/api/promotions", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -133,17 +134,17 @@ export function ProductsView() {
       error?: { message?: string };
     } | null;
     if (!res.ok) {
-      alert(json?.error?.message || "تعذر حفظ العرض");
-      return;
+      // The sheet shows the server's reason and stays open.
+      throw new Error(json?.error?.message || "مقدرناش نحفظ العرض");
     }
-    setEditingOffer(null);
+    setOfferSheet(null);
     window.dispatchEvent(new Event("hesba_promotions_updated"));
   };
   const deleteOffer = async (id: string) => {
     await fetch(`/api/promotions?id=${encodeURIComponent(id)}`, {
       method: "DELETE",
     }).catch(() => undefined);
-    setEditingOffer(null);
+    setOfferSheet(null);
     window.dispatchEvent(new Event("hesba_promotions_updated"));
   };
   const [isAdding, setIsAdding] = useState(false);
@@ -171,9 +172,6 @@ export function ProductsView() {
     item: StockInventoryItem;
     reason?: "expired" | "damaged" | "missing" | "other";
   } | null>(null);
-  const [archiveItem, setArchiveItem] = useState<StockInventoryItem | null>(
-    null,
-  );
   const loadStockLevels = useCallback(() => {
     apiGet("/api/stock")
       .then((r) => (r.ok ? r.json() : null))
@@ -389,34 +387,6 @@ export function ProductsView() {
     return () => clearTimeout(timer);
   }, [notice]);
 
-  const handleToggleHide = async (product: StoreProductItem) => {
-    const isNowHidden = !product.is_hidden;
-    try {
-      const res = await fetch(
-        `/api/products?id=${product.id}&toggleHide=true`,
-        {
-          method: "DELETE",
-        },
-      );
-      if (!res.ok) throw new Error("فشل تغيير حالة إظهار المنتج");
-
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.id === product.id ? { ...p, is_hidden: isNowHidden } : p,
-        ),
-      );
-      setSummary((prev) => ({
-        ...prev,
-        hiddenCount: isNowHidden
-          ? prev.hiddenCount + 1
-          : Math.max(0, prev.hiddenCount - 1),
-      }));
-    } catch (err: unknown) {
-      console.error("Unhide failed:", err);
-      alert("تعذر تحديث حالة ظهور المنتج");
-    }
-  };
-
   // Split into Physical Products vs Digital Services / Cards
   const physicalProducts = useMemo(() => {
     return products.filter((p) => !isServiceProduct(p));
@@ -540,23 +510,6 @@ export function ProductsView() {
         ))}
       </div>
 
-      {/* Hidden view notification banner */}
-      {filterMode === "hidden" && (
-        <div className={styles.hiddenActiveBanner}>
-          <span>
-            أنت تشاهد حالياً الأصناف المخفية من المحل (
-            {filteredPhysicalProducts.length} عنصر)
-          </span>
-          <button
-            type="button"
-            onClick={() => setFilterMode("all")}
-            className={styles.unhideBtn}
-          >
-            العودة للعناصر المعروضة
-          </button>
-        </div>
-      )}
-
       {/* Offline banner if offline */}
       {!isOnline && (
         <div className={styles.offlineBanner}>
@@ -581,7 +534,7 @@ export function ProductsView() {
                     key={o.id}
                     type="button"
                     className={styles.prow}
-                    onClick={() => setEditingOffer(o)}
+                    onClick={() => setOfferSheet({ offer: o })}
                   >
                     <div className={styles.pch}>
                       <span className={styles.prowEm} aria-hidden="true">
@@ -703,17 +656,6 @@ export function ProductsView() {
               ))}
             </div>
           )}
-
-          {summary.hiddenCount > 0 && filterMode !== "hidden" && (
-            <button
-              type="button"
-              className={styles.hiddenLink}
-              onClick={() => setFilterMode("hidden")}
-              data-testid="products-hidden-link"
-            >
-              المخفية ({summary.hiddenCount})
-            </button>
-          )}
         </>
       }
 
@@ -739,7 +681,7 @@ export function ProductsView() {
           );
           return (
             <Modal
-              title={`${sandwich ? "🥪" : isWeight ? "⚖️" : "📦"} ${p.name_ar}`}
+              title={`${sandwich ? "🥪" : productEmoji({ name: p.name_ar, category: p.category, unit: p.unit, weighed: isWeight })} ${p.name_ar}`}
               onClose={close}
             >
               <div className={styles.sheet19} data-testid="product-sheet">
@@ -871,32 +813,13 @@ export function ProductsView() {
                         >
                           🗑️ سجّل تالف
                         </button>
-                        <button
-                          type="button"
-                          className={`${styles.v19Btn} ${styles.v19Ghost}`}
-                          data-testid={`archive-stock-${p.id}`}
-                          onClick={() => {
-                            close();
-                            setArchiveItem(stock);
-                          }}
-                        >
-                          🗃️ أرشفة من المخزون
-                        </button>
                       </>
                     )}
                   </>
                 )}
-                <button
-                  type="button"
-                  className={`${styles.v19Btn} ${styles.v19Ghost}`}
-                  onClick={() => {
-                    close();
-                    void handleToggleHide(p);
-                  }}
-                >
-                  {p.is_hidden ? "👁️ رجّعه يظهر" : "🙈 خبّيه من المحل"}
-                </button>
-                {isShopCreated(p) && (
+                {/* V19: an offer / a sandwich has «🗑️ امسح» here; a product is deleted
+                    from its edit form. */}
+                {sandwich && isShopCreated(p) && (
                   <button
                     type="button"
                     className={`${styles.v19Btn} ${styles.v19Red}`}
@@ -907,7 +830,7 @@ export function ProductsView() {
                       setDeleteTarget(p);
                     }}
                   >
-                    🗑️ {t("productDelete.menu")}
+                    🗑️ امسح
                   </button>
                 )}
                 <button
@@ -996,32 +919,7 @@ export function ProductsView() {
           }}
           onChooseOffer={() => {
             setIsChoosingType(false);
-            const first = physicalProducts.find(
-              (p) =>
-                p.kind !== "sandwich" &&
-                ((p.stock_quantity ?? 0) > 0 || p.added_by_this_store),
-            );
-            const price = first?.sell_price_piasters ?? 0;
-            setEditingOffer({
-              id: `custom_promo_${first?.id ?? "new"}`,
-              title: first ? `عرض: ${first.name_ar}` : "عرض جديد",
-              type: "single_discount",
-              items: first
-                ? [
-                    {
-                      productId: first.id,
-                      variantId: first.variants?.[0]?.id ?? first.id,
-                      productName: first.name_ar,
-                      quantityBase: 1,
-                      unit: first.unit,
-                      regularPricePiasters: price,
-                    },
-                  ]
-                : [],
-              originalPricePiasters: price,
-              promoPricePiasters: Math.round(price * 0.9),
-              savingsPiasters: price - Math.round(price * 0.9),
-            } as PublishedPromotion);
+            setOfferSheet({ offer: null });
           }}
         />
       )}
@@ -1040,29 +938,12 @@ export function ProductsView() {
         />
       )}
 
-      {archiveItem && (
-        <ArchiveStockModal
-          item={archiveItem}
-          onClose={() => setArchiveItem(null)}
-          onArchived={() => {
-            setArchiveItem(null);
-            loadStockLevels();
-            void loadProducts();
-          }}
-          onOpenEditQuantity={() => {
-            const item = archiveItem;
-            setArchiveItem(null);
-            setLossTarget({ item, reason: "missing" });
-          }}
-        />
-      )}
-
-      {editingOffer && (
-        <EditPromoModal
-          initialPromo={editingOffer as unknown as SuggestedPromotion}
-          allProducts={physicalProducts}
-          onClose={() => setEditingOffer(null)}
-          onSaveAndPublish={saveOffer}
+      {offerSheet && (
+        <OfferSheet
+          offer={offerSheet.offer}
+          products={physicalProducts}
+          onClose={() => setOfferSheet(null)}
+          onSave={saveOffer}
           onDelete={deleteOffer}
         />
       )}
@@ -1097,11 +978,17 @@ export function ProductsView() {
             setEditingProduct(null);
             void loadProducts();
           }}
-          onDeleted={() => {
-            setIsAdding(false);
-            setEditingProduct(null);
-            void loadProducts();
-          }}
+          onRequestDelete={
+            editingProduct && isShopCreated(editingProduct)
+              ? () => {
+                  const target = editingProduct;
+                  setIsAdding(false);
+                  setEditingProduct(null);
+                  setDeleteError(null);
+                  setDeleteTarget(target);
+                }
+              : undefined
+          }
         />
       )}
 

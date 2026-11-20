@@ -2,14 +2,14 @@
 
 /**
  * @file AddProductChoiceModal.tsx
- * @description What "إضافة منتج" opens: pick a normal product (the existing product form,
- * unchanged) or a sandwich (the recipe form, ADR-0018).
+ * @description V19 addMenu — what «+ جديد» opens: «إيه اللي عاوز تضيفه؟» → an offer, a
+ * sandwich (the recipe form, ADR-0018) or a new product (the product form).
  */
 
 import React from "react";
-import { Modal, Icon } from "@/client/shared/ui";
-import { t } from "@/client/shared/i18n";
-import styles from "./SandwichFormModal.module.css";
+import { Modal } from "@/client/shared/ui";
+import f from "./ProductFormModal.module.css";
+import o from "./OfferSheet.module.css";
 
 interface AddProductChoiceModalProps {
   onClose: () => void;
@@ -26,51 +26,40 @@ export function AddProductChoiceModal({
   onChooseOffer,
 }: AddProductChoiceModalProps) {
   return (
-    <Modal title={t("sandwich.chooseTitle")} onClose={onClose}>
-      <div className={styles.choiceList}>
+    <Modal title="إيه اللي عاوز تضيفه؟" onClose={onClose}>
+      <div className={o.choice} data-testid="add-choice">
         {onChooseOffer && (
           <button
             type="button"
-            className={styles.choiceBtn}
+            className={f.btn}
             onClick={onChooseOffer}
             data-testid="add-choice-offer"
           >
-            <span className={styles.choiceIcon} aria-hidden="true">
-              🎁
-            </span>
-            <span className={styles.choiceText}>
-              <b>عرض</b>
-              <small>خصم أو مجموعة منتجات بسعر واحد</small>
-            </span>
+            🎁 عرض
           </button>
         )}
         <button
           type="button"
-          className={styles.choiceBtn}
-          onClick={onChooseNormal}
-          data-testid="add-choice-normal"
-        >
-          <span className={styles.choiceIcon} aria-hidden="true">
-            <Icon n="box" s={22} />
-          </span>
-          <span className={styles.choiceText}>
-            <b>{t("sandwich.chooseNormal")}</b>
-            <small>{t("sandwich.chooseNormalSub")}</small>
-          </span>
-        </button>
-        <button
-          type="button"
-          className={styles.choiceBtn}
+          className={`${f.btn} ${o.gold}`}
           onClick={onChooseSandwich}
           data-testid="add-choice-sandwich"
         >
-          <span className={styles.choiceIcon} aria-hidden="true">
-            <Icon n="layers" s={22} />
-          </span>
-          <span className={styles.choiceText}>
-            <b>{t("sandwich.chooseSandwich")}</b>
-            <small>{t("sandwich.chooseSandwichSub")}</small>
-          </span>
+          🥪 ساندوتش
+        </button>
+        <button
+          type="button"
+          className={`${f.btn} ${f.ghost}`}
+          onClick={onChooseNormal}
+          data-testid="add-choice-normal"
+        >
+          📦 منتج جديد
+        </button>
+        <button
+          type="button"
+          className={`${f.btn} ${f.ghost}`}
+          onClick={onClose}
+        >
+          إلغاء
         </button>
       </div>
     </Modal>

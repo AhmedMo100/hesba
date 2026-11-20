@@ -6,7 +6,11 @@ import { CatalogService } from "@/server/modules/catalog";
 import { upsertProductInputSchema } from "@/schemas/product";
 import { normalizeArabic } from "@/domain/normalize";
 import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
-import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
+import {
+  AppError,
+  toSafeErrorResponse,
+  readJsonBody,
+} from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -168,10 +172,7 @@ export async function PATCH(req: Request) {
     const action = searchParams.get("action");
 
     if (!productId) {
-      return NextResponse.json(
-        { error: "Product ID is required" },
-        { status: 400 },
-      );
+      throw AppError.badRequest("رقم المنتج مطلوب");
     }
 
     const catalogService = new CatalogService(prisma);
@@ -185,7 +186,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, action: "unhide" });
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+    throw AppError.badRequest("العملية دي مش معروفة");
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }
@@ -205,10 +206,7 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const productId = searchParams.get("id");
     if (!productId) {
-      return NextResponse.json(
-        { error: "Product ID is required" },
-        { status: 400 },
-      );
+      throw AppError.badRequest("رقم المنتج مطلوب");
     }
 
     const catalogService = new CatalogService(prisma);
