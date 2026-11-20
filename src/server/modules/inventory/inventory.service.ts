@@ -1562,7 +1562,14 @@ export class InventoryService {
   async getStockMovements(
     storeId: string,
     userId: string | null,
-    options?: { limit?: number; variantId?: string },
+    options?: {
+      limit?: number;
+      variantId?: string;
+      /** Only stock that came in (received batches), in [from, to). */
+      receivedOnly?: boolean;
+      from?: Date | null;
+      to?: Date | null;
+    },
   ) {
     return withTenant(
       storeId,
@@ -1573,6 +1580,20 @@ export class InventoryService {
             storeId,
             ...(options?.variantId
               ? { storeVariantId: options.variantId }
+              : {}),
+            ...(options?.receivedOnly
+              ? {
+                  type: { in: ["purchase", "initial_stock"] },
+                  quantityBase: { gt: ZERO },
+                }
+              : {}),
+            ...(options?.from || options?.to
+              ? {
+                  createdAt: {
+                    ...(options.from ? { gte: options.from } : {}),
+                    ...(options.to ? { lt: options.to } : {}),
+                  },
+                }
               : {}),
           },
           orderBy: { createdAt: "desc" },

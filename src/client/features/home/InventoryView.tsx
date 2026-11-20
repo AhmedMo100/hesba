@@ -4,6 +4,8 @@ import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useMemo } from "react";
 import { SearchBox, Icon, Empty } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
+import { stockValuePiasters } from "@/domain/stock/stock-value";
+import { ExportSheet } from "./ExportSheet";
 import {
   fetchStoreMachines,
   type PosMachine,
@@ -16,6 +18,7 @@ import styles from "./HomeView.module.css";
 export function InventoryView() {
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [query, setQuery] = useState("");
+  const [exporting, setExporting] = useState(false);
   const [machines, setMachines] = useState<PosMachine[] | null>(null);
   const [people, setPeople] = useState<{
     owedToMe: number | null;
@@ -75,15 +78,21 @@ export function InventoryView() {
   }, []);
 
   const inventoryRows = useMemo(() => {
+    // Exact, as a sale prices it (the export uses the same rule).
     return inventory.map((item) => {
-      const factor = item.unitMode === "weight" ? 1000 : 1;
-      const q = item.currentStockBase / factor;
-      const buyPrice = item.buyPricePiasters || 0;
-      const sellPrice = item.sellPricePiasters || 0;
+      const unit = item.unit || (item.unitMode === "weight" ? "kg" : "piece");
       return {
         ...item,
-        costPiasters: Math.round(q * buyPrice),
-        valPiasters: Math.round(q * sellPrice),
+        costPiasters: stockValuePiasters(
+          unit,
+          item.currentStockBase,
+          item.buyPricePiasters,
+        ),
+        valPiasters: stockValuePiasters(
+          unit,
+          item.currentStockBase,
+          item.sellPricePiasters,
+        ),
       };
     });
   }, [inventory]);
@@ -123,47 +132,6 @@ export function InventoryView() {
     (people.owedToMe ?? 0) -
     (people.iOwe ?? 0);
   const show = (v: number | null) => (v === null ? "—" : formatMoney(v));
-
-  const exportToExcel = () => {
-    const headers = [
-      "المنتج",
-      "القسم",
-      "الكمية",
-      "قيمة الشراء (ج.م)",
-      "قيمة البيع (ج.م)",
-    ];
-    const rowsCsv = filteredInventory.map((item) => {
-      const qText =
-        item.currentStockBase <= 0
-          ? "خلصان"
-          : formatQtyText(
-              item.unitMode,
-              item.currentStockBase,
-              item.packQty,
-              item.unit,
-              item.packName || undefined,
-            );
-      return [
-        `"${item.productName.replace(/"/g, '""')}"`,
-        `"${(item.category || "متفرقات").replace(/"/g, '""')}"`,
-        `"${qText.replace(/"/g, '""')}"`,
-        (item.costPiasters / 100).toFixed(2),
-        (item.valPiasters / 100).toFixed(2),
-      ].join(",");
-    });
-    const csvContent = "﻿" + [headers.join(","), ...rowsCsv].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `jard-${new Date().toISOString().split("T")[0]}.csv`,
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
 
   return (
     <div className={styles.page} data-testid="page-inventory" dir="rtl">
@@ -274,11 +242,12 @@ export function InventoryView() {
           <button
             type="button"
             className={styles.exportBtn}
-            onClick={exportToExcel}
-            title="تصدير بيانات الجرد إلى Excel"
+            onClick={() => setExporting(true)}
+            title="تصدير الجرد ومشاركته"
+            data-testid="inventory-export"
           >
             <Icon n="download" s={15} />
-            <span>تصدير Excel</span>
+            <span>تصدير ومشاركة</span>
           </button>
         </div>
 
@@ -330,6 +299,14 @@ export function InventoryView() {
           </div>
         )}
       </section>
+      {exporting && (
+        <ExportSheet
+          title="تصدير الجرد"
+          url="/api/stock/export"
+          fallbackName="جرد حسبة"
+          onClose={() => setExporting(false)}
+        />
+      )}
     </div>
   );
 }

@@ -158,6 +158,30 @@ export async function GET(req: Request) {
       });
     }
 
+    // The stock that came in during a report's range (the report's «دخل عندك بضاعة»): every
+    // received batch of the range, not the latest 100 movements of any kind.
+    if (view === "additions") {
+      const parse = (v: string | null) => {
+        if (!v) return null;
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) {
+          throw AppError.badRequest("التاريخ غير صحيح");
+        }
+        return d;
+      };
+      const movements = await inventoryService.getStockMovements(
+        context.store.id,
+        context.user.id,
+        {
+          receivedOnly: true,
+          from: parse(searchParams.get("from")),
+          to: parse(searchParams.get("to")),
+          limit: 2000,
+        },
+      );
+      return NextResponse.json({ movements });
+    }
+
     if (view === "movements") {
       const movements = await inventoryService.getStockMovements(
         context.store.id,

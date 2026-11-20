@@ -17,6 +17,7 @@ import { apiGet } from "@/client/shared/api/read-cache";
 import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
 import type { ReportPeriod } from "@/schemas/report";
 import { toCairoDateString } from "@/domain/time";
+import { ExportSheet } from "./ExportSheet";
 import styles from "./HomeView.module.css";
 
 const PERIODS: Array<[ReportPeriod, string]> = [
@@ -73,16 +74,24 @@ export function ReportsView() {
   // The period's expenses, one by one (the expenses screen shows today only).
   const [expenseList, setExpenseList] = useState<ExpenseRow[] | null>(null);
 
+  // Every batch received in the report's range (the server reads the range, not the last 100
+  // movements of any kind — a month or a year is complete).
+  const reportFrom = report?.from ?? null;
+  const reportTo = report?.to ?? null;
   useEffect(() => {
+    if (!reportTo) return;
     let alive = true;
-    apiGet("/api/stock?view=all")
+    const qs = new URLSearchParams({ view: "additions", to: reportTo });
+    if (reportFrom) qs.set("from", reportFrom);
+    apiGet(`/api/stock?${qs.toString()}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => alive && setMoves(d?.movements ?? []))
       .catch(() => alive && setMoves([]));
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reportFrom, reportTo]);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -185,6 +194,25 @@ export function ReportsView() {
             />
           </label>
         </div>
+      )}
+      <button
+        type="button"
+        className={styles.exportBtn}
+        onClick={() => setExporting(true)}
+        data-testid="report-export"
+      >
+        📤 تصدير التقرير ومشاركته
+      </button>
+      {exporting && (
+        <ExportSheet
+          title="تصدير التقرير"
+          url={`/api/reports/export?${new URLSearchParams({
+            period,
+            ...(period === "custom" ? { from, to } : {}),
+          }).toString()}`}
+          fallbackName="تقرير حسبة"
+          onClose={() => setExporting(false)}
+        />
       )}
       {report?.from && (
         <div className={styles.note} data-testid="report-range">

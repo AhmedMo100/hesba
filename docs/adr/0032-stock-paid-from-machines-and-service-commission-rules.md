@@ -57,3 +57,22 @@ The final review of PR #40 asks for three things the API could not do:
 - Open question: refund a machine / the drawer when a paid batch is voided.
 - Browsers without `BarcodeDetector` (Safari / iOS today) open the camera but cannot decode;
   they get the typed fallback and a physical scanner. A decoding library would fix this.
+
+## Additions (closing round)
+
+- **Expenses** take `paidFromMachineId` (the machine pays, in the expense's transaction). Cancelling
+  today's expense keeps the row (`deleted_at`), gives a machine its money back through its ledger
+  (reference = expense id, once), and the drawer counts a cancelled cash expense back in.
+- **Service commission** is slabs only (`slabsRequired`): an amount outside every slab is not sold.
+- **Credit checkout** takes `newCustomer`: the customer is created inside the sale's transaction.
+- **People payments** take `paidFromMachineId`: a collection raises the wallet, a supplier payment
+  lowers it (no overdraft), in the entry's transaction.
+- **Drawer** (ADR-0031): closing is serialized per shop (advisory lock); the same close from another
+  tab (same amount, < 60 s, nothing moved) is a 409; the server returns each close's difference and
+  the latest cash movements. A credit invoice's refund beyond what was owed has no recorded source
+  and is reported under «unknown», never guessed.
+- **Invoices** carry each line's pack, contents and returned value (additive fields), so a partial
+  return is typed in the unit the product is sold in; the return value rule is shared
+  (`domain/sale-return.ts`).
+- **Exports**: `GET /api/reports/export` and `GET /api/stock/export` (`xlsx` | `csv`) build the file on
+  the server from the same services as the screens; the `.xlsx` writer has no dependency.

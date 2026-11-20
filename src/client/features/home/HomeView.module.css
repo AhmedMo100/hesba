@@ -1016,3 +1016,31 @@
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
+
+/* ─── «تصدير ومشاركة» (V19 sheet: .btn, .btn.ghost) ─── */
+.exportSheet {
+  display: flex;
+  flex-direction: column;
+}
+
+.btnGhost {
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  text-align: center;
+  text-decoration: none;
+}
+
+.linkBtn {
+  background: none;
+  border: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.nowrap {
+  white-space: nowrap;
+}
