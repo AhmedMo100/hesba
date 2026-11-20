@@ -260,6 +260,10 @@ export interface SaleInvoice {
   discountPiasters: number;
   totalPiasters: number;
   returnedPiasters: number;
+  /** Of the returns: what lowered a credit invoice's debt … */
+  returnCreditedPiasters: number;
+  /** … and what was paid back to the customer. */
+  returnRefundedPiasters: number;
   /** Credit sale: what the customer still owes on this invoice (never < 0). */
   outstandingPiasters: number;
   voided: boolean;
@@ -274,6 +278,13 @@ export interface SaleInvoice {
     discountPiasters: number;
     totalPiasters: number;
     returnedQuantityBase: number;
+    /** The value of this line already returned. */
+    returnedPiasters: number;
+    /** The product's pack (a carton of 12 …) and a bag's contents: the units the return
+     *  is typed in. */
+    packQty: number;
+    packName: string | null;
+    sizeValue: number | null;
     /** False for lines that hold no stock (services, sandwiches): not returnable here. */
     returnable: boolean;
   }>;

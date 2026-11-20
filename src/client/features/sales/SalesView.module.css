@@ -1389,3 +1389,73 @@
   font-weight: 800;
   color: var(--ok);
 }
+
+/* ─── The sale's details: one card per line (V19 .swrow) ─── */
+.retRow {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+
+.retRow .line:first-child {
+  border: 0;
+  padding-top: 0;
+}
+
+.retFacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 2px 0 4px;
+}
+
+.retError {
+  color: var(--red);
+  background: var(--redBg);
+  border-radius: 12px;
+  padding: 8px 10px;
+  font-weight: 700;
+  font-size: 15px;
+  margin: 4px 0;
+}
+
+/* V19 .btn / .btn.ghost */
+.v19Btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 15px;
+  margin: 8px 0;
+  border-radius: 16px;
+  background: var(--dark);
+  color: var(--cream);
+  border: 0;
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.v19Btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.ghostBtn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 13px;
+  margin: 8px 0;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}

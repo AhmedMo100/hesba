@@ -29,6 +29,7 @@ import "server-only";
  */
 
 import { Prisma } from "@prisma/client";
+import { returnValue } from "@/domain/sale-return";
 import { prisma } from "@/server/infra/db/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
@@ -72,7 +73,13 @@ const CASH_SALE_NAME = "بيعة نقدية";
 const invoiceInclude = {
   customer: { select: { nameAr: true } },
   saleVoid: { select: { id: true } },
-  saleReturns: { select: { amountPiasters: true } },
+  saleReturns: {
+    select: {
+      amountPiasters: true,
+      creditedPiasters: true,
+      refundedPiasters: true,
+    },
+  },
   debtEntries: { select: { direction: true, amountPiasters: true } },
   saleLines: {
     orderBy: { createdAt: "asc" },
@@ -84,10 +91,13 @@ const invoiceInclude = {
       unitPricePiasters: true,
       discountPiasters: true,
       totalPiasters: true,
-      returnLines: { select: { quantityBase: true } },
+      returnLines: { select: { quantityBase: true, amountPiasters: true } },
       storeProduct: { select: { nameAr: true, unit: true, category: true } },
       storeVariant: {
         select: {
+          packQty: true,
+          sizeUnit: true,
+          sizeValue: true,
           storeProduct: {
             select: { nameAr: true, unit: true, category: true },
           },
@@ -118,6 +128,13 @@ function toInvoice(s: InvoiceRow, duplicate?: boolean): SaleInvoice {
     returnedPiasters: Number(
       s.saleReturns.reduce((sum, r) => sum + r.amountPiasters, ZERO),
     ),
+    // Of the returns: what lowered a credit invoice's debt, and what was paid back.
+    returnCreditedPiasters: Number(
+      s.saleReturns.reduce((sum, r) => sum + r.creditedPiasters, ZERO),
+    ),
+    returnRefundedPiasters: Number(
+      s.saleReturns.reduce((sum, r) => sum + r.refundedPiasters, ZERO),
+    ),
     outstandingPiasters: voided || outstanding < ZERO ? 0 : Number(outstanding),
     voided,
     ...(duplicate !== undefined ? { duplicate } : {}),
@@ -136,6 +153,16 @@ function toInvoice(s: InvoiceRow, duplicate?: boolean): SaleInvoice {
           (n, r) => n + r.quantityBase,
           0,
         ),
+        returnedPiasters: Number(
+          l.returnLines.reduce((n, r) => n + r.amountPiasters, ZERO),
+        ),
+        // How the product is sold: its pack and a bag's contents (the return asks in them).
+        packQty: l.storeVariant?.packQty ?? 1,
+        packName: l.storeVariant?.sizeUnit ?? null,
+        sizeValue:
+          l.storeVariant?.sizeValue != null
+            ? Number(l.storeVariant.sizeValue)
+            : null,
         returnable:
           l.storeVariantId !== null && !(product && isServiceProduct(product)),
       };
@@ -510,17 +537,6 @@ export async function paySale(
     },
     prisma,
   );
-}
-
-/** The value of `qty` more of a line after `prev` already returned (exact for a full return). */
-function returnValue(
-  lineTotal: bigint,
-  sold: number,
-  prev: number,
-  qty: number,
-): bigint {
-  const upTo = (n: number) => (lineTotal * BigInt(n)) / BigInt(sold);
-  return upTo(prev + qty) - upTo(prev);
 }
 
 /**

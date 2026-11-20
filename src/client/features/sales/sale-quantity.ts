@@ -128,3 +128,49 @@ export function saleBaseNote(shape: EntryShape, base: number): string {
       : "";
   return `= ${base} ${shape.one}${content}`;
 }
+
+/** A base quantity in the product's own words: «2 كرتونة و 3 قطعة», «1.25 كيلو», «4 برطمان». */
+export function describeBase(shape: EntryShape, base: number): string {
+  if (shape.kind === "weight") {
+    return base >= 1000 || base === 0
+      ? `${Number((base / 1000).toFixed(3))} كيلو`
+      : `${base} جرام`;
+  }
+  if (shape.pack && base >= shape.pack.qty) {
+    const packs = Math.floor(base / shape.pack.qty);
+    const rest = base % shape.pack.qty;
+    return rest > 0
+      ? `${packs} ${shape.pack.one} و ${rest} ${shape.one}`
+      : `${packs} ${shape.pack.one}`;
+  }
+  return `${base} ${shape.one}`;
+}
+
+/**
+ * What the owner typed for a return, as base units — or why it cannot be read. Counts are
+ * whole (a piece / a carton cannot be split); a weight takes kilos (3 decimals) or grams.
+ */
+export function returnBase(
+  shape: EntryShape,
+  typed: string,
+  unit: SaleUnit,
+  weightUnit: WeightUnit,
+): { base: number } | { error: string } {
+  const text = typed
+    .trim()
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace("٫", ".");
+  if (!/^\d+(\.\d+)?$/.test(text)) return { error: "اكتب رقم صحيح" };
+  const n = Number(text);
+  if (!(n > 0)) return { error: "الكمية لازم تكون أكبر من صفر" };
+  if (shape.kind === "weight") {
+    if (weightUnit === "g") {
+      return Number.isInteger(n) ? { base: n } : { error: "الجرامات رقم صحيح" };
+    }
+    if (!/^\d+(\.\d{1,3})?$/.test(text))
+      return { error: "الكيلو لحد 3 أرقام بعد العلامة" };
+    return { base: Math.round(n * 1000) };
+  }
+  if (!Number.isInteger(n)) return { error: "العدد لازم يكون رقم صحيح" };
+  return { base: unit === "pack" && shape.pack ? n * shape.pack.qty : n };
+}
