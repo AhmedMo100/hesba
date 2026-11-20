@@ -26,6 +26,11 @@ import {
   updateExpenseInputSchema,
 } from "@/schemas/expense";
 import { toCairoDateString } from "@/domain/time";
+import { changeMachineBalanceInTx } from "@/server/modules/machines";
+
+/** The machine ledger's `source` for an expense paid from it, and for its cancel. */
+export const EXPENSE_LEDGER_SOURCE = "مصروف";
+export const EXPENSE_CANCEL_LEDGER_SOURCE = "رجوع مصروف اتلغى";
 
 export interface FormattedExpense {
   id: string;
@@ -36,6 +41,12 @@ export interface FormattedExpense {
   spent_at: string;
   created_at: string;
   updated_at: string;
+  /** 'cash' (the drawer) | 'wallet' | null (not recorded). */
+  paid_from: string | null;
+  /** The machine / wallet that paid it, when one did. */
+  machine: { id: string; name: string } | null;
+  /** When it was cancelled; a cancelled expense stays on record and counts nowhere. */
+  cancelled_at: string | null;
 }
 
 export interface ExpensesListResult {
@@ -49,6 +60,60 @@ export interface GetStoreExpensesFilter {
   from?: string;
   to?: string;
   category?: string;
+  /** Also list the cancelled ones (marked, never in the totals). */
+  includeCancelled?: boolean;
+}
+
+type ExpenseRow = {
+  id: string;
+  storeId: string;
+  category: string;
+  amountPiasters: bigint;
+  note: string | null;
+  spentAt: Date;
+  createdAt: Date;
+  updatedAt: Date;
+  paidFrom: string | null;
+  deletedAt: Date | null;
+};
+
+function formatExpense(
+  e: ExpenseRow,
+  machine: { id: string; name: string } | null,
+): FormattedExpense {
+  return {
+    id: e.id,
+    store_id: e.storeId,
+    category: e.category,
+    amount_piasters: Number(e.amountPiasters),
+    note: e.note,
+    spent_at: e.spentAt.toISOString(),
+    created_at: e.createdAt.toISOString(),
+    updated_at: e.updatedAt.toISOString(),
+    paid_from: e.paidFrom,
+    machine,
+    cancelled_at: e.deletedAt ? e.deletedAt.toISOString() : null,
+  };
+}
+
+/** The machine each expense was paid from, from the machine ledger (reference = expense id). */
+async function machinesFor(
+  tx: Prisma.TransactionClient,
+  storeId: string,
+  expenseIds: string[],
+): Promise<Map<string, { id: string; name: string }>> {
+  const out = new Map<string, { id: string; name: string }>();
+  if (expenseIds.length === 0) return out;
+  const rows = await tx.posMachineTopup.findMany({
+    where: {
+      storeId,
+      source: EXPENSE_LEDGER_SOURCE,
+      reference: { in: expenseIds },
+    },
+    select: { reference: true, machine: { select: { id: true, name: true } } },
+  });
+  for (const r of rows) if (r.reference) out.set(r.reference, r.machine);
+  return out;
 }
 
 function getStartOfCairoDay(dateStr: string): Date {
@@ -153,10 +218,8 @@ export class ExpenseService {
           to: filter?.to,
         });
 
-        const where: Prisma.ExpenseWhereInput = {
-          storeId,
-          deletedAt: null,
-        };
+        const where: Prisma.ExpenseWhereInput = { storeId };
+        if (!filter?.includeCancelled) where.deletedAt = null;
 
         if (dateRange.gte || dateRange.lte) {
           where.spentAt = {};
@@ -175,22 +238,19 @@ export class ExpenseService {
 
         let totalPiasters = 0;
         const byCategory: Record<string, number> = {};
+        const machines = await machinesFor(
+          tx,
+          storeId,
+          rows.filter((e) => e.paidFrom === "wallet").map((e) => e.id),
+        );
 
         const formatted: FormattedExpense[] = rows.map((e) => {
-          const amt = Number(e.amountPiasters);
-          totalPiasters += amt;
-          byCategory[e.category] = (byCategory[e.category] || 0) + amt;
-
-          return {
-            id: e.id,
-            store_id: e.storeId,
-            category: e.category,
-            amount_piasters: amt,
-            note: e.note,
-            spent_at: e.spentAt.toISOString(),
-            created_at: e.createdAt.toISOString(),
-            updated_at: e.updatedAt.toISOString(),
-          };
+          if (!e.deletedAt) {
+            const amt = Number(e.amountPiasters);
+            totalPiasters += amt;
+            byCategory[e.category] = (byCategory[e.category] || 0) + amt;
+          }
+          return formatExpense(e, machines.get(e.id) ?? null);
         });
 
         return {
@@ -224,25 +284,6 @@ export class ExpenseService {
       }
     }
 
-    const format = (e: {
-      id: string;
-      storeId: string;
-      category: string;
-      amountPiasters: bigint;
-      note: string | null;
-      spentAt: Date;
-      createdAt: Date;
-      updatedAt: Date;
-    }): FormattedExpense => ({
-      id: e.id,
-      store_id: e.storeId,
-      category: e.category,
-      amount_piasters: Number(e.amountPiasters),
-      note: e.note,
-      spent_at: e.spentAt.toISOString(),
-      created_at: e.createdAt.toISOString(),
-      updated_at: e.updatedAt.toISOString(),
-    });
     // A retry carries the same opId (QA-27): it returns the expense already recorded. The same
     // opId with a different expense is a 409, never a silent second record or a silent merge.
     const replay = async (tx: Prisma.TransactionClient) => {
@@ -251,14 +292,18 @@ export class ExpenseService {
         where: { storeId, opId: validated.opId },
       });
       if (!existing) return null;
+      const machine =
+        (await machinesFor(tx, storeId, [existing.id])).get(existing.id) ??
+        null;
       const same =
         existing.category === validated.category &&
         existing.amountPiasters === BigInt(validated.amountPiasters) &&
-        (existing.note ?? null) === (validated.note ?? null);
+        (existing.note ?? null) === (validated.note ?? null) &&
+        (machine?.id ?? null) === (validated.paidFromMachineId ?? null);
       if (!same) {
         throw AppError.conflict("العملية دي اتسجلت قبل كده بمصروف تاني");
       }
-      return format(existing);
+      return formatExpense(existing, machine);
     };
 
     try {
@@ -268,6 +313,7 @@ export class ExpenseService {
         async (tx) => {
           const replayed = await replay(tx);
           if (replayed) return replayed;
+          const fromMachine = validated.paidFromMachineId ?? null;
           const created = await tx.expense.create({
             data: {
               storeId,
@@ -276,10 +322,27 @@ export class ExpenseService {
               note: validated.note ?? null,
               spentAt: spentAtDate,
               opId: validated.opId ?? null,
-              paidFrom: validated.paidFrom ?? null,
+              paidFrom: fromMachine ? "wallet" : (validated.paidFrom ?? null),
             },
           });
-          return format(created);
+          // Paid from a machine / wallet: its balance goes down in this same transaction. A
+          // short balance throws, and the expense is never recorded (no partial expense).
+          let machine: { id: string; name: string } | null = null;
+          if (fromMachine) {
+            const r = await changeMachineBalanceInTx(
+              tx,
+              storeId,
+              fromMachine,
+              { kind: "delta", amountPiasters: -validated.amountPiasters },
+              {
+                source: EXPENSE_LEDGER_SOURCE,
+                reference: created.id,
+                notes: validated.category,
+              },
+            );
+            machine = { id: r.machineId, name: r.machineName };
+          }
+          return formatExpense(created, machine);
         },
         this.prisma,
       );
@@ -317,6 +380,19 @@ export class ExpenseService {
         if (!existing) {
           throw AppError.notFound("المصروف غير موجود");
         }
+        const machine =
+          (await machinesFor(tx, storeId, [existing.id])).get(existing.id) ??
+          null;
+        // A machine paid this amount: changing it here would leave the machine's balance wrong.
+        if (
+          machine &&
+          validated.amountPiasters !== undefined &&
+          BigInt(validated.amountPiasters) !== existing.amountPiasters
+        ) {
+          throw AppError.conflict(
+            "المصروف ده اتدفع من ماكينة: ألغيه وسجّله من جديد بالمبلغ الصح",
+          );
+        }
 
         const data: Prisma.ExpenseUpdateInput = {};
         if (validated.category !== undefined) {
@@ -345,50 +421,87 @@ export class ExpenseService {
           data,
         });
 
-        return {
-          id: updated.id,
-          store_id: updated.storeId,
-          category: updated.category,
-          amount_piasters: Number(updated.amountPiasters),
-          note: updated.note,
-          spent_at: updated.spentAt.toISOString(),
-          created_at: updated.createdAt.toISOString(),
-          updated_at: updated.updatedAt.toISOString(),
-        };
+        return formatExpense(updated, machine);
       },
       this.prisma,
     );
   }
 
+  /**
+   * Cancels one of today's expenses (V19 «رجّع»). The record stays (marked cancelled, out of
+   * every total) and its money goes back where it came from: the drawer stops counting it, and a
+   * machine / wallet that paid it gets the amount back through its ledger, in one transaction.
+   * An expense of an earlier day is not cancelled here (409). A repeated cancel is the same one.
+   */
   async deleteExpense(
     storeId: string,
     userId: string | null,
     id: string,
-  ): Promise<{ success: boolean }> {
+  ): Promise<{ success: boolean; expense: FormattedExpense }> {
     return withTenant(
       storeId,
       userId,
       async (tx) => {
-        const existing = await tx.expense.findFirst({
-          where: { id, storeId },
-          select: { deletedAt: true },
-        });
-
-        if (!existing) {
+        // Lock the row: two cancels at once refund the machine once.
+        const locked = await tx.$queryRaw<Array<{ id: string }>>`
+          SELECT id::text AS id FROM expenses
+           WHERE id = ${id}::uuid AND store_id = ${storeId}::uuid
+             FOR UPDATE`;
+        if (locked.length === 0) {
           throw AppError.notFound("المصروف غير موجود");
         }
-        // A retried delete (the first response was lost) is the same delete: done once, and
-        // the retry gets the same answer instead of an error (QA-27).
+        const existing = await tx.expense.findFirstOrThrow({
+          where: { id, storeId },
+        });
+        const machine = (await machinesFor(tx, storeId, [id])).get(id) ?? null;
+        // A retried cancel (the first response was lost) is the same cancel (QA-27).
         if (existing.deletedAt !== null) {
-          return { success: true };
+          return { success: true, expense: formatExpense(existing, machine) };
+        }
+        const today = toCairoDateString(new Date());
+        if (toCairoDateString(existing.spentAt) !== today) {
+          throw AppError.conflict("ينفع تلغي مصروفات النهارده بس");
         }
 
-        await tx.expense.update({
+        // What the machine ledger took for this expense, net of anything already given back.
+        const ledger = await tx.posMachineTopup.findMany({
+          where: {
+            storeId,
+            reference: id,
+            source: {
+              in: [EXPENSE_LEDGER_SOURCE, EXPENSE_CANCEL_LEDGER_SOURCE],
+            },
+          },
+          select: { machineId: true, amountPiasters: true },
+        });
+        const net = new Map<string, bigint>();
+        for (const l of ledger) {
+          net.set(
+            l.machineId,
+            (net.get(l.machineId) ?? BigInt(0)) + l.amountPiasters,
+          );
+        }
+        for (const [machineId, amount] of net) {
+          if (amount < BigInt(0)) {
+            await changeMachineBalanceInTx(
+              tx,
+              storeId,
+              machineId,
+              { kind: "delta", amountPiasters: Number(-amount) },
+              {
+                source: EXPENSE_CANCEL_LEDGER_SOURCE,
+                reference: id,
+                notes: existing.category,
+              },
+            );
+          }
+        }
+
+        const cancelled = await tx.expense.update({
           where: { id },
           data: { deletedAt: new Date() },
         });
-
-        return { success: true };
+        return { success: true, expense: formatExpense(cancelled, machine) };
       },
       this.prisma,
     );

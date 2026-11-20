@@ -9,6 +9,10 @@ import styles from "./ExpensesView.module.css";
 import { Empty, Icon, ListSkeleton } from "@/client/shared/ui";
 import { t, formatMoney, normDigits } from "@/client/shared/i18n";
 import {
+  fetchStoreMachines,
+  type PosMachine,
+} from "@/client/shared/api/machines";
+import {
   EXPENSE_CATEGORIES,
   type ExpenseCategory,
   type ExpensePeriod,
@@ -23,6 +27,18 @@ interface ExpenseItem {
   spent_at: string;
   created_at: string;
   updated_at: string;
+  paid_from: string | null;
+  machine: { id: string; name: string } | null;
+  cancelled_at: string | null;
+}
+
+/** The server's Arabic message from an error body `{ error: { message } }`. */
+async function errorMessage(res: Response, fallback: string) {
+  const body = (await res.json().catch(() => null)) as {
+    error?: { message?: string } | string;
+  } | null;
+  const e = body?.error;
+  return (typeof e === "string" ? e : e?.message) || fallback;
 }
 
 const AR_MONTHS = [
@@ -124,8 +140,11 @@ export function ExpensesView() {
   const [selectedCat, setSelectedCat] = useState<ExpenseCategory>("كهرباء");
   const [amountStr, setAmountStr] = useState("");
   const [noteStr, setNoteStr] = useState("");
-  // V19 «الدفع إزاي؟»: from the drawer or a wallet (ADR-0031).
-  const [paidFrom, setPaidFrom] = useState<"cash" | "wallet">("cash");
+  // V19 «الدفع إزاي؟»: «cash» (the drawer) or one of the shop's machines / wallets by id.
+  const [pay, setPay] = useState<string>("cash");
+  const [machines, setMachines] = useState<PosMachine[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState(getTodayCairoDateString());
   const [showExtra, setShowExtra] = useState(false);
 
@@ -144,7 +163,10 @@ export function ExpensesView() {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiGet(`/api/expenses?period=${period}`);
+      const res = await apiGet(
+        `/api/expenses?period=${period}&include_cancelled=1`,
+        { force: true },
+      );
       if (!res.ok) {
         throw new Error(
           t("pages.expenses.loadError") ||
@@ -169,7 +191,7 @@ export function ExpensesView() {
 
   useEffect(() => {
     let ignore = false;
-    apiGet(`/api/expenses?period=${period}`)
+    apiGet(`/api/expenses?period=${period}&include_cancelled=1`)
       .then((res) => {
         if (!res.ok) {
           throw new Error(
@@ -205,14 +227,33 @@ export function ExpensesView() {
     };
   }, [period]);
 
+  const loadMachines = useCallback(() => {
+    void fetchStoreMachines().then((list) =>
+      setMachines(list.filter((m) => m.status !== "inactive")),
+    );
+  }, []);
+  useEffect(() => {
+    loadMachines();
+  }, [loadMachines]);
+  const payMachine =
+    pay === "cash" ? null : (machines.find((m) => m.id === pay) ?? null);
+
   const expenseOp = useRetryOpId();
 
   const handleRegister = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     // Exact pounds → piasters (no floating point, QA-22); invalid or 0 is refused here.
     const piasters = parseEgpStrict(normDigits(amountStr).trim());
+    setFormError(null);
     if (piasters === null || piasters <= 0) {
-      alert(t("pages.expenses.errorRequiredAmount"));
+      setFormError(t("pages.expenses.errorRequiredAmount"));
+      return;
+    }
+    // V19: «رصيد المحفظة مش كافي» before sending; the server checks again under a lock.
+    if (payMachine && payMachine.currentBalancePiasters < piasters) {
+      setFormError(
+        `رصيد ${payMachine.name} مش كافي: فيه ${formatMoney(payMachine.currentBalancePiasters)}`,
+      );
       return;
     }
     setSubmitting(true);
@@ -223,10 +264,12 @@ export function ExpensesView() {
         note?: string;
         spentAt?: string;
         paidFrom: "cash" | "wallet";
+        paidFromMachineId?: string;
       } = {
         category: selectedCat,
         amountPiasters: piasters,
-        paidFrom,
+        paidFrom: payMachine ? "wallet" : "cash",
+        ...(payMachine ? { paidFromMachineId: payMachine.id } : {}),
       };
 
       if (noteStr.trim()) {
@@ -245,8 +288,7 @@ export function ExpensesView() {
       });
 
       if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.error || "فشل تسجيل المصروف");
+        throw new Error(await errorMessage(res, "مقدرناش نسجّل المصروف"));
       }
 
       expenseOp.reset();
@@ -255,33 +297,42 @@ export function ExpensesView() {
       setNoteStr("");
       setShowExtra(false);
 
-      // Refresh list
+      // Refresh the list and the machines' balances (the server changed them).
       await reloadExpenses();
+      loadMachines();
+      window.dispatchEvent(new Event("hesba_machines_updated"));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "حدث خطأ أثناء التسجيل");
+      setFormError(
+        err instanceof Error ? err.message : "مقدرناش نسجّل المصروف",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const confirmed = window.confirm(t("pages.expenses.deleteConfirm"));
-    if (!confirmed) return;
-
+  /** Cancel one of today's expenses: kept on record, its money goes back where it came from. */
+  const handleCancel = async (item: ExpenseItem) => {
+    const back = item.machine ? `لـ ${item.machine.name}` : "للدرج";
+    if (
+      !window.confirm(
+        `تلغي مصروف ${item.category} بـ ${formatMoney(item.amount_piasters)}؟ الفلوس هترجع ${back}.`,
+      )
+    ) {
+      return;
+    }
+    setCancelling(item.id);
     try {
-      const res = await fetch(`/api/expenses/${id}`, {
-        method: "DELETE",
-      });
-
+      const res = await fetch(`/api/expenses/${item.id}`, { method: "DELETE" });
       if (!res.ok) {
-        throw new Error("فشل حذف المصروف");
+        throw new Error(await errorMessage(res, "مقدرناش نلغي المصروف"));
       }
-
-      // Optimistically update list
-      setExpenses((prev) => prev.filter((item) => item.id !== id));
       await reloadExpenses();
+      loadMachines();
+      window.dispatchEvent(new Event("hesba_machines_updated"));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "تعذر حذف المصروف");
+      setError(err instanceof Error ? err.message : "مقدرناش نلغي المصروف");
+    } finally {
+      setCancelling(null);
     }
   };
 
@@ -340,24 +391,33 @@ export function ExpensesView() {
           </div>
 
           <span className={styles.lbl}>الدفع إزاي؟</span>
-          <div className={styles.chips}>
-            {(
-              [
-                ["cash", "💵 كاش من الدرج"],
-                ["wallet", "📱 محفظة / ماكينة"],
-              ] as const
-            ).map(([k, label]) => (
+          <div className={styles.chips} data-testid="expense-pay">
+            <button
+              type="button"
+              className={`${styles.chip} ${pay === "cash" ? styles.chipOn : ""}`}
+              onClick={() => setPay("cash")}
+              data-testid="expense-from-cash"
+            >
+              💵 كاش
+            </button>
+            {machines.map((m) => (
               <button
                 type="button"
-                key={k}
-                className={`${styles.chip} ${paidFrom === k ? styles.chipOn : ""}`}
-                onClick={() => setPaidFrom(k)}
-                data-testid={`expense-from-${k}`}
+                key={m.id}
+                className={`${styles.chip} ${pay === m.id ? styles.chipOn : ""}`}
+                onClick={() => setPay(m.id)}
+                data-testid="expense-from-machine"
               >
-                {label}
+                💳 {m.name}
               </button>
             ))}
           </div>
+          {payMachine && (
+            <p className={styles.payNote} data-testid="expense-machine-balance">
+              رصيد {payMachine.name} دلوقتي{" "}
+              {formatMoney(payMachine.currentBalancePiasters)}
+            </p>
+          )}
 
           <label className={styles.lbl} htmlFor="expense-note">
             {t("pages.expenses.noteLabel")}
@@ -392,6 +452,15 @@ export function ExpensesView() {
             />
           )}
 
+          {formError && (
+            <p
+              className={styles.formError}
+              role="alert"
+              data-testid="expense-error"
+            >
+              {formError}
+            </p>
+          )}
           <button
             type="submit"
             disabled={submitting}
@@ -450,7 +519,11 @@ export function ExpensesView() {
         ) : (
           <div className={styles.listCard}>
             {expenses.map((item) => (
-              <div key={item.id} className={styles.expenseRow}>
+              <div
+                key={item.id}
+                className={`${styles.expenseRow} ${item.cancelled_at ? styles.cancelledRow : ""}`}
+                data-testid="expense-row"
+              >
                 <div className={styles.itemInfo}>
                   <b className={styles.itemCategory}>
                     {t(`pages.expenses.categories.${item.category}`) ||
@@ -458,6 +531,12 @@ export function ExpensesView() {
                   </b>
                   <span className={styles.itemMeta}>
                     {formatExpenseDateCairo(item.spent_at)}
+                    {" · "}
+                    {item.machine
+                      ? `💳 ${item.machine.name}`
+                      : item.paid_from === "cash"
+                        ? "💵 كاش"
+                        : ""}
                     {item.note ? ` · ${item.note}` : ""}
                   </span>
                 </div>
@@ -465,14 +544,24 @@ export function ExpensesView() {
                   <b className={styles.itemAmount}>
                     {formatMoney(item.amount_piasters)}
                   </b>
-                  <button
-                    type="button"
-                    className={styles.deleteBtn}
-                    aria-label={t("pages.expenses.deleteAriaLabel")}
-                    onClick={() => handleDelete(item.id)}
-                  >
-                    <Icon n="trash" s={17} />
-                  </button>
+                  {item.cancelled_at ? (
+                    <span
+                      className={styles.cancelledTag}
+                      data-testid="expense-cancelled"
+                    >
+                      اتلغى
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.undoBtn}
+                      disabled={cancelling === item.id}
+                      onClick={() => handleCancel(item)}
+                      data-testid="expense-cancel"
+                    >
+                      ↩️ رجّع
+                    </button>
+                  )}
                 </div>
               </div>
             ))}

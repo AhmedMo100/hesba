@@ -23,6 +23,7 @@ import styles from "./HomeView.module.css";
 const FLOW_LABEL: Record<DrawerFlow["key"], string> = {
   cashSales: "💵 بيع كاش",
   collections: "🤝 تحصيل من الزباين",
+  expenseCancels: "↩️ مصروفات اتلغت ورجعت للدرج",
   refunds: "↩️ مرتجعات اترجعت كاش",
   voids: "🚫 بيعات اتلغت",
   expenses: "💸 مصروفات من الدرج",

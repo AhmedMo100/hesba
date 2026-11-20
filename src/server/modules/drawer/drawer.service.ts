@@ -32,6 +32,7 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
     expenses,
     stockPurchases,
     topups,
+    expenseCancels,
   ] = await Promise.all([
     tx.sale.aggregate({
       where: {
@@ -106,6 +107,17 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
       _sum: { amountPiasters: true },
       _count: true,
     }),
+    // A cash expense made before the count and cancelled after it: its money came back.
+    tx.expense.aggregate({
+      where: {
+        storeId,
+        paidFrom: "cash",
+        createdAt: { lte: since },
+        deletedAt: after,
+      },
+      _sum: { amountPiasters: true },
+      _count: true,
+    }),
   ]);
 
   const voidsTotal = voidedOld.reduce((n, v) => n + v.sale.totalPiasters, ZERO);
@@ -121,6 +133,12 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
       direction: "in",
       count: collections._count,
       amountPiasters: Number(sum(collections._sum.amountPiasters)),
+    },
+    {
+      key: "expenseCancels",
+      direction: "in",
+      count: expenseCancels._count,
+      amountPiasters: Number(sum(expenseCancels._sum.amountPiasters)),
     },
     {
       key: "refunds",

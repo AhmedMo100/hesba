@@ -464,24 +464,55 @@
   white-space: nowrap;
 }
 
-.deleteBtn {
-  background: none;
+/* «↩️ رجّع»: today's expense only; a cancelled one stays listed, crossed out. */
+.undoBtn {
+  background: var(--chip);
   border: none;
-  color: var(--ink2);
+  color: var(--ink);
   cursor: pointer;
-  padding: 6px;
-  border-radius: 8px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 44px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 20px;
   min-height: 44px;
-  transition: all 0.12s ease;
+  white-space: nowrap;
 }
 
-.deleteBtn:hover {
+.undoBtn:disabled {
+  opacity: 0.6;
+}
+
+.cancelledRow .itemCategory,
+.cancelledRow .itemAmount {
+  text-decoration: line-through;
+  color: var(--ink2);
+}
+
+.cancelledTag {
+  font-size: 13px;
+  font-weight: 800;
   color: var(--red);
   background: var(--redBg);
+  border-radius: 20px;
+  padding: 4px 10px;
+  white-space: nowrap;
+}
+
+.payNote {
+  font-size: 14px;
+  color: var(--ink2);
+  margin: 0 0 6px;
+}
+
+.formError {
+  color: var(--red);
+  background: var(--redBg);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  font-size: 15px;
+  margin: 6px 0;
 }
 
 /* Empty, Error, & Loading States */
