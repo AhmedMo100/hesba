@@ -16,9 +16,6 @@ import styles from "./HomeView.module.css";
 export function InventoryView() {
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [query, setQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "low" | "out">(
-    "all",
-  );
   const [machines, setMachines] = useState<PosMachine[] | null>(null);
   const [people, setPeople] = useState<{
     owedToMe: number | null;
@@ -91,14 +88,20 @@ export function InventoryView() {
     });
   }, [inventory]);
 
+  // Every item, the ones that ran out or are running low first.
   const filteredInventory = useMemo(() => {
     const qNorm = normalizeArabic(query.trim());
-    return inventoryRows.filter(
-      (item) =>
-        (statusFilter === "all" || item.status === statusFilter) &&
-        (!qNorm || normalizeArabic(item.productName).includes(qNorm)),
-    );
-  }, [inventoryRows, query, statusFilter]);
+    const rank = { out: 0, low: 1, ok: 2 } as const;
+    return inventoryRows
+      .filter(
+        (item) => !qNorm || normalizeArabic(item.productName).includes(qNorm),
+      )
+      .sort(
+        (a, b) =>
+          rank[a.status] - rank[b.status] ||
+          a.productName.localeCompare(b.productName, "ar"),
+      );
+  }, [inventoryRows, query]);
 
   const totalCostPiasters = useMemo(
     () => inventoryRows.reduce((sum, item) => sum + item.costPiasters, 0),
@@ -242,34 +245,23 @@ export function InventoryView() {
         </div>
       </div>
 
-      {/* الأصناف: one clear card — its numbers, a filter, then search and export, then the table */}
+      {/* الأصناف: every item at once (no filter tabs) — its stock first and large, its value
+          at buy and sell prices under the name, then the totals. */}
       <section className={styles.itemsCard} data-testid="inventory-items">
         <div className={styles.itemsHead}>
           <h3>📋 الأصناف</h3>
           <span className={styles.itemsCount}>{inventory.length} صنف</span>
         </div>
-        <div className={styles.itemsStats} role="tablist">
-          {(
-            [
-              ["all", "كله", inventory.length, ""],
-              ["low", "قرب يخلص", lowCount, styles.statYel],
-              ["out", "خلصان", outCount, styles.statRed],
-            ] as const
-          ).map(([k, label, n, tone]) => (
-            <button
-              key={k}
-              type="button"
-              role="tab"
-              aria-selected={statusFilter === k}
-              className={`${styles.itemsStat} ${tone} ${statusFilter === k ? styles.itemsStatOn : ""}`}
-              onClick={() => setStatusFilter(k)}
-              data-testid={`inventory-filter-${k}`}
-            >
-              <b>{n}</b>
-              <small>{label}</small>
-            </button>
-          ))}
-        </div>
+        {(outCount > 0 || lowCount > 0) && (
+          <p className={styles.itemsHint}>
+            {outCount > 0 && (
+              <span className={styles.tagOut}>{outCount} خلصان</span>
+            )}
+            {lowCount > 0 && (
+              <span className={styles.tagLow}>{lowCount} قرب يخلص</span>
+            )}
+          </p>
+        )}
 
         <div className={styles.invBar}>
           <div className={styles.invSearch}>
@@ -290,106 +282,53 @@ export function InventoryView() {
           </button>
         </div>
 
-        <div className={styles.tblCard}>
-          <div className={styles.tblW}>
-            <table className={styles.tbl}>
-              <thead>
-                <tr>
-                  <th className={styles.colName}>الصنف</th>
-                  <th className={styles.colQty}>الكمية</th>
-                  <th className={styles.colNum}>
-                    بالشراء
-                    <small>ج</small>
-                  </th>
-                  <th className={styles.colNum}>
-                    بالبيع
-                    <small>ج</small>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInventory.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      style={{ textAlign: "center", padding: "24px" }}
-                    >
-                      <Empty
-                        icon="search"
-                        title="مفيش أصناف مطابقة"
-                        sub="تأكد من كتابة اسم المنتج بشكل صحيح"
-                      />
-                    </td>
-                  </tr>
-                ) : (
-                  filteredInventory.map((item) => {
-                    const isOut = item.status === "out";
-                    const isLow = item.status === "low";
-                    return (
-                      <tr key={item.productId}>
-                        <td>
-                          <span
-                            className={`${styles.dot} ${
-                              isOut
-                                ? styles.dotRed
-                                : isLow
-                                  ? styles.dotYellow
-                                  : styles.dotGreen
-                            }`}
-                          />
-                          <span>{item.productName}</span>
-                        </td>
-                        <td>
-                          {isOut ? (
-                            <span className={styles.tagOut}>خلصان</span>
-                          ) : (
-                            formatQtyText(
-                              item.unitMode,
-                              item.currentStockBase,
-                              item.packQty,
-                              item.unit,
-                              item.packName || undefined,
-                            )
+        {filteredInventory.length === 0 ? (
+          <Empty
+            icon="search"
+            title="مفيش أصناف مطابقة"
+            sub="تأكد من كتابة اسم المنتج بشكل صحيح"
+          />
+        ) : (
+          <div className={styles.invList}>
+            {filteredInventory.map((item) => {
+              const isOut = item.status === "out";
+              const isLow = item.status === "low";
+              return (
+                <div
+                  key={item.variantId}
+                  className={`${styles.invRow} ${isOut ? styles.invRowOut : isLow ? styles.invRowLow : ""}`}
+                  data-testid="inventory-row"
+                >
+                  <div className={styles.invMain}>
+                    <b className={styles.invName}>{item.productName}</b>
+                    <small className={styles.invMoney}>
+                      بالشراء {formatMoney(item.costPiasters)} · بالبيع{" "}
+                      {formatMoney(item.valPiasters)}
+                    </small>
+                  </div>
+                  <div className={styles.invQty}>
+                    <b>
+                      {isOut
+                        ? "0"
+                        : formatQtyText(
+                            item.unitMode,
+                            item.currentStockBase,
+                            item.packQty,
+                            item.unit,
+                            item.packName || undefined,
                           )}
-                        </td>
-                        <td>
-                          {((item.costPiasters || 0) / 100).toLocaleString(
-                            "en-US",
-                            { maximumFractionDigits: 2 },
-                          )}
-                        </td>
-                        <td>
-                          {((item.valPiasters || 0) / 100).toLocaleString(
-                            "en-US",
-                            { maximumFractionDigits: 2 },
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-              {filteredInventory.length > 0 && (
-                <tfoot>
-                  <tr>
-                    <td>الإجمالي</td>
-                    <td />
-                    <td>
-                      {(totalCostPiasters / 100).toLocaleString("en-US", {
-                        maximumFractionDigits: 1,
-                      })}
-                    </td>
-                    <td>
-                      {(totalSellPiasters / 100).toLocaleString("en-US", {
-                        maximumFractionDigits: 1,
-                      })}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
+                    </b>
+                    {isOut ? (
+                      <span className={styles.tagOut}>خلصان</span>
+                    ) : isLow ? (
+                      <span className={styles.tagLow}>قرب يخلص</span>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
           </div>
-        </div>
+        )}
       </section>
     </div>
   );
