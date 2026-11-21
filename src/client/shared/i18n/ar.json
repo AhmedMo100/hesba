@@ -36,6 +36,7 @@
     "home": "الرئيسية",
     "products": "المنتجات",
     "sales": "البيع",
+    "dailySales": "مبيعات اليوم",
     "stock": "المخزون",
     "expenses": "المصاريف",
     "people": "الناس",
@@ -54,13 +55,16 @@
     "inventory": "الجرد",
     "reports": "التقارير",
     "drawer": "الدرج",
-    "notifications": "التنبيهات"
+    "notifications": "التنبيهات",
+    "dailySales": "مبيعات اليوم"
   },
   "storeMenu": {
     "online": "متصل",
     "offline": "بدون نت",
     "offlineSaved": "بدون نت – الشغل بيتحفظ",
     "profile": "بيانات الحساب والمحل",
+    "mode": "طريقة التشغيل",
+    "subscription": "الاشتراك",
     "theme": "المظهر",
     "light": "فاتح",
     "dark": "غامق",
@@ -79,6 +83,7 @@
     "needsReview": "في عمليات محتاجة مراجعة ({count})",
     "updating": "السيرفر بيتحدّث، شغلك محفوظ",
     "login": "سجّل دخولك",
+    "subscription": "الحساب محتاج تفعيل — {count} عملية محفوظة على الجهاز",
     "syncingPlain": "بيزامن…"
   },
   "pages": {

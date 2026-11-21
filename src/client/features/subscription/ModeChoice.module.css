@@ -1,0 +1,106 @@
+/* إدارة المحل / الكاشير الذكي: two cards, one chosen (V19 tokens, RTL, phone first) */
+.choice {
+  display: grid;
+  gap: 10px;
+  margin: 6px 0 4px;
+}
+
+@media (min-width: 720px) {
+  .choice {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  text-align: start;
+  width: 100%;
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  font-family: inherit;
+  cursor: pointer;
+  position: relative;
+}
+
+.card:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
+.on {
+  border-color: var(--dark);
+  box-shadow: 0 0 0 2px var(--dark) inset;
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.em {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.name {
+  font-size: 19px;
+  font-weight: 800;
+}
+
+.badge {
+  margin-inline-start: auto;
+  background: var(--gold);
+  color: var(--dark);
+  border-radius: 20px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.desc {
+  color: var(--muted);
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.list {
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+}
+
+.list li::before {
+  content: "✓ ";
+  color: var(--ok);
+  font-weight: 800;
+}
+
+.no::before {
+  content: "— " !important;
+  color: var(--muted) !important;
+}
+
+.check {
+  position: absolute;
+  inset-inline-end: 12px;
+  bottom: 12px;
+  font-size: 18px;
+}
+
+.err {
+  color: var(--red);
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 2px;
+}

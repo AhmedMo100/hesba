@@ -293,3 +293,28 @@ button.secondaryLink:focus-visible {
   font-weight: 700;
   cursor: pointer;
 }
+
+/* ADR-0033: «هتشغّل محلك إزاي؟» and the trial note */
+.modeHead {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 6px;
+}
+
+.modeHead b {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.modeHead small {
+  color: var(--muted, var(--ink2));
+  font-size: 13px;
+}
+
+.trialNote {
+  font-size: 14px;
+  color: var(--muted, var(--ink2));
+  margin: 4px 0 2px;
+  line-height: 1.5;
+}

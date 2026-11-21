@@ -16,7 +16,14 @@ import { Icon } from "../shared/ui";
 import { t } from "../shared/i18n";
 
 export type SyncState =
-  "synced" | "syncing" | "offline" | "login" | "updating" | "needsReview";
+  | "synced"
+  | "syncing"
+  | "offline"
+  | "login"
+  | "updating"
+  | "needsReview"
+  /** The shop's trial / subscription is over: queued sales wait, kept (ADR-0033). */
+  | "subscription";
 
 /** What the bar needs to know about one queued sale. */
 export interface QueuedOpStatus {
@@ -50,6 +57,7 @@ export function deriveSyncState(input: {
   let state: SyncState;
   if (input.sessionExpired || (input.online && lastWas(401))) state = "login";
   else if (!input.online) state = "offline";
+  else if (lastWas(402)) state = "subscription";
   else if (review.length > 0) state = "needsReview";
   else if (lastWas(503)) state = "updating";
   else if (waiting.length > 0 || input.queue === undefined) state = "syncing";
@@ -88,6 +96,9 @@ export function SyncBar({
   } else if (state === "updating") {
     text = t("sync.updating");
     iconName = "refresh";
+  } else if (state === "subscription") {
+    text = t("sync.subscription", { count: pendingCount });
+    iconName = "alert";
   } else if (state === "needsReview") {
     text = t("sync.needsReview", { count: pendingCount });
     iconName = "alert";

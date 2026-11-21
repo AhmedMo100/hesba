@@ -9,6 +9,8 @@ import type { NavRoute } from "./BottomNav";
 interface SideNavProps {
   activeRoute: NavRoute;
   onNavigate: (route: NavRoute) => void;
+  /** إدارة المحل shows «مبيعات اليوم» where الكاشير الذكي shows «البيع» (ADR-0033). */
+  operatingMode?: "simple" | "pos";
 }
 
 interface NavItem {
@@ -29,7 +31,21 @@ const NAV_ITEMS: NavItem[] = [
   { route: "ai", labelKey: "nav.ai", icon: "sparkle" },
 ];
 
-export function SideNav({ activeRoute, onNavigate }: SideNavProps) {
+export function SideNav({
+  activeRoute,
+  onNavigate,
+  operatingMode = "pos",
+}: SideNavProps) {
+  const items = NAV_ITEMS.map((item) =>
+    item.route === "sales" && operatingMode === "simple"
+      ? {
+          ...item,
+          route: "daily-sales" as const,
+          labelKey: "nav.dailySales",
+          icon: "wallet" as const,
+        }
+      : item,
+  );
   return (
     <aside className={styles.side} aria-label={t("common.menu")}>
       <div className={styles.logoSection}>
@@ -39,7 +55,7 @@ export function SideNav({ activeRoute, onNavigate }: SideNavProps) {
       </div>
 
       <nav className={styles.nav}>
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const isSelected = activeRoute === item.route;
           const classes = [
             styles.nv,

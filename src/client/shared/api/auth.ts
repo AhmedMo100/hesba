@@ -1,3 +1,6 @@
+import type { OperatingMode } from "@/domain/operating-mode";
+import type { StoreAccessView } from "@/domain/subscription";
+
 export interface SignupInput {
   ownerName: string;
   phone: string;
@@ -12,6 +15,8 @@ export interface SignupInput {
   withDemoData?: boolean;
   /** Optional influencer/referral code (checked on the server). */
   referralCode?: string;
+  /** إدارة المحل or الكاشير الذكي — chosen by the owner, never by default (ADR-0033). */
+  operatingMode?: OperatingMode;
 }
 
 export interface LoginInput {
@@ -36,6 +41,10 @@ export interface StoreSession {
   area?: string;
   openedOn: string;
   workersCount: number;
+  /** 'simple' | 'pos' (ADR-0033). */
+  operatingMode?: string;
+  /** The subscription as the server read it (the server enforces it; the screen shows it). */
+  subscription?: StoreAccessView["subscription"];
 }
 
 export interface SessionState {

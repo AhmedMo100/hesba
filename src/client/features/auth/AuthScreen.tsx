@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useCallback } from "react";
+import { ModeChoice } from "../subscription/ModeChoice";
 import styles from "./AuthScreen.module.css";
 import { Button, Field, Alert } from "@/client/shared/ui";
 import { useTranslation } from "@/client/shared/i18n";
@@ -197,6 +198,11 @@ export function AuthScreen({
     setGlobalErr("");
     setSubmitted(true);
     const errs = validateSignup(signupData, t, validatePasswordPolicy);
+    // ADR-0033: the owner picks how the shop works; it is never chosen for them.
+    if (!signupData.operatingMode) {
+      errs["operatingMode"] =
+        "اختار طريقة تشغيل المحل: إدارة المحل أو الكاشير الذكي";
+    }
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
@@ -533,6 +539,27 @@ export function AuthScreen({
                   />
                 </div>
               </Field>
+
+              <div className={styles.modeHead}>
+                <b>هتشغّل محلك إزاي؟</b>
+                <small>
+                  تقدر تغيّرها بعدين من إعدادات المحل من غير ما يتمسح أي حاجة.
+                </small>
+              </div>
+              <ModeChoice
+                value={signupData.operatingMode ?? null}
+                onChange={(operatingMode) => {
+                  setSignupData({ ...signupData, operatingMode });
+                  setFieldErrors((prev) => ({ ...prev, operatingMode: "" }));
+                  setGlobalErr("");
+                }}
+                error={showErr("operatingMode")}
+                disabled={busy}
+              />
+              <p className={styles.trialNote} data-testid="trial-note">
+                🎁 أول 3 أيام مجانًا، وبعدها بتكلم إدارة حِسبة عشان تفعّل
+                الاشتراك.
+              </p>
 
               <Button
                 type="submit"

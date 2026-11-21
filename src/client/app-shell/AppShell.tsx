@@ -41,6 +41,8 @@ const loadAiView = () => import("../features/ai/AiView");
 const loadInventoryView = () => import("../features/home/InventoryView");
 const loadReportsView = () => import("../features/home/ReportsView");
 const loadDrawerView = () => import("../features/home/DrawerView");
+const loadDailySalesView = () =>
+  import("../features/daily-sales/DailySalesView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -52,11 +54,13 @@ const AiView = lazy(loadAiView);
 const InventoryView = lazy(loadInventoryView);
 const ReportsView = lazy(loadReportsView);
 const DrawerView = lazy(loadDrawerView);
+const DailySalesView = lazy(loadDailySalesView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
   "products",
   "sales",
+  "daily-sales",
   "stock",
   "expenses",
   "people",
@@ -107,6 +111,16 @@ import {
   type SaleOutboxOp,
 } from "../offline/outbox";
 import { AuthScreen } from "../features/auth/AuthScreen";
+import {
+  SubscriptionScreen,
+  SubscriptionSheet,
+} from "../features/subscription/SubscriptionScreen";
+import { ModeSwitchSheet } from "../features/subscription/ModeSwitchSheet";
+import {
+  isAccessBlocked,
+  modeOf,
+  rememberMode,
+} from "../features/subscription/access";
 import { ProfileModal } from "../features/auth/ProfileModal";
 import {
   apiGet,
@@ -129,7 +143,10 @@ function AppShellInner() {
     isSessionRefused,
     isSignedOutByServer,
     logout,
+    refreshSession,
   } = useAuth();
+  const [showMode, setShowMode] = useState(false);
+  const [showSubscription, setShowSubscription] = useState(false);
   const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -239,6 +256,7 @@ function AppShellInner() {
     loadInventoryView();
     loadReportsView();
     loadDrawerView();
+    loadDailySalesView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -269,11 +287,20 @@ function AppShellInner() {
   }, []);
 
   const renderCurrentView = () => {
-    switch (route) {
+    // ADR-0033: the cashier in الكاشير الذكي, the daily total in إدارة المحل — the other one is
+    // never shown (and the server refuses it anyway).
+    const shown: NavRoute =
+      mode === "simple" && route === "sales"
+        ? "daily-sales"
+        : mode === "pos" && route === "daily-sales"
+          ? "sales"
+          : route;
+    switch (shown) {
       case "home":
         return (
           <HomeView
             onNavigate={navigate}
+            operatingMode={mode}
             alertCount={alertCount}
             onOpenAlerts={() => navigate("alerts")}
             onLogout={async () => {
@@ -288,6 +315,8 @@ function AppShellInner() {
         return <ProductsView />;
       case "sales":
         return <SalesView onNavigate={navigate} />;
+      case "daily-sales":
+        return <DailySalesView />;
       case "stock":
         return <StockView />;
       case "expenses":
@@ -310,6 +339,7 @@ function AppShellInner() {
         return (
           <HomeView
             onNavigate={navigate}
+            operatingMode={mode}
             alertCount={alertCount}
             onOpenAlerts={() => navigate("alerts")}
             onLogout={async () => {
@@ -388,6 +418,12 @@ function AppShellInner() {
   const identity =
     savedIdentity && savedIdentity.storeId === storeId ? savedIdentity : null;
   const storeName = session?.store?.name ?? identity?.storeName ?? null;
+  // The operating mode (ADR-0033): the session's, else the last one seen on this device.
+  const mode = modeOf(session, storeId ?? null);
+  useEffect(() => {
+    if (session?.store?.id)
+      rememberMode(session.store.id, session.store.operatingMode);
+  }, [session]);
   const ownerName = session?.user?.name ?? identity?.ownerName ?? null;
   // Honest status (QA-17): from the connection and the real queue, including each queued
   // sale's last answer (401 → log in, 503 → server updating).
@@ -397,9 +433,27 @@ function AppShellInner() {
     queue: queuedSales,
   });
 
+  const doLogout = async () => {
+    await logout();
+    await forgetShopIdentities(db).catch(() => {});
+    await clearReadCache();
+    router.push("/");
+  };
+
+  // The trial or subscription is over (as the server said): only the subscription screen and
+  // logout. Nothing is deleted; queued sales stay on the device (ADR-0033).
+  if (session && isAccessBlocked(session)) {
+    return (
+      <SubscriptionScreen
+        onLogout={() => void doLogout()}
+        onRecheck={() => void refreshSession()}
+      />
+    );
+  }
+
   return (
     <div className={styles.app} dir="rtl">
-      <SideNav activeRoute={route} onNavigate={navigate} />
+      <SideNav activeRoute={route} onNavigate={navigate} operatingMode={mode} />
       <div className={styles.main}>
         <Header
           storeName={storeName}
@@ -416,6 +470,10 @@ function AppShellInner() {
             router.push("/");
           }}
           signedIn={Boolean(session)}
+          onOpenMode={session ? () => setShowMode(true) : undefined}
+          onOpenSubscription={
+            session ? () => setShowSubscription(true) : undefined
+          }
           route={route}
           onBack={route !== "home" ? () => navigate("home") : undefined}
         />
@@ -441,6 +499,19 @@ function AppShellInner() {
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+      {showMode && (
+        <ModeSwitchSheet
+          current={session?.store?.operatingMode}
+          onClose={() => setShowMode(false)}
+          onChanged={async () => {
+            await refreshSession();
+            await clearReadCache();
+          }}
+        />
+      )}
+      {showSubscription && (
+        <SubscriptionSheet onClose={() => setShowSubscription(false)} />
+      )}
 
       {showAuthModal && (
         <div
