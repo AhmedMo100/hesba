@@ -1,4 +1,5 @@
 import "server-only";
+import { storeAccessView } from "@/domain/subscription";
 import { prisma } from "@/server/infra/db/client";
 import { type SignupInput, signupInputSchema } from "@/schemas/auth";
 import { AppError } from "@/server/platform/error";
@@ -129,6 +130,9 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
           openedOn: openedOnDate,
           workersCount: data.workersCount ?? 1,
           createdBy: userId,
+          // The owner's choice on the sign-up screen (ADR-0033). The trial is started by the
+          // database itself when this row is inserted (72 hours, database clock).
+          operatingMode: data.operatingMode,
         },
       });
 
@@ -211,6 +215,7 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
       area: store.area ?? undefined,
       openedOn: store.openedOn?.toISOString() ?? "",
       workersCount: store.workersCount ?? 1,
+      ...storeAccessView(store, new Date()),
     },
   };
 }

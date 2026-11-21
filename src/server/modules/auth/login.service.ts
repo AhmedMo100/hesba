@@ -1,4 +1,5 @@
 import "server-only";
+import { storeAccessView } from "@/domain/subscription";
 import { prisma } from "@/server/infra/db/client";
 import { type LoginInput, loginInputSchema } from "@/schemas/auth";
 import { AppError } from "@/server/platform/error";
@@ -164,6 +165,7 @@ export async function loginWithPassword(
       area: primaryMember.store.area ?? undefined,
       openedOn: primaryMember.store.openedOn?.toISOString() ?? "",
       workersCount: primaryMember.store.workersCount ?? 1,
+      ...storeAccessView(primaryMember.store, new Date()),
     },
   };
 }

@@ -29,7 +29,11 @@ export type ErrorCode =
   | "SERVICE_UNAVAILABLE"
   | "INTERNAL_ERROR"
   /** A queued sale was made in another shop than the one signed in now (ADR-0020). */
-  | "STORE_MISMATCH";
+  | "STORE_MISMATCH"
+  /** The shop's trial or subscription is over (or suspended): nothing protected runs (ADR-0033). */
+  | "SUBSCRIPTION_INACTIVE"
+  /** A feature of the other operating mode (ADR-0033). */
+  | "MODE_FORBIDDEN";
 
 export interface ErrorResponsePayload {
   error: {
@@ -79,6 +83,25 @@ export class AppError extends Error {
 
   static forbidden(message = "ليس لديك صلاحية لتنفيذ هذا الإجراء"): AppError {
     return new AppError("FORBIDDEN", message, 403);
+  }
+
+  /** 402: the shop's trial / subscription is over; `details.subscriptionStatus` says which. */
+  static subscriptionInactive(status: string): AppError {
+    return new AppError(
+      "SUBSCRIPTION_INACTIVE",
+      status === "suspended"
+        ? "الحساب موقوف. كلّم إدارة حِسبة عشان تعرف السبب."
+        : "الفترة خلصت، والحساب محتاج تفعيل. بيانات المحل محفوظة زي ما هي.",
+      402,
+      { subscriptionStatus: status },
+    );
+  }
+
+  /** 403: this feature belongs to the other operating mode. */
+  static modeForbidden(message: string, mode: string): AppError {
+    return new AppError("MODE_FORBIDDEN", message, 403, {
+      operatingMode: mode,
+    });
   }
 
   static notFound(message = "العنصر المطلوب غير موجود"): AppError {

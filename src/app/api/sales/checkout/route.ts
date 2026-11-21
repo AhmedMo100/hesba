@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(req: Request) {
   try {
-    const context = await requireSession(req);
+    const context = await requireSession(req, { capability: "posSales" });
     const input = checkoutSchema.parse(await readJsonBody(req));
     const invoice = await checkoutSale(
       context.store.id,

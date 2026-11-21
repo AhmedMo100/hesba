@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const context = await requireSession(req);
+    const context = await requireSession(req, { allowInactive: true });
     const cookieHeader = req.headers.get("cookie");
     let rawToken = "";
     if (cookieHeader) {

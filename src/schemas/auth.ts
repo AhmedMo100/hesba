@@ -1,3 +1,4 @@
+import { OPERATING_MODES } from "@/domain/operating-mode";
 import { z } from "zod";
 import { MAX_PERSON_NAME_LENGTH } from "@/domain/limits";
 import {
@@ -61,6 +62,13 @@ export const signupInputSchema = z.object({
     .optional()
     .default(1),
   withDemoData: z.boolean().optional().default(false),
+  /**
+   * How the shop will use Hesba (ADR-0033), chosen on the sign-up screen — required: the app
+   * never picks it silently for the owner.
+   */
+  operatingMode: z.enum(OPERATING_MODES, {
+    message: "اختار طريقة تشغيل المحل: إدارة المحل أو الكاشير الذكي",
+  }),
   /**
    * Optional referral (influencer) code, e.g. `mogamal123`. Empty = none. Matched without
    * case; checked against `referral_codes` on the server (an unknown code is a 400).
