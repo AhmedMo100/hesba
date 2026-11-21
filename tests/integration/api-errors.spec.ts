@@ -24,7 +24,7 @@ import * as aiConversation from "@/app/api/ai/conversations/[id]/route";
 import * as profile from "@/app/api/auth/profile/route";
 import * as signup from "@/app/api/auth/signup/route";
 import * as login from "@/app/api/auth/login/route";
-import * as reset from "@/app/api/auth/forgot-password/reset/route";
+import * as changePassword from "@/app/api/auth/change-password/route";
 import { SaleFixtures } from "./helpers/sale-fixtures";
 
 type Handler = (req: Request, ctx: never) => Promise<Response>;
@@ -154,11 +154,10 @@ describe("QA-18 — a malformed JSON body is a 400 on every endpoint", () => {
       false,
     ],
     [
-      "POST /api/auth/forgot-password/reset",
-      reset.POST as Handler,
+      "POST /api/auth/change-password",
+      changePassword.POST as Handler,
       "POST",
-      "/api/auth/forgot-password/reset",
-      false,
+      "/api/auth/change-password",
     ],
   ];
   for (const [name, handler, method, path, auth] of cases) {

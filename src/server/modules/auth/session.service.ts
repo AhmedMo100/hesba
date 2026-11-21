@@ -52,8 +52,10 @@ export interface SessionContext {
     id: string;
     name: string;
     phone: string;
-    email: string;
+    email: string | null;
     emailVerifiedAt: Date | null;
+    /** Signed in with an admin-issued temporary password: only the change-password flow runs. */
+    mustChangePassword: boolean;
   };
   store: {
     id: string;
@@ -246,6 +248,7 @@ export async function validateSession(
       phone: record.user.phone,
       email: record.user.email,
       emailVerifiedAt: record.user.emailVerifiedAt,
+      mustChangePassword: record.user.mustChangePassword,
     },
     store: {
       id: store.id,
@@ -427,6 +430,13 @@ export async function requireSession(
   if (!context) {
     throw AppError.unauthorized();
   }
+  // An admin reset (scripts/admin-reset-password.ts) issued a temporary password: until the
+  // owner picks their own, no API works except changing it — enforced here, on the server, so no
+  // URL, cached screen or direct API call gets around it. Checked before the subscription so the
+  // owner always sees the password screen first.
+  if (context.user.mustChangePassword && !options.allowPasswordChange) {
+    throw AppError.passwordChangeRequired();
+  }
   // ADR-0033: the shop may use Hesba only while its trial / subscription runs — decided on the
   // server's clock for every protected request, so no cron, client date or cached screen can
   // keep an expired shop working. Only the subscription screens opt out.
@@ -454,4 +464,9 @@ export interface RequireSessionOptions {
   allowInactive?: boolean;
   /** A feature of one operating mode only (ADR-0033): refused in the other mode. */
   capability?: ModeCapability;
+  /**
+   * Only `POST /api/auth/change-password`: the one route an account holding a temporary
+   * password may use (besides reading its session and logging out, which do not come here).
+   */
+  allowPasswordChange?: boolean;
 }

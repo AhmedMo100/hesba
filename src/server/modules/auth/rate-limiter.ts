@@ -6,7 +6,7 @@ import "server-only";
  *
  * @usedBy
  * `login.service.ts` (failed attempts per phone and per IP: `reserveAttempt`),
- * `forgot-password.service.ts` (requests per email and per IP: `check`).
+ * `password-change.service.ts` (wrong current passwords per account: `reserveAttempt`).
  *
  * @remarks
  * State lives in this process's memory: limits are per server instance and reset when the

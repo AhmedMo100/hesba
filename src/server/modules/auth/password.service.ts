@@ -5,10 +5,12 @@ import "server-only";
  * @description Argon2id password hashing for phone + password login.
  *
  * @usedBy
- * `signup.service.ts`, `login.service.ts`, `forgot-password.service.ts`.
+ * `signup.service.ts`, `login.service.ts`, `password-change.service.ts` (the admin reset tool
+ * hashes through the same `password-hash.ts`).
  */
 
-import { hash, verify } from "@node-rs/argon2";
+import { verify } from "@node-rs/argon2";
+import { argon2idHash } from "./password-hash";
 
 // A REAL Argon2id hash with the same parameters as {@link hashPassword} (QA-38): verifying
 // against it costs exactly what a wrong password on an existing account costs. The previous
@@ -17,14 +19,9 @@ import { hash, verify } from "@node-rs/argon2";
 const DUMMY_ARGON2_HASH =
   "$argon2id$v=19$m=19456,t=2,p=1$dAK6PkyaF/cA6rrDt4EQtg$5s8HBhCua8jzM1BkXBF77Bs2qNzqdtc2W8arqx5tHpY";
 
-/** Hashes a password with Argon2id (19 MiB memory, 2 iterations, 1 lane). */
+/** Hashes a password with Argon2id (19 MiB memory, 2 iterations, 1 lane — `password-hash.ts`). */
 export async function hashPassword(password: string): Promise<string> {
-  return await hash(password, {
-    memoryCost: 19456, // 19 MiB
-    timeCost: 2,
-    outputLen: 32,
-    parallelism: 1,
-  });
+  return await argon2idHash(password);
 }
 
 /** @returns `true` only for a matching password; a malformed hash also returns `false`. */

@@ -33,7 +33,9 @@ export type ErrorCode =
   /** The shop's trial or subscription is over (or suspended): nothing protected runs (ADR-0033). */
   | "SUBSCRIPTION_INACTIVE"
   /** A feature of the other operating mode (ADR-0033). */
-  | "MODE_FORBIDDEN";
+  | "MODE_FORBIDDEN"
+  /** Signed in with a temporary password from an admin reset: choose a new one first. */
+  | "PASSWORD_CHANGE_REQUIRED";
 
 export interface ErrorResponsePayload {
   error: {
@@ -102,6 +104,15 @@ export class AppError extends Error {
     return new AppError("MODE_FORBIDDEN", message, 403, {
       operatingMode: mode,
     });
+  }
+
+  /** 403: the account signed in with a temporary password and must set its own first. */
+  static passwordChangeRequired(): AppError {
+    return new AppError(
+      "PASSWORD_CHANGE_REQUIRED",
+      "لازم تغيّر كلمة المرور المؤقتة الأول قبل ما تكمل.",
+      403,
+    );
   }
 
   static notFound(message = "العنصر المطلوب غير موجود"): AppError {

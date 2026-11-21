@@ -32,6 +32,8 @@ export async function GET(req: Request) {
           phone: context.user.phone,
           email: context.user.email,
           emailVerified: !!context.user.emailVerifiedAt,
+          // An admin reset: the app shows only the change-password screen until it is done.
+          mustChangePassword: context.user.mustChangePassword,
         },
         store: {
           id: context.store.id,

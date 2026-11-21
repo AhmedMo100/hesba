@@ -19,6 +19,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "catalog:import": "tsx scripts/import-catalog.ts",
+    "admin:reset-password": "tsx scripts/admin-reset-password.ts",
     "format": "prettier --write .",
     "postinstall": "prisma generate"
   },

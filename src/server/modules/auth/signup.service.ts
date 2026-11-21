@@ -15,8 +15,8 @@ import { withTenant } from "@/server/infra/db/tenant";
  * device, and the first session.
  *
  * @usedBy
- * `src/app/api/auth/signup/route.ts`; `normalizePhone` is also used by `login.service.ts` and
- * `forgot-password.service.ts`.
+ * `src/app/api/auth/signup/route.ts`; `normalizePhone` is also used by `login.service.ts`,
+ * `profile.service.ts` and `scripts/admin-reset-password.ts`.
  */
 
 /**
@@ -115,7 +115,8 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
           id: userId,
           name: data.ownerName.trim(),
           phone: normalizedPhone,
-          email: normalizedEmail ?? "",
+          // NULL when the owner gave no e-mail (it is optional): never '' (users_email_key).
+          email: normalizedEmail,
           passwordHash: hashedPassword,
         },
       });
@@ -206,6 +207,7 @@ export async function registerUserWithPassword(rawInput: SignupInput) {
       name: user.name,
       phone: user.phone,
       email: user.email,
+      mustChangePassword: false,
     },
     store: {
       id: store.id,
