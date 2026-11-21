@@ -5,17 +5,22 @@ test.describe("App Shell Offline Navigation", () => {
     page,
     context,
   }) => {
-    // 1. First visit online with authenticated session cookie
-    await context.addCookies([
-      {
-        name: "hesba_session",
-        value: "e2e-offline-token",
-        domain: "localhost",
-        path: "/",
-        httpOnly: true,
-        sameSite: "Lax",
+    // 1. First visit online, signed in for real: the app shows nothing of a shop to a cookie the
+    //    server does not recognize, so the offline copy must come from a real session.
+    const phone = `012${Math.floor(1e7 + Math.random() * 9e7)}`;
+    const signup = await page.request.post("/api/auth/signup", {
+      data: {
+        ownerName: "محل أوفلاين",
+        phone,
+        password: "Offline-shell-2026",
+        storeName: `محل أوفلاين ${Date.now().toString(36)}`,
+        shopType: "سوبر ماركت",
+        governorate: "القاهرة",
+        operatingMode: "pos",
       },
-    ]);
+    });
+    expect(signup.status()).toBe(200);
+    void context;
 
     await page.goto("/app");
     await page.waitForLoadState("domcontentloaded");
@@ -44,9 +49,9 @@ test.describe("App Shell Offline Navigation", () => {
       ["inventory", "page-inventory"],
       ["ai", "page-ai"],
     ] as const) {
-      await page.getByTestId(`home-tile-${route}`).click({ force: true });
+      await page.getByTestId(`home-tile-${route}`).click();
       await expect(page.getByTestId(screen)).toBeVisible();
-      await back.click({ force: true });
+      await back.click();
       await expect(page.getByTestId("page-home")).toBeVisible();
     }
     // The reports, drawer and alerts pages load offline too (their data needs the network).
@@ -54,9 +59,11 @@ test.describe("App Shell Offline Navigation", () => {
       ["home-sold-today", "page-reports"],
       ["home-drawer", "page-drawer"],
     ] as const) {
-      await page.getByTestId(testId).click({ force: true });
+      // A real shop's home settles as its offline copy loads: a normal click waits until the
+      // tile is stable and really on top (a forced click can land on a neighbour mid-layout).
+      await page.getByTestId(testId).click();
       await expect(page.getByTestId(screen)).toBeVisible();
-      await back.click({ force: true });
+      await back.click();
     }
   });
 });

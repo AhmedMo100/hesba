@@ -251,12 +251,21 @@ export function toSafeErrorResponse(
       error.message.includes("Can't reach database server") ||
       (error as { code?: string }).code === "P1001")
   ) {
-    logger.error({ err: error, requestId }, "Database connection error");
+    const id = requestId ?? newErrorId();
+    logger.error({ err: error, requestId: id }, "Database connection error");
     return AppError.serviceUnavailable(
       "تعذر الاتصال بقاعدة البيانات حالياً. جرّب تاني بعد شوية.",
-    ).toResponse(requestId);
+    ).toResponse(id);
   }
 
-  logger.error({ err: error, requestId }, "Internal API error");
-  return AppError.internal().toResponse(requestId);
+  // Every unexpected failure gets a short id, logged with the error and returned in the body
+  // (`request_id`): what the owner reports to support can be found in the logs.
+  const id = requestId ?? newErrorId();
+  logger.error({ err: error, requestId: id }, "Internal API error");
+  return AppError.internal().toResponse(id);
+}
+
+/** A short random id for one failed request (not secret, not derived from any data). */
+function newErrorId(): string {
+  return globalThis.crypto.randomUUID().slice(0, 8);
 }
