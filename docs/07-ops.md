@@ -720,3 +720,8 @@ Write an end-of-Phase [N] report: what was done, the done-when condition point b
 5. **Keep it small:** one or two tasks per session is better than a whole phase.
 6. **Update `docs/`** after every decision. The documents are the Agent's memory between sessions.
 7. If the session gets long and the Agent starts forgetting the rules: start a new session and give it a shortened prompt 0 + the task.
+
+
+## Subscriptions (manual activation)
+
+See `docs/ops/subscriptions.md` (ADR-0033): find a shop, activate or renew it, suspend it, read the audit.
