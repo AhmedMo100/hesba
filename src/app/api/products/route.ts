@@ -6,7 +6,11 @@ import { CatalogService } from "@/server/modules/catalog";
 import { upsertProductInputSchema } from "@/schemas/product";
 import { normalizeArabic } from "@/domain/normalize";
 import { isServiceProduct as isServiceProductRule } from "@/domain/sale-pricing";
-import { toSafeErrorResponse, readJsonBody } from "@/server/platform/error";
+import {
+  AppError,
+  toSafeErrorResponse,
+  readJsonBody,
+} from "@/server/platform/error";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +65,8 @@ export async function GET(req: Request) {
       sell_price_piasters: Number(p.sell_price_piasters),
       buy_cost_piasters: Number(p.buy_cost_piasters),
       stock_quantity: Number(p.stock_quantity ?? 0),
+      // Optional shop barcode (ADR-0031).
+      barcode: p.barcode ?? null,
       brand_name: p.brand_name || null,
       // QA-48: the products screen also searches the English catalog names.
       name_en: p.name_en,
@@ -79,6 +85,7 @@ export async function GET(req: Request) {
         sell_price_piasters: Number(v.sell_price_piasters),
         buy_cost_piasters: Number(v.buy_cost_piasters),
         stock_quantity: Number(v.stock_quantity ?? 0),
+        barcode: v.barcode ?? null,
         global_variant_id: v.global_variant_id,
       })),
     }));
@@ -119,6 +126,9 @@ export async function POST(req: Request) {
       size_unit: v.sizeUnit,
       pack_qty: v.packQty,
       sell_price_piasters: Number(v.sellPricePiasters),
+      buy_cost_piasters:
+        v.buyPricePiasters != null ? Number(v.buyPricePiasters) : null,
+      barcode: v.barcode ?? null,
       global_variant_id: v.globalVariantId,
       is_active: v.isActive,
     }));
@@ -130,6 +140,8 @@ export async function POST(req: Request) {
       category: input.category,
       unit: input.unit,
       sell_price_piasters: input.sellPricePiasters,
+      buy_cost_piasters: input.buyCostPiasters ?? null,
+      barcode: input.barcode ?? null,
       is_custom: input.isCustom ?? true,
       global_product_id: input.globalProductId ?? null,
       variants: formattedVariants,
@@ -160,10 +172,7 @@ export async function PATCH(req: Request) {
     const action = searchParams.get("action");
 
     if (!productId) {
-      return NextResponse.json(
-        { error: "Product ID is required" },
-        { status: 400 },
-      );
+      throw AppError.badRequest("رقم المنتج مطلوب");
     }
 
     const catalogService = new CatalogService(prisma);
@@ -177,7 +186,7 @@ export async function PATCH(req: Request) {
       return NextResponse.json({ success: true, action: "unhide" });
     }
 
-    return NextResponse.json({ error: "Invalid action" }, { status: 400 });
+    throw AppError.badRequest("العملية دي مش معروفة");
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }
@@ -197,10 +206,7 @@ export async function DELETE(req: Request) {
     const { searchParams } = new URL(req.url);
     const productId = searchParams.get("id");
     if (!productId) {
-      return NextResponse.json(
-        { error: "Product ID is required" },
-        { status: 400 },
-      );
+      throw AppError.badRequest("رقم المنتج مطلوب");
     }
 
     const catalogService = new CatalogService(prisma);

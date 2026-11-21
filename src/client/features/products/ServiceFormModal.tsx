@@ -1,9 +1,37 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { Modal, Field, Icon } from "@/client/shared/ui";
-import styles from "./ProductsView.module.css";
+/**
+ * @file ServiceFormModal.tsx
+ * @description V19 serviceForm — the same form to add and to edit a service: its name, the
+ * shop's commission as slabs of the operation's amount (each slab a fixed amount or a
+ * percentage; no separate commission field), and the machines / wallets it is charged from.
+ * The rule is kept in the shop's sales settings and validated there too (no overlapping or
+ * repeated slabs, no negative commission, a top above the bottom, a percentage up to 100%).
+ * A saved service is offered in the sale at once.
+ */
+
+import React, { useEffect, useMemo, useState } from "react";
+import { Modal } from "@/client/shared/ui";
+import { formatMoney } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
+import { parseEgpStrict } from "@/domain/money";
+import {
+  commissionRuleErrors,
+  describeSlab,
+  slabFor,
+  type CommissionType,
+  type ServiceCommissionRule,
+} from "@/domain/service-commission";
+import { apiGet } from "@/client/shared/api/read-cache";
+import {
+  fetchStoreMachines,
+  getServiceLinkedMachineIds,
+  setServiceLinkedMachineIds,
+  type PosMachine,
+} from "@/client/shared/api/machines";
+import { enableServiceForSale } from "@/client/shared/api/sale-services";
+import { useAuth } from "@/client/shared/auth";
+import f from "./ProductFormModal.module.css";
 
 export interface ServiceFormModalProps {
   product?: {
@@ -28,466 +56,501 @@ export interface ServiceFormModalProps {
 }
 
 const SERVICE_CATEGORIES = [
-  { value: "خدمات مرافق", label: "شحن مرافق (كهرباء/مياه/غاز)" },
+  { value: "تحويل أموال", label: "تحويل فلوس ومحافظ" },
+  { value: "خدمات مرافق", label: "شحن مرافق (كهرباء / مياه / غاز)" },
   { value: "فواتير إنترنت", label: "فواتير إنترنت وتليفون" },
+  { value: "شحن رصيد", label: "شحن رصيد" },
   { value: "كروت شحن", label: "كروت شحن" },
-  { value: "تحويل أموال", label: "تحويل أموال ومحافظ" },
-  { value: "شحن رصيد", label: "شحن رصيد على الهواء" },
-  { value: "خدمات رقمية", label: "خدمات رقمية أخرى" },
+  { value: "خدمات رقمية", label: "خدمات تانية" },
 ] as const;
+
+/** A tier as the form edits it (EGP text, percent text). */
+interface TierRow {
+  from: string;
+  to: string;
+  type: CommissionType;
+  value: string;
+}
+
+const egp = (piasters: number) => String(Number((piasters / 100).toFixed(2)));
+
+const emptySlab = (from = ""): TierRow => ({
+  from,
+  to: "",
+  type: "fixed",
+  value: "",
+});
+
+/** The slabs-only rule the form describes (amounts in piasters), or why it cannot be read. */
+function ruleFromForm(tiers: TierRow[]): {
+  rule: ServiceCommissionRule | null;
+  errors: string[];
+} {
+  const errors: string[] = [];
+  const readValue = (t: CommissionType, v: string, where: string) => {
+    if (v.trim() === "") {
+      errors.push(`${where}: اكتب العمولة`);
+      return 0;
+    }
+    if (t === "percent") {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < 0 || n > 100)
+        errors.push(`${where}: النسبة لازم تكون من 0 لحد 100%`);
+      return n;
+    }
+    const p = parseEgpStrict(v);
+    if (p === null) {
+      errors.push(`${where}: العمولة لازم تكون مبلغ بالجنيه`);
+      return 0;
+    }
+    return p;
+  };
+  const parsed = tiers.map((t, i) => {
+    const where = `الشريحة ${i + 1}`;
+    const from = parseEgpStrict(t.from);
+    const to = parseEgpStrict(t.to);
+    if (from === null || to === null) {
+      errors.push(`${where}: اكتب من كام لحد كام`);
+    }
+    return {
+      fromPiasters: from ?? 0,
+      toPiasters: to ?? 0,
+      type: t.type,
+      value: readValue(t.type, t.value, where),
+    };
+  });
+  if (errors.length) return { rule: null, errors };
+  // No commission outside the slabs: the sale asks for an amount inside one of them.
+  const rule: ServiceCommissionRule = {
+    type: "fixed",
+    value: 0,
+    tiers: parsed,
+  };
+  const ruleErrors = commissionRuleErrors(rule, { slabsRequired: true });
+  return ruleErrors.length
+    ? { rule: null, errors: ruleErrors }
+    : { rule, errors: [] };
+}
 
 export function ServiceFormModal({
   product,
   existingServices,
-  presetCategory = "خدمات مرافق",
+  presetCategory = "تحويل أموال",
   onClose,
   onSaved,
   onDeleted,
 }: ServiceFormModalProps) {
+  const { session } = useAuth();
+  const storeId = session?.store?.id;
+
   const [name, setName] = useState(product?.name_ar || "");
-  const [category, setCategory] = useState(
-    product?.category || presetCategory || "خدمات مرافق",
+  const [category, setCategory] = useState(product?.category || presetCategory);
+  // A new service starts with one slab to fill; an older service (one fixed commission, no
+  // slabs) starts with that commission in a slab whose range the owner sets.
+  const [tiers, setTiers] = useState<TierRow[]>(() =>
+    product
+      ? [
+          {
+            ...emptySlab("1"),
+            value: egp(Math.max(0, product.sell_price_piasters ?? 0)),
+          },
+        ]
+      : [emptySlab()],
   );
-  const [brandName, setBrandName] = useState(product?.brand_name || "");
-
-  const [commissionModel, setCommissionModel] = useState<
-    "fixed" | "percent" | "tiers"
-  >("fixed");
-  const [commissionValue, setCommissionValue] = useState(
-    product ? (product.sell_price_piasters / 100).toString() : "5",
+  const [machines, setMachines] = useState<PosMachine[]>([]);
+  const [linked, setLinked] = useState<string[]>(() =>
+    product ? getServiceLinkedMachineIds(product.id, storeId) : [],
   );
-  const [percentRate, setPercentRate] = useState("1.5");
+  const [touched, setTouched] = useState(false);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
-  const [errors, setErrors] = useState<Record<string, string>>({});
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  const isCard =
-    category === "كروت شحن" ||
-    category === "كروت مرافق" ||
-    name.includes("كارت");
-
-  // Contextual placeholder based on category
-  const namePlaceholder = useMemo(() => {
-    if (category === "كروت شحن") return "مثال: كارت شحن فودافون فكة 10";
-    if (category === "خدمات مرافق")
-      return "مثال: كارت شحن كهرباء، كارت مياه...";
-    if (category === "فواتير إنترنت") return "مثال: باقة وي إنترنت منزلي سوبر";
-    if (category === "تحويل أموال")
-      return "مثال: تحويل فودافون كاش، إنستاباي...";
-    if (category === "شحن رصيد") return "مثال: شحن رصيد فودافون على الهواء";
-    return "مثال: كارت شحن فودافون 10، فاتورة نت وي...";
-  }, [category]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const newErrors: Record<string, string> = {};
-
-    if (!name.trim()) {
-      newErrors.name = "اكتب اسم الخدمة أو الكارت";
-    } else if (!product && existingServices && existingServices.length > 0) {
-      const normInput = normalizeArabic(name.trim());
-      const duplicate = existingServices.find(
-        (s) => normalizeArabic(s.name_ar) === normInput,
-      );
-      if (duplicate) {
-        newErrors.name = `هذه الخدمة «${duplicate.name_ar}» مسجلة بالفعل في قائمتك`;
-      }
+  // The machines, and (when editing) the saved commission rule — the same form, prefilled.
+  useEffect(() => {
+    let alive = true;
+    void fetchStoreMachines(storeId).then((list) => {
+      if (alive) setMachines(list);
+    });
+    if (product) {
+      apiGet("/api/sales/config")
+        .then((r) => (r.ok ? r.json() : null))
+        .then(
+          (
+            d: {
+              config?: {
+                serviceCommissions?: Record<string, ServiceCommissionRule>;
+              };
+            } | null,
+          ) => {
+            const rule = d?.config?.serviceCommissions?.[product.id];
+            if (!alive || !rule) return;
+            setTiers(
+              rule.tiers.length > 0
+                ? rule.tiers.map((t) => ({
+                    from: egp(t.fromPiasters),
+                    to: egp(t.toPiasters),
+                    type: t.type,
+                    value: t.type === "fixed" ? egp(t.value) : String(t.value),
+                  }))
+                : [
+                    {
+                      ...emptySlab("1"),
+                      type: rule.type,
+                      value:
+                        rule.type === "fixed"
+                          ? egp(rule.value)
+                          : String(rule.value),
+                    },
+                  ],
+            );
+          },
+        )
+        .catch(() => undefined);
     }
+    return () => {
+      alive = false;
+    };
+  }, [product, storeId]);
 
-    let sellPriceNum = 0;
-    if (commissionModel === "fixed" || commissionModel === "tiers") {
-      sellPriceNum = parseFloat(commissionValue) || 0;
-    } else {
-      sellPriceNum = parseFloat(percentRate) || 0;
-    }
+  const { rule, errors } = useMemo(() => ruleFromForm(tiers), [tiers]);
+  // The example: an operation in the first slab's range.
+  const example = rule?.tiers[0]
+    ? Math.max(
+        rule.tiers[0].fromPiasters,
+        Math.min(50000, rule.tiers[0].toPiasters),
+      )
+    : 50000;
+  const exampleSlab = rule ? slabFor(rule, example) : undefined;
 
-    if (isNaN(sellPriceNum) || sellPriceNum <= 0) {
-      newErrors.price = isCard
-        ? "اكتب سعر بيع الكارت"
-        : "اكتب قيمة عمولة المحل";
-    }
+  const setTier = (i: number, patch: Partial<TierRow>) =>
+    setTiers((prev) => prev.map((t, k) => (k === i ? { ...t, ...patch } : t)));
 
-    if (Object.keys(newErrors).length > 0) {
-      setErrors(newErrors);
+  const save = async () => {
+    setTouched(true);
+    setSubmitError(null);
+    const trimmed = name.trim();
+    if (trimmed.length < 2) {
+      setNameError("اكتب اسم الخدمة");
       return;
     }
-
-    setIsSubmitting(true);
-    setErrors({});
-
+    const norm = normalizeArabic(trimmed);
+    const dup = !product
+      ? existingServices?.find((s) => normalizeArabic(s.name_ar) === norm)
+      : undefined;
+    if (dup) {
+      setNameError(`«${dup.name_ar}» متسجلة قبل كده`);
+      return;
+    }
+    setNameError(null);
+    if (!rule) {
+      setSubmitError(errors[0] ?? "راجع الشرائح");
+      return;
+    }
+    setBusy(true);
     try {
-      const sellPricePiasters = Math.round(sellPriceNum * 100);
-      const isCustom = product ? product.is_custom : true;
-
-      const payload = {
-        id: product?.id,
-        nameAr: name.trim(),
-        category,
-        unit: "service" as const,
-        sellPricePiasters,
-        buyCostPiasters: null,
-        isCustom,
-        brandName: brandName.trim() || null,
-        barcode: null,
-        variants: [
-          {
-            id: product?.variants?.[0]?.id,
-            flavor: null,
-            sizeValue: 1,
-            sizeUnit: "piece" as const,
-            packQty: 1,
-            sellPricePiasters,
-            costPricePiasters: null,
-          },
-        ],
-      };
-
+      // The product's price: the first slab's fixed commission (older screens read it).
+      const first = rule.tiers[0];
+      const sellPricePiasters =
+        first && first.type === "fixed" ? first.value : 0;
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          id: product?.id,
+          nameAr: trimmed,
+          category,
+          unit: "service",
+          sellPricePiasters,
+          buyCostPiasters: null,
+          isCustom: product ? (product.is_custom ?? true) : true,
+          brandName: product?.brand_name ?? null,
+          barcode: null,
+          variants: [
+            {
+              id: product?.variants?.[0]?.id,
+              flavor: null,
+              sizeValue: 1,
+              sizeUnit: "piece",
+              packQty: 1,
+              sellPricePiasters,
+              costPricePiasters: null,
+            },
+          ],
+        }),
       });
-
+      const json = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(
-          data.error?.message || "فشل حفظ الخدمة، برجاء المحاولة لاحقاً",
-        );
+        throw new Error(json.error?.message || "مقدرناش نحفظ الخدمة");
       }
-
-      const responseData = await res.json();
-      onSaved(responseData.data || payload);
+      const id: string = json.data?.id ?? product?.id;
+      const cfg = await fetch("/api/sales/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceCommissions: { [id]: rule } }),
+      });
+      if (!cfg.ok) {
+        const c = await cfg.json().catch(() => ({}));
+        throw new Error(c.error?.message || "مقدرناش نحفظ العمولة");
+      }
+      setServiceLinkedMachineIds(id, linked, storeId);
+      enableServiceForSale(id, storeId);
+      onSaved(json.data);
       onClose();
-    } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "حدث خطأ أثناء الحفظ";
-      setErrors({ submit: message });
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "حصلت مشكلة");
     } finally {
-      setIsSubmitting(false);
+      setBusy(false);
     }
   };
 
-  const handleDelete = async () => {
+  const remove = async () => {
     if (!product) return;
-    setIsDeleting(true);
+    setBusy(true);
     try {
       const res = await fetch(`/api/products?id=${product.id}`, {
         method: "DELETE",
       });
-      if (!res.ok) throw new Error("فشل حذف الخدمة");
-      if (onDeleted) onDeleted(product.id);
+      if (!res.ok) throw new Error("مقدرناش نمسح الخدمة");
+      void fetch("/api/sales/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ serviceCommissions: { [product.id]: null } }),
+      }).catch(() => undefined);
+      onDeleted?.(product.id);
       onClose();
     } catch (err) {
-      console.error("Delete failed:", err);
-      alert("تعذر حذف الخدمة، برجاء المحاولة لاحقاً");
+      setSubmitError(err instanceof Error ? err.message : "حصلت مشكلة");
     } finally {
-      setIsDeleting(false);
-      setShowDeleteConfirm(false);
+      setBusy(false);
     }
   };
 
+  const chip = (
+    on: boolean,
+    label: string,
+    onClick: () => void,
+    id?: string,
+  ) => (
+    <button
+      type="button"
+      className={`${f.chip} ${on ? f.chipOn : ""}`}
+      onClick={onClick}
+      aria-pressed={on}
+      data-testid={id}
+    >
+      {label}
+    </button>
+  );
+
   return (
-    <>
-      <Modal
-        title={product ? "تعديل الخدمة / الكارت" : "إضافة خدمة أو كارت"}
-        onClose={onClose}
-        footer={
-          <div className={styles.modalFooter}>
-            {product ? (
-              <button
-                type="button"
-                className={styles.modalFooterBtnDelete}
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={isSubmitting || isDeleting}
-              >
-                <Icon n="trash" s={16} />
-                <span>حذف الخدمة</span>
-              </button>
-            ) : (
-              <span />
-            )}
-            <div className={styles.modalFooterLeft}>
-              <button
-                type="button"
-                className={styles.modalFooterBtnCancel}
-                onClick={onClose}
-                disabled={isSubmitting || isDeleting}
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                className={styles.modalFooterBtnSave}
-                onClick={handleSubmit}
-                disabled={isSubmitting || isDeleting}
-              >
-                <Icon n="check" s={16} />
-                <span>{product ? "حفظ التعديلات" : "إضافة الخدمة"}</span>
-              </button>
-            </div>
+    <Modal title={product ? "تعديل الخدمة" : "خدمة جديدة"} onClose={onClose}>
+      <div className={f.form} data-testid="service-form" dir="rtl">
+        {submitError && (
+          <div className={f.errBox} role="alert">
+            {submitError}
           </div>
-        }
-      >
-        <form onSubmit={handleSubmit} className={styles.modalDark}>
-          {errors.submit && (
-            <div
-              style={{
-                color: "var(--red, #cf3c3c)",
-                fontSize: 13,
-                fontWeight: 700,
-              }}
-            >
-              {errors.submit}
-            </div>
-          )}
+        )}
 
-          {/* اسم الخدمة أو الكارت */}
-          <Field label="اسم الخدمة أو الكارت" err={errors.name}>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={namePlaceholder}
-              autoFocus={!product}
-              style={{
-                width: "100%",
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1.5px solid var(--line)",
-                fontSize: 14.5,
-                background: "var(--sf)",
-                color: "var(--ink)",
-                boxSizing: "border-box",
-              }}
-            />
-          </Field>
+        <label className={f.lbl} htmlFor="sv-name">
+          اسم الخدمة
+        </label>
+        <input
+          id="sv-name"
+          className={`${f.input} ${nameError ? f.inputErr : ""}`}
+          dir="auto"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="مثلاً: تحويل فودافون كاش"
+          autoFocus={!product}
+          data-testid="service-name"
+        />
+        {nameError && <div className={f.err}>{nameError}</div>}
 
-          {/* تصنيف الخدمة والمزود في شبكة متجاوبة */}
-          <div className={styles.metaFieldsGrid}>
-            <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                  width: "100%",
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 700,
-                    color: "var(--ink)",
-                  }}
-                >
-                  تصنيف الخدمة
-                </span>
-                {product ? (
-                  <span className={styles.categoryAlreadyBadge}>
-                    <Icon n="check" s={11} />
-                    <span>مصنف بالفعل</span>
-                  </span>
-                ) : (
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: "var(--ink2)",
-                      fontWeight: 500,
-                    }}
-                  >
-                    إلزامي للإضافة
-                  </span>
-                )}
-              </div>
-              <div className={styles.selectWrapper}>
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className={styles.styledSelect}
-                >
-                  {SERVICE_CATEGORIES.map((c) => (
-                    <option key={c.value} value={c.value}>
-                      {c.label}
-                    </option>
-                  ))}
-                  {/* If custom category exists */}
-                  {!SERVICE_CATEGORIES.some((c) => c.value === category) && (
-                    <option value={category}>{category}</option>
-                  )}
-                </select>
-                <span className={styles.selectArrow}>
-                  <Icon n="down" s={14} />
-                </span>
-              </div>
-            </div>
-
-            <Field label="المزود أو الشركة">
-              <input
-                type="text"
-                value={brandName}
-                onChange={(e) => setBrandName(e.target.value)}
-                placeholder="مثال: فودافون، وي، فوري، شركة الكهرباء..."
-                style={{
-                  width: "100%",
-                  padding: "10px 12px",
-                  borderRadius: 10,
-                  border: "1.5px solid var(--line)",
-                  fontSize: 13.5,
-                  background: "var(--sf)",
-                  color: "var(--ink)",
-                  boxSizing: "border-box",
-                }}
-              />
-            </Field>
-          </div>
-
-          {/* طريقة احتساب عمولة المحل - بطاقات مدمجة متجاوبة */}
-          <div style={{ marginTop: 2, marginBottom: 8 }}>
-            <span
-              style={{
-                display: "block",
-                fontSize: 12.5,
-                fontWeight: 700,
-                marginBottom: 6,
-                color: "var(--ink2)",
-              }}
-            >
-              طريقة احتساب عمولة المحل:
-            </span>
-            <div className={styles.commissionGrid}>
-              <button
-                type="button"
-                className={`${styles.commissionCard} ${commissionModel === "fixed" ? styles.active : ""}`}
-                onClick={() => setCommissionModel("fixed")}
-              >
-                <Icon n="wallet" s={16} />
-                <span className={styles.commissionTitle}>مبلغ ثابت (ج.م)</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.commissionCard} ${commissionModel === "percent" ? styles.active : ""}`}
-                onClick={() => setCommissionModel("percent")}
-              >
-                <span style={{ fontSize: 16, fontWeight: 800 }}>%</span>
-                <span className={styles.commissionTitle}>نسبة مئوية (%)</span>
-              </button>
-              <button
-                type="button"
-                className={`${styles.commissionCard} ${commissionModel === "tiers" ? styles.active : ""}`}
-                onClick={() => setCommissionModel("tiers")}
-              >
-                <Icon n="layers" s={16} />
-                <span className={styles.commissionTitle}>شرائح مبالغ</span>
-              </button>
-            </div>
-          </div>
-
-          {/* قيمة العمولة أو السعر حسب النموذج المختار */}
-          {commissionModel === "fixed" && (
-            <Field
-              label={isCard ? "سعر بيع الكارت (ج.م)" : "قيمة عمولة المحل (ج.م)"}
-              err={errors.price}
-            >
-              <div className={styles.inputWithBadge}>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={commissionValue}
-                  onChange={(e) => setCommissionValue(e.target.value)}
-                  placeholder="5"
-                />
-                <span className={styles.inputBadge}>ج.م</span>
-              </div>
-            </Field>
-          )}
-
-          {commissionModel === "percent" && (
-            <Field label="نسبة العمولة من قيمة المعاملة (%)" err={errors.price}>
-              <div className={styles.inputWithBadge}>
-                <input
-                  type="number"
-                  step="any"
-                  min="0.1"
-                  max="100"
-                  value={percentRate}
-                  onChange={(e) => setPercentRate(e.target.value)}
-                  placeholder="1.5"
-                />
-                <span className={styles.inputBadge}>%</span>
-              </div>
-            </Field>
-          )}
-
-          {commissionModel === "tiers" && (
-            <Field label="قيمة العمولة الأساسية (ج.م)" err={errors.price}>
-              <div className={styles.inputWithBadge}>
-                <input
-                  type="number"
-                  step="any"
-                  min="0"
-                  value={commissionValue}
-                  onChange={(e) => setCommissionValue(e.target.value)}
-                  placeholder="5"
-                />
-                <span className={styles.inputBadge}>ج.م</span>
-              </div>
-            </Field>
-          )}
-
-          {/* تنبيه تنظيمي خفيف */}
-          <div
-            style={{
-              fontSize: 11.5,
-              color: "var(--ink2)",
-              marginTop: 6,
-              lineHeight: 1.5,
-              background: "var(--sf2)",
-              padding: "10px 12px",
-              borderRadius: 10,
-              border: "1px solid var(--line)",
-            }}
-          >
-            ℹ️ تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات وأرباح المحل، ولا يقوم
-            بتنفيذ أي تحويلات بنكية أو معاملات دفع نقدي فعلي عبر الشبكات.
-          </div>
-        </form>
-      </Modal>
-
-      {/* Delete Confirmation Modal */}
-      {showDeleteConfirm && (
-        <Modal
-          title="حذف الخدمة"
-          onClose={() => setShowDeleteConfirm(false)}
-          footer={
-            <div style={{ display: "flex", gap: 10, width: "100%" }}>
-              <button
-                type="button"
-                className={styles.modalFooterBtnCancel}
-                onClick={() => setShowDeleteConfirm(false)}
-                disabled={isDeleting}
-              >
-                إلغاء
-              </button>
-              <button
-                type="button"
-                className={styles.modalFooterBtnDelete}
-                onClick={handleDelete}
-                disabled={isDeleting}
-                style={{ flex: 1 }}
-              >
-                {isDeleting ? "جارٍ الحذف..." : "تأكيد الحذف النهائي"}
-              </button>
-            </div>
-          }
+        <label className={f.lbl} htmlFor="sv-cat">
+          نوعها
+        </label>
+        <select
+          id="sv-cat"
+          className={f.select}
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
         >
-          <div style={{ padding: "8px 0", fontSize: 14, color: "var(--ink)" }}>
-            هل أنت متأكد من رغبتك في حذف <b>{name}</b> من قائمة الخدمات؟
+          {SERVICE_CATEGORIES.some((c) => c.value === category) ? null : (
+            <option value={category}>{category}</option>
+          )}
+          {SERVICE_CATEGORIES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </select>
+
+        {/* ─── عمولتك: شرائح حسب قيمة العملية (كل شريحة مبلغ ثابت أو نسبة) ─── */}
+        <div className={f.lbl}>عمولتك حسب قيمة العملية</div>
+        <div className={f.note}>
+          مثلاً: من 100 لحد 1000 → 5 جنيه، ومن 1000 لحد 10000 → 10 جنيه.
+        </div>
+        {tiers.map((t, i) => (
+          <div key={i} className={f.packBox} data-testid="service-tier">
+            <div className={f.two}>
+              <div>
+                <label className={f.lbl}>من (جنيه)</label>
+                <input
+                  className={f.input}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  value={t.from}
+                  onChange={(e) => setTier(i, { from: e.target.value })}
+                  data-testid="service-tier-from"
+                />
+              </div>
+              <div>
+                <label className={f.lbl}>لحد أقل من (جنيه)</label>
+                <input
+                  className={f.input}
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  value={t.to}
+                  onChange={(e) => setTier(i, { to: e.target.value })}
+                  data-testid="service-tier-to"
+                />
+              </div>
+            </div>
+            <div className={f.chips}>
+              {chip(
+                t.type === "fixed",
+                "مبلغ ثابت",
+                () => setTier(i, { type: "fixed" }),
+                "service-tier-fixed",
+              )}
+              {chip(
+                t.type === "percent",
+                "نسبة %",
+                () => setTier(i, { type: "percent" }),
+                "service-tier-percent",
+              )}
+            </div>
+            <div className={f.barRow}>
+              <input
+                className={f.input}
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="any"
+                value={t.value}
+                onChange={(e) => setTier(i, { value: e.target.value })}
+                placeholder={
+                  t.type === "fixed" ? "العمولة بالجنيه" : "النسبة %"
+                }
+                data-testid="service-tier-value"
+              />
+              {tiers.length > 1 && (
+                <button
+                  type="button"
+                  className={f.scanBtn}
+                  onClick={() =>
+                    setTiers((prev) => prev.filter((_, k) => k !== i))
+                  }
+                  aria-label={`امسح الشريحة ${i + 1}`}
+                  data-testid="service-tier-remove"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
           </div>
-        </Modal>
-      )}
-    </>
+        ))}
+        <button
+          type="button"
+          className={`${f.btn} ${f.ghost}`}
+          onClick={() => {
+            const last = tiers[tiers.length - 1];
+            setTiers((prev) => [...prev, emptySlab(last?.to ?? "")]);
+          }}
+          data-testid="service-tier-add"
+        >
+          + شريحة
+        </button>
+
+        {(touched || tiers.some((t) => t.to.trim() && t.value.trim())) &&
+          errors.length > 0 && (
+            <div className={f.errBox} role="alert" data-testid="service-errors">
+              {errors.map((e) => (
+                <div key={e}>{e}</div>
+              ))}
+            </div>
+          )}
+        {rule && exampleSlab && (
+          <div className={f.sumbox} data-testid="service-example">
+            عملية بـ {formatMoney(example)} → عمولتك{" "}
+            {formatMoney(exampleSlab.piasters)}
+            {exampleSlab.tier ? ` (${describeSlab(exampleSlab.tier)})` : ""}
+          </div>
+        )}
+
+        {/* ─── V19: بتتشحن من أنهي ماكينات / محافظ؟ ─── */}
+        <div className={f.lbl}>بتتشحن من أنهي ماكينات / محافظ؟</div>
+        {machines.length === 0 ? (
+          <div className={f.note}>
+            لسه مفيش ماكينات — ضيف ماكينة الأول من «+ ماكينة / محفظة».
+          </div>
+        ) : (
+          <div className={f.chips}>
+            {machines.map((m) => (
+              <React.Fragment key={m.id}>
+                {chip(
+                  linked.includes(m.id),
+                  `💳 ${m.name}`,
+                  () =>
+                    setLinked((prev) =>
+                      prev.includes(m.id)
+                        ? prev.filter((x) => x !== m.id)
+                        : [...prev, m.id],
+                    ),
+                  "service-machine",
+                )}
+              </React.Fragment>
+            ))}
+          </div>
+        )}
+
+        <button
+          type="button"
+          className={f.btn}
+          disabled={busy}
+          onClick={() => void save()}
+          data-testid="service-save"
+        >
+          {busy ? "بيتحفظ…" : "حفظ الخدمة"}
+        </button>
+        {product &&
+          (confirmDelete ? (
+            <button
+              type="button"
+              className={`${f.btn} ${f.danger}`}
+              disabled={busy}
+              onClick={() => void remove()}
+              data-testid="service-delete-confirm"
+            >
+              متأكد؟ امسحها
+            </button>
+          ) : (
+            <button
+              type="button"
+              className={`${f.btn} ${f.danger}`}
+              onClick={() => setConfirmDelete(true)}
+              data-testid="service-delete"
+            >
+              🗑️ امسح الخدمة
+            </button>
+          ))}
+      </div>
+    </Modal>
   );
 }
+
+export default ServiceFormModal;

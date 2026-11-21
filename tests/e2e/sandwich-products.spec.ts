@@ -260,12 +260,18 @@ test.describe("Sandwich products", () => {
     await dialog.getByTestId("sandwich-save").click();
     await expect(dialog).toHaveCount(0, SERVER);
 
-    await page.getByRole("button", { name: "ساندوتشات", exact: true }).click();
+    await page.getByRole("tab", { name: "السندوتشات", exact: true }).click();
     const card = page.getByText(name, { exact: true });
     await expect(card).toBeVisible(SERVER);
 
     // ---- B. Edit: luncheon 5 g → 10 g ---------------------------------------------------
+    // V19: the row opens the product sheet; «✏️ عدّل» opens the sandwich form.
     await card.click();
+    await page
+      .getByTestId("product-sheet")
+      .last()
+      .getByRole("button", { name: "✏️ عدّل" })
+      .click();
     await expect(form).toBeVisible();
     await expect(dialog.getByTestId("sandwich-name")).toHaveValue(name);
     await expect(dialog.getByTestId("sandwich-total-cost")).toHaveText(
@@ -308,10 +314,18 @@ test.describe("Sandwich products", () => {
       await page.goto("/app/products");
       await hideDevOverlay(page);
       await page
-        .getByRole("button", { name: "ساندوتشات", exact: true })
+        .getByRole("tab", { name: "السندوتشات", exact: true })
         .click(SERVER);
-      await page.getByRole("button", { name: `خيارات ${name}` }).click(SERVER);
-      await page.getByTestId(/^add-to-sale-/).click();
+      // V19: the row opens the product sheet; «إضافة إلى البيع» is there.
+      await page
+        .locator('[data-testid^="product-card-"]')
+        .filter({ hasText: name })
+        .click(SERVER);
+      await page
+        .getByTestId("product-sheet")
+        .last()
+        .getByTestId(/^add-to-sale-/)
+        .click();
       await expect(page.getByTestId("page-sales")).toBeVisible(SERVER);
       await expect(dialog.getByTestId("sandwich-qty-sheet")).toBeVisible(
         PAGE_LOAD,
@@ -361,12 +375,14 @@ test.describe("Sandwich products", () => {
     expect(await stockOf(api, luncheon)).toBe(1000 - 2 * 10 - 3 * 10);
     expect(await stockOf(api, cheese)).toBe(1000 - 2 * 5 - 3 * 5);
 
-    // Ordinary products still sell with one tap; the sale is now saved on the server with
-    // its stock deduction in one transaction (ADR-0019).
+    // Ordinary products open the V19 sell sheet (quantity 1, cash) and sell on «بيع ✅»;
+    // the sale is saved on the server with its stock deduction in one transaction (ADR-0019).
     const ketchupTile = page.getByRole("button", {
       name: `بيع كاتشب ${runId}`,
     });
     await ketchupTile.click();
+    await expect(page.getByTestId("sell-sheet")).toHaveCount(1);
+    await page.getByTestId("sell-confirm").click();
     await expect(page.getByText(`تم تسجيل بيع: كاتشب ${runId}`)).toBeVisible(
       SERVER,
     );
@@ -448,8 +464,10 @@ test.describe("Sandwich products", () => {
     await hideDevOverlay(page);
     const doomedCard = page.getByTestId(`product-card-${doomedId}`);
     await expect(doomedCard).toBeVisible(SERVER);
-    await page.getByRole("button", { name: `خيارات ${doomedName}` }).click();
-    await page.getByTestId(`delete-product-${doomedId}`).click();
+    await doomedCard.click();
+    // V19: an item is deleted from its edit form (the same delete dialog).
+    await page.getByTestId(`edit-product-${doomedId}`).last().click();
+    await page.getByTestId("product-delete").last().click();
     await expect(dialog.getByTestId("delete-product-dialog")).toContainText(
       doomedName,
     );

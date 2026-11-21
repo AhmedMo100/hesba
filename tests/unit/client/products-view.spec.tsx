@@ -4,7 +4,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { ProductsView } from "@/client/features/products/ProductsView";
 import { ProductFormModal } from "@/client/features/products/ProductFormModal";
 import { ServiceFormModal } from "@/client/features/products/ServiceFormModal";
-import { AddStockModal } from "@/client/features/stock/AddStockModal";
 import { MachinesModal } from "@/client/features/products/MachinesModal";
 
 describe("ProductsView Client Component", () => {
@@ -17,25 +16,20 @@ describe("ProductsView Client Component", () => {
     expect(html).toContain('data-testid="page-products"');
     expect(html).toContain("المنتجات");
     expect(html).toContain('data-testid="add-product-btn"');
-    expect(html).toContain("إضافة منتج");
+    expect(html).toContain("+ جديد");
   });
 
-  it("renders top segmented tabs switching between 'المنتجات' and 'الفواتير والشحن'", () => {
+  it("V19 exactly: «+ جديد», then المنتجات · العروض · السندوتشات — nothing else", () => {
     const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("المنتجات");
-    expect(html).toContain("الفواتير والشحن");
-  });
-
-  it("renders search box with Arabic placeholder and microphone button", () => {
-    const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("دوّر على منتج… اكتب أو اتكلم");
-    expect(html).toContain("بحث بالصوت");
-  });
-
-  it("renders filter chips for all products and toggle button for hidden products", () => {
-    const html = renderToStaticMarkup(<ProductsView />);
-    expect(html).toContain("الكل (0)");
-    expect(html).toContain("المخفية (0)");
+    for (const chip of ["المنتجات", "العروض", "السندوتشات"]) {
+      expect(html).toContain(`>${chip}</button>`);
+    }
+    // No services tab, no machines, no hidden-items icon button, no extra search here.
+    expect(html).not.toContain("الخدمات والفواتير");
+    expect(html).not.toContain("ماكينات الدفع");
+    expect(html).not.toContain("بحث بالصوت");
+    expect(html).not.toContain('aria-label="المخفية');
+    expect(html.indexOf("+ جديد")).toBeLessThan(html.indexOf(">المنتجات<"));
   });
 
   it("strictly omits stock balance, stock quantities, and stock badges from products view", () => {
@@ -52,18 +46,19 @@ describe("ProductFormModal Component", () => {
     const html = renderToStaticMarkup(
       <ProductFormModal onClose={() => {}} onSaved={() => {}} />,
     );
-    expect(html).toContain("إضافة منتج");
+    expect(html).toContain("📦 منتج جديد");
     expect(html).toContain("اسم المنتج");
     expect(html).toContain("التصنيف");
-    expect(html).toContain("إلزامي للإضافة");
-    expect(html).toContain("بيتباع إزاي؟");
-    expect(html).toContain("بالقطعة / الكرتونة");
+    expect(html).toContain("الباركود (اختياري)");
+    expect(html).toContain("📷 امسح");
+    expect(html).toContain("بتبيعه إزاي؟");
+    expect(html).toContain("برطمان");
     expect(html).toContain("بالوزن");
-    expect(html).toContain("بالكيس");
-    expect(html).toContain("بيتباع كرتونة كمان");
-    expect(html).toContain("سعر القطعة");
-    expect(html).toContain("إضافة");
-    expect(html).toContain("إلغاء");
+    expect(html).toContain("كيس");
+    expect(html).toContain("كمان بتتباع بعبوة أكبر");
+    expect(html).toContain("سعر الشراء (القطعة)");
+    expect(html).toContain("سعر البيع (القطعة)");
+    expect(html).toContain("حفظ المنتج ✅");
   });
 
   it("renders weight pricing options (kilo and gram) when weighed product is passed", () => {
@@ -91,10 +86,9 @@ describe("ProductFormModal Component", () => {
         onSaved={() => {}}
       />,
     );
-    expect(html).toContain("التسعير بالوزن:");
-    expect(html).toContain("بالكيلو (كجم)");
-    expect(html).toContain("بالجرام (جم)");
-    expect(html).toContain("سعر الكيلو");
+    expect(html).toContain("بالكيلو");
+    expect(html).toContain("بالجرام");
+    expect(html).toContain("سعر البيع (الكيلو)");
   });
 
   it("renders carton fields and pricing when packaged product is passed", () => {
@@ -123,8 +117,8 @@ describe("ProductFormModal Component", () => {
       />,
     );
     expect(html).toContain("عدد القطع في الكرتونة");
-    expect(html).toContain("سعر الكرتونة");
-    expect(html).toContain("سعر القطعة");
+    expect(html).toContain("سعر البيع (الكرتونة)");
+    expect(html).toContain("سعر البيع (القطعة)");
   });
 
   it("renders edit modal with existing product data and delete button, with NO stock inputs", () => {
@@ -151,12 +145,23 @@ describe("ProductFormModal Component", () => {
         product={sampleProduct}
         onClose={() => {}}
         onSaved={() => {}}
+        onRequestDelete={() => {}}
       />,
     );
-    expect(html).toContain("تعديل المنتج");
+    expect(html).toContain("✏️ تعديل المنتج");
     expect(html).toContain("بيبسي 330 مل");
-    expect(html).toContain("حذف");
-    expect(html).toContain("حفظ");
+    // The real delete (the screen's dialog), never a «hide» in disguise.
+    expect(html).toContain("احذف المنتج");
+    expect(
+      renderToStaticMarkup(
+        <ProductFormModal
+          product={sampleProduct}
+          onClose={() => {}}
+          onSaved={() => {}}
+        />,
+      ),
+    ).not.toContain("احذف المنتج");
+    expect(html).toContain("حفظ التعديل");
     expect(html).not.toContain("المخزون الحالي:");
   });
 
@@ -184,7 +189,7 @@ describe("ProductFormModal Component", () => {
       />,
     );
 
-    expect(html).toContain("بيتباع إزاي؟");
+    expect(html).toContain("بتبيعه إزاي؟");
     expect(html).not.toContain("طريقة احتساب عمولة المحل");
     expect(html).not.toContain("محاكي الأرباح");
     expect(html).not.toContain("رسوم المزود");
@@ -218,13 +223,11 @@ describe("ProductFormModal Component", () => {
       />,
     );
 
-    expect(html).toContain("بالكيس");
-    expect(html).toContain("محتوى الكيس");
-    expect(html).toContain("بالوزن (جرام / كجم)");
-    expect(html).toContain("بالعدد (قطع)");
-    expect(html).toContain("بيتباع كرتونة كمان (تحتوي على أكياس)");
-    expect(html).toContain("سعر الكيس الواحد");
-    expect(html).toContain("مصنف بالفعل");
+    expect(html).toContain("الكيس فيه");
+    expect(html).toContain("وزن الكيس");
+    expect(html).toContain("عدد قطع");
+    expect(html).toContain("كمان بتتباع بالكرتونة");
+    expect(html).toContain("سعر البيع (الكيس)");
   });
 
   it("renders scratch card title 'سعر الكارت' when prepaid card category is edited", () => {
@@ -253,120 +256,7 @@ describe("ProductFormModal Component", () => {
       />,
     );
 
-    expect(html).toContain("سعر الكارت");
-  });
-});
-
-describe("AddStockModal Component", () => {
-  it("shows the product's unit (no unit choice) and the total purchase cost input", () => {
-    const sampleProduct = {
-      id: "prod-sample",
-      name_ar: "بيبسي 1 لتر",
-      category: "مشروبات",
-      unit: "piece",
-      sell_price_piasters: 1500,
-      buy_cost_piasters: 1350,
-      is_custom: false,
-      variants: [
-        {
-          id: "var-p1",
-          pack_qty: 12,
-          sell_price_piasters: 1500,
-          buy_cost_piasters: 1350,
-        },
-      ],
-    };
-
-    const html = renderToStaticMarkup(
-      <AddStockModal
-        targetProduct={sampleProduct}
-        onClose={() => {}}
-        onAdded={() => {}}
-      />,
-    );
-
-    expect(html).toContain("إضافة للمخزون: بيبسي 1 لتر");
-    expect(html).not.toContain("طريقة البيع والكمية المدخلة:");
-    expect(html).toContain("بـقطعة");
-    expect(html).toContain("الكرتونة 12 قطعة");
-    expect(html).toContain("عدد الكراتين");
-    expect(html).toContain("قطع زيادة");
-    expect(html).not.toContain("قطع/كرتونة");
-    expect(html).toContain("إجمالي سعر الشراء للكمية دي (ج.م)");
-    expect(html).toContain("تاريخ الإنتاج / البداية");
-    expect(html).toContain("تاريخ الانتهاء");
-    expect(html).toContain(
-      "المنتج ملوش تاريخ صلاحية (زي الكروت، المنظفات، والورقيات)",
-    );
-    expect(html).toContain("بعد 3 شهور");
-    expect(html).toContain("بعد سنة");
-  });
-
-  it("allows re-supplying stock at any time even when product already has stock > 0", () => {
-    const stockedProduct = {
-      id: "prod-stocked",
-      name_ar: "شيبسي عائلي بالجبنة",
-      category: "سناكس ومقرمشات",
-      unit: "piece",
-      sell_price_piasters: 1000,
-      buy_cost_piasters: 800,
-      stock_quantity: 48,
-      is_custom: false,
-      variants: [
-        {
-          id: "var-s1",
-          pack_qty: 12,
-          sell_price_piasters: 1000,
-          buy_cost_piasters: 800,
-          stock_quantity: 48,
-        },
-      ],
-    };
-
-    const html = renderToStaticMarkup(
-      <AddStockModal
-        targetProduct={stockedProduct}
-        onClose={() => {}}
-        onAdded={() => {}}
-      />,
-    );
-
-    expect(html).toContain("إضافة للمخزون: شيبسي عائلي بالجبنة");
-    expect(html).toContain("الرصيد الحالي: <b>4 كرتونة</b>");
-    expect(html).toContain("إضافة ✓");
-  });
-
-  it("uses bag labels for a product sold in bags (from the product, not chosen)", () => {
-    const bagProduct = {
-      id: "prod-bag-stock",
-      name_ar: "سكر الأسرة 1 كجم",
-      category: "سلع أساسية",
-      unit: "bag",
-      sell_price_piasters: 3500,
-      buy_cost_piasters: 3000,
-      stock_quantity: 0,
-      is_custom: false,
-      variants: [
-        {
-          id: "var-b2",
-          pack_qty: 10,
-          sell_price_piasters: 3500,
-          buy_cost_piasters: 3000,
-        },
-      ],
-    };
-
-    const html = renderToStaticMarkup(
-      <AddStockModal
-        targetProduct={bagProduct}
-        onClose={() => {}}
-        onAdded={() => {}}
-      />,
-    );
-
-    expect(html).toContain("أكياس زيادة");
-    expect(html).toContain("بـكيس");
-    expect(html).not.toContain("أكياس/كرتونة");
+    expect(html).toContain("سعر البيع (الكارت)");
   });
 });
 
@@ -415,49 +305,44 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
       />,
     );
 
-    // Header & Title
-    expect(html).toContain("تعديل الخدمة / الكارت");
-    expect(html).toContain("اسم الخدمة أو الكارت");
-
-    // Preselected Category with badge
-    expect(html).toContain("تصنيف الخدمة");
-    expect(html).toContain("مصنف بالفعل");
-
-    // Commission Model Options
-    expect(html).toContain("طريقة احتساب عمولة المحل:");
-    expect(html).toContain("مبلغ ثابت (ج.م)");
-    expect(html).toContain("نسبة مئوية (%)");
-    expect(html).toContain("شرائح مبالغ");
-
-    // Strictly omitted elements
+    // V19 serviceForm, the same for add and edit, prefilled.
+    expect(html).toContain("تعديل الخدمة");
+    expect(html).toContain("اسم الخدمة");
+    expect(html).toContain("دفع فاتورة إنترنت منزلي وي");
+    // Commission: slabs only (no separate commission field), each fixed or a percentage;
+    // an older service's commission (its price, 5 ج) starts in the first slab.
+    expect(html).toContain("عمولتك حسب قيمة العملية");
+    expect(html).toContain('data-testid="service-tier"');
+    expect(html).toContain("مبلغ ثابت");
+    expect(html).toContain("نسبة %");
+    expect(html).toContain('value="5"');
+    expect(html).not.toContain('data-testid="service-fee"');
+    expect(html).not.toContain("العمولة (جنيه لكل عملية)");
+    expect(html).toContain("+ شريحة");
+    expect(html).toContain("بتتشحن من أنهي ماكينات / محافظ؟");
+    expect(html).toContain("حفظ الخدمة");
+    expect(html).toContain("🗑️ امسح الخدمة");
     expect(html).not.toContain("محاكي الأرباح");
-    expect(html).not.toContain("رسوم المزود");
     expect(html).not.toContain("بيتباع إزاي؟");
-
-    // Regulatory disclaimer
-    expect(html).toContain("تطبيق «حِسبة» يقوم بحساب وتسجيل العمولات");
   });
 
-  it("renders card-specific labels and placeholder when card category is selected", () => {
+  it("a new service: the same form, empty, with no delete", () => {
     const html = renderToStaticMarkup(
-      <ServiceFormModal
-        presetCategory="كروت شحن"
-        onClose={() => {}}
-        onSaved={() => {}}
-      />,
+      <ServiceFormModal onClose={() => {}} onSaved={() => {}} />,
     );
-
-    expect(html).toContain("إضافة خدمة أو كارت");
-    expect(html).toContain("مثال: كارت شحن فودافون فكة 10");
-    expect(html).toContain("إلزامي للإضافة");
-    expect(html).toContain("سعر بيع الكارت (ج.م)");
+    expect(html).toContain("خدمة جديدة");
+    expect(html).toContain("مثلاً: تحويل فودافون كاش");
+    // One empty slab to fill, and no single commission field.
+    expect(html.match(/data-testid="service-tier"/g)?.length).toBe(1);
+    expect(html).not.toContain('data-testid="service-fee"');
+    expect(html).not.toContain("امسح الخدمة");
   });
 
   it("renders 'أخرى (إنشاء تصنيف جديد...)' option and input in ProductFormModal", () => {
     const htmlNormal = renderToStaticMarkup(
       <ProductFormModal onClose={() => {}} onSaved={() => {}} />,
     );
-    expect(htmlNormal).toContain("أخرى (إنشاء تصنيف جديد...)");
+    expect(htmlNormal).toContain("تصنيف جديد…");
 
     // When custom category is preset, custom input field is rendered
     const htmlCustom = renderToStaticMarkup(
@@ -467,7 +352,7 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
         onSaved={() => {}}
       />,
     );
-    expect(htmlCustom).toContain("اكتب اسم التصنيف الجديد هنا...");
+    expect(htmlCustom).toContain("اسم التصنيف الجديد");
     expect(htmlCustom).toContain("أدوات مكتبية");
   });
 });

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paidFromSchema } from "./drawer";
 import { businessDateSchema, parseStrictDate } from "./dates";
 import { normalizeNumberString, parseEgpStrict } from "@/domain/money";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
@@ -177,6 +178,13 @@ export const recordDebtTransactionInputSchema = z
     created_at: businessDateSchema.optional().nullable(),
     opId: z.string().uuid().optional(),
     op_id: z.string().uuid().optional(),
+    /** A payment's money: the drawer or a wallet (ADR-0031); absent = not recorded. */
+    paidFrom: paidFromSchema.optional(),
+    /**
+     * The shop's machine / wallet the money went into (a collection) or came out of (a
+     * payment to a supplier): its balance moves with the entry, in the same transaction.
+     */
+    paidFromMachineId: z.string().uuid("اختار المحفظة أو الماكينة").optional(),
   })
   .transform((data, ctx) => {
     const amount = pickAmount(data, ctx);
@@ -184,6 +192,13 @@ export const recordDebtTransactionInputSchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: "المبلغ لازم يكون أكبر من صفر",
+      });
+      return z.NEVER;
+    }
+    if (data.paidFromMachineId && data.type !== "payment") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "المحفظة بتتسجل مع الدفع بس",
       });
       return z.NEVER;
     }
@@ -198,6 +213,14 @@ export const recordDebtTransactionInputSchema = z
       note: data.note ?? null,
       date: parsedDate,
       opId: data.op_id || data.opId,
+      paidFrom:
+        data.type === "payment"
+          ? data.paidFromMachineId
+            ? ("wallet" as const)
+            : (data.paidFrom ?? null)
+          : null,
+      paidFromMachineId:
+        data.type === "payment" ? (data.paidFromMachineId ?? null) : null,
     };
   });
 

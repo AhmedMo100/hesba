@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { expiryDateSchema } from "./dates";
+import { paidFromSchema } from "./drawer";
+import { businessDateSchema, expiryDateSchema } from "./dates";
 import { MAX_AMOUNT_PIASTERS, MAX_QUANTITY_BASE } from "@/domain/limits";
 
 /**
@@ -35,6 +36,15 @@ export const createPurchaseSchema = z
             "التكلفة مينفعش تبقى سالبة",
           ),
           expiryDate: expiryDateSchema.optional().nullable(),
+          /** The batch's own production date (start of its shelf life). */
+          productionDate: businessDateSchema.optional().nullable(),
+          /** Registered prices changed on the form (per selling unit): saved with the line. */
+          sellPricePiasters: piasters("سعر البيع غير صحيح")
+            .positive("سعر البيع لازم يكون أكبر من صفر")
+            .optional(),
+          buyPricePiasters: piasters("سعر الشراء غير صحيح")
+            .min(0, "سعر الشراء مينفعش يبقى سالب")
+            .optional(),
         }),
       )
       .min(1, "الفاتورة لازم يكون فيها صنف واحد على الأقل")
@@ -43,6 +53,13 @@ export const createPurchaseSchema = z
     paidNowPiasters: piasters("المدفوع غير صحيح")
       .min(0, "المدفوع مينفعش يبقى سالب")
       .default(0),
+    /** Where the paid-now money came from: the drawer or a wallet (ADR-0031). */
+    paidFrom: paidFromSchema.optional(),
+    /**
+     * The shop's machine / wallet that paid the paid-now part: its balance goes down in the
+     * same transaction (implies `paidFrom: "wallet"`).
+     */
+    paidFromMachineId: z.string().uuid("الماكينة غير صحيحة").optional(),
     note: z.string().trim().max(500).optional().nullable(),
   })
   .strict();
@@ -53,6 +70,7 @@ export type CreatePurchaseInput = z.infer<typeof createPurchaseSchema>;
 export const purchasePaymentSchema = z
   .object({
     opId: z.string().uuid("رقم العملية غير صحيح"),
+    paidFrom: paidFromSchema.optional(),
     amountPiasters: piasters("المبلغ غير صحيح").positive(
       "المبلغ لازم يكون أكبر من صفر",
     ),

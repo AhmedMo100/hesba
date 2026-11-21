@@ -24,6 +24,48 @@ export function phoneKey(phone: string | null | undefined): string {
   return digits.slice(-10);
 }
 
+/** The shop's customers («ليك»), for matching a typed name or phone. */
+export async function loadCreditCustomers(): Promise<CreditCustomer[]> {
+  const res = await apiGet("/api/people?section=owedToMe");
+  if (!res.ok) return [];
+  const data = (await res.json()) as {
+    people?: Array<{ id: string; name: string; phone: string | null }>;
+  } | null;
+  return (data?.people ?? []).map((p) => ({
+    id: p.id,
+    name: p.name,
+    phone: p.phone ?? null,
+  }));
+}
+
+/**
+ * The customer of a credit invoice from what the owner typed: the customer who already has
+ * this phone, else (no phone typed) the customer with exactly this name, else someone new
+ * (`id: ""`) whom the checkout records together with the sale. Never two records for one
+ * person, even when a checkout is retried.
+ */
+export async function resolveCreditCustomer(
+  name: string,
+  phone: string,
+  customers: readonly CreditCustomer[],
+): Promise<CreditCustomer> {
+  const key = phoneKey(phone);
+  if (key.length >= 7) {
+    const owner = customers.find((c) => phoneKey(c.phone) === key);
+    if (owner) return owner;
+  }
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error(t("credit.nameRequired"));
+  if (!key) {
+    const n = normalizeArabic(trimmed);
+    const same = customers.find((c) => normalizeArabic(c.name) === n);
+    if (same) return same;
+  }
+  // Someone new: no record yet (id ""). The checkout creates the customer in the sale's
+  // own transaction, so a sale that fails never leaves a customer owing nothing.
+  return { id: "", name: trimmed, phone: phone.trim() || null };
+}
+
 export function CreditCustomerForm({
   onClose,
   onChosen,

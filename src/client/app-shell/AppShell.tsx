@@ -21,7 +21,7 @@ import React, { useState, useEffect, useCallback, Suspense, lazy } from "react";
 import { useRouter } from "next/navigation";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
-import { BottomNav, type NavRoute } from "./BottomNav";
+import type { NavRoute } from "./BottomNav";
 import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ListSkeleton, ToastProvider } from "../shared/ui";
@@ -38,6 +38,9 @@ const loadExpensesView = () => import("../features/expenses/ExpensesView");
 const loadPeopleView = () => import("../features/people/PeopleView");
 const loadAlertsView = () => import("../features/alerts/AlertsView");
 const loadAiView = () => import("../features/ai/AiView");
+const loadInventoryView = () => import("../features/home/InventoryView");
+const loadReportsView = () => import("../features/home/ReportsView");
+const loadDrawerView = () => import("../features/home/DrawerView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -46,6 +49,9 @@ const ExpensesView = lazy(loadExpensesView);
 const PeopleView = lazy(loadPeopleView);
 const AlertsView = lazy(loadAlertsView);
 const AiView = lazy(loadAiView);
+const InventoryView = lazy(loadInventoryView);
+const ReportsView = lazy(loadReportsView);
+const DrawerView = lazy(loadDrawerView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -56,6 +62,10 @@ const VALID_ROUTES: NavRoute[] = [
   "people",
   "alerts",
   "ai",
+  "inventory",
+  "reports",
+  "drawer",
+  "notifications",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -226,6 +236,9 @@ function AppShellInner() {
     loadPeopleView();
     loadAlertsView();
     loadAiView();
+    loadInventoryView();
+    loadReportsView();
+    loadDrawerView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -282,9 +295,17 @@ function AppShellInner() {
       case "people":
         return <PeopleView />;
       case "alerts":
-        return <AlertsView />;
+        return <AlertsView mode="machines" />;
+      case "notifications":
+        return <AlertsView mode="alerts" onNavigate={navigate} />;
+      case "reports":
+        return <ReportsView />;
+      case "drawer":
+        return <DrawerView />;
       case "ai":
         return <AiView />;
+      case "inventory":
+        return <InventoryView />;
       default:
         return (
           <HomeView
@@ -395,25 +416,28 @@ function AppShellInner() {
             router.push("/");
           }}
           signedIn={Boolean(session)}
+          route={route}
+          onBack={route !== "home" ? () => navigate("home") : undefined}
         />
-        <SyncBar
-          state={effectiveSyncState}
-          pendingCount={pendingCount}
-          onClick={() => {
-            if (effectiveSyncState === "login") {
-              setShowAuthModal(true);
-              return;
-            }
-            scheduleSaleSync(storeId, { now: true });
-            if (effectiveSyncState === "needsReview") navigate("sales");
-          }}
-        />
+        {route !== "stock" && effectiveSyncState !== "synced" && (
+          <SyncBar
+            state={effectiveSyncState}
+            pendingCount={pendingCount}
+            onClick={() => {
+              if (effectiveSyncState === "login") {
+                setShowAuthModal(true);
+                return;
+              }
+              scheduleSaleSync(storeId, { now: true });
+              if (effectiveSyncState === "needsReview") navigate("sales");
+            }}
+          />
+        )}
         <main
           className={`${styles.content} ${route === "ai" ? styles.contentAi : ""}`}
         >
           <Suspense fallback={<ViewLoading />}>{renderCurrentView()}</Suspense>
         </main>
-        <BottomNav activeRoute={route} onNavigate={navigate} />
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}

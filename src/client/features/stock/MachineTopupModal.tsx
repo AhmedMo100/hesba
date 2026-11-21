@@ -14,6 +14,8 @@ export interface MachineTopupModalProps {
   machine: PosMachine;
   storeId?: string;
   initialMode?: "topup" | "adjust";
+  /** Only «حط رصيد»: no direct balance edit (the V19 machines page). */
+  topupOnly?: boolean;
   onClose: () => void;
   onSuccess: (updatedMachine: PosMachine) => void;
 }
@@ -22,10 +24,13 @@ export function MachineTopupModal({
   machine,
   storeId,
   initialMode = "topup",
+  topupOnly = false,
   onClose,
   onSuccess,
 }: MachineTopupModalProps) {
-  const [mode, setMode] = useState<"topup" | "adjust">(initialMode);
+  const [mode, setMode] = useState<"topup" | "adjust">(
+    topupOnly ? "topup" : initialMode,
+  );
 
   // Topup inputs
   const [amountEgp, setAmountEgp] = useState("");
@@ -183,73 +188,75 @@ export function MachineTopupModal({
         onSubmit={handleSubmit}
         style={{ display: "flex", flexDirection: "column", gap: 14 }}
       >
-        {/* Mode Switcher Tabs */}
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 6,
-            background: "rgba(0, 0, 0, 0.2)",
-            padding: 4,
-            borderRadius: 12,
-            border: "1px solid var(--line)",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => {
-              setMode("topup");
-              setError(null);
-            }}
+        {/* Mode Switcher Tabs (hidden when only «حط رصيد» is allowed) */}
+        {!topupOnly && (
+          <div
             style={{
-              padding: "8px 10px",
-              borderRadius: 9,
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-              border: "none",
-              background:
-                mode === "topup" ? "var(--br, #5a7d5a)" : "transparent",
-              color: mode === "topup" ? "#122112" : "var(--ink2)",
-              transition: "all 0.15s ease",
-              fontFamily: "inherit",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
               gap: 6,
+              background: "rgba(0, 0, 0, 0.2)",
+              padding: 4,
+              borderRadius: 12,
+              border: "1px solid var(--line)",
             }}
           >
-            <Icon n="plus" s={14} />
-            <span>شحن رصيد إضافي</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              setMode("adjust");
-              setError(null);
-            }}
-            style={{
-              padding: "8px 10px",
-              borderRadius: 9,
-              fontSize: 13,
-              fontWeight: 700,
-              cursor: "pointer",
-              border: "none",
-              background:
-                mode === "adjust" ? "var(--br, #5a7d5a)" : "transparent",
-              color: mode === "adjust" ? "#122112" : "var(--ink2)",
-              transition: "all 0.15s ease",
-              fontFamily: "inherit",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 6,
-            }}
-          >
-            <Icon n="edit" s={14} />
-            <span>تعديل الرصيد مباشرة</span>
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("topup");
+                setError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 9,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                border: "none",
+                background:
+                  mode === "topup" ? "var(--br, #5a7d5a)" : "transparent",
+                color: mode === "topup" ? "#122112" : "var(--ink2)",
+                transition: "all 0.15s ease",
+                fontFamily: "inherit",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <Icon n="plus" s={14} />
+              <span>شحن رصيد إضافي</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setMode("adjust");
+                setError(null);
+              }}
+              style={{
+                padding: "8px 10px",
+                borderRadius: 9,
+                fontSize: 13,
+                fontWeight: 700,
+                cursor: "pointer",
+                border: "none",
+                background:
+                  mode === "adjust" ? "var(--br, #5a7d5a)" : "transparent",
+                color: mode === "adjust" ? "#122112" : "var(--ink2)",
+                transition: "all 0.15s ease",
+                fontFamily: "inherit",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 6,
+              }}
+            >
+              <Icon n="edit" s={14} />
+              <span>تعديل الرصيد مباشرة</span>
+            </button>
+          </div>
+        )}
 
         {error && (
           <div

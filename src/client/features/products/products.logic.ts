@@ -18,7 +18,8 @@ export function fmtMoney(piasters: number): string {
 }
 
 export function sandwichSubtitle(
-  sandwich: { ingredients: { length: number }; availableCount: number } | undefined,
+  sandwich:
+    { ingredients: { length: number }; availableCount: number } | undefined,
   t: (key: string, params?: Record<string, string | number>) => string,
 ): string {
   if (!sandwich) return t("sandwich.category");

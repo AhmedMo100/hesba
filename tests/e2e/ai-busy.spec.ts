@@ -49,7 +49,7 @@ test("AI chat: a busy provider shows a waiting state, then a readable retry mess
   });
   await expect(page.getByTestId("page-ai")).toBeVisible(PAGE_LOAD);
   await page
-    .getByRole("textbox", { name: "اكتب سؤالك…" })
+    .getByRole("textbox", { name: "اسأل أي حاجة..." })
     .fill("مبيعات النهارده كام؟");
   await page.getByRole("button", { name: "إرسال" }).click();
 

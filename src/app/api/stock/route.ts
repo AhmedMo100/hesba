@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { wasteReasonSchema } from "@/schemas/inventory";
+import { paidFromSchema } from "@/schemas/drawer";
 import { businessDateSchema, expiryDateSchema } from "@/schemas/dates";
 import { requireSession } from "@/server/modules/auth";
 import { prisma } from "@/server/infra/db/client";
@@ -46,6 +47,26 @@ const addStockSchema = z.object({
   batchCode: z.string().trim().optional().nullable(),
   supplierId: z.string().uuid().optional().nullable(),
   opId: z.string().uuid().optional(),
+  /** What paid the cost: the drawer or a wallet (ADR-0031); absent = not recorded. */
+  paidFrom: paidFromSchema.optional(),
+  /**
+   * The shop's machine / wallet that paid the cost: its balance goes down in the same
+   * transaction as the batch (implies `paidFrom: "wallet"`).
+   */
+  paidFromMachineId: z.string().uuid().optional(),
+  /** Registered prices changed on the form (per selling unit): saved with the batch. */
+  sellPricePiasters: z
+    .number()
+    .int()
+    .positive("سعر البيع لازم يكون أكبر من صفر")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
+    .optional(),
+  buyPricePiasters: z
+    .number()
+    .int()
+    .min(0, "سعر الشراء مينفعش يبقى سالب")
+    .max(MAX_AMOUNT_PIASTERS, "المبلغ كبير قوي")
+    .optional(),
 });
 
 const wasteStockSchema = z.object({
@@ -137,6 +158,30 @@ export async function GET(req: Request) {
       });
     }
 
+    // The stock that came in during a report's range (the report's «دخل عندك بضاعة»): every
+    // received batch of the range, not the latest 100 movements of any kind.
+    if (view === "additions") {
+      const parse = (v: string | null) => {
+        if (!v) return null;
+        const d = new Date(v);
+        if (Number.isNaN(d.getTime())) {
+          throw AppError.badRequest("التاريخ غير صحيح");
+        }
+        return d;
+      };
+      const movements = await inventoryService.getStockMovements(
+        context.store.id,
+        context.user.id,
+        {
+          receivedOnly: true,
+          from: parse(searchParams.get("from")),
+          to: parse(searchParams.get("to")),
+          limit: 2000,
+        },
+      );
+      return NextResponse.json({ movements });
+    }
+
     if (view === "movements") {
       const movements = await inventoryService.getStockMovements(
         context.store.id,
@@ -186,6 +231,10 @@ export async function POST(req: Request) {
           batchCode: input.batchCode,
           supplierId: input.supplierId,
           opId: input.opId,
+          paidFrom: input.paidFrom ?? null,
+          paidFromMachineId: input.paidFromMachineId ?? null,
+          sellPricePiasters: input.sellPricePiasters ?? null,
+          buyPricePiasters: input.buyPricePiasters ?? null,
         },
       );
       return NextResponse.json({ success: true, data: result });

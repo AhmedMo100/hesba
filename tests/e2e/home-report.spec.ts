@@ -1,8 +1,8 @@
 import { test, expect, type APIRequestContext } from "@playwright/test";
 
 /**
- * QA-06 / QA-07 / QA-08 (ADR-0021) against a real server and database: the Home "التقرير"
- * tab shows the real sales and expenses of today, the cost of goods sold from the batches
+ * QA-06 / QA-07 / QA-08 (ADR-0021) against a real server and database: the reports page (from
+ * Home's «بعت النهارده») shows the real sales and expenses of today, the cost of goods sold from the batches
  * that were consumed (the total paid, not a per-unit misread), the purchases as the total
  * paid, and "—" for cost and profit as soon as one sale has no recorded cost (never 75%/25%).
  *
@@ -87,12 +87,13 @@ test.describe("Home report", () => {
     await page.addStyleTag({
       content: "nextjs-portal { display: none !important; }",
     });
-    await page.getByText("التقرير", { exact: true }).click(PAGE_LOAD);
-    await expect(page.getByTestId("home-revenue")).toHaveText("30 ج.م", SERVER);
-    await expect(page.getByTestId("home-expenses")).toHaveText("123.45 ج.م");
-    await expect(page.getByTestId("home-cogs")).toHaveText("20 ج.م");
-    await expect(page.getByTestId("home-profit")).toHaveText("10 ج.م");
-    await expect(page.getByTestId("home-purchases")).toHaveText("20 ج.م");
+    // «بعت النهارده» opens the reports page (today).
+    await page.getByTestId("home-sold-today").click(PAGE_LOAD);
+    await expect(page.getByTestId("report-sales")).toHaveText("30 ج.م", SERVER);
+    await expect(page.getByTestId("report-expenses")).toHaveText("123.45 ج.م");
+    await expect(page.getByTestId("report-cogs")).toHaveText("20 ج.م");
+    await expect(page.getByTestId("report-profit")).toHaveText("10 ج.م");
+    await expect(page.getByTestId("report-purchases")).toHaveText("20 ج.م");
 
     // A piece received with no cost, then sold → cost and profit become unknown ("—").
     const unknown = await product(api, `بسكويت ${runId}`, 500, 0);
@@ -103,10 +104,9 @@ test.describe("Home report", () => {
     await sell(api, unknown, 1);
 
     await page.reload();
-    await page.getByText("التقرير", { exact: true }).click(PAGE_LOAD);
-    await expect(page.getByTestId("home-revenue")).toHaveText("35 ج.م", SERVER);
-    await expect(page.getByTestId("home-cogs")).toHaveText("—");
-    await expect(page.getByTestId("home-profit")).toHaveText("—");
+    await expect(page.getByTestId("report-sales")).toHaveText("35 ج.م", SERVER);
+    await expect(page.getByTestId("report-cogs")).toHaveText("—");
+    await expect(page.getByTestId("report-profit")).toHaveText("—");
     await expect(page.getByText("1 بيعة تكلفتها مش متسجلة")).toBeVisible();
   });
 });

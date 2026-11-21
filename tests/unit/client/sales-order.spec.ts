@@ -1,0 +1,43 @@
+import { describe, expect, it } from "vitest";
+import {
+  matchesSaleFilter,
+  saleSortRank,
+  type DisplaySaleItem,
+} from "@/client/features/sales/sales.logic";
+
+const item = (over: Partial<DisplaySaleItem>): DisplaySaleItem => ({
+  id: over.name ?? "x",
+  productId: over.name ?? "x",
+  name: "x",
+  sellPricePiasters: 100,
+  unitMode: "piece",
+  packQty: 1,
+  currentStockBase: 10,
+  status: "ok",
+  ...over,
+});
+
+describe("sale tiles: V19 filters and order", () => {
+  const noBarcode = item({ name: "عيش" });
+  const weighed = item({ name: "جبنة", unitMode: "weight" });
+  const withBarcode = item({ name: "كولا", hasBarcode: true });
+  const service = item({ name: "شحن", unitMode: "service", isService: true });
+
+  it("orders: by count without a barcode, then with a barcode, then weighed, then services", () => {
+    const sorted = [service, weighed, withBarcode, noBarcode].sort(
+      (a, b) => saleSortRank(a) - saleSortRank(b),
+    );
+    expect(sorted.map((i) => i.name)).toEqual(["عيش", "كولا", "جبنة", "شحن"]);
+  });
+
+  it("filters by weight, no barcode and services", () => {
+    const all = [noBarcode, weighed, withBarcode, service];
+    const names = (f: Parameters<typeof matchesSaleFilter>[1]) =>
+      all.filter((i) => matchesSaleFilter(i, f)).map((i) => i.name);
+    // «الكل» of the products card; services have their own card.
+    expect(names("all")).toEqual(["عيش", "جبنة", "كولا"]);
+    expect(names("weight")).toEqual(["جبنة"]);
+    expect(names("nobc")).toEqual(["عيش", "جبنة"]);
+    expect(names("svc")).toEqual(["شحن"]);
+  });
+});

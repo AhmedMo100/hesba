@@ -3,7 +3,11 @@ import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { getHomeReport } from "@/server/modules/reports";
 import { toSafeErrorResponse } from "@/server/platform/error";
-import { REPORT_PERIODS, homeReportSchema } from "@/schemas/report";
+import {
+  REPORT_PERIODS,
+  homeReportSchema,
+  reportRangeQuerySchema,
+} from "@/schemas/report";
 import { z } from "zod";
 
 export const dynamic = "force-dynamic";
@@ -21,8 +25,11 @@ export async function GET(req: Request) {
       .enum(REPORT_PERIODS)
       .catch("today")
       .parse(url.searchParams.get("period") ?? "today");
-    const customFrom = url.searchParams.get("from") ?? undefined;
-    const customTo = url.searchParams.get("to") ?? undefined;
+    // A custom range's days are real dates (an impossible day is a 400, never a guess).
+    const { from: customFrom, to: customTo } = reportRangeQuerySchema.parse({
+      from: url.searchParams.get("from") || undefined,
+      to: url.searchParams.get("to") || undefined,
+    });
     const report = await getHomeReport(
       context.store.id,
       context.user.id,

@@ -40,12 +40,13 @@ export async function GET(req: Request) {
     const from = searchParams.get("from") || undefined;
     const to = searchParams.get("to") || undefined;
     const category = searchParams.get("category") || undefined;
+    const includeCancelled = searchParams.get("include_cancelled") === "1";
 
     const expenseService = new ExpenseService(prisma);
     const result = await expenseService.getStoreExpenses(
       context.store.id,
       context.user.id,
-      { period, from, to, category },
+      { period, from, to, category, includeCancelled },
     );
 
     return NextResponse.json({
@@ -93,10 +94,7 @@ export async function PATCH(req: Request) {
     const id = body?.id || searchParams.get("id");
 
     if (!id) {
-      return NextResponse.json(
-        { error: "معرف المصروف مطلوب" },
-        { status: 400 },
-      );
+      throw AppError.badRequest("معرف المصروف مطلوب");
     }
 
     const expenseService = new ExpenseService(prisma);
@@ -133,10 +131,7 @@ export async function DELETE(req: Request) {
     }
 
     if (!id) {
-      return NextResponse.json(
-        { error: "معرف المصروف مطلوب" },
-        { status: 400 },
-      );
+      throw AppError.badRequest("معرف المصروف مطلوب");
     }
 
     const expenseService = new ExpenseService(prisma);

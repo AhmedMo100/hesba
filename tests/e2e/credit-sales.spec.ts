@@ -84,6 +84,29 @@ type Person = {
   amount_piasters: number;
 };
 
+/** The invoice sheet, once it is the only one on screen. */
+async function openInvoice(page: Page) {
+  await page.getByTestId("page-sales").getByTestId("cart-summary").click();
+  await expect(page.getByTestId("cart-sheet")).toHaveCount(1);
+  return page.getByTestId("cart-sheet").last();
+}
+
+/** V19 sell sheet: tap the tile, pick the unit and quantity, confirm (sell or add to invoice). */
+async function viaSheet(
+  page: Page,
+  name: string,
+  opts: { pack?: boolean; qty?: string } = {},
+) {
+  await page.getByRole("button", { name: `بيع ${name}` }).click();
+  // Dev mode leaves a closing sheet's copy for a moment: act on the one live sheet.
+  await expect(page.getByTestId("sell-sheet")).toHaveCount(1);
+  const sheet = page.getByTestId("sell-sheet").last();
+  if (opts.pack) await sheet.getByTestId("sell-unit-pack").click();
+  if (opts.qty) await sheet.getByTestId("sell-qty").fill(opts.qty);
+  await sheet.getByTestId("sell-confirm").click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+}
+
 test("آجل: one customer, several products in pieces, packs and weight, one invoice, then a partial payment", async ({
   page,
 }) => {
@@ -115,8 +138,8 @@ test("آجل: one customer, several products in pieces, packs and weight, one in
   await open(page, "/app/sales", "page-sales");
   const screen = page.getByTestId("page-sales");
 
-  // A normal tap outside a credit sale is still a cash sale.
-  await page.getByRole("button", { name: `بيع شاي آجل ${run}` }).click();
+  // A normal sale outside a credit sale is still a cash sale.
+  await viaSheet(page, `شاي آجل ${run}`);
   await expect
     .poll(async () => {
       const s = (await (await api.get("/api/sales")).json()).sales as Array<{
@@ -126,43 +149,32 @@ test("آجل: one customer, several products in pieces, packs and weight, one in
     }, SERVER)
     .toBe("cash");
 
-  // The customer once: the phone (typed differently) belongs to the existing customer.
+  // «بيع آجل»: the items first — pieces, a pack and a weight — on one invoice.
   await screen.getByTestId("credit-start").click();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-phone")
-    .fill("٠١٠ ١١١١ ٢٢٢٢");
-  await expect(
-    page.getByTestId("page-sales").getByTestId("credit-phone-owner"),
-  ).toContainText(`زبون قديم ${run}`);
-  await page.getByTestId("page-sales").getByTestId("credit-continue").click();
-  await expect(screen.getByTestId("credit-start")).toContainText(
-    `زبون قديم ${run}`,
-  );
-
-  // Several items, different units — no customer question again.
-  await page.getByRole("button", { name: `بيع شاي آجل ${run}` }).click();
-  await page.getByRole("button", { name: `بيع كرتونة شاي آجل ${run}` }).click();
-  await page.getByRole("button", { name: `بيع جبنة آجل ${run}` }).click();
-  await expect(
-    page.getByTestId("page-sales").getByTestId("credit-form"),
-  ).toHaveCount(0);
+  await expect(screen.getByTestId("credit-mode")).toBeVisible();
+  await viaSheet(page, `شاي آجل ${run}`);
+  await viaSheet(page, `شاي آجل ${run}`, { pack: true });
+  await viaSheet(page, `جبنة آجل ${run}`, { qty: "1" });
   await expect(screen.getByTestId("cart-summary")).toContainText("2 صنف");
-  await screen.getByTestId("cart-summary").click();
-  const sheet = screen.getByTestId("cart-sheet");
-  await expect(sheet.getByTestId("credit-customer")).toContainText(
-    `زبون قديم ${run}`,
-  );
+  const sheet = await openInvoice(page);
   await expect(sheet.getByTestId("cart-line")).toHaveCount(2);
   // 11 pieces × 12.50 + 1 kg × 200 = 337.50
   await expect(sheet.getByTestId("cart-total")).toHaveText("337.50 ج.م");
-  await sheet.getByTestId("cart-paid-now").fill("37.5");
+
+  // …then the customer, before confirming: the phone (typed differently) is theirs.
   const submit = sheet.getByRole("button", { name: "تسجيل الآجل" });
+  await expect(submit).toBeDisabled();
+  await sheet.getByTestId("credit-phone").fill("٠١٠ ١١١١ ٢٢٢٢");
+  await expect(sheet.getByTestId("credit-phone-owner")).toContainText(
+    `زبون قديم ${run}`,
+  );
+  await sheet.getByTestId("cart-paid-now").fill("37.5");
+  await expect(sheet.getByTestId("cart-credit-rest")).toContainText("300");
   await submit.click();
 
   // Straight to People → «ليك» with the new balance.
   await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
-  await expect(page.getByTestId(`person-card-${customerId}`)).toContainText(
+  await expect(page.getByTestId(`person-row-${customerId}`)).toContainText(
     "300",
     SERVER,
   );
@@ -224,38 +236,29 @@ test("آجل: a new customer is created once; the same phone later reuses them",
   await open(page, "/app/sales", "page-sales");
   const screen = page.getByTestId("page-sales");
 
-  // Validation: a new customer needs a name.
+  // Validation: a new customer needs a name before the invoice can be confirmed.
   await screen.getByTestId("credit-start").click();
-  await page.getByTestId("page-sales").getByTestId("credit-continue").click();
-  await expect(
-    page.getByTestId("page-sales").getByTestId("credit-error"),
-  ).toBeVisible();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-name")
-    .fill(`زبون جديد ${run}`);
-  await page.getByTestId("page-sales").getByTestId("credit-phone").fill(phone);
-  await page.getByTestId("page-sales").getByTestId("credit-continue").click();
-  await page.getByRole("button", { name: `بيع سكر آجل ${run}` }).click();
-  await screen.getByTestId("cart-summary").click();
-  await screen.getByRole("button", { name: "تسجيل الآجل" }).click();
+  await viaSheet(page, `سكر آجل ${run}`);
+  let sheet = await openInvoice(page);
+  const submit = () => sheet.getByRole("button", { name: "تسجيل الآجل" });
+  await expect(submit()).toBeDisabled();
+  await sheet.getByTestId("credit-name").fill(`زبون جديد ${run}`);
+  await sheet.getByTestId("credit-phone").fill(phone);
+  await submit().click();
   await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
 
   // A second credit sale with the same phone: the same customer, no second record.
   await open(page, "/app/sales", "page-sales");
   await screen.getByTestId("credit-start").click();
-  await page
-    .getByTestId("page-sales")
-    .getByTestId("credit-name")
-    .fill(`اسم تاني ${run}`);
-  await page.getByTestId("page-sales").getByTestId("credit-phone").fill(phone);
-  await expect(
-    page.getByTestId("page-sales").getByTestId("credit-phone-owner"),
-  ).toContainText(`زبون جديد ${run}`);
-  await page.getByTestId("page-sales").getByTestId("credit-continue").click();
-  await page.getByRole("button", { name: `بيع سكر آجل ${run}` }).click();
-  await screen.getByTestId("cart-summary").click();
-  await screen.getByRole("button", { name: "تسجيل الآجل" }).click();
+  await viaSheet(page, `سكر آجل ${run}`);
+  sheet = await openInvoice(page);
+  await sheet.getByTestId("credit-name").fill(`اسم تاني ${run}`);
+  await sheet.getByTestId("credit-phone").fill(phone);
+  await expect(sheet.getByTestId("credit-phone-owner")).toContainText(
+    `زبون جديد ${run}`,
+    SERVER,
+  );
+  await submit().click();
   await expect(page.getByTestId("page-people")).toBeVisible(SERVER);
 
   const people = (await (await api.get("/api/people?section=owedToMe")).json())

@@ -69,10 +69,10 @@
   }
 
   .nv.key:hover {
-    background: var(--br2);
+    background: var(--brBg);
   }
 
   .nv.key.on {
-    background: var(--br2);
+    background: var(--brBg);
   }
 }

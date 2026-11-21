@@ -64,7 +64,6 @@ export function AuthScreen({
     Object.keys(initialFieldErrors).length > 0,
   );
 
-
   // Signup fields (simplified: store name, phone, email optional, password)
   const [signupData, setSignupData] = useState<SignupInput>({
     ownerName: "",
@@ -98,7 +97,9 @@ export function AuthScreen({
   const markTouched = (field: string) =>
     setTouched((prev) => ({ ...prev, [field]: true }));
 
-  const enterNext = (e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const enterNext = (
+    e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
     if (e.key !== "Enter") return;
     e.preventDefault();
     const form = e.currentTarget.form;
@@ -110,7 +111,9 @@ export function AuthScreen({
         el.type !== "hidden" &&
         el.type !== "submit",
     );
-    const idx = els.indexOf(e.currentTarget as HTMLInputElement | HTMLSelectElement);
+    const idx = els.indexOf(
+      e.currentTarget as HTMLInputElement | HTMLSelectElement,
+    );
     if (idx >= 0 && idx < els.length - 1) els[idx + 1]?.focus();
     else form.requestSubmit();
   };
@@ -358,7 +361,10 @@ export function AuthScreen({
             </div>
 
             <form onSubmit={handleLogin} className={styles.body} noValidate>
-              <Field label={t("auth.loginIdentifierLabel")} err={showErr("loginIdentifier")}>
+              <Field
+                label={t("auth.loginIdentifierLabel")}
+                err={showErr("loginIdentifier")}
+              >
                 <input
                   type="text"
                   inputMode="text"
@@ -367,7 +373,10 @@ export function AuthScreen({
                   value={loginIdentifier}
                   onChange={(e) => {
                     setLoginIdentifier(e.target.value);
-                    setFieldErrors((prev) => ({ ...prev, loginIdentifier: "" }));
+                    setFieldErrors((prev) => ({
+                      ...prev,
+                      loginIdentifier: "",
+                    }));
                     setGlobalErr("");
                   }}
                   onBlur={() => markTouched("loginIdentifier")}
@@ -389,7 +398,10 @@ export function AuthScreen({
                     value={loginPassword}
                     onChange={(e) => {
                       setLoginPassword(e.target.value);
-                      setFieldErrors((prev) => ({ ...prev, loginPassword: "" }));
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        loginPassword: "",
+                      }));
                       setGlobalErr("");
                     }}
                     onBlur={() => markTouched("loginPassword")}
@@ -408,6 +420,14 @@ export function AuthScreen({
               >
                 {busy ? t("auth.loggingIn") : t("auth.loginBtn")}
               </Button>
+
+              <button
+                type="button"
+                className={styles.forgotLink}
+                onClick={() => switchMode("forgot-password")}
+              >
+                {t("auth.forgotPasswordLink")}
+              </button>
 
               <div className={styles.switchSection}>
                 <span className={styles.switchText}>{t("auth.noAccount")}</span>
@@ -451,10 +471,7 @@ export function AuthScreen({
                 />
               </Field>
 
-              <Field
-                label={t("auth.phoneLabel")}
-                err={showErr("phone")}
-              >
+              <Field label={t("auth.phoneLabel")} err={showErr("phone")}>
                 <input
                   type="tel"
                   inputMode="tel"
@@ -503,7 +520,10 @@ export function AuthScreen({
                     autoComplete="new-password"
                     value={signupData.password}
                     onChange={(e) => {
-                      setSignupData({ ...signupData, password: e.target.value });
+                      setSignupData({
+                        ...signupData,
+                        password: e.target.value,
+                      });
                       setFieldErrors((prev) => ({ ...prev, password: "" }));
                       setGlobalErr("");
                     }}
@@ -552,7 +572,11 @@ export function AuthScreen({
             </div>
 
             {forgotStep === 0 ? (
-              <form onSubmit={handleRequestCode} className={styles.body} noValidate>
+              <form
+                onSubmit={handleRequestCode}
+                className={styles.body}
+                noValidate
+              >
                 <Field
                   label={t("auth.emailLabel")}
                   err={showErr("forgotEmail")}
@@ -594,7 +618,11 @@ export function AuthScreen({
                 </button>
               </form>
             ) : (
-              <form onSubmit={handleResetPassword} className={styles.body} noValidate>
+              <form
+                onSubmit={handleResetPassword}
+                className={styles.body}
+                noValidate
+              >
                 <Field label={t("auth.codeLabel")} err={showErr("code")}>
                   <input
                     type="text"

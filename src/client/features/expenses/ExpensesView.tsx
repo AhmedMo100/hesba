@@ -6,12 +6,15 @@ import { parseEgpStrict } from "@/domain/money";
 import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "./ExpensesView.module.css";
-import { Empty, Icon, PeriodFilter, ListSkeleton } from "@/client/shared/ui";
+import { Empty, Icon, ListSkeleton } from "@/client/shared/ui";
 import { t, formatMoney, normDigits } from "@/client/shared/i18n";
+import {
+  fetchStoreMachines,
+  type PosMachine,
+} from "@/client/shared/api/machines";
 import {
   EXPENSE_CATEGORIES,
   type ExpenseCategory,
-  EXPENSE_PERIODS,
   type ExpensePeriod,
 } from "@/schemas/expense";
 
@@ -24,6 +27,18 @@ interface ExpenseItem {
   spent_at: string;
   created_at: string;
   updated_at: string;
+  paid_from: string | null;
+  machine: { id: string; name: string } | null;
+  cancelled_at: string | null;
+}
+
+/** The server's Arabic message from an error body `{ error: { message } }`. */
+async function errorMessage(res: Response, fallback: string) {
+  const body = (await res.json().catch(() => null)) as {
+    error?: { message?: string } | string;
+  } | null;
+  const e = body?.error;
+  return (typeof e === "string" ? e : e?.message) || fallback;
 }
 
 const AR_MONTHS = [
@@ -125,12 +140,16 @@ export function ExpensesView() {
   const [selectedCat, setSelectedCat] = useState<ExpenseCategory>("كهرباء");
   const [amountStr, setAmountStr] = useState("");
   const [noteStr, setNoteStr] = useState("");
+  // V19 «الدفع إزاي؟»: «cash» (the drawer) or one of the shop's machines / wallets by id.
+  const [pay, setPay] = useState<string>("cash");
+  const [machines, setMachines] = useState<PosMachine[]>([]);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
   const [dateStr, setDateStr] = useState(getTodayCairoDateString());
   const [showExtra, setShowExtra] = useState(false);
 
-  const [period, setPeriod] = useState<ExpensePeriod>("today");
-  const [customFrom, setCustomFrom] = useState(getTodayCairoDateString());
-  const [customTo, setCustomTo] = useState(getTodayCairoDateString());
+  // Only today's expenses here: earlier days live in the reports (التقارير).
+  const period: ExpensePeriod = "today";
 
   const [expenses, setExpenses] = useState<ExpenseItem[]>([]);
   const [totalPiasters, setTotalPiasters] = useState(0);
@@ -144,12 +163,10 @@ export function ExpensesView() {
     try {
       setLoading(true);
       setError(null);
-      let url = `/api/expenses?period=${period}`;
-      if (period === "custom") {
-        url += `&from=${customFrom}&to=${customTo}`;
-      }
-
-      const res = await apiGet(url);
+      const res = await apiGet(
+        `/api/expenses?period=${period}&include_cancelled=1`,
+        { force: true },
+      );
       if (!res.ok) {
         throw new Error(
           t("pages.expenses.loadError") ||
@@ -170,16 +187,11 @@ export function ExpensesView() {
     } finally {
       setLoading(false);
     }
-  }, [period, customFrom, customTo]);
+  }, [period]);
 
   useEffect(() => {
     let ignore = false;
-    let url = `/api/expenses?period=${period}`;
-    if (period === "custom") {
-      url += `&from=${customFrom}&to=${customTo}`;
-    }
-
-    apiGet(url)
+    apiGet(`/api/expenses?period=${period}&include_cancelled=1`)
       .then((res) => {
         if (!res.ok) {
           throw new Error(
@@ -213,7 +225,18 @@ export function ExpensesView() {
     return () => {
       ignore = true;
     };
-  }, [period, customFrom, customTo]);
+  }, [period]);
+
+  const loadMachines = useCallback(() => {
+    void fetchStoreMachines().then((list) =>
+      setMachines(list.filter((m) => m.status !== "inactive")),
+    );
+  }, []);
+  useEffect(() => {
+    loadMachines();
+  }, [loadMachines]);
+  const payMachine =
+    pay === "cash" ? null : (machines.find((m) => m.id === pay) ?? null);
 
   const expenseOp = useRetryOpId();
 
@@ -221,8 +244,16 @@ export function ExpensesView() {
     if (e) e.preventDefault();
     // Exact pounds → piasters (no floating point, QA-22); invalid or 0 is refused here.
     const piasters = parseEgpStrict(normDigits(amountStr).trim());
+    setFormError(null);
     if (piasters === null || piasters <= 0) {
-      alert(t("pages.expenses.errorRequiredAmount"));
+      setFormError(t("pages.expenses.errorRequiredAmount"));
+      return;
+    }
+    // V19: «رصيد المحفظة مش كافي» before sending; the server checks again under a lock.
+    if (payMachine && payMachine.currentBalancePiasters < piasters) {
+      setFormError(
+        `رصيد ${payMachine.name} مش كافي: فيه ${formatMoney(payMachine.currentBalancePiasters)}`,
+      );
       return;
     }
     setSubmitting(true);
@@ -232,9 +263,13 @@ export function ExpensesView() {
         amountPiasters: number;
         note?: string;
         spentAt?: string;
+        paidFrom: "cash" | "wallet";
+        paidFromMachineId?: string;
       } = {
         category: selectedCat,
         amountPiasters: piasters,
+        paidFrom: payMachine ? "wallet" : "cash",
+        ...(payMachine ? { paidFromMachineId: payMachine.id } : {}),
       };
 
       if (noteStr.trim()) {
@@ -253,8 +288,7 @@ export function ExpensesView() {
       });
 
       if (!res.ok) {
-        const errJson = await res.json();
-        throw new Error(errJson.error || "فشل تسجيل المصروف");
+        throw new Error(await errorMessage(res, "مقدرناش نسجّل المصروف"));
       }
 
       expenseOp.reset();
@@ -263,39 +297,46 @@ export function ExpensesView() {
       setNoteStr("");
       setShowExtra(false);
 
-      // Refresh list
+      // Refresh the list and the machines' balances (the server changed them).
       await reloadExpenses();
+      loadMachines();
+      window.dispatchEvent(new Event("hesba_machines_updated"));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "حدث خطأ أثناء التسجيل");
+      setFormError(
+        err instanceof Error ? err.message : "مقدرناش نسجّل المصروف",
+      );
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleDelete = async (id: string) => {
-    const confirmed = window.confirm(t("pages.expenses.deleteConfirm"));
-    if (!confirmed) return;
-
+  /** Cancel one of today's expenses: kept on record, its money goes back where it came from. */
+  const handleCancel = async (item: ExpenseItem) => {
+    const back = item.machine ? `لـ ${item.machine.name}` : "للدرج";
+    if (
+      !window.confirm(
+        `تلغي مصروف ${item.category} بـ ${formatMoney(item.amount_piasters)}؟ الفلوس هترجع ${back}.`,
+      )
+    ) {
+      return;
+    }
+    setCancelling(item.id);
     try {
-      const res = await fetch(`/api/expenses/${id}`, {
-        method: "DELETE",
-      });
-
+      const res = await fetch(`/api/expenses/${item.id}`, { method: "DELETE" });
       if (!res.ok) {
-        throw new Error("فشل حذف المصروف");
+        throw new Error(await errorMessage(res, "مقدرناش نلغي المصروف"));
       }
-
-      // Optimistically update list
-      setExpenses((prev) => prev.filter((item) => item.id !== id));
       await reloadExpenses();
+      loadMachines();
+      window.dispatchEvent(new Event("hesba_machines_updated"));
     } catch (err: unknown) {
-      alert(err instanceof Error ? err.message : "تعذر حذف المصروف");
+      setError(err instanceof Error ? err.message : "مقدرناش نلغي المصروف");
+    } finally {
+      setCancelling(null);
     }
   };
 
-  const periodTitle = useMemo(() => {
-    return t(`pages.expenses.periods.${period}`);
-  }, [period]);
+  const periodTitle = t(`pages.expenses.periods.${period}`);
 
   const activeCategoriesCount = useMemo(() => {
     return Object.keys(byCategory).length;
@@ -304,23 +345,17 @@ export function ExpensesView() {
   return (
     <div className={viewStyles.view} data-testid="page-expenses">
       <div className={styles.container}>
-        {/* Header */}
-        <div className={styles.head}>
-          <h1 className={styles.title}>{t("pages.expenses.title")}</h1>
-          <p className={styles.sub}>{t("pages.expenses.sub")}</p>
-        </div>
-
-        {/* Input Card */}
-        <div className={styles.formCard}>
-          {/* Category Chips */}
-          <div className={styles.catGrid} role="radiogroup">
+        {/* V19: what was it for, how much, a note, save */}
+        <h2 className={styles.askTitle}>{t("pages.expenses.askTitle")}</h2>
+        <form onSubmit={handleRegister} className={styles.v19Form}>
+          <div className={styles.chips} role="radiogroup">
             {EXPENSE_CATEGORIES.map((cat) => (
               <button
                 type="button"
                 key={cat}
                 role="radio"
                 aria-checked={selectedCat === cat}
-                className={`${styles.catChip} ${selectedCat === cat ? styles.active : ""}`}
+                className={`${styles.chip} ${selectedCat === cat ? styles.chipOn : ""}`}
                 onClick={() => setSelectedCat(cat)}
               >
                 {t(`pages.expenses.categories.${cat}`)}
@@ -328,100 +363,115 @@ export function ExpensesView() {
             ))}
           </div>
 
-          {/* Amount Row Form */}
-          <form onSubmit={handleRegister} className={styles.amountFieldGroup}>
-            <label className={styles.amountLabel}>
-              {t("pages.expenses.amount")}
-            </label>
-            <div className={styles.amountRow}>
-              <div className={styles.inputWrapper}>
-                <span className={styles.currencyBadge}>
-                  {t("pages.expenses.currency")}
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  placeholder={t("pages.expenses.amountPlaceholder")}
-                  value={amountStr}
-                  onChange={(e) => setAmountStr(e.target.value)}
-                  className={styles.amountInput}
-                  autoComplete="off"
-                />
-              </div>
+          <label className={styles.lbl} htmlFor="expense-amount">
+            {t("pages.expenses.amount")}
+          </label>
+          <input
+            id="expense-amount"
+            type="text"
+            inputMode="decimal"
+            placeholder="0"
+            value={amountStr}
+            onChange={(e) => setAmountStr(e.target.value)}
+            className={styles.input}
+            autoComplete="off"
+            data-testid="expense-amount"
+          />
+          <div className={styles.chips}>
+            {[50, 100, 250].map((v) => (
               <button
-                type="submit"
-                disabled={submitting}
-                className={styles.registerBtn}
+                type="button"
+                key={v}
+                className={styles.chip}
+                onClick={() => setAmountStr(String(v))}
               >
-                <Icon n="plus" s={18} />
-                {submitting
-                  ? t("pages.expenses.saving") || "جاري التسجيل..."
-                  : t("pages.expenses.addExpense")}
+                {v} ج
               </button>
-            </div>
+            ))}
+          </div>
 
-            {/* Expandable Link for Note & Date */}
+          <span className={styles.lbl}>الدفع إزاي؟</span>
+          <div className={styles.chips} data-testid="expense-pay">
             <button
               type="button"
-              className={styles.noteToggle}
-              onClick={() => setShowExtra((v) => !v)}
+              className={`${styles.chip} ${pay === "cash" ? styles.chipOn : ""}`}
+              onClick={() => setPay("cash")}
+              data-testid="expense-from-cash"
             >
-              {showExtra
-                ? t("pages.expenses.noteLinkClose")
-                : t("pages.expenses.noteLinkOpen")}
+              💵 كاش
             </button>
-
-            {/* Expanded Fields */}
-            {showExtra && (
-              <div className={styles.extraFields}>
-                <div className={styles.fieldItem}>
-                  <label className={styles.fieldLabel}>
-                    {t("pages.expenses.noteLabel")}
-                  </label>
-                  <input
-                    type="text"
-                    value={noteStr}
-                    placeholder={t("pages.expenses.notePlaceholder")}
-                    onChange={(e) => setNoteStr(e.target.value)}
-                    className={styles.textInput}
-                  />
-                </div>
-                <div className={styles.fieldItem}>
-                  <label className={styles.fieldLabel}>
-                    {t("pages.expenses.dayLabel")}
-                  </label>
-                  <input
-                    type="date"
-                    value={dateStr}
-                    max={getTodayCairoDateString()}
-                    onChange={(e) =>
-                      setDateStr(e.target.value || getTodayCairoDateString())
-                    }
-                    className={styles.textInput}
-                  />
-                </div>
-              </div>
-            )}
-          </form>
-        </div>
-
-        {/* Period filter: the app's one PeriodFilter (shared chips + custom day/range) */}
-        <PeriodFilter<ExpensePeriod>
-          options={EXPENSE_PERIODS.map(
-            (pKey) => [pKey, t(`pages.expenses.periods.${pKey}`)] as const,
+            {machines.map((m) => (
+              <button
+                type="button"
+                key={m.id}
+                className={`${styles.chip} ${pay === m.id ? styles.chipOn : ""}`}
+                onClick={() => setPay(m.id)}
+                data-testid="expense-from-machine"
+              >
+                💳 {m.name}
+              </button>
+            ))}
+          </div>
+          {payMachine && (
+            <p className={styles.payNote} data-testid="expense-machine-balance">
+              رصيد {payMachine.name} دلوقتي{" "}
+              {formatMoney(payMachine.currentBalancePiasters)}
+            </p>
           )}
-          value={period}
-          onChange={setPeriod}
-          customKey="custom"
-          from={customFrom}
-          to={customTo}
-          onRangeChange={(f, to) => {
-            const today = getTodayCairoDateString();
-            setCustomFrom(f || today);
-            setCustomTo(to || f || today);
-          }}
-          max={getTodayCairoDateString()}
-        />
+
+          <label className={styles.lbl} htmlFor="expense-note">
+            {t("pages.expenses.noteLabel")}
+          </label>
+          <input
+            id="expense-note"
+            type="text"
+            dir="auto"
+            value={noteStr}
+            placeholder={t("pages.expenses.notePlaceholder")}
+            onChange={(e) => setNoteStr(e.target.value)}
+            className={styles.input}
+          />
+
+          <button
+            type="button"
+            className={styles.noteToggle}
+            onClick={() => setShowExtra((v) => !v)}
+          >
+            {t("pages.expenses.otherDay")}
+          </button>
+          {showExtra && (
+            <input
+              type="date"
+              value={dateStr}
+              max={getTodayCairoDateString()}
+              onChange={(e) =>
+                setDateStr(e.target.value || getTodayCairoDateString())
+              }
+              className={styles.input}
+              aria-label={t("pages.expenses.dayLabel")}
+            />
+          )}
+
+          {formError && (
+            <p
+              className={styles.formError}
+              role="alert"
+              data-testid="expense-error"
+            >
+              {formError}
+            </p>
+          )}
+          <button
+            type="submit"
+            disabled={submitting}
+            className={styles.saveBtn}
+            data-testid="expense-save"
+          >
+            {submitting
+              ? t("pages.expenses.saving") || "جاري التسجيل..."
+              : t("pages.expenses.saveExpense")}
+          </button>
+        </form>
 
         {/* Total Summary Banner */}
         <div className={styles.totalBanner}>
@@ -469,7 +519,11 @@ export function ExpensesView() {
         ) : (
           <div className={styles.listCard}>
             {expenses.map((item) => (
-              <div key={item.id} className={styles.expenseRow}>
+              <div
+                key={item.id}
+                className={`${styles.expenseRow} ${item.cancelled_at ? styles.cancelledRow : ""}`}
+                data-testid="expense-row"
+              >
                 <div className={styles.itemInfo}>
                   <b className={styles.itemCategory}>
                     {t(`pages.expenses.categories.${item.category}`) ||
@@ -477,6 +531,12 @@ export function ExpensesView() {
                   </b>
                   <span className={styles.itemMeta}>
                     {formatExpenseDateCairo(item.spent_at)}
+                    {" · "}
+                    {item.machine
+                      ? `💳 ${item.machine.name}`
+                      : item.paid_from === "cash"
+                        ? "💵 كاش"
+                        : ""}
                     {item.note ? ` · ${item.note}` : ""}
                   </span>
                 </div>
@@ -484,19 +544,32 @@ export function ExpensesView() {
                   <b className={styles.itemAmount}>
                     {formatMoney(item.amount_piasters)}
                   </b>
-                  <button
-                    type="button"
-                    className={styles.deleteBtn}
-                    aria-label={t("pages.expenses.deleteAriaLabel")}
-                    onClick={() => handleDelete(item.id)}
-                  >
-                    <Icon n="trash" s={17} />
-                  </button>
+                  {item.cancelled_at ? (
+                    <span
+                      className={styles.cancelledTag}
+                      data-testid="expense-cancelled"
+                    >
+                      اتلغى
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className={styles.undoBtn}
+                      disabled={cancelling === item.id}
+                      onClick={() => handleCancel(item)}
+                      data-testid="expense-cancel"
+                    >
+                      ↩️ رجّع
+                    </button>
+                  )}
                 </div>
               </div>
             ))}
           </div>
         )}
+        <p className={styles.historyNote} data-testid="expenses-history-note">
+          مصروفات الأيام اللي فاتت في التقارير 📊
+        </p>
       </div>
     </div>
   );

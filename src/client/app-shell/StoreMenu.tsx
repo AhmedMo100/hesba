@@ -31,6 +31,8 @@ export interface StoreMenuProps {
   onLogout: () => void;
   /** Signed in (a session or a saved identity): account items are shown. */
   signedIn: boolean;
+  /** When set, the trigger shows this page title instead of the app name. */
+  pageTitle?: string;
 }
 
 function MenuBox({ children }: { children: React.ReactNode }) {
@@ -53,6 +55,7 @@ export function StoreMenu({
   onOpenProfile,
   onLogout,
   signedIn,
+  pageTitle,
 }: StoreMenuProps) {
   const [open, setOpen] = useState(false);
   const { theme, setTheme } = useTheme();
@@ -85,21 +88,17 @@ export function StoreMenu({
         data-testid="store-button"
         onClick={() => setOpen((o) => !o)}
       >
-        <span className={styles.logo} aria-hidden="true">
-          {/* eslint-disable-next-line @next/next/no-img-element -- a 30px static asset, precached for offline */}
-          <img src="/logo.png" alt="" width={21} height={30} />
-        </span>
-        <span className={styles.storeName} data-testid="store-name">
-          {displayName}
+        <span className={styles.nameGroup}>
+          <span className={styles.appName}>
+            {pageTitle || t("common.appName")}
+          </span>
+          <span className={styles.storeName} data-testid="store-name">
+            {displayName}
+          </span>
         </span>
         {!online && (
           <i className={styles.offDot} title={t("storeMenu.offline")} />
         )}
-        <Icon
-          n="down"
-          s={16}
-          className={`${styles.chev} ${open ? styles.up : ""}`}
-        />
       </button>
 
       {open && (

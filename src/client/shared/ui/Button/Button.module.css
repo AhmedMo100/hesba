@@ -3,10 +3,10 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 48px;
+  min-height: 52px;
   padding: 0 18px;
-  border-radius: 14px;
-  font-size: 16px;
+  border-radius: 16px;
+  font-size: 18px;
   font-weight: 800;
   white-space: nowrap;
   user-select: none;
@@ -29,24 +29,17 @@
 }
 
 .primary {
-  background: var(--br);
-  color: var(--brInk);
-  box-shadow:
-    0 2px 0 color-mix(in srgb, var(--br2) 85%, #000),
-    0 6px 16px color-mix(in srgb, var(--br) 28%, transparent);
+  background: var(--dark);
+  color: var(--cream);
 }
 
 .primary:hover:not(:disabled) {
-  background: var(--br2);
-}
-
-.primary:active:not(:disabled) {
-  box-shadow: 0 1px 0 var(--br2);
+  background: color-mix(in srgb, var(--dark) 88%, #000);
 }
 
 .ghost {
   background: var(--sf);
-  border: 1.5px solid var(--line);
+  border: 2px solid var(--line);
   color: var(--ink);
 }
 
@@ -55,8 +48,8 @@
 }
 
 .soft {
-  background: var(--soft);
-  color: var(--br);
+  background: var(--chip);
+  color: var(--ink);
 }
 
 .soft:hover:not(:disabled) {
@@ -65,7 +58,7 @@
 
 .danger {
   background: var(--red);
-  color: #ffffff;
+  color: var(--cream);
 }
 
 .dangerghost {
@@ -80,14 +73,14 @@
 .sm {
   min-height: 44px; /* Ensure 44px touch target on mobile */
   padding: 0 14px;
-  font-size: 14px;
-  border-radius: 12px;
+  font-size: 16px;
+  border-radius: 14px;
 }
 
 .lg {
-  min-height: 54px;
+  min-height: 56px;
   padding: 0 24px;
-  font-size: 18px;
+  font-size: 19px;
   border-radius: 16px;
 }
 

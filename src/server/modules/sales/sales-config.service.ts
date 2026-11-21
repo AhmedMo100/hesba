@@ -14,11 +14,27 @@ import {
   updateStoreSettings,
 } from "@/server/modules/tenancy";
 import type { SalesViewConfigUpdate } from "@/schemas/sales-config";
+import type { ServiceCommissionRule } from "@/domain/service-commission";
 
 export interface SalesViewConfig {
   enabledServiceIds: string[];
   enabledProductIds?: string[];
+  /** Per service id: the shop's commission rule (fixed / percent, with tiers). */
+  serviceCommissions?: Record<string, ServiceCommissionRule>;
   updatedAt?: string;
+}
+
+/** Merges sent commission rules into the saved ones; `null` removes a service's rule. */
+function mergeCommissions(
+  saved: Record<string, ServiceCommissionRule> | undefined,
+  sent: SalesViewConfigUpdate["serviceCommissions"],
+): Record<string, ServiceCommissionRule> {
+  const next = { ...(saved ?? {}) };
+  for (const [id, rule] of Object.entries(sent ?? {})) {
+    if (rule === null) delete next[id];
+    else next[id] = rule;
+  }
+  return next;
 }
 
 /** Returns the saved sales-screen config, or empty lists when none was saved. */
@@ -60,6 +76,10 @@ export async function saveSalesViewConfig(
         input.enabledProductIds !== undefined
           ? unique(input.enabledProductIds)
           : (saved.enabledProductIds ?? []),
+      serviceCommissions: mergeCommissions(
+        saved.serviceCommissions,
+        input.serviceCommissions,
+      ),
       updatedAt: new Date().toISOString(),
     };
     return { patch: { salesConfig: config }, result: config };

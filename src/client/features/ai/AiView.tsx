@@ -2,7 +2,8 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./AiView.module.css";
-import { Icon, Modal } from "@/client/shared/ui";
+import c from "./AiChat17.module.css";
+import { Icon } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { AI_SUGGESTED_QUESTIONS } from "@/schemas/ai";
 
@@ -625,229 +626,204 @@ export function AiView() {
 
   const suggestions: readonly string[] = AI_SUGGESTED_QUESTIONS;
 
-  const remainingQuota = quota ? quota.remaining : 5;
   const isQuotaExceeded = quota ? quota.remaining <= 0 : false;
 
-  return (
-    <div className={styles.page} data-testid="page-ai">
-      {/* Header */}
-      <header className={styles.phead}>
-        <div className={styles.pheadInfo}>
-          <h1>{t("pages.ai.title")}</h1>
-          <p>{t("pages.ai.subtitle")}</p>
-        </div>
+  // V17: five questions under «أهلاً بيك 👋».
+  const helloQuestions = suggestions.slice(0, 5);
 
-        <div className={styles.pheadActions}>
-          <span
-            className={`${styles.quota} ${isQuotaExceeded ? styles.quotaZero : ""}`}
-            data-testid="ai-quota-badge"
-          >
-            {isQuotaExceeded
-              ? t("pages.ai.quotaZero")
-              : t("pages.ai.quota", {
-                  remaining: remainingQuota,
+  const newChat = () => {
+    setActiveConversationId(null);
+    setMessages([]);
+    setError(null);
+    setShowHistoryModal(false);
+  };
+
+  return (
+    <div className={c.page} data-testid="page-ai" dir="rtl">
+      {/* V17 .chatTop: a new conversation, the previous ones */}
+      <div className={c.chatTop}>
+        <button
+          type="button"
+          className={c.ghostBtn}
+          onClick={newChat}
+          data-testid="ai-new-chat"
+        >
+          ＋ محادثة جديدة
+        </button>
+        <button
+          type="button"
+          className={c.ghostBtn}
+          onClick={() => setShowHistoryModal(true)}
+          aria-label={t("pages.ai.historyBtn")}
+          data-testid="ai-history"
+        >
+          📚 المحادثات السابقة
+        </button>
+      </div>
+
+      <div className={c.body}>
+        {showHistoryModal ? (
+          /* V17: the previous conversations in the chat body */
+          <>
+            <div className={c.head}>المحادثات السابقة</div>
+            {conversations.length === 0 ? (
+              <div className={c.note}>{t("pages.ai.noHistory")}</div>
+            ) : (
+              conversations.map((conv) => (
+                <button
+                  key={conv.id}
+                  type="button"
+                  className={c.row}
+                  onClick={() => {
+                    void loadConversationMessages(conv.id);
+                    setShowHistoryModal(false);
+                  }}
+                >
+                  <span className={c.em} aria-hidden="true">
+                    💬
+                  </span>
+                  <span className={c.t}>
+                    <b>{conv.title}</b>
+                    <span>
+                      {conv.messageCount} رسائل
+                      {conv.id === activeConversationId
+                        ? ` · ${t("pages.ai.todayConversation")}`
+                        : ""}
+                    </span>
+                  </span>
+                </button>
+              ))
+            )}
+            <div className={c.note}>{t("pages.ai.historySubtitle")}</div>
+          </>
+        ) : (
+          <>
+            {isQuotaExceeded && (
+              <div className={c.warn} data-testid="ai-quota-badge">
+                {t("pages.ai.quotaExceededBanner", {
                   limit: quota?.limit ?? 5,
                 })}
-          </span>
-
-          <button
-            type="button"
-            className={styles.iconBtn}
-            onClick={() => setShowHistoryModal(true)}
-            aria-label={t("pages.ai.historyBtn")}
-            title={t("pages.ai.historyBtn")}
-          >
-            <Icon n="history" s={18} />
-          </button>
-        </div>
-      </header>
-
-      {quota?.mode === "grounded" && (
-        <div className={styles.privateNote} data-testid="ai-private-mode">
-          <Icon n="lock" s={16} />
-          <span>
-            وضع خاص: الأسئلة بتتجاوب على سيرفر حسبة من بيانات محلك، ومش بتتبعت
-            لأي شركة ذكاء اصطناعي.
-          </span>
-        </div>
-      )}
-
-      {/* Daily limit warning banner */}
-      {isQuotaExceeded && (
-        <div className={styles.limitBanner}>
-          <Icon n="info" s={18} />
-          <span>
-            {t("pages.ai.quotaExceededBanner", { limit: quota?.limit ?? 5 })}
-          </span>
-        </div>
-      )}
-
-      {/* Messages Scroll Area */}
-      <div className={styles.chat}>
-        {messages.length === 0 ? (
-          <div className={styles.aiHello}>
-            <div className={styles.sparkleIconBox}>
-              <Icon n="sparkle" s={26} />
-            </div>
-            <b>{t("pages.ai.emptyTitle")}</b>
-            <span>
-              اسأل عن مبيعاتك، مصروفاتك، النواقص، واللي ليك واللي عليك. الأرقام
-              بتيجي من بيانات محلك بس.
-            </span>
-            <div
-              className={styles.helloGrid}
-              data-testid="ai-empty-suggestions"
-            >
-              {suggestions.slice(0, 4).map((q) => (
-                <button
-                  key={q}
-                  type="button"
-                  className={styles.helloCard}
-                  disabled={isQuotaExceeded || isLoading}
-                  onClick={() => void handleSend(q)}
-                >
-                  {q}
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : (
-          messages.map((m) => (
-            <div
-              key={m.id}
-              className={`${styles.msg} ${m.role === "user" ? styles.msgU : styles.msgA}`}
-            >
-              <div className={styles.bub}>
-                {m.role === "assistant" ? (
-                  <AiMessageContent content={m.content} />
-                ) : (
-                  m.content
-                )}
-
-                {/* Sources & Citations if present */}
-                {m.sources && m.sources.length > 0 && (
-                  <div className={styles.sources}>
-                    <span className={styles.sourcesTitle}>
-                      {t("pages.ai.sourcesTitle")}
-                    </span>
-                    {m.sources.map((src, i) => (
-                      <div key={i} className={styles.sourceItem}>
-                        {src.url ? (
-                          <a
-                            href={src.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className={styles.sourceLink}
-                          >
-                            • {src.title}
-                          </a>
-                        ) : (
-                          <span>• {src.title}</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {/* Failed user message retry state */}
-                {m.failed && (
-                  <div style={{ marginTop: 6 }}>
-                    <button
-                      type="button"
-                      className={styles.retryBtn}
-                      onClick={() => handleRetry(m)}
-                    >
-                      {t("pages.ai.retry")}
-                    </button>
-                  </div>
-                )}
               </div>
-            </div>
-          ))
-        )}
+            )}
 
-        {/* Assistant typing indicator */}
-        {isLoading && (
-          <div className={`${styles.msg} ${styles.msgA}`} aria-live="polite">
-            <div className={`${styles.bub} ${styles.thinkingCard}`}>
-              <div className={styles.thinkingHeader}>
-                <div className={styles.thinkingIconWrap}>
-                  <Icon n="sparkle" s={16} />
+            {messages.length === 0 ? (
+              <>
+                <div className={c.hello} data-testid="ai-empty-suggestions">
+                  <b>أهلاً بيك 👋</b>
+                  <br />
+                  اسألني عن محلك، أو عن البقالة بشكل عام.
                 </div>
-                <span className={styles.thinkingPhrase}>
-                  {THINKING_PHRASES[thinkingIndex]}
+                {helloQuestions.map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    className={c.chip}
+                    data-testid="ai-suggestion-chip"
+                    disabled={isQuotaExceeded || isLoading}
+                    onClick={() => void handleSend(q)}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </>
+            ) : (
+              messages.map((m) => (
+                <div
+                  key={m.id}
+                  className={`${c.msg} ${m.role === "user" ? c.u : c.b}`}
+                  data-testid={m.role === "user" ? "ai-msg-user" : "ai-msg-bot"}
+                >
+                  {m.role === "assistant" ? (
+                    <AiMessageContent content={m.content} />
+                  ) : (
+                    m.content
+                  )}
+                  {m.sources && m.sources.length > 0 && (
+                    <div className={styles.sources}>
+                      <span className={styles.sourcesTitle}>
+                        {t("pages.ai.sourcesTitle")}
+                      </span>
+                      {m.sources.map((src, i) => (
+                        <div key={i} className={styles.sourceItem}>
+                          {src.url ? (
+                            <a
+                              href={src.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className={styles.sourceLink}
+                            >
+                              • {src.title}
+                            </a>
+                          ) : (
+                            <span>• {src.title}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {m.failed && (
+                    <div style={{ marginTop: 6 }}>
+                      <button
+                        type="button"
+                        className={styles.retryBtn}
+                        onClick={() => handleRetry(m)}
+                      >
+                        {t("pages.ai.retry")}
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))
+            )}
+
+            {isLoading && (
+              <div className={`${c.msg} ${c.b}`} aria-live="polite">
+                <span className={c.note}>
+                  {THINKING_PHRASES[thinkingIndex]}{" "}
+                </span>
+                <span className={c.typing} aria-hidden="true">
+                  <i />
+                  <i />
+                  <i />
                 </span>
               </div>
-              <div className={styles.typing}>
-                <div className={styles.typingDot} />
-                <div className={styles.typingDot} />
-                <div className={styles.typingDot} />
+            )}
+
+            {error && (
+              <div className={c.error} role="alert">
+                {error}
               </div>
-            </div>
-          </div>
+            )}
+          </>
         )}
-
-        {/* Error message */}
-        {error && (
-          <div className={styles.errorState}>
-            <span>{error}</span>
-          </div>
-        )}
-
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Fixed Bottom Section: Suggestions Strip directly above Search + Composer Bar */}
-      <div className={styles.bottomArea}>
-        {/* Horizontal Suggestion Chips directly above the input box */}
-        <div
-          className={styles.suggestionsStrip}
-          data-testid="ai-suggestions-strip"
-          aria-label="الأسئلة المقترحة"
-        >
-          {suggestions.map((s, idx) => (
-            <button
-              type="button"
-              key={idx}
-              className={styles.suggChip}
-              data-testid="ai-suggestion-chip"
-              disabled={isQuotaExceeded || isLoading}
-              onClick={() => void handleSend(s)}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-
-        {/* Composer Bar */}
-        <div className={styles.composer}>
+      {/* V17 .chatIn: «اسأل أي حاجة...» + إرسال */}
+      {!showHistoryModal && (
+        <div className={c.chatIn}>
           <button
             type="button"
-            className={`${styles.micBtn} ${isListening ? styles.micBtnListening : ""}`}
+            className={`${c.mic} ${isListening ? c.micOn : ""}`}
             onClick={toggleVoice}
             aria-label={
               isListening ? t("pages.ai.listening") : t("pages.ai.voiceLabel")
             }
-            title={
-              isListening ? t("pages.ai.listening") : t("pages.ai.voiceLabel")
-            }
           >
-            <Icon n="mic" s={19} />
+            🎤
           </button>
-
           <textarea
             ref={inputRef}
             rows={1}
+            dir="auto"
             value={input}
             disabled={isQuotaExceeded || isLoading}
             onChange={(e) => {
               setInput(e.target.value);
-              // Grows with the question, up to about five lines.
               e.target.style.height = "auto";
               e.target.style.height = `${Math.min(e.target.scrollHeight, 132)}px`;
             }}
             onKeyDown={(e) => {
-              // Enter sends; Shift+Enter is a new line. Not while composing (IME).
               if (
                 e.key === "Enter" &&
                 !e.shiftKey &&
@@ -862,78 +838,22 @@ export function AiView() {
                 ? t("pages.ai.placeholderExceeded")
                 : isListening
                   ? t("pages.ai.listening")
-                  : t("pages.ai.placeholder")
+                  : "اسأل أي حاجة..."
             }
-            aria-label={t("pages.ai.placeholder")}
+            aria-label="اسأل أي حاجة..."
             enterKeyHint="send"
             data-testid="ai-input"
           />
-
           <button
             type="button"
-            className={`${styles.sendBtn} ${input.trim() ? styles.sendBtnActive : ""}`}
+            className={c.send}
             disabled={!input.trim() || isLoading || isQuotaExceeded}
             onClick={() => void handleSend()}
             aria-label={t("pages.ai.send")}
           >
-            <Icon n="send" s={17} />
+            إرسال
           </button>
         </div>
-      </div>
-
-      {/* 7-Day History Modal */}
-      {showHistoryModal && (
-        <Modal
-          title={t("pages.ai.historyTitle")}
-          onClose={() => setShowHistoryModal(false)}
-        >
-          <div className={styles.historyList}>
-            <div className={styles.historyNotice}>
-              <Icon n="info" s={16} />
-              <span>{t("pages.ai.historySubtitle")}</span>
-            </div>
-
-            {conversations.length === 0 ? (
-              <div
-                style={{
-                  textAlign: "center",
-                  padding: "20px 0",
-                  color: "var(--ink2)",
-                }}
-              >
-                {t("pages.ai.noHistory")}
-              </div>
-            ) : (
-              conversations.map((conv) => {
-                const isActive = conv.id === activeConversationId;
-                return (
-                  <div
-                    key={conv.id}
-                    className={`${styles.historyItem} ${isActive ? styles.historyItemActive : ""}`}
-                    onClick={() => {
-                      void loadConversationMessages(conv.id);
-                      setShowHistoryModal(false);
-                    }}
-                  >
-                    <div>
-                      <div className={styles.historyItemTitle}>
-                        {conv.title}
-                      </div>
-                      <div className={styles.historyItemMeta}>
-                        {conv.messageCount} رسائل
-                      </div>
-                    </div>
-                    {isActive && (
-                      <span className={styles.historyItemBadge}>
-                        {t("pages.ai.todayConversation")}
-                      </span>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Modal>
       )}
     </div>
   );

@@ -49,9 +49,7 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     await page.addStyleTag({ content: hideChrome });
 
     await expect(page.locator("h1")).toHaveText("حِسبة");
-    await expect(page.locator("p").first()).toContainText(
-      "حساب محلك في جيبك",
-    );
+    await expect(page.locator("p").first()).toContainText("حساب محلك في جيبك");
     await expect(page.locator('input[placeholder="••••••"]')).toBeVisible();
     await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
     await page.screenshot({
@@ -133,9 +131,7 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     await page.goto("/");
     await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1")).toHaveText("حِسبة");
-    await expect(page.locator("p").first()).toContainText(
-      "حساب محلك في جيبك",
-    );
+    await expect(page.locator("p").first()).toContainText("حساب محلك في جيبك");
     await expect(page.locator('input[placeholder="••••••"]')).toBeVisible();
     await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
 
@@ -143,9 +139,7 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     await page.goto("/login");
     await page.waitForLoadState("domcontentloaded");
     await expect(page.locator("h1")).toHaveText("حِسبة");
-    await expect(page.locator("p").first()).toContainText(
-      "حساب محلك في جيبك",
-    );
+    await expect(page.locator("p").first()).toContainText("حساب محلك في جيبك");
     await expect(page.locator('input[placeholder="••••••"]')).toBeVisible();
     await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
 
@@ -229,9 +223,7 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     expect(hasHorizontalOverflow).toBe(false);
   });
 
-  test("navigation buttons work between login and signup", async ({
-    page,
-  }) => {
+  test("navigation buttons work between login and signup", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 });
 
     // 1. Login page: «سجّل محلك لأول مرة» and «نسيت الباسورد؟»

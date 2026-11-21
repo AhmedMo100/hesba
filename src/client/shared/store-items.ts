@@ -78,6 +78,8 @@ export interface StockInventoryItem {
   hasNearExpiry: boolean;
   unit?: string;
   packName?: string | null;
+  /** Optional shop barcode (ADR-0031). */
+  barcode?: string | null;
   batches: Array<{
     id: string;
     batchCode?: string | null;
@@ -87,6 +89,8 @@ export interface StockInventoryItem {
     costPricePiasters: number | null;
     /** What was paid for the whole batch; null = unknown. */
     costTotalPiasters?: number | null;
+    /** Start of this batch's shelf life (its production date), when recorded. */
+    productionDate?: string | null;
     expiryDate?: string | null;
     isNearExpiry: boolean;
     receivedAt: string;

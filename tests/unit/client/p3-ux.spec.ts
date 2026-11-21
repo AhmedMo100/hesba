@@ -91,7 +91,7 @@ describe("Permissions-Policy has no obsolete directives", () => {
       const pp = h.find((x) => x.key === "Permissions-Policy")!.value;
       expect(pp).not.toContain("interest-cohort");
       for (const d of [
-        "camera=()",
+        "camera=(self)",
         "microphone=(self)",
         "geolocation=()",
         "payment=()",

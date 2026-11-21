@@ -86,6 +86,7 @@ interface SaleRow {
   id: string;
   createdAt: Date;
   totalPiasters: bigint;
+  paymentMethod: "cash" | "wallet" | "card" | "debt";
   saleLines: Array<{
     totalPiasters: bigint;
     costPiasters: bigint | null;
@@ -164,6 +165,7 @@ async function salesInRange(
       id: true,
       createdAt: true,
       totalPiasters: true,
+      paymentMethod: true,
       saleLines: {
         select: {
           totalPiasters: true,
@@ -358,6 +360,11 @@ export async function getHomeReport(
         { productId: string | null; name: string; qty: number; money: Money }
       >();
       const categories = new Map<string, Money>();
+      // Net sales (after returns) by how they were paid; a credit sale counts as «آجل».
+      const byPaymentMethod = { cash: 0, wallet: 0, card: 0, debt: 0 };
+      for (const s of sales) {
+        byPaymentMethod[s.paymentMethod] += netSaleRevenue(s);
+      }
 
       for (const s of sales) {
         const key =
@@ -476,6 +483,7 @@ export async function getHomeReport(
             revenuePiasters: m.revenue,
             grossProfitPiasters: m.profit,
           })),
+        byPaymentMethod,
         activity,
       };
     },

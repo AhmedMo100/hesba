@@ -9,41 +9,36 @@ describe("AiView Component (Assistant Chat Interface)", () => {
     vi.restoreAllMocks();
   });
 
-  it("renders page header, title, and Egyptian colloquial subtitle", () => {
+  it("V17 top: a new conversation and the previous ones, side by side", () => {
     const html = renderToStaticMarkup(<AiView />);
-    expect(html).toContain("مساعد حسبة");
-    expect(html).toContain("اسأل عن محلك أو السوق");
+    expect(html).toContain("＋ محادثة جديدة");
+    expect(html).toContain("📚 المحادثات السابقة");
+    expect(html.indexOf("＋ محادثة جديدة")).toBeLessThan(
+      html.indexOf("📚 المحادثات السابقة"),
+    );
   });
 
-  it("renders quota badge in header with initial 5 messages limit", () => {
+  it("V17 empty state: «أهلاً بيك 👋» and five questions as chips", () => {
     const html = renderToStaticMarkup(<AiView />);
-    expect(html).toContain('data-testid="ai-quota-badge"');
-    expect(html).toContain("باقي 5 من 5 رسائل النهارده");
-  });
-
-  it("renders minimal calm empty state with sparkle icon and guidance", () => {
-    const html = renderToStaticMarkup(<AiView />);
-    expect(html).toContain("اسألني أي حاجة عن محلك");
-    expect(html).toContain("الأرقام بتيجي من بيانات محلك بس");
+    expect(html).toContain("أهلاً بيك 👋");
+    expect(html).toContain("اسألني عن محلك، أو عن البقالة بشكل عام.");
     expect(html).toContain('data-testid="ai-empty-suggestions"');
-  });
-
-  it("renders suggestions strip positioned above the composer", () => {
-    const html = renderToStaticMarkup(<AiView />);
-    expect(html).toContain('data-testid="ai-suggestions-strip"');
     // Only questions the read-only tools answer from the shop's data (Prompt 2).
-    for (const q of AI_SUGGESTED_QUESTIONS) expect(html).toContain(q);
+    for (const q of AI_SUGGESTED_QUESTIONS.slice(0, 5))
+      expect(html).toContain(q);
     expect(html).not.toContain("الدولار والبنزين");
+    // No quota badge in V17; the limit shows only once it is reached.
+    expect(html).not.toContain('data-testid="ai-quota-badge"');
   });
 
-  it("renders bottom composer with voice mic and RTL-flipped send button", () => {
+  it("V17 input bar: «اسأل أي حاجة...» + إرسال (voice kept)", () => {
     const html = renderToStaticMarkup(<AiView />);
-    expect(html).toContain('placeholder="اكتب سؤالك…"');
+    expect(html).toContain('placeholder="اسأل أي حاجة..."');
+    expect(html).toContain(">إرسال</button>");
     expect(html).toContain('aria-label="اسأل بالصوت"');
-    expect(html).toContain('aria-label="إرسال"');
   });
 
-  it("renders history drawer button with history icon in header", () => {
+  it("the previous conversations button is labelled", () => {
     const html = renderToStaticMarkup(<AiView />);
     expect(html).toContain('aria-label="المحادثات السابقة"');
   });

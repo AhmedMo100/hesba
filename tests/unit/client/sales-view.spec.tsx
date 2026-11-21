@@ -97,11 +97,30 @@ describe("SalesView Client Component", () => {
     expect(sessionStorage.getItem(STAGED_KEY)).toBeNull();
   });
 
-  it("renders search box with voice search and legend indicators matching Image 1", () => {
+  it("renders the V19 top row, search, filter chips and legend", () => {
     const html = renderToStaticMarkup(<SalesView />);
+    // فاتورة · آجل · مرتجع, then المنتجات · العروض · الخدمات, the scanner, search, filters.
+    for (const top of ["🧾 فاتورة", "📒 آجل", "↩️ مرتجع"]) {
+      expect(html).toContain(top);
+    }
+    for (const card of ["المنتجات", "العروض", "الخدمات"]) {
+      expect(html).toContain(card);
+    }
+    expect(html).toContain("📷 امسح الباركود");
     expect(html).toContain("دوّر على صنف...");
+    for (const chip of ["الكل", "بالوزن", "من غير باركود", "الساندوتشات"]) {
+      expect(html).toContain(`>${chip}</button>`);
+    }
+    const order = [
+      "↩️ مرتجع",
+      "الخدمات",
+      "📷 امسح الباركود",
+      "دوّر على صنف...",
+      "الساندوتشات",
+    ].map((x) => html.indexOf(x));
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
     expect(html).toContain("مبيعات النهارده");
-    expect(html).toContain("خلصان");
+    expect(html).toContain("خلص");
     expect(html).toContain("قرب يخلص");
     expect(html).toContain('data-testid="today-sales-pill"');
   });

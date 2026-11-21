@@ -110,6 +110,15 @@ export const homeReportSchema = z.object({
       }),
     ),
   }),
+  /** Net sales of the period by how they were paid (additive; absent in older answers). */
+  byPaymentMethod: z
+    .object({
+      cash: piasters,
+      wallet: piasters,
+      card: piasters,
+      debt: piasters,
+    })
+    .optional(),
   activity: z.array(
     z.object({
       id: z.string(),
@@ -125,3 +134,20 @@ export const homeReportSchema = z.object({
 });
 
 export type HomeReport = z.infer<typeof homeReportSchema>;
+
+/** A real calendar day written YYYY-MM-DD (a custom report range's end). */
+const reportDay = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "التاريخ غير صحيح")
+  .refine((d) => {
+    const t = new Date(`${d}T00:00:00Z`);
+    return !Number.isNaN(t.getTime()) && t.toISOString().slice(0, 10) === d;
+  }, "التاريخ غير صحيح");
+
+/** `from` / `to` of a custom report range: real days, the start not after the end. */
+export const reportRangeQuerySchema = z
+  .object({ from: reportDay.optional(), to: reportDay.optional() })
+  .refine((r) => !r.from || !r.to || r.from <= r.to, {
+    message: "بداية الفترة بعد نهايتها",
+    path: ["from"],
+  });

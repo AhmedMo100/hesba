@@ -5,6 +5,8 @@ import type { WasteReason } from "@/schemas/inventory";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
+import { changeMachineBalanceInTx } from "@/server/modules/machines";
+import { applyRegisteredPricesInTx } from "./registered-prices";
 import {
   depleteStockFEFO,
   isNearExpiry,
@@ -728,6 +730,12 @@ export class InventoryService {
       batchCode?: string | null;
       supplierId?: string | null;
       opId?: string | null;
+      paidFrom?: "cash" | "wallet" | null;
+      /** A machine / wallet of this shop paid the cost: its balance goes down here. */
+      paidFromMachineId?: string | null;
+      /** New registered prices typed on the form (per selling unit); saved with the batch. */
+      sellPricePiasters?: number | null;
+      buyPricePiasters?: number | null;
     },
   ) {
     const qtyBase = BigInt(input.receivedQuantityBase);
@@ -897,10 +905,31 @@ export class InventoryService {
             supplierId: input.supplierId ?? null,
             receivedAt: now,
             paid: true,
+            paidFrom: input.paidFromMachineId
+              ? "wallet"
+              : (input.paidFrom ?? null),
             createdAt: now,
             updatedAt: now,
           },
         });
+
+        // 3a. Prices the owner changed on the form: saved with the batch, never apart.
+        await applyRegisteredPricesInTx(tx, storeId, resolvedVariantId, {
+          sellPricePiasters: input.sellPricePiasters,
+          buyPricePiasters: input.buyPricePiasters,
+        });
+
+        // 3b. Paid from a machine / wallet: its balance goes down with the batch (locked, no
+        // overdraft — a short balance rolls the whole stock-in back).
+        if (input.paidFromMachineId && costTotal !== null && costTotal > ZERO) {
+          await changeMachineBalanceInTx(
+            tx,
+            storeId,
+            input.paidFromMachineId,
+            { kind: "delta", amountPiasters: -Number(costTotal) },
+            { source: "دفع بضاعة", reference: batch.id },
+          );
+        }
 
         // 4. The new ledger balance, written to the stock level cache
         const newBalance = currentQty + qtyBase;
@@ -1071,6 +1100,9 @@ export class InventoryService {
               b.costPriceMinor === null ? null : Number(b.costPriceMinor),
             costTotalPiasters:
               b.costTotalMinor === null ? null : Number(b.costTotalMinor),
+            productionDate: b.productionDate
+              ? b.productionDate.toISOString()
+              : null,
             expiryDate: b.expiryDate ? b.expiryDate.toISOString() : null,
             isNearExpiry: isNearExpiry(b.expiryDate, now, 7),
             receivedAt: b.receivedAt.toISOString(),
@@ -1102,6 +1134,7 @@ export class InventoryService {
             currentStockBase: Number(currentQty),
             status,
             hasNearExpiry,
+            barcode: v.barcode ?? null,
             batches,
           };
         });
@@ -1529,7 +1562,14 @@ export class InventoryService {
   async getStockMovements(
     storeId: string,
     userId: string | null,
-    options?: { limit?: number; variantId?: string },
+    options?: {
+      limit?: number;
+      variantId?: string;
+      /** Only stock that came in (received batches), in [from, to). */
+      receivedOnly?: boolean;
+      from?: Date | null;
+      to?: Date | null;
+    },
   ) {
     return withTenant(
       storeId,
@@ -1540,6 +1580,20 @@ export class InventoryService {
             storeId,
             ...(options?.variantId
               ? { storeVariantId: options.variantId }
+              : {}),
+            ...(options?.receivedOnly
+              ? {
+                  type: { in: ["purchase", "initial_stock"] },
+                  quantityBase: { gt: ZERO },
+                }
+              : {}),
+            ...(options?.from || options?.to
+              ? {
+                  createdAt: {
+                    ...(options.from ? { gte: options.from } : {}),
+                    ...(options.to ? { lt: options.to } : {}),
+                  },
+                }
               : {}),
           },
           orderBy: { createdAt: "desc" },

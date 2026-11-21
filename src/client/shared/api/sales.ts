@@ -48,6 +48,8 @@ export interface SaleRequest {
   machineId?: string;
   machineDeductPiasters?: number;
   machineName?: string;
+  /** Paid on the spot by cash, e-wallet or card (default cash). */
+  paymentMethod?: "cash" | "wallet" | "card";
 }
 
 /** How long to wait for the server before treating the answer as lost (status 0). */

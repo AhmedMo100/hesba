@@ -2,20 +2,22 @@
 
 /**
  * @file HomeView.tsx
- * @description Card-grid home dashboard with shortcuts to every feature, today's KPIs,
- * and an inventory sub-view (الجرد) reachable from its card.
+ * @description Home dashboard (V19 reference): today's KPIs, the drawer, the stock alerts
+ * strip and the shortcut tiles to every screen.
  */
 
-import { apiGet } from "@/client/shared/api/read-cache";
-import React, { useState, useEffect, useMemo } from "react";
-import { SearchBox, Icon, Empty, Skeleton } from "@/client/shared/ui";
-import { formatMoney, t } from "@/client/shared/i18n";
+import React, { useState, useEffect } from "react";
+import { Skeleton } from "@/client/shared/ui";
+import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
-import { normalizeArabic } from "@/domain/normalize";
-import type { StockInventoryItem } from "@/client/shared/store-items";
+import { apiGet } from "@/client/shared/api/read-cache";
+import { fetchDrawer, type DrawerView } from "@/client/shared/api/drawer";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import styles from "./HomeView.module.css";
+
+/** Home → stock: open the barcode scanner straight away (first-run «ابدأ بالباركود»). */
+export const OPEN_STOCK_SCAN_KEY = "hesba_open_stock_scan";
 
 export function formatQtyText(
   unitMode: "piece" | "weight",
@@ -51,11 +53,8 @@ export interface HomeViewProps {
 export function HomeView({
   onNavigate,
   alertCount = 0,
-  onOpenAlerts,
   onLogout,
 }: HomeViewProps) {
-  const [view, setView] = useState<"dashboard" | "inventory">("dashboard");
-
   // ─── Today's KPIs (from report) ───
   const [report, setReport] = useState<HomeReport | null>(null);
   const [reportLoading, setReportLoading] = useState(true);
@@ -92,417 +91,237 @@ export function HomeView({
     };
   }, []);
 
-  const todayRevenue = report?.sales.revenuePiasters ?? null;
-  const todayProfit = report?.sales.grossProfitPiasters ?? null;
-
-  // ─── Inventory data ───
-  const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
-  const [query, setQuery] = useState("");
+  // ─── Stock alert counts (out / low / near expiry), from the stock levels ───
+  const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0, exp: 0 });
+  // First run: a shop with no products yet sees how to add them (null = not known yet).
+  const [productCount, setProductCount] = useState<number | null>(null);
+  const [onboardDismissed, setOnboardDismissed] = useState(false);
 
   useEffect(() => {
     let ignore = false;
-    const fetchData = async () => {
-      try {
-        const stockRes = await apiGet("/api/stock").catch(() => null);
-        if (stockRes && stockRes.ok && !ignore) {
-          const sData = await stockRes.json();
-          if (sData?.inventory && Array.isArray(sData.inventory)) {
-            setInventory(sData.inventory);
+    const load = () => {
+      apiGet("/api/stock")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (ignore) return;
+          if (data?.inventory && Array.isArray(data.inventory)) {
+            const inv = data.inventory as Array<{
+              status?: string;
+              hasNearExpiry?: boolean;
+            }>;
+            setStockAlerts({
+              out: inv.filter((i) => i.status === "out").length,
+              low: inv.filter((i) => i.status === "low").length,
+              exp: inv.filter((i) => i.hasNearExpiry).length,
+            });
+            setProductCount(inv.length);
           }
-        }
-      } catch {}
+        })
+        .catch(() => {});
     };
-    void fetchData();
-    const handleUpdates = () => void fetchData();
-    window.addEventListener("hesba_stock_updated", handleUpdates);
-    window.addEventListener("hesba_sales_config_updated", handleUpdates);
+    load();
+    window.addEventListener("hesba_stock_updated", load);
     return () => {
       ignore = true;
-      window.removeEventListener("hesba_stock_updated", handleUpdates);
-      window.removeEventListener("hesba_sales_config_updated", handleUpdates);
+      window.removeEventListener("hesba_stock_updated", load);
     };
   }, []);
 
-  const inventoryRows = useMemo(() => {
-    return inventory.map((item) => {
-      const factor = item.unitMode === "weight" ? 1000 : 1;
-      const q = item.currentStockBase / factor;
-      const buyPrice = item.buyPricePiasters || 0;
-      const sellPrice = item.sellPricePiasters || 0;
-      return {
-        ...item,
-        costPiasters: Math.round(q * buyPrice),
-        valPiasters: Math.round(q * sellPrice),
-      };
-    });
-  }, [inventory]);
-
-  const filteredInventory = useMemo(() => {
-    const qNorm = normalizeArabic(query.trim());
-    if (!qNorm) return inventoryRows;
-    return inventoryRows.filter((item) =>
-      normalizeArabic(item.productName).includes(qNorm),
-    );
-  }, [inventoryRows, query]);
-
-  const totalCostPiasters = useMemo(
-    () => inventoryRows.reduce((sum, item) => sum + item.costPiasters, 0),
-    [inventoryRows],
-  );
-  const totalSellPiasters = useMemo(
-    () => inventoryRows.reduce((sum, item) => sum + item.valPiasters, 0),
-    [inventoryRows],
-  );
-  const expectedProfitPiasters = totalSellPiasters - totalCostPiasters;
-
-  const todayDateLabel = useMemo(() => {
-    return new Intl.DateTimeFormat("ar-EG", {
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-    }).format(new Date());
+  // ─── The drawer's real balance (ADR-0031); never today's sales ───
+  const [drawer, setDrawer] = useState<DrawerView | null>(null);
+  const [drawerFailed, setDrawerFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      fetchDrawer()
+        .then((d) => {
+          if (!alive) return;
+          setDrawer(d);
+          setDrawerFailed(false);
+        })
+        .catch(() => alive && setDrawerFailed(true));
+    void load();
+    window.addEventListener("online", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", load);
+    };
   }, []);
 
-  const exportToExcel = () => {
-    const headers = [
-      "المنتج",
-      "القسم",
-      "الكمية",
-      "قيمة الشراء (ج.م)",
-      "قيمة البيع (ج.م)",
-    ];
-    const rowsCsv = filteredInventory.map((item) => {
-      const qText =
-        item.currentStockBase <= 0
-          ? "خلصان"
-          : formatQtyText(
-              item.unitMode,
-              item.currentStockBase,
-              item.packQty,
-              item.unit,
-              item.packName || undefined,
-            );
-      return [
-        `"${item.productName.replace(/"/g, '""')}"`,
-        `"${(item.category || "متفرقات").replace(/"/g, '""')}"`,
-        `"${qText.replace(/"/g, '""')}"`,
-        (item.costPiasters / 100).toFixed(2),
-        (item.valPiasters / 100).toFixed(2),
-      ].join(",");
-    });
-    const csvContent = "﻿" + [headers.join(","), ...rowsCsv].join("\n");
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `jard-${new Date().toISOString().split("T")[0]}.csv`,
-    );
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const todayRevenue = report?.sales.revenuePiasters ?? null;
+  const todayProfit = report?.sales.grossProfitPiasters ?? null;
+
+  const money = (piasters: number) =>
+    `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
+
+  const { out, low, exp } = stockAlerts;
+  const hasStockAlerts = out + low + exp > 0;
+  const alertText = hasStockAlerts
+    ? [
+        t("home.alertOut", { count: out }),
+        t("home.alertLow", { count: low }),
+        t("home.alertExpiry", { count: exp }),
+      ].join(" · ")
+    : alertCount > 0
+      ? t("home.alertGeneric", { count: alertCount })
+      : "";
+
+  const tile = (
+    route: NavRoute,
+    icon: string,
+    label: string,
+    tone: string | undefined,
+    num?: string,
+  ) => (
+    <button
+      type="button"
+      className={`${styles.tile} ${tone ?? ""}`}
+      onClick={() => onNavigate(route)}
+      data-testid={`home-tile-${route}`}
+    >
+      {num && <span className={styles.tn}>{num}</span>}
+      <i aria-hidden="true">{icon}</i>
+      {label}
+    </button>
+  );
+
+  const startWithBarcode = () => {
+    try {
+      sessionStorage.setItem(OPEN_STOCK_SCAN_KEY, "1");
+    } catch {
+      // Storage unavailable: the stock screen still opens.
+    }
+    onNavigate("stock");
   };
 
-  // ─── Inventory sub-view ───
-  if (view === "inventory") {
-    return (
-      <div className={styles.page} data-testid="page-home" dir="rtl">
-        <button
-          type="button"
-          className={styles.backBtn}
-          onClick={() => setView("dashboard")}
-        >
-          <Icon n="left" s={18} />
-          <span>{t("common.back")}</span>
-        </button>
-
-        <div className={styles.kpis}>
-          <div className={`${styles.kpi} ${styles.kpiBig}`}>
-            <small>قيمة المخزون بسعر الشراء — جرد {todayDateLabel}</small>
-            <b>{formatMoney(totalCostPiasters)}</b>
-            <em>
-              بسعر البيع {formatMoney(totalSellPiasters)} · ربح متوقع{" "}
-              {formatMoney(expectedProfitPiasters)}
-            </em>
-          </div>
-          <div className={styles.kpi}>
-            <small>عدد الأصناف</small>
-            <b>{inventory.length}</b>
-          </div>
-          <div className={`${styles.kpi} ${styles.kpiNeg}`}>
-            <small>خلصان</small>
-            <b>{inventory.filter((i) => i.status === "out").length}</b>
-          </div>
-          <div className={styles.kpi}>
-            <small>قرب يخلص</small>
-            <b>{inventory.filter((i) => i.status === "low").length}</b>
-          </div>
-        </div>
-
-        <div className={styles.invBar}>
-          <div className={styles.invSearch}>
-            <SearchBox
-              value={query}
-              onChange={setQuery}
-              placeholder="دوّر في الجرد"
-            />
-          </div>
-          <button
-            type="button"
-            className={styles.exportBtn}
-            onClick={exportToExcel}
-            title="تصدير بيانات الجرد إلى Excel"
-          >
-            <Icon n="download" s={15} />
-            <span>تصدير Excel</span>
-          </button>
-        </div>
-
-        <div className={styles.tblCard}>
-          <div className={styles.tblW}>
-            <table className={styles.tbl}>
-              <thead>
-                <tr>
-                  <th>المنتج</th>
-                  <th>الكمية</th>
-                  <th>قيمة الشراء</th>
-                  <th>قيمة البيع</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredInventory.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan={4}
-                      style={{ textAlign: "center", padding: "24px" }}
-                    >
-                      <Empty
-                        icon="search"
-                        title="مفيش أصناف مطابقة"
-                        sub="تأكد من كتابة اسم المنتج بشكل صحيح"
-                      />
-                    </td>
-                  </tr>
-                ) : (
-                  filteredInventory.map((item) => {
-                    const isOut = item.status === "out";
-                    const isLow = item.status === "low";
-                    return (
-                      <tr key={item.productId}>
-                        <td>
-                          <span
-                            className={`${styles.dot} ${
-                              isOut
-                                ? styles.dotRed
-                                : isLow
-                                  ? styles.dotYellow
-                                  : styles.dotGreen
-                            }`}
-                          />
-                          <span>{item.productName}</span>
-                        </td>
-                        <td>
-                          {isOut ? (
-                            <span className={styles.tagOut}>خلصان</span>
-                          ) : (
-                            formatQtyText(
-                              item.unitMode,
-                              item.currentStockBase,
-                              item.packQty,
-                              item.unit,
-                              item.packName || undefined,
-                            )
-                          )}
-                        </td>
-                        <td>
-                          {((item.costPiasters || 0) / 100).toLocaleString(
-                            "en-US",
-                            { maximumFractionDigits: 2 },
-                          )}
-                        </td>
-                        <td>
-                          {((item.valPiasters || 0) / 100).toLocaleString(
-                            "en-US",
-                            { maximumFractionDigits: 2 },
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-              {filteredInventory.length > 0 && (
-                <tfoot>
-                  <tr>
-                    <td>الإجمالي</td>
-                    <td />
-                    <td>
-                      {(totalCostPiasters / 100).toLocaleString("en-US", {
-                        maximumFractionDigits: 1,
-                      })}
-                    </td>
-                    <td>
-                      {(totalSellPiasters / 100).toLocaleString("en-US", {
-                        maximumFractionDigits: 1,
-                      })}
-                    </td>
-                  </tr>
-                </tfoot>
-              )}
-            </table>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // ─── Dashboard card-grid view ───
+  // ─── Dashboard: V19 summary and drawer, V17 tiles and logout ───
   return (
     <div className={styles.page} data-testid="page-home" dir="rtl">
-      {/* Welcome row with action buttons */}
-      <div className={styles.welcome}>
-        <span className={styles.welcomeText}>{t("home.welcome")}</span>
-        <div className={styles.welcomeActions}>
-          {onOpenAlerts && (
+      {productCount === 0 && !onboardDismissed && (
+        <div className={styles.banner} data-testid="home-onboarding">
+          <b>⚠️ لسه ماضفتش منتجات محلك</b>
+          <span>امسح الباركود وضيف كل منتجات المحل مرة واحدة.</span>
+          <div className={styles.brow}>
             <button
               type="button"
-              className={styles.actionBtn}
-              onClick={onOpenAlerts}
-              aria-label={t("home.notifications")}
-              title={t("home.notifications")}
+              className={`${styles.mini} ${styles.miniDark}`}
+              onClick={startWithBarcode}
+              data-testid="home-onboarding-scan"
             >
-              <Icon n="bell" s={16} />
-              <span>{t("home.notifications")}</span>
-              {alertCount > 0 && (
-                <span className={styles.actionBadge}>
-                  {alertCount > 99 ? "99+" : alertCount}
-                </span>
-              )}
+              ابدأ بالباركود ←
             </button>
-          )}
-          <button
-            type="button"
-            className={styles.actionBtn}
-            onClick={() => onNavigate("sales")}
-            aria-label={t("home.cashDrawer")}
-            title={t("home.cashDrawer")}
-          >
-            <Icon n="wallet" s={16} />
-            <span>{t("home.cashDrawer")}</span>
-          </button>
+            <button
+              type="button"
+              className={styles.mini}
+              onClick={() => setOnboardDismissed(true)}
+            >
+              بعدين
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
-      {/* Today's KPI cards */}
-      <div className={styles.kpiRow}>
-        <div className={styles.kpiCard}>
+      {/* V17: the greeting above the day's numbers */}
+      <h2 className={styles.hello} data-testid="home-hello">
+        أهلاً بيك 👋
+      </h2>
+
+      <div className={styles.sumrow}>
+        <button
+          type="button"
+          className={styles.stat}
+          onClick={() => onNavigate("reports")}
+          data-testid="home-sold-today"
+        >
           <small>{t("home.soldToday")}</small>
           <b>
             {reportLoading ? (
-              <Skeleton width={60} height={20} />
+              <Skeleton width={70} height={24} />
             ) : todayRevenue === null ? (
               "—"
             ) : (
-              `${(todayRevenue / 100).toLocaleString("en-US", { maximumFractionDigits: 1 })} ${t("home.pound")}`
+              money(todayRevenue)
             )}
           </b>
-        </div>
-        <div className={styles.kpiCard}>
+        </button>
+        <button
+          type="button"
+          className={`${styles.stat} ${styles.good}`}
+          onClick={() => onNavigate("reports")}
+          data-testid="home-profit-today"
+        >
           <small>{t("home.profitToday")}</small>
           <b>
             {reportLoading ? (
-              <Skeleton width={60} height={20} />
+              <Skeleton width={70} height={24} />
             ) : todayProfit === null ? (
               "—"
             ) : (
-              `${(todayProfit / 100).toLocaleString("en-US", { maximumFractionDigits: 1 })} ${t("home.pound")}`
+              money(todayProfit)
+            )}
+          </b>
+        </button>
+      </div>
+
+      {/* The drawer (V19): what should be in it now, from the last count */}
+      <button
+        type="button"
+        className={styles.drw}
+        onClick={() => onNavigate("drawer")}
+        aria-label={t("home.cashDrawer")}
+        data-testid="home-drawer"
+      >
+        <div>
+          <small>
+            {drawer && !drawer.lastCount
+              ? "🧮 الدرج"
+              : "🧮 المفروض في الدرج دلوقتي"}
+          </small>
+          <b>
+            {!drawer && !drawerFailed ? (
+              <Skeleton width={80} height={24} />
+            ) : drawer?.expectedPiasters != null ? (
+              money(drawer.expectedPiasters)
+            ) : drawer && !drawer.lastCount ? (
+              "عدّه أول مرة"
+            ) : (
+              "—"
             )}
           </b>
         </div>
+        <span>عدّ ←</span>
+      </button>
+
+      {alertText && (
+        <button
+          type="button"
+          className={styles.warn}
+          onClick={() => onNavigate("notifications")}
+          data-testid="home-alerts"
+        >
+          ⚠️ {alertText}
+        </button>
+      )}
+
+      {/* V17 tiles: the three steps of the day numbered, «بيع حاجة» stands out */}
+      <div className={styles.tiles17}>
+        {tile("stock", "📦", t("home.addStock"), styles.tileNum, "١")}
+        {tile("expenses", "💰", t("home.expenses"), styles.tileNum, "٢")}
+        {tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
+        {tile("people", "👥", t("home.people"), undefined)}
+        {tile("alerts", "💳", t("home.walletsMachines"), undefined)}
+        {tile("products", "🧃", t("home.myProducts"), undefined)}
+        {tile("inventory", "📋", t("home.inventory"), styles.tileAlt)}
+        {tile("ai", "💬", t("home.askHesba"), styles.tileAlt)}
       </div>
 
-      {/* Action cards grid */}
-      <div className={styles.grid}>
-        {/* Row 1: dark green */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("sales")}
-        >
-          <span className={styles.cardBadge}>٢</span>
-          <span className={styles.cardIcon}>🛒</span>
-          <span className={styles.cardLabel}>{t("home.sell")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("stock")}
-        >
-          <span className={styles.cardBadge}>١</span>
-          <span className={styles.cardIcon}>📦</span>
-          <span className={styles.cardLabel}>{t("home.addStock")}</span>
-        </button>
-
-        {/* Row 2: dark green */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("people")}
-        >
-          <span className={styles.cardIcon}>👥</span>
-          <span className={styles.cardLabel}>{t("home.people")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardDark}`}
-          onClick={() => onNavigate("expenses")}
-        >
-          <span className={styles.cardBadge}>٣</span>
-          <span className={styles.cardIcon}>💰</span>
-          <span className={styles.cardLabel}>{t("home.expenses")}</span>
-        </button>
-
-        {/* Row 3: light */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardLight}`}
-          onClick={() => onNavigate("products")}
-        >
-          <span className={styles.cardIcon}>🧃</span>
-          <span className={styles.cardLabel}>{t("home.myProducts")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardLight}`}
-          onClick={() => onNavigate("alerts")}
-        >
-          <span className={styles.cardIcon}>💳</span>
-          <span className={styles.cardLabel}>{t("home.walletsMachines")}</span>
-        </button>
-
-        {/* Row 4: gold/beige */}
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardGold}`}
-          onClick={() => onNavigate("ai")}
-        >
-          <span className={styles.cardIcon}>💬</span>
-          <span className={styles.cardLabel}>{t("home.askHesba")}</span>
-        </button>
-        <button
-          type="button"
-          className={`${styles.card} ${styles.cardGold}`}
-          onClick={() => setView("inventory")}
-        >
-          <span className={styles.cardIcon}>📊</span>
-          <span className={styles.cardLabel}>{t("home.inventory")}</span>
-        </button>
-      </div>
-
-      {/* Logout button */}
       {onLogout && (
-        <button type="button" className={styles.logoutBtn} onClick={onLogout}>
+        <button
+          type="button"
+          className={styles.logout17}
+          onClick={onLogout}
+          data-testid="home-logout"
+        >
           {t("home.logout")}
         </button>
       )}

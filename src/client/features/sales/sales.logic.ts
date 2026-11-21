@@ -3,6 +3,8 @@
  * No React, no fetch, no side effects.
  */
 
+import { productEmoji } from "@/client/shared/product-emoji";
+
 /** Display model for a sale item tile. */
 export interface DisplaySaleItem {
   id: string;
@@ -21,6 +23,74 @@ export interface DisplaySaleItem {
   packName?: string | null;
   /** A sandwich: `currentStockBase` is how many its ingredients can make. */
   isSandwich?: boolean;
+  /** The product has a barcode registered (the «من غير باركود» filter and order). */
+  hasBarcode?: boolean;
+  /** The shop's barcodes of this product (ADR-0031): the barcode scanner matches them. */
+  barcodes?: string[];
+  /** A bag's contents: how many pieces / grams one unit holds. */
+  sizeValue?: number | null;
+  sizeUnit?: string | null;
+}
+
+/**
+ * What the grid shows: the section cards (products / offers / services) and, under
+ * products, the filter chips (V19 + الساندوتشات).
+ */
+export type SaleFilter = "all" | "weight" | "nobc" | "sand" | "svc" | "off";
+
+/** The product the scanner read: matched on the shop's own barcodes, never a product API. */
+export function findByBarcode(
+  items: DisplaySaleItem[],
+  code: string,
+): DisplaySaleItem | undefined {
+  const c = code.trim();
+  if (!c) return undefined;
+  return items.find(
+    (i) => !i.isService && (i.barcodes ?? []).some((b) => b === c),
+  );
+}
+
+/**
+ * The tiles' default order: products sold by count without a barcode first, then products
+ * with a barcode, then weighed products; sandwiches and services last.
+ */
+export function saleSortRank(item: DisplaySaleItem): number {
+  if (item.isService || item.isSandwich) return 3;
+  if (item.unitMode === "weight") return 2;
+  return item.hasBarcode ? 1 : 0;
+}
+
+export function matchesSaleFilter(
+  item: DisplaySaleItem,
+  filter: SaleFilter,
+): boolean {
+  switch (filter) {
+    case "weight":
+      return item.unitMode === "weight";
+    case "nobc":
+      return !item.isService && !item.isSandwich && !item.hasBarcode;
+    case "sand":
+      return Boolean(item.isSandwich);
+    case "svc":
+      return Boolean(item.isService);
+    case "off":
+      return false;
+    default:
+      // «الكل» of the products card: services have their own card.
+      return !item.isService;
+  }
+}
+
+/** The tile's picture: there is no product photo, so one sign per kind of item. */
+export function saleTileEmoji(item: DisplaySaleItem): string {
+  if (item.isService) return "⚡";
+  if (item.isSandwich) return "🥪";
+  return productEmoji({
+    name: item.name,
+    category: item.category,
+    unit: item.unit,
+    weighed: item.unitMode === "weight",
+  });
 }
 
 /**
@@ -142,10 +212,7 @@ export function formatStockText(
 }
 
 /** Convert a weight input (kg or grams) to integer grams. */
-export function weightToGrams(
-  value: number,
-  unit: "kg" | "gram",
-): number {
+export function weightToGrams(value: number, unit: "kg" | "gram"): number {
   return unit === "kg" ? Math.round(value * 1000) : Math.round(value);
 }
 

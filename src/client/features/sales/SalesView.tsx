@@ -36,15 +36,19 @@ import React, {
   useRef,
 } from "react";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
-import styles from "./SalesView.module.css";
 import {
-  Button,
-  Empty,
-  SearchBox,
-  Icon,
-  Modal,
-  Skeleton,
-} from "@/client/shared/ui";
+  saleAmount,
+  saleBaseNote,
+  saleBaseQty,
+  saleLineLabel,
+  salePriceLine,
+  saleQtyLabel,
+  saleShape,
+  type SaleUnit,
+  type WeightUnit,
+} from "./sale-quantity";
+import styles from "./SalesView.module.css";
+import { Button, Icon, Modal, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
@@ -100,24 +104,30 @@ import {
   EMPTY_CART_DRAFT,
   type CartDraft,
   type CartLine,
+  type CartOffer,
   type CartOpId,
   type CreditCustomer,
 } from "./CartSheet";
-import { CreditCustomerForm } from "./CreditCustomerForm";
 import { SaleInvoiceModal } from "./SaleInvoiceModal";
+import { BarcodeScanSheet } from "@/client/shared/scanner/BarcodeScanSheet";
 import {
-  ProductScannerSheet,
-  type ConfirmedScanLine,
-} from "./ProductScannerSheet";
+  describeCommission,
+  describeSlab,
+  legacyCommissionRule,
+  slabFor,
+  type ServiceCommissionRule,
+} from "@/domain/service-commission";
 import {
   type DisplaySaleItem,
   generateUuid,
   formatCairoTime,
   formatStockText as formatStockTextPure,
-  getPackLabel,
-  weightToGrams,
   formatWeightLabel,
-  weightSalePiasters,
+  matchesSaleFilter,
+  findByBarcode,
+  saleSortRank,
+  saleTileEmoji,
+  type SaleFilter,
   getServicesStorageKey,
   LEGACY_SALES_KEY_PREFIX,
   STAGED_KEY,
@@ -224,11 +234,54 @@ export function SalesView({
   const [tilesLoaded, setTilesLoaded] = useState(false);
   const [cartMode, setCartMode] = useState(false);
   const [cartLines, setCartLines] = useState<CartLine[]>([]);
-  // A credit sale (آجل): the customer is chosen once, then every item goes on one invoice.
+  // A credit sale (آجل): items go on one invoice; the customer is typed before confirming.
+  const [creditMode, setCreditMode] = useState(false);
   const [creditCustomer, setCreditCustomer] = useState<CreditCustomer | null>(
     null,
   );
-  const [creditFormOpen, setCreditFormOpen] = useState(false);
+  // V19: the section cards, then (products) the filter chips.
+  // A service just added to the sale from «بضاعتي» opens on its card.
+  const [section, setSection] = useState<"products" | "offers" | "services">(
+    () => (initial.stagedSaleItem ? "services" : "products"),
+  );
+  const [productFilter, setProductFilter] = useState<
+    "all" | "weight" | "nobc" | "sand"
+  >("all");
+  const saleFilter: SaleFilter =
+    section === "services"
+      ? "svc"
+      : section === "offers"
+        ? "off"
+        : productFilter;
+  // The barcode scanner (no AI): the product it read, waiting for «تم».
+  const [scanHit, setScanHit] = useState<{
+    code: string;
+    item: DisplaySaleItem | null;
+  } | null>(null);
+  const [returnPickerOpen, setReturnPickerOpen] = useState(false);
+  // Each service's commission rule (fixed / percent, with tiers), from the sales settings.
+  const [serviceCommissions, setServiceCommissions] = useState<
+    Record<string, ServiceCommissionRule>
+  >({});
+  /** The service's commission rule (its slabs; an older service: its price, fixed). */
+  const ruleOf = (item: DisplaySaleItem) =>
+    serviceCommissions[item.productId] ??
+    serviceCommissions[item.id] ??
+    legacyCommissionRule(
+      item.sellPricePiasters > 0 ? item.sellPricePiasters : 500,
+    );
+  /** The commission on this amount from its slab; undefined when no slab covers it. */
+  const commissionFor = (item: DisplaySaleItem, principalPiasters: number) =>
+    slabFor(ruleOf(item), principalPiasters)?.piasters;
+  // The V19 sell sheet: one product, its unit, quantity and payment.
+  const [sellItem, setSellItem] = useState<DisplaySaleItem | null>(null);
+  const [sellUnit, setSellUnit] = useState<SaleUnit>("base");
+  const [sellQty, setSellQty] = useState("1");
+  const [sellWeightUnit, setSellWeightUnit] = useState<WeightUnit>("kg");
+  const [sellPay, setSellPay] = useState<"cash" | "wallet" | "card">("cash");
+  // Offers in the invoice: one line each, expanded into items only at checkout.
+  const [cartOffers, setCartOffers] = useState<CartOffer[]>([]);
+  const [offerSheet, setOfferSheet] = useState<PublishedPromotion | null>(null);
   // The AI product scanner: another way to fill the same cart (ADR-0030).
   const [scannerOpen, setScannerOpen] = useState(false);
   // The invoice and the offers open in sheets, not as big blocks on the screen.
@@ -290,14 +343,8 @@ export function SalesView({
   }, [storeId]);
 
   // Modals state
-  const [weightModalItem, setWeightModalItem] =
-    useState<DisplaySaleItem | null>(null);
   const [serviceModalItem, setServiceModalItem] =
     useState<DisplaySaleItem | null>(null);
-
-  // Weight Modal inputs
-  const [weightValue, setWeightValue] = useState("");
-  const [weightUnit, setWeightUnit] = useState<"g" | "kg">("g");
 
   // Service Modal inputs
   const [serviceAmountEgp, setServiceAmountEgp] = useState("");
@@ -412,6 +459,9 @@ export function SalesView({
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (!isMounted) return;
+          if (data?.config?.serviceCommissions) {
+            setServiceCommissions(data.config.serviceCommissions);
+          }
           if (
             data?.config?.enabledServiceIds &&
             Array.isArray(data.config.enabledServiceIds)
@@ -509,10 +559,24 @@ export function SalesView({
   // Prepare combined items for the Sales Grid
   const displayItems = useMemo<DisplaySaleItem[]>(() => {
     const list: DisplaySaleItem[] = [];
+    // The shop's barcodes per product (ADR-0031), for the filter and the scanner.
+    const barcodesOf = new Map<string, string[]>();
+    for (const p of allProducts) {
+      const codes = [p.barcode, ...(p.variants ?? []).map((v) => v.barcode)]
+        .map((c) => c?.trim())
+        .filter((c): c is string => Boolean(c));
+      if (codes.length) barcodesOf.set(p.id, [...new Set(codes)]);
+    }
 
     // 1. Regular physical products present in inventory
+    const variantOf = new Map(
+      allProducts.flatMap((p) => (p.variants ?? []).map((v) => [v.id, v])),
+    );
     inventory.forEach((inv) => {
+      const v = variantOf.get(inv.variantId);
       list.push({
+        sizeValue: v?.size_value ?? null,
+        sizeUnit: v?.size_unit ?? null,
         id: inv.productId,
         variantId: inv.variantId,
         productId: inv.productId,
@@ -526,6 +590,13 @@ export function SalesView({
         status: inv.currentStockBase <= 0 ? "out" : inv.status || "ok",
         isService: false,
         category: inv.category,
+        hasBarcode: Boolean(inv.barcode) || barcodesOf.has(inv.productId),
+        barcodes: [
+          ...new Set([
+            ...(inv.barcode ? [inv.barcode.trim()] : []),
+            ...(barcodesOf.get(inv.productId) ?? []),
+          ]),
+        ],
       });
     });
 
@@ -570,18 +641,37 @@ export function SalesView({
     }
 
     return list;
-  }, [inventory, services, enabledServiceIds, stagedItem, sandwiches]);
+  }, [
+    inventory,
+    services,
+    enabledServiceIds,
+    stagedItem,
+    sandwiches,
+    allProducts,
+  ]);
 
-  // Filtered by Search query
+  // Search, then the filter chip; no barcode first, then weighed, then the rest (V19).
   const filteredItems = useMemo(() => {
     const q = normalizeArabic(query.trim());
-    if (!q) return displayItems;
-    return displayItems.filter((item) => {
-      const name = normalizeArabic(item.name || "");
-      const cat = normalizeArabic(item.category || "");
-      return name.includes(q) || cat.includes(q);
-    });
-  }, [displayItems, query]);
+    return displayItems
+      .filter((item) => {
+        if (!q) return true;
+        const name = normalizeArabic(item.name || "");
+        const cat = normalizeArabic(item.category || "");
+        return name.includes(q) || cat.includes(q);
+      })
+      .filter((item) => matchesSaleFilter(item, saleFilter))
+      .map((item, i) => ({ item, i }))
+      .sort((a, b) => saleSortRank(a.item) - saleSortRank(b.item) || a.i - b.i)
+      .map(({ item }) => item);
+  }, [displayItems, query, saleFilter]);
+
+  const filteredPromotions = useMemo(() => {
+    const q = normalizeArabic(query.trim());
+    return activePromotions.filter(
+      (p) => !q || normalizeArabic(p.title).includes(q),
+    );
+  }, [activePromotions, query]);
 
   /** Shows the server's stock balance after a sale on the tiles (matched by variant). */
   const applyRecordedStock = useCallback((recorded: RecordedSale) => {
@@ -710,6 +800,7 @@ export function SalesView({
       machineId?: string;
       machineDeductPiasters?: number;
       machineName?: string;
+      paymentMethod?: "cash" | "wallet" | "card";
     }): Promise<boolean> => {
       const { item, quantityBase, label } = params;
       const outcome = await submitSale(
@@ -726,6 +817,7 @@ export function SalesView({
           machineId: params.machineId,
           machineDeductPiasters: params.machineDeductPiasters,
           machineName: params.machineName,
+          paymentMethod: params.paymentMethod,
         },
         {
           name: item.name,
@@ -1115,66 +1207,109 @@ export function SalesView({
     return true;
   };
 
-  /**
-   * Lines confirmed in the scanner join the cart: the same product is merged, never added
-   * twice. Names, prices, units and stock come from the server's match; checkout re-checks all.
-   */
-  const addScannedToCart = (lines: ConfirmedScanLine[]) => {
-    setCartLines((prev) => {
-      const next = [...prev];
-      for (const l of lines) {
-        const i = next.findIndex((c) => c.variantId === l.variantId);
-        if (i >= 0) {
-          const cur = next[i]!;
-          next[i] = {
-            ...cur,
-            quantityBase: Math.min(
-              cur.quantityBase + l.quantityBase,
-              l.stockBase,
-            ),
-          };
-        } else {
-          next.push({
-            variantId: l.variantId,
-            name: l.name,
-            unit: l.unit,
-            quantityBase: Math.min(l.quantityBase, l.stockBase),
-            sellPricePiasters: l.sellPricePiasters,
-            stockBase: l.stockBase,
-          });
-        }
-      }
-      return next;
-    });
-    setScannerOpen(false);
-    setCartMode(true);
-    setCartOpen(true);
-    showToast(`اتضاف ${lines.length} صنف للفاتورة من الاسكان`, "success");
-  };
-
-  /** The customer is chosen: a credit sale starts (items already in a draft are kept). */
-  const startCreditSale = (customer: CreditCustomer) => {
-    setCreditCustomer(customer);
-    setCreditFormOpen(false);
-    setCartMode(true);
-    setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
-    showToast(t("credit.started", { name: customer.name }), "success");
-  };
-
   /** Leaves the credit sale; its draft items are dropped (nothing was recorded). */
   const cancelCreditSale = () => {
+    setCreditMode(false);
     setCreditCustomer(null);
     setCartLines([]);
+    setCartOffers([]);
     setCartMode(false);
     setCartOpen(false);
     setCartDraft(EMPTY_CART_DRAFT);
+  };
+
+  /** «بيع آجل»: the items go on one credit invoice; the customer is asked before confirming. */
+  const toggleCredit = () => {
+    if (creditMode || creditCustomer) {
+      cancelCreditSale();
+      return;
+    }
+    setCreditMode(true);
+    setCartMode(true);
+    setCartDraft({ ...EMPTY_CART_DRAFT, method: "debt" });
+  };
+
+  /** A stocked product opens the V19 sell sheet: unit, quantity, payment. */
+  const openSellSheet = (item: DisplaySaleItem) => {
+    setSellItem(item);
+    setSellUnit("base");
+    setSellWeightUnit("kg");
+    setSellQty(saleShape(item).kind === "weight" ? "0.25" : "1");
+    setSellPay("cash");
+  };
+
+  /** An offer joins the invoice as one line (twice = quantity 2); the cart opens on it. */
+  const addPromotionToCart = (promo: PublishedPromotion) => {
+    const already = cartOffers.find((o) => o.promoId === promo.id)?.qty ?? 0;
+    const need = new Map<string, number>();
+    for (const l of cartLines) {
+      need.set(l.variantId, (need.get(l.variantId) ?? 0) + l.quantityBase);
+    }
+    for (const o of cartOffers) {
+      for (const it of o.items) {
+        need.set(
+          it.variantId,
+          (need.get(it.variantId) ?? 0) + it.quantityBase * o.qty,
+        );
+      }
+    }
+    let regular = 0;
+    for (const it of promo.items) {
+      const inv = inventory.find(
+        (i) => i.variantId === it.variantId || i.productId === it.productId,
+      );
+      const total = (need.get(it.variantId) ?? 0) + it.quantityBase;
+      if (!inv || inv.currentStockBase < total) {
+        showToast(
+          `الكمية غير كافية بالمخزون لإتمام العرض: «${it.productName}»`,
+          "error",
+        );
+        return;
+      }
+      regular += saleLineTotalPiasters(
+        inv.unit ?? "piece",
+        inv.sellPricePiasters,
+        it.quantityBase,
+      );
+    }
+    setCartOffers((prev) =>
+      already > 0
+        ? prev.map((o) =>
+            o.promoId === promo.id ? { ...o, qty: o.qty + 1 } : o,
+          )
+        : [
+            ...prev,
+            {
+              promoId: promo.id,
+              title: promo.title,
+              pricePiasters: promo.promoPricePiasters,
+              regularPiasters: regular,
+              items: promo.items.map((it) => ({
+                variantId: it.variantId,
+                quantityBase: it.quantityBase,
+              })),
+              qty: 1,
+            },
+          ],
+    );
+    setCartMode(true);
+    setOfferSheet(null);
+    showToast(`اتضاف العرض «${promo.title}» للفاتورة`, "success");
   };
 
   // Tap handler for a Card
   const handleCardClick = async (item: DisplaySaleItem) => {
     // QA-31: in cart mode a stocked product goes into the cart; the server prices it at checkout.
     if (cartMode) {
-      addToCart(item);
+      if (item.isService || item.isSandwich || !item.variantId) {
+        addToCart(item);
+        return;
+      }
+      if (item.currentStockBase <= 0) {
+        showToast(t("sale.outCantSell"), "error");
+        return;
+      }
+      openSellSheet(item);
       return;
     }
     // 0. Sandwich: the server checks and deducts the ingredients
@@ -1192,7 +1327,7 @@ export function SalesView({
       if (linkedMachs.length === 0) {
         if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
         setActiveToast({
-          msg: `الخدمة «${item.name}» مش مربوطة بأي ماكينة دفع — اربطها من قسم المنتجات أولاً`,
+          msg: `الخدمة «${item.name}» مش مربوطة بأي ماكينة — اربطها من «المحافظ والماكينات»`,
           type: "error",
         });
         toastTimerRef.current = setTimeout(() => setActiveToast(null), 4000);
@@ -1202,7 +1337,11 @@ export function SalesView({
       // If service is variable (utility charging, topup, transfer)
       const name = item.name.toLowerCase();
       const cat = (item.category || "").toLowerCase();
+      // A service with slabs or a percentage always asks for the operation's amount.
+      const rule = ruleOf(item);
       const isVariable =
+        rule.tiers.length > 0 ||
+        rule.type === "percent" ||
         name.includes("كهرباء") ||
         name.includes("مياه") ||
         name.includes("غاز") ||
@@ -1260,94 +1399,53 @@ export function SalesView({
 
     // 2. Physical product out of stock
     if (item.currentStockBase <= 0) {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setActiveToast({
-        msg: `المنتج «${item.name}» خلصان من المخزون! ضيفه من صفحة المخزون الأول`,
-        type: "error",
-      });
-      toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
+      showToast(t("sale.outCantSell"), "error");
       return;
     }
 
-    // 3. Weighed product
-    if (item.unitMode === "weight") {
-      setWeightModalItem(item);
-      setWeightValue("");
-      setWeightUnit("g");
-      return;
-    }
-
-    // 4. Single piece sale
-    void recordSale({
-      item,
-      quantityBase: 1,
-      amountPiasters: item.sellPricePiasters,
-      label: "1 قطعة",
-    });
+    // 3. Pieces, packs or weight: the sell sheet
+    openSellSheet(item);
   };
 
-  // Sell full carton / pack
-  const handleSellCarton = (e: React.MouseEvent, item: DisplaySaleItem) => {
-    e.stopPropagation();
-    const packQty = item.packQty || 1;
-    const packLabel = getPackLabel(item.packName, item.packQty);
-    // In an invoice (credit or not) a whole pack joins the draft as its pieces.
-    if (cartMode) {
-      if (item.currentStockBase < packQty) {
-        showToast(
-          `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
-          "error",
-        );
-        return;
-      }
-      addToCart(item, packQty);
-      return;
-    }
+  // ─── The sell sheet (V19): the product's own selling units (sale-quantity.ts) ───
+  const sellShape = sellItem ? saleShape(sellItem) : null;
+  const sellIsWeight = sellShape?.kind === "weight";
+  const sellPack = sellShape?.kind === "count" ? sellShape.pack : null;
+  const sellQtyNum = Number.parseFloat(sellQty.replace(",", ".")) || 0;
+  const sellBase = sellShape
+    ? saleBaseQty(sellShape, sellQty, sellUnit, sellWeightUnit)
+    : 0;
+  const sellAmount = sellItem ? saleAmount(sellItem, sellBase) : 0;
+  const sellShort = Boolean(sellItem && sellBase > sellItem.currentStockBase);
 
-    if (item.currentStockBase < packQty) {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-      setActiveToast({
-        msg: `مفيش ${packLabel} كاملة من «${item.name}» — المتاح ${item.currentStockBase} فقط`,
-        type: "error",
-      });
-      toastTimerRef.current = setTimeout(() => setActiveToast(null), 3500);
-      return;
-    }
-
-    const cartonPricePiasters = item.sellPricePiasters * packQty;
-    void recordSale({
-      item,
-      quantityBase: packQty,
-      amountPiasters: cartonPricePiasters,
-      label: `1 ${packLabel}`,
-      isCarton: true,
-    });
-  };
-
-  // Submit Weight Sale
-  const handleWeightSubmit = () => {
-    if (!weightModalItem) return;
-    const num = parseFloat(weightValue) || 0;
-    if (num <= 0) return;
-
-    const grams = weightToGrams(num, weightUnit as "kg" | "gram");
-
-    if (grams > weightModalItem.currentStockBase) return;
-
-    const amountPiasters = weightSalePiasters(
-      grams,
-      weightModalItem.sellPricePiasters,
+  const stepSellQty = (dir: 1 | -1) => {
+    const step = sellIsWeight ? (sellWeightUnit === "kg" ? 0.25 : 50) : 1;
+    const next = Math.max(
+      step,
+      Math.round((sellQtyNum + dir * step) * 100) / 100,
     );
-    const label = formatWeightLabel(grams);
+    setSellQty(String(next));
+  };
 
+  const confirmSellSheet = () => {
+    const item = sellItem;
+    if (!item || sellBase <= 0 || sellShort) return;
+    setSellItem(null);
+    if (cartMode) {
+      addToCart(item, sellBase);
+      return;
+    }
+    const label = sellShape
+      ? saleLineLabel(sellShape, sellQty, sellUnit, sellBase)
+      : formatWeightLabel(sellBase);
     void recordSale({
-      item: weightModalItem,
-      quantityBase: grams,
-      amountPiasters,
+      item,
+      quantityBase: sellBase,
+      amountPiasters: sellAmount,
       label,
+      isCarton: sellUnit === "pack",
+      paymentMethod: sellPay,
     });
-
-    setWeightModalItem(null);
   };
 
   // Submit Service Sale
@@ -1379,10 +1477,19 @@ export function SalesView({
       return;
     }
 
-    const commissionPiasters =
-      serviceModalItem.sellPricePiasters > 0
-        ? serviceModalItem.sellPricePiasters
-        : 500; // 5 EGP default
+    // The shop's commission on this amount, from its slab (older services: their price).
+    const commissionPiasters = commissionFor(
+      serviceModalItem,
+      principalPiasters,
+    );
+    if (commissionPiasters === undefined) {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      setActiveToast({
+        msg: "المبلغ ده برّه شرائح العمولة بتاعة الخدمة",
+        type: "error",
+      });
+      return;
+    }
 
     const totalCustomerPiasters = principalPiasters + commissionPiasters;
 
@@ -1402,18 +1509,6 @@ export function SalesView({
     setServiceAmountEgp("");
   };
 
-  // Weight modal calculations
-  const weightNum = parseFloat(weightValue) || 0;
-  const weightGrams = weightToGrams(weightNum, weightUnit as "kg" | "gram");
-  const weightKg = weightGrams / 1000;
-  const weightAmountEgp =
-    weightModalItem && weightKg > 0
-      ? Math.round(weightKg * (weightModalItem.sellPricePiasters / 100) * 100) /
-        100
-      : 0;
-  const weightExceedsStock =
-    weightModalItem && weightGrams > weightModalItem.currentStockBase;
-
   // Service modal calculations
   const serviceAmountNum = parseFloat(serviceAmountEgp) || 0;
   const chosenServiceMachine =
@@ -1427,95 +1522,190 @@ export function SalesView({
     (chosenServiceMachine?.currentBalancePiasters || 0) <
       principalRequiredPiasters;
 
-  const serviceCommissionEgp =
-    serviceModalItem && serviceModalItem.sellPricePiasters > 0
-      ? serviceModalItem.sellPricePiasters / 100
-      : 5;
-  const serviceTotalEgp =
-    serviceAmountNum > 0 ? serviceAmountNum + serviceCommissionEgp : 0;
+  const serviceRule = serviceModalItem ? ruleOf(serviceModalItem) : null;
+  const serviceSlab =
+    serviceRule && principalRequiredPiasters > 0
+      ? slabFor(serviceRule, principalRequiredPiasters)
+      : undefined;
+  const serviceCommissionPiasters = serviceSlab?.piasters ?? null;
+  const serviceTotalPiasters =
+    serviceCommissionPiasters === null
+      ? null
+      : principalRequiredPiasters + serviceCommissionPiasters;
 
   return (
     <div className={viewStyles.view} data-testid="page-sales" dir="rtl">
       <div className={styles.salesContainer}>
-        {/* Search Box matching Image 1 */}
-        <div className={styles.searchWrapper}>
-          <SearchBox
-            value={query}
-            onChange={setQuery}
-            placeholder="دوّر على صنف..."
-            voice={true}
-            onCamera={() => setScannerOpen(true)}
-          />
-        </div>
-
-        {/* Today's Sales Pill & Legend matching Image 1 */}
-        <div className={styles.sBar}>
-          <div className={styles.sTotal} data-testid="today-sales-pill">
-            <span className={styles.sTotalLabel}>مبيعات النهارده</span>
-            <b className={styles.sTotalAmount} data-testid="today-sales-total">
-              {todayTotalPiasters === null
-                ? "—"
-                : formatMoney(todayTotalPiasters)}
-            </b>
-          </div>
-
-          <div className={styles.legend}>
-            <span className={styles.legendItem}>
-              <i className={`${styles.legendBox} ${styles.out}`} />
-              <span>خلصان</span>
-            </span>
-            <span className={styles.legendItem}>
-              <i className={`${styles.legendBox} ${styles.low}`} />
-              <span>قرب يخلص</span>
-            </span>
-          </div>
-        </div>
-
-        {/* Offers and the multi-item invoice: two small controls, opened in sheets */}
-        <div className={styles.salesTools}>
-          {activePromotions.length > 0 && (
-            <Button
-              kind="ghost"
-              size="sm"
-              icon="sparkle"
-              data-testid="promos-toggle"
-              onClick={() => setPromosOpen(true)}
-            >
-              {t("invoice.promos")} ({activePromotions.length})
-            </Button>
-          )}
-          {!creditCustomer && (
-            <Button
-              kind={cartMode ? "primary" : "ghost"}
-              size="sm"
-              icon="plus"
-              data-testid="cart-toggle"
-              aria-pressed={cartMode}
-              onClick={() => setCartMode((v) => !v)}
-            >
-              {t("invoice.cartToggle")}
-              {cartLines.length > 0 ? ` (${cartLines.length})` : ""}
-            </Button>
-          )}
-          {/* The credit-sale entry point: the customer first, then the items */}
-          <Button
-            kind={creditCustomer ? "primary" : "ghost"}
-            size="sm"
-            icon="users"
-            data-testid="credit-start"
-            aria-pressed={!!creditCustomer}
-            onClick={() =>
-              creditCustomer ? setCartOpen(true) : setCreditFormOpen(true)
-            }
+        {/* 1. فاتورة · آجل · مرتجع (V19 .sellTop style) */}
+        <div className={styles.modeRow} role="group" aria-label="نوع البيعة">
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${cartMode && !creditMode && !creditCustomer ? styles.modeOn : ""}`}
+            data-testid="cart-toggle"
+            aria-pressed={cartMode && !creditMode && !creditCustomer}
+            onClick={() => {
+              if (creditMode || creditCustomer) {
+                cancelCreditSale();
+                setCartMode(true);
+                return;
+              }
+              setCartMode((v) => !v);
+            }}
           >
+            🧾 فاتورة
+            {!creditMode &&
+            !creditCustomer &&
+            cartLines.length + cartOffers.length > 0
+              ? ` (${cartLines.length + cartOffers.length})`
+              : ""}
+          </button>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${creditMode || creditCustomer ? styles.modeOn : ""}`}
+            data-testid="credit-start"
+            aria-pressed={creditMode || Boolean(creditCustomer)}
+            onClick={toggleCredit}
+          >
+            📒 آجل
+          </button>
+          <button
+            type="button"
+            className={styles.modeBtn}
+            data-testid="return-start"
+            onClick={() => setReturnPickerOpen(true)}
+          >
+            ↩️ مرتجع
+          </button>
+        </div>
+        {(creditMode || creditCustomer) && (
+          <div className={styles.credBox} data-testid="credit-mode">
             {creditCustomer
               ? t("credit.sessionLabel", { name: creditCustomer.name })
-              : t("credit.start")}
-          </Button>
+              : t("credit.modeHint")}
+          </div>
+        )}
+
+        {/* 2. المنتجات · العروض · الخدمات */}
+        <div className={styles.sectionRow} role="tablist">
+          {(
+            [
+              ["products", "📦", "المنتجات"],
+              ["offers", "🎁", "العروض"],
+              ["services", "⚡", "الخدمات"],
+            ] as const
+          ).map(([k, em, label]) => (
+            <button
+              key={k}
+              type="button"
+              role="tab"
+              aria-selected={section === k}
+              className={`${styles.sectionCard} ${section === k ? styles.sectionOn : ""}`}
+              onClick={() => setSection(k)}
+              data-testid={`sales-section-${k}`}
+            >
+              <i aria-hidden="true">{em}</i>
+              {label}
+            </button>
+          ))}
         </div>
 
-        {/* Product & Services Tiles Grid matching Image 1 */}
-        {!tilesLoaded && displayItems.length === 0 ? (
+        {/* 3. امسح الباركود: the camera opens at once (no AI) */}
+        <button
+          type="button"
+          className={styles.scanBig}
+          data-testid="sales-scan"
+          onClick={() => {
+            setScanHit(null);
+            setScannerOpen(true);
+          }}
+        >
+          📷 امسح الباركود
+        </button>
+
+        {/* 4. البحث (V17) */}
+        <input
+          type="search"
+          className={styles.search17}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="دوّر على صنف..."
+          aria-label="دوّر على صنف..."
+          dir="auto"
+          data-testid="sales-search"
+        />
+
+        {/* 5. الفلاتر (V19) */}
+        {section === "products" && (
+          <div className={styles.chips} role="tablist">
+            {(
+              [
+                ["all", "الكل"],
+                ["weight", "بالوزن"],
+                ["nobc", "من غير باركود"],
+                ["sand", "الساندوتشات"],
+              ] as const
+            ).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={productFilter === k}
+                className={`${styles.chip} ${productFilter === k ? styles.chipOn : ""}`}
+                onClick={() => setProductFilter(k)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div className={styles.legend}>
+          <span>
+            <i className={styles.legendYel} />
+            قرب يخلص
+          </span>
+          <span>
+            <i className={styles.legendRed} />
+            خلص
+          </span>
+        </div>
+
+        {saleFilter === "off" ? (
+          <>
+            {filteredPromotions.length === 0 ? (
+              <div className={styles.note}>مفيش عروض هنا</div>
+            ) : (
+              <div className={styles.tgrid}>
+                {filteredPromotions.map((promo) => (
+                  <button
+                    key={promo.id}
+                    type="button"
+                    className={styles.pcard}
+                    data-testid="promo-card"
+                    onClick={() => setOfferSheet(promo)}
+                  >
+                    <span className={styles.em}>🎁</span>
+                    <b>{promo.title}</b>
+                    <small>{formatMoney(promo.promoPricePiasters)}</small>
+                    <small className={styles.st}>
+                      بدل {formatMoney(promo.originalPricePiasters)}
+                    </small>
+                  </button>
+                ))}
+              </div>
+            )}
+            {activePromotions.length > 0 && (
+              <button
+                type="button"
+                className={styles.linkBtn}
+                data-testid="promos-toggle"
+                onClick={() => setPromosOpen(true)}
+              >
+                ✏️ عدّل أو امسح العروض
+              </button>
+            )}
+          </>
+        ) : !tilesLoaded && displayItems.length === 0 ? (
           <div
             className={styles.tgrid}
             role="status"
@@ -1523,24 +1713,16 @@ export function SalesView({
             data-testid="sales-tiles-loading"
           >
             {Array.from({ length: 6 }, (_, i) => (
-              <Skeleton key={i} height={96} radius={16} />
+              <Skeleton key={i} height={130} radius={18} />
             ))}
           </div>
         ) : filteredItems.length === 0 ? (
-          <div className={viewStyles.card}>
-            <Empty
-              icon="search"
-              title={
-                query
-                  ? "مفيش صنف بالاسم ده"
-                  : "لسه مفيش منتجات أو خدمات في البيع"
-              }
-              sub={
-                query
-                  ? "تأكد من كتابة اسم المنتج بشكل صحيح"
-                  : "ضيف بضاعة في المخزون أو اضغط «إضافة إلى البيع» على أي خدمة من قسم المنتجات"
-              }
-            />
+          <div className={styles.note}>
+            {query
+              ? "مفيش صنف بالاسم ده"
+              : saleFilter === "all"
+                ? "لسه مفيش منتجات أو خدمات في البيع — ضيف بضاعة من «دخلت بضاعة»"
+                : "مفيش منتجات هنا"}
           </div>
         ) : (
           <div className={styles.tgrid}>
@@ -1548,79 +1730,57 @@ export function SalesView({
               const isLow = item.status === "low";
               const isOut = item.status === "out";
               const isPop = flashId === item.id;
-              const hasCartonBtn =
-                !item.isService &&
-                item.unitMode === "piece" &&
-                item.packQty > 1 &&
-                !isOut;
-
               return (
-                <div
+                <button
                   key={item.id}
-                  className={`${styles.tile} ${isLow ? styles.low : ""} ${isOut ? styles.out : ""} ${isPop ? styles.pop : ""}`}
+                  type="button"
+                  className={`${styles.pcard} ${isLow ? styles.yel : ""} ${isOut ? styles.red : ""} ${isPop ? styles.pop : ""}`}
+                  onClick={() => handleCardClick(item)}
+                  aria-label={`بيع ${item.name}`}
+                  data-testid="sale-tile"
+                  data-status={item.status}
+                  disabled={item.isSandwich && sellingSandwichId === item.id}
+                  aria-busy={
+                    item.isSandwich && sellingSandwichId === item.id
+                      ? true
+                      : undefined
+                  }
                 >
-                  <button
-                    type="button"
-                    className={styles.tMain}
-                    onClick={() => handleCardClick(item)}
-                    aria-label={`بيع ${item.name}`}
-                    disabled={item.isSandwich && sellingSandwichId === item.id}
-                    aria-busy={
-                      item.isSandwich && sellingSandwichId === item.id
-                        ? true
-                        : undefined
-                    }
-                  >
-                    <span className={styles.tN}>{item.name}</span>
-
-                    <span className={styles.tP}>
-                      {item.unitMode === "weight" ? (
-                        <>
-                          <Icon n="scale" s={14} />
-                          <span>{item.sellPricePiasters / 100} ج / كجم</span>
-                        </>
-                      ) : item.isService ? (
-                        <span>
-                          {item.sellPricePiasters > 0
-                            ? `عمولة ${item.sellPricePiasters / 100} ج`
-                            : "شحن فوري"}
-                        </span>
-                      ) : (
-                        <span>{item.sellPricePiasters / 100} ج</span>
-                      )}
-                    </span>
-
-                    <span className={styles.tS}>{formatStockText(item)}</span>
-                  </button>
-
-                  {/* Credit sales start from «آجل» above the grid, never from a card. */}
-                  {hasCartonBtn && (
-                    <div className={styles.tActions}>
-                      {/* Secondary Packaging Button (كرتونة / دستة / كيس / باكت) */}
-                      {hasCartonBtn && (
-                        <button
-                          type="button"
-                          className={styles.tPack}
-                          onClick={(e) => handleSellCarton(e, item)}
-                          title={`بيع ${getPackLabel(item.packName, item.packQty)} (${item.packQty} قطعة)`}
-                          aria-label={`بيع ${getPackLabel(item.packName, item.packQty)} ${item.name}`}
-                        >
-                          <Icon n="box" s={16} />
-                          <span>
-                            {getPackLabel(item.packName, item.packQty)}
-                          </span>
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  <span className={styles.em} aria-hidden="true">
+                    {saleTileEmoji(item)}
+                  </span>
+                  <b>{item.name}</b>
+                  <small>
+                    {item.isService
+                      ? `عمولة ${describeCommission(ruleOf(item))}`
+                      : (() => {
+                          // V19: «15 ج / قطعة», in the product's own unit.
+                          const shape = saleShape(item);
+                          const price = salePriceLine(item, shape, "base");
+                          return `${price.piasters / 100} ج / ${shape.kind === "weight" ? "كيلو" : shape.one}`;
+                        })()}
+                  </small>
+                  <small className={styles.st}>
+                    {item.isService
+                      ? machines
+                          .filter((m) =>
+                            getServiceLinkedMachineIds(
+                              item.productId,
+                              storeId,
+                            ).includes(m.id),
+                          )
+                          .map((m) => m.name)
+                          .join("، ") || "مش مربوطة بماكينة"
+                      : formatStockText(item)}
+                  </small>
+                </button>
               );
             })}
           </div>
         )}
 
         {/* QA-31 invoice: a small summary that opens the invoice sheet */}
-        {(cartMode || cartLines.length > 0) && (
+        {(cartMode || cartLines.length > 0 || cartOffers.length > 0) && (
           <button
             type="button"
             className={styles.cartSummary}
@@ -1630,9 +1790,9 @@ export function SalesView({
           >
             <Icon n="list" s={16} />
             <span>
-              {creditCustomer ? `${t("credit.start")} · ` : ""}
+              {creditMode || creditCustomer ? `${t("credit.start")} · ` : ""}
               {t("invoice.cartSummary", {
-                count: cartLines.length,
+                count: cartLines.length + cartOffers.length,
                 total: formatMoney(
                   cartLines.reduce(
                     (sum, l) =>
@@ -1643,7 +1803,11 @@ export function SalesView({
                         l.quantityBase,
                       ),
                     0,
-                  ),
+                  ) +
+                    cartOffers.reduce(
+                      (sum, o) => sum + o.pricePiasters * o.qty,
+                      0,
+                    ),
                 ),
               })}
             </span>
@@ -1725,48 +1889,23 @@ export function SalesView({
         )}
 
         <div className={styles.recentSection}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 10,
-              paddingBottom: 8,
-              borderBottom: "1.5px solid var(--line)",
-            }}
-          >
+          <div className={styles.recentHead} data-testid="today-sales-pill">
             <div>
-              <h3 className={styles.recentTitle} style={{ margin: 0 }}>
-                آخر البيعات
-              </h3>
-              <span style={{ fontSize: 12, color: "var(--ink2)" }}>
+              <h3 className={styles.recentTitle}>آخر البيعات</h3>
+              <span className={styles.recentSub}>
                 {todayActiveCount === 0
                   ? "مفيش بيعات اتسجلت لسه"
                   : `${todayActiveCount} ${todayActiveCount === 1 ? "عملية بيع اليوم" : "عمليات بيع اليوم"}`}
               </span>
             </div>
-            {todayTotalPiasters !== null && todayActiveCount > 0 && (
-              <div style={{ textAlign: "left" }}>
-                <span
-                  style={{
-                    fontSize: 11.5,
-                    color: "var(--ink2)",
-                    display: "block",
-                  }}
-                >
-                  إجمالي مبيعات اليوم
-                </span>
-                <b
-                  style={{
-                    fontSize: 16,
-                    color: "var(--ok, #108e5c)",
-                    fontWeight: 800,
-                  }}
-                >
-                  {formatMoney(todayTotalPiasters)}
-                </b>
-              </div>
-            )}
+            <div className={styles.recentTotal}>
+              <small>مبيعات النهارده</small>
+              <b data-testid="today-sales-total">
+                {todayTotalPiasters === null
+                  ? "—"
+                  : formatMoney(todayTotalPiasters)}
+              </b>
+            </div>
           </div>
 
           {salesLoadFailed && (
@@ -1866,345 +2005,453 @@ export function SalesView({
       )}
 
       {/* Weight Modal Popup matching Image 2 */}
-      {weightModalItem && (
-        <>
-          <div
-            className={styles.wpShield}
-            onClick={() => setWeightModalItem(null)}
-          />
-          <div className={styles.wpop} role="dialog" aria-modal="true">
-            <div className={styles.wpHeader}>
-              <span className={styles.wpTitle}>{weightModalItem.name}</span>
-              <span className={styles.wpSubtitle}>
-                {weightModalItem.sellPricePiasters / 100} ج / كجم
-              </span>
-            </div>
-
-            <div className={styles.wpRow}>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoFocus
-                className={styles.wpInput}
-                placeholder="الوزن"
-                value={weightValue}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/[^0.0-9.]/g, "");
-                  setWeightValue(cleaned);
-                }}
-                onKeyDown={(e) => {
-                  if (
-                    e.key === "Enter" &&
-                    weightNum > 0 &&
-                    !weightExceedsStock
-                  ) {
-                    handleWeightSubmit();
-                  }
-                }}
-              />
-
-              <div className={styles.wpSeg}>
-                <button
-                  type="button"
-                  className={`${styles.wpSegBtn} ${weightUnit === "g" ? styles.active : ""}`}
-                  onClick={() => {
-                    setWeightUnit("g");
-                    setWeightValue("");
-                  }}
-                >
-                  جرام
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.wpSegBtn} ${weightUnit === "kg" ? styles.active : ""}`}
-                  onClick={() => {
-                    setWeightUnit("kg");
-                    setWeightValue("");
-                  }}
-                >
-                  كيلو
-                </button>
+      {/* An offer: sell it now, or add it to the invoice (it stays one line there) */}
+      {offerSheet && (
+        <Modal
+          title={`🎁 ${offerSheet.title}`}
+          onClose={() => setOfferSheet(null)}
+        >
+          <div className={styles.sellSheet} data-testid="offer-sheet">
+            <div className={styles.sumbox}>
+              {offerSheet.items.map((it) => (
+                <div key={it.variantId} className={styles.line}>
+                  <span>{it.productName}</span>
+                  <b>
+                    {it.unit === "kg" || it.unit === "g"
+                      ? formatWeightLabel(it.quantityBase)
+                      : `${it.quantityBase} قطعة`}
+                  </b>
+                </div>
+              ))}
+              <div className={styles.line}>
+                <span>سعر العرض</span>
+                <b>{formatMoney(offerSheet.promoPricePiasters)}</b>
+              </div>
+              <div className={styles.line}>
+                <span>الوفر للعميل</span>
+                <b>
+                  {formatMoney(
+                    Math.max(
+                      0,
+                      offerSheet.originalPricePiasters -
+                        offerSheet.promoPricePiasters,
+                    ),
+                  )}
+                </b>
               </div>
             </div>
-
-            {/* Quick Chips matching Image 2 */}
-            <div className={styles.wpChips}>
-              {weightUnit === "g" ? (
-                <>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("100")}
-                  >
-                    100
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("250")}
-                  >
-                    250
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("500")}
-                  >
-                    500
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("1000")}
-                  >
-                    1000
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("0.25")}
-                  >
-                    0.25
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("0.5")}
-                  >
-                    0.5
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("1")}
-                  >
-                    1
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.wpChip}
-                    onClick={() => setWeightValue("2")}
-                  >
-                    2
-                  </button>
-                </>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className={styles.wpActionBtn}
-              disabled={!(weightNum > 0) || !!weightExceedsStock}
-              onClick={handleWeightSubmit}
+            {!cartMode && (
+              <Button
+                wide
+                data-testid="offer-sell-now"
+                onClick={() => {
+                  const promo = offerSheet;
+                  setOfferSheet(null);
+                  void handleSellPromotion(promo);
+                }}
+              >
+                بيع العرض دلوقتي ✅
+              </Button>
+            )}
+            <Button
+              wide
+              kind={cartMode ? "primary" : "ghost"}
+              data-testid="offer-add-invoice"
+              onClick={() => addPromotionToCart(offerSheet)}
             >
-              {weightExceedsStock
-                ? `المتاح ${formatStockText(weightModalItem)}`
-                : weightNum > 0
-                  ? `بيع — ${weightAmountEgp} ج.م`
-                  : "اكتب الوزن"}
-            </button>
+              {creditMode || creditCustomer
+                ? "ضيفه لفاتورة الآجل"
+                : "ضيفه للفاتورة"}
+            </Button>
           </div>
-        </>
+        </Modal>
       )}
 
-      {/* Service Sale Modal Popup */}
-      {serviceModalItem && (
-        <>
-          <div
-            className={styles.wpShield}
-            onClick={() => setServiceModalItem(null)}
-          />
-          <div className={styles.wpop} role="dialog" aria-modal="true">
-            <div className={styles.wpHeader}>
-              <span className={styles.wpTitle}>{serviceModalItem.name}</span>
-              <span className={styles.wpSubtitle}>
-                {serviceModalItem.brandName || "دفع إلكتروني"}
-              </span>
+      {/* V19 sell sheet: unit, quantity, total and payment for one product */}
+      {sellItem && (
+        <Modal
+          title={`${saleTileEmoji(sellItem)} ${sellItem.name}`}
+          onClose={() => setSellItem(null)}
+        >
+          <div className={styles.sellSheet} data-testid="sell-sheet">
+            <div className={styles.note}>
+              المتاح: {formatStockText(sellItem)}
             </div>
-
-            {/* Machine selection or indicator */}
-            {linkedServiceMachines.length > 1 ? (
-              <div className={styles.machineSelector}>
-                <span className={styles.machineSelectorLabel}>
-                  اختر ماكينة الخصم:
-                </span>
-                <div className={styles.machinePills}>
-                  {linkedServiceMachines.map((m) => (
+            {sellShape?.kind === "count" && sellShape.content && (
+              <div className={styles.note} data-testid="sell-content">
+                {sellShape.content.unit === "piece"
+                  ? `ال${sellShape.one.replace(/^ال/, "")} فيه ${sellShape.content.amount} قطعة`
+                  : `وزن ال${sellShape.one.replace(/^ال/, "")} ${sellShape.content.amount} ${sellShape.content.unit === "kg" ? "كيلو" : "جرام"}`}
+              </div>
+            )}
+            {sellPack && (
+              <div className={styles.chips} data-testid="sell-units">
+                <button
+                  type="button"
+                  className={`${styles.chip} ${sellUnit === "base" ? styles.chipOn : ""}`}
+                  data-testid="sell-unit-base"
+                  onClick={() => {
+                    setSellUnit("base");
+                    setSellQty("1");
+                  }}
+                >
+                  {sellShape?.kind === "count" ? sellShape.one : "قطعة"}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.chip} ${sellUnit === "pack" ? styles.chipOn : ""}`}
+                  data-testid="sell-unit-pack"
+                  onClick={() => {
+                    setSellUnit("pack");
+                    setSellQty("1");
+                  }}
+                >
+                  {sellPack.one} ({sellPack.qty})
+                </button>
+              </div>
+            )}
+            {sellIsWeight && (
+              <div className={styles.chips} data-testid="sell-weight-units">
+                {(["kg", "g"] as const).map((u) => (
+                  <button
+                    key={u}
+                    type="button"
+                    className={`${styles.chip} ${sellWeightUnit === u ? styles.chipOn : ""}`}
+                    data-testid={`sell-weight-${u}`}
+                    onClick={() => {
+                      if (u === sellWeightUnit) return;
+                      setSellQty(
+                        String(
+                          u === "g"
+                            ? Math.round(sellQtyNum * 1000)
+                            : Math.round(sellQtyNum) / 1000,
+                        ),
+                      );
+                      setSellWeightUnit(u);
+                    }}
+                  >
+                    {u === "kg" ? "كيلو" : "جرام"}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className={styles.lbl} data-testid="sell-qty-label">
+              {sellShape
+                ? saleQtyLabel(sellShape, sellUnit, sellWeightUnit)
+                : "الكمية"}
+            </div>
+            <div className={styles.qty}>
+              <button
+                type="button"
+                aria-label="أقل"
+                onClick={() => stepSellQty(-1)}
+              >
+                −
+              </button>
+              <input
+                type="number"
+                inputMode="decimal"
+                step={sellIsWeight ? (sellWeightUnit === "kg" ? 0.25 : 50) : 1}
+                value={sellQty}
+                data-testid="sell-qty"
+                onChange={(e) => setSellQty(e.target.value)}
+              />
+              <button
+                type="button"
+                aria-label="أكتر"
+                onClick={() => stepSellQty(1)}
+              >
+                +
+              </button>
+            </div>
+            <div className={styles.sumbox}>
+              {sellItem && sellShape && (
+                <div className={styles.line} data-testid="sell-unit-price">
+                  <span>
+                    {salePriceLine(sellItem, sellShape, sellUnit).label}
+                  </span>
+                  <span>
+                    {formatMoney(
+                      salePriceLine(sellItem, sellShape, sellUnit).piasters,
+                    )}
+                  </span>
+                </div>
+              )}
+              <div className={styles.line}>
+                <span>الإجمالي</span>
+                <b data-testid="sell-total">{formatMoney(sellAmount)}</b>
+              </div>
+              <div className={styles.note}>
+                {sellShort
+                  ? "الكمية أكبر من المتاح"
+                  : sellShape
+                    ? saleBaseNote(sellShape, sellBase)
+                    : ""}
+              </div>
+            </div>
+            {cartMode ? (
+              <div className={styles.note}>
+                {creditMode || creditCustomer
+                  ? "هتتضاف لفاتورة الآجل، واسم العميل قبل التأكيد"
+                  : "هتتضاف للفاتورة"}
+              </div>
+            ) : (
+              <>
+                <div className={styles.lbl}>الدفع إزاي؟</div>
+                <div className={styles.chips}>
+                  {(
+                    [
+                      ["cash", "💵 كاش"],
+                      ["wallet", "📱 محفظة"],
+                      ["card", "💳 كارت"],
+                    ] as Array<["cash" | "wallet" | "card", string]>
+                  ).map(([k, label]) => (
                     <button
-                      key={m.id}
+                      key={k}
                       type="button"
-                      className={`${styles.machinePill} ${
-                        (chosenServiceMachine?.id || "") === m.id
-                          ? styles.active
-                          : ""
-                      }`}
-                      onClick={() => setUserSelectedMachineId(m.id)}
+                      className={`${styles.chip} ${sellPay === k ? styles.chipOn : ""}`}
+                      onClick={() => setSellPay(k)}
                     >
-                      <span>{m.name}</span>
-                      <span className={styles.machinePillBal}>
-                        {((m.currentBalancePiasters || 0) / 100).toFixed(0)} ج
-                      </span>
+                      {label}
                     </button>
                   ))}
                 </div>
-              </div>
-            ) : linkedServiceMachines.length === 1 &&
-              linkedServiceMachines[0] ? (
-              <div className={styles.singleMachineBadge}>
-                <Icon n="check" s={14} />
-                <span>
-                  ماكينة: <b>{linkedServiceMachines[0].name}</b>
-                </span>
-                <span className={styles.machineBalanceTag}>
-                  (الرصيد المتاح:{" "}
-                  {(
-                    (linkedServiceMachines[0].currentBalancePiasters || 0) / 100
-                  ).toFixed(2)}{" "}
-                  ج.م)
-                </span>
-              </div>
-            ) : (
-              <div className={styles.balanceAlert}>
-                <Icon n="alert" s={16} />
-                <span>تحذير: لا توجد ماكينة دفع مربوطة بهذه الخدمة!</span>
-              </div>
+              </>
             )}
+            <Button
+              wide
+              data-testid="sell-confirm"
+              disabled={sellBase <= 0 || sellShort}
+              onClick={confirmSellSheet}
+            >
+              {cartMode ? "ضيف للفاتورة ✅" : "بيع ✅"}
+            </Button>
+          </div>
+        </Modal>
+      )}
 
-            {/* Insufficient balance alert */}
-            {isBalanceInsufficient && chosenServiceMachine && (
-              <div className={styles.balanceAlert}>
-                <Icon n="alert" s={16} />
-                <span>
-                  رصيد ماكينة {chosenServiceMachine.name} غير كافٍ! المتاح{" "}
-                  {(
-                    (chosenServiceMachine.currentBalancePiasters || 0) / 100
-                  ).toFixed(2)}{" "}
-                  ج.م فقط
-                </span>
-              </div>
-            )}
-
-            <div className={styles.wpRow}>
-              <input
-                type="text"
-                inputMode="decimal"
-                autoFocus
-                className={styles.wpInput}
-                placeholder="المبلغ المطلوب (ج.م)"
-                value={serviceAmountEgp}
-                onChange={(e) => {
-                  const cleaned = e.target.value.replace(/[^0-9.]/g, "");
-                  setServiceAmountEgp(cleaned);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && serviceAmountNum > 0) {
-                    handleServiceSubmit();
-                  }
-                }}
-              />
-            </div>
-
-            {/* Quick Chips for Services */}
-            <div className={styles.wpChips}>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("50")}
-              >
-                50
-              </button>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("100")}
-              >
-                100
-              </button>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("200")}
-              >
-                200
-              </button>
-              <button
-                type="button"
-                className={styles.wpChip}
-                onClick={() => setServiceAmountEgp("500")}
-              >
-                500
-              </button>
-            </div>
-
-            {/* Live Commission Breakdown */}
-            {serviceAmountNum > 0 && (
-              <div className={styles.serviceBreakdown}>
-                <div className={styles.serviceBreakdownRow}>
-                  <span>مبلغ الشحن (يُخصم من رصيد الماكينة):</span>
-                  <b>{serviceAmountNum} ج.م</b>
-                </div>
-                <div className={styles.serviceBreakdownRow}>
-                  <span>عمولة المحل (تُحصّل كاش في الدرج):</span>
-                  <b style={{ color: "var(--br, #8db68a)" }}>
-                    + {serviceCommissionEgp} ج.م
-                  </b>
-                </div>
-                <div
-                  className={`${styles.serviceBreakdownRow} ${styles.total}`}
+      {/* Service Sale Modal Popup */}
+      {/* V19 svcSaleSheet: the amount, the commission from its slab, the machine, confirm */}
+      {serviceModalItem && serviceRule && (
+        <Modal
+          title={`⚡ ${serviceModalItem.name}`}
+          onClose={() => setServiceModalItem(null)}
+        >
+          <div className={styles.sellSheet} data-testid="service-sale-sheet">
+            <label className={styles.lbl} htmlFor="service-amount">
+              قيمة العملية
+            </label>
+            <input
+              id="service-amount"
+              type="text"
+              inputMode="decimal"
+              autoFocus
+              className={styles.v19Input}
+              placeholder="0"
+              value={serviceAmountEgp}
+              onChange={(e) =>
+                setServiceAmountEgp(e.target.value.replace(/[^0-9.]/g, ""))
+              }
+              data-testid="service-amount"
+            />
+            <div className={styles.chips}>
+              {[100, 500, 1000].map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  className={styles.chip}
+                  onClick={() => setServiceAmountEgp(String(v))}
                 >
-                  <span>المطلوب من الزبون كاش:</span>
-                  <b>{serviceTotalEgp} ج.م</b>
-                </div>
-              </div>
-            )}
+                  {v} ج
+                </button>
+              ))}
+            </div>
 
-            <button
-              type="button"
-              className={styles.wpActionBtn}
+            {serviceRule.tiers.length > 0 ? (
+              <>
+                <div className={styles.lbl}>شرائح العمولة</div>
+                <div className={styles.sumbox} data-testid="service-slabs">
+                  {serviceRule.tiers.map((t, i) => {
+                    const on = serviceSlab?.tier === t;
+                    return (
+                      <div
+                        key={i}
+                        className={`${styles.line} ${on ? styles.slabOn : ""}`}
+                        data-testid="service-slab"
+                        aria-current={on ? "true" : undefined}
+                      >
+                        <span>{describeSlab(t)}</span>
+                        <span>{on ? "✓" : ""}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </>
+            ) : null}
+
+            <div className={styles.sumbox}>
+              <div className={styles.line}>
+                <span>العمولة</span>
+                <b data-testid="service-commission">
+                  {serviceCommissionPiasters === null
+                    ? "—"
+                    : formatMoney(serviceCommissionPiasters)}
+                </b>
+              </div>
+              <div className={styles.line}>
+                <span>الإجمالي من الزبون</span>
+                <b data-testid="service-total">
+                  {serviceTotalPiasters === null
+                    ? "—"
+                    : formatMoney(serviceTotalPiasters)}
+                </b>
+              </div>
+              <div className={styles.note} data-testid="service-note">
+                {principalRequiredPiasters > 0 && serviceSlab === undefined
+                  ? "المبلغ ده برّه شرائح العمولة بتاعة الخدمة"
+                  : isBalanceInsufficient && chosenServiceMachine
+                    ? `رصيد ${chosenServiceMachine.name} مش كافي للمبلغ ده`
+                    : ""}
+              </div>
+            </div>
+
+            <div className={styles.lbl}>من أنهي ماكينة؟</div>
+            <div className={styles.chips}>
+              {linkedServiceMachines.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  className={`${styles.chip} ${(chosenServiceMachine?.id || "") === m.id ? styles.chipOn : ""}`}
+                  onClick={() => setUserSelectedMachineId(m.id)}
+                  data-testid="service-machine-pick"
+                >
+                  💳 {m.name} · {formatMoney(m.currentBalancePiasters || 0)}
+                </button>
+              ))}
+            </div>
+
+            <Button
+              wide
+              data-testid="service-confirm"
               disabled={
                 !(serviceAmountNum > 0) ||
+                serviceSlab === undefined ||
                 Boolean(isBalanceInsufficient) ||
                 !chosenServiceMachine
               }
               onClick={handleServiceSubmit}
             >
-              {isBalanceInsufficient && chosenServiceMachine
-                ? `رصيد غير كافٍ (المتاح ${((chosenServiceMachine.currentBalancePiasters || 0) / 100).toFixed(2)} ج.م)`
-                : serviceAmountNum > 0
-                  ? `تأكيد وتسجيل العملية — ${serviceTotalEgp} ج.م`
-                  : "اكتب المبلغ المطلوب"}
-            </button>
+              تأكيد الخدمة ✅
+            </Button>
           </div>
-        </>
+        </Modal>
       )}
 
-      {/* AI product scanner: confirmed lines join the same cart (normal or credit sale) */}
+      {/* The barcode scanner: read → ✓ the product → «تم» → the usual sale flow (no AI) */}
       {scannerOpen && (
-        <ProductScannerSheet
-          catalog={displayItems
-            .filter((i) => i.variantId && !i.isService && !i.isSandwich)
-            .map((i) => ({
-              variantId: i.variantId!,
-              name: i.name,
-              unit: i.unit ?? "piece",
-              sellPricePiasters: i.sellPricePiasters,
-              stockBase: i.currentStockBase,
-            }))}
-          creditCustomerName={creditCustomer?.name ?? null}
-          onClose={() => setScannerOpen(false)}
-          onConfirm={addScannedToCart}
-        />
+        <BarcodeScanSheet
+          onCode={(code) =>
+            setScanHit({
+              code,
+              item: findByBarcode(displayItems, code) ?? null,
+            })
+          }
+          onClose={() => {
+            setScannerOpen(false);
+            setScanHit(null);
+          }}
+          paused={scanHit !== null}
+        >
+          {scanHit &&
+            (scanHit.item ? (
+              <div className={styles.scanHit} data-testid="scan-hit">
+                <div className={styles.scanHitName}>
+                  <span aria-hidden="true">✅</span>
+                  <b>{scanHit.item.name}</b>
+                </div>
+                <div className={styles.note}>
+                  {formatMoney(scanHit.item.sellPricePiasters)}
+                  {scanHit.item.unitMode === "weight" ? " / كيلو" : ""} ·{" "}
+                  {formatStockText(scanHit.item)}
+                </div>
+                <button
+                  type="button"
+                  className={styles.scanDone}
+                  data-testid="scan-done"
+                  onClick={() => {
+                    const item = scanHit.item!;
+                    setScannerOpen(false);
+                    setScanHit(null);
+                    void handleCardClick(item);
+                  }}
+                >
+                  تم ✓
+                </button>
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => setScanHit(null)}
+                >
+                  امسح غيره
+                </button>
+              </div>
+            ) : (
+              <div className={styles.scanHit} data-testid="scan-unknown">
+                <b>الباركود ده مش موجود عندك</b>
+                <div className={styles.note} dir="ltr">
+                  {scanHit.code}
+                </div>
+                <div className={styles.note}>
+                  سجّله من «دخلت بضاعة» أو «بضاعتي» عشان تبيعه بالباركود.
+                </div>
+                <button
+                  type="button"
+                  className={styles.linkBtn}
+                  onClick={() => setScanHit(null)}
+                >
+                  امسح تاني
+                </button>
+              </div>
+            ))}
+        </BarcodeScanSheet>
       )}
 
-      {/* Credit sale: who is the customer? */}
-      {creditFormOpen && (
-        <CreditCustomerForm
-          onClose={() => setCreditFormOpen(false)}
-          onChosen={startCreditSale}
-        />
+      {/* مرتجع: pick the invoice the goods came back from (returns are against a sale) */}
+      {returnPickerOpen && (
+        <Modal
+          title="↩️ مرتجع من أنهي بيعة؟"
+          onClose={() => setReturnPickerOpen(false)}
+        >
+          <div data-testid="return-picker">
+            {todaySales.filter((x) => !x.voided).length === 0 ? (
+              <div className={styles.note}>مفيش بيعات النهارده ترجع منها</div>
+            ) : (
+              todaySales
+                .filter((x) => !x.voided)
+                .map((sale) => (
+                  <button
+                    key={sale.id}
+                    type="button"
+                    className={styles.returnRow}
+                    data-testid="return-pick"
+                    onClick={() => {
+                      setReturnPickerOpen(false);
+                      setDetailsSaleId(sale.id);
+                    }}
+                  >
+                    <span>
+                      {sale.name}
+                      <small> · {formatCairoTime(sale.timestamp)}</small>
+                    </span>
+                    <b>{formatMoney(sale.amountPiasters)}</b>
+                  </button>
+                ))
+            )}
+            <div className={styles.note}>
+              دي بيعات النهارده. اختار البيعة وحدد اللي رجع منها.
+            </div>
+          </div>
+        </Modal>
       )}
 
       {/* The invoice (cart) sheet */}
@@ -2216,18 +2463,22 @@ export function SalesView({
           <CartSheet
             lines={cartLines}
             onChange={setCartLines}
+            offers={cartOffers}
+            onOffersChange={setCartOffers}
             draft={cartDraft}
             onDraftChange={setCartDraft}
             opIdRef={cartOpIdRef}
             creditCustomer={creditCustomer}
+            creditMode={creditMode}
             onCancelCredit={cancelCreditSale}
-            onDone={(invoice) => {
-              const credited = creditCustomer;
+            onDone={(invoice, credited) => {
               setCartLines([]);
+              setCartOffers([]);
               setCartMode(false);
               setCartOpen(false);
               setCartDraft(EMPTY_CART_DRAFT);
               setCreditCustomer(null);
+              setCreditMode(false);
               showToast(
                 credited
                   ? t("credit.done", {

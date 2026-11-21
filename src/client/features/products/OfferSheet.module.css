@@ -1,0 +1,42 @@
+/* V19 offerSheet: .swrow (one product of the offer), .x, .line, .btn.gold */
+.swrow {
+  background: var(--card);
+  border-radius: 16px;
+  padding: 10px;
+  margin: 8px 0;
+}
+
+.x {
+  background: none;
+  border: 0;
+  color: var(--red);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 6px;
+  cursor: pointer;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 17px;
+}
+
+.line:last-child {
+  border: 0;
+}
+
+.choice {
+  display: flex;
+  flex-direction: column;
+}
+
+.gold {
+  background: var(--gold);
+  color: var(--dark);
+}

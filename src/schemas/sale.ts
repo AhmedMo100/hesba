@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paidFromSchema } from "./drawer";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
 import { MAX_SALE_QUANTITY_BASE } from "@/domain/sale-pricing";
 
@@ -158,18 +159,47 @@ export const checkoutSchema = z
     }),
     /** Required for a credit sale (آجل): the customer who owes the invoice. */
     customerId: z.string().uuid("الزبون غير صحيح").optional().nullable(),
+    /**
+     * A credit sale to someone not recorded yet: created in the sale's own transaction, so a
+     * failed sale never leaves a customer behind with nothing owed.
+     */
+    newCustomer: z
+      .object({
+        name: z
+          .string()
+          .trim()
+          .min(1, "اكتب اسم الزبون")
+          .max(80, "الاسم طويل قوي"),
+        phone: z
+          .string()
+          .trim()
+          .max(20, "الرقم طويل قوي")
+          .optional()
+          .nullable(),
+      })
+      .strict()
+      .optional(),
     /** Credit sale only: what the customer paid now; the rest stays «ليك». */
     paidNowPiasters: salePiasters("المدفوع غير صحيح").default(0),
+    /** Where the paid-now money went: the drawer or a wallet (ADR-0031). */
+    paidFrom: paidFromSchema.optional(),
   })
   .strict()
-  .refine((v) => v.paymentMethod !== "debt" || Boolean(v.customerId), {
-    message: "البيع الآجل لازم يكون لزبون",
-    path: ["customerId"],
+  .refine(
+    (v) =>
+      v.paymentMethod !== "debt" ||
+      Boolean(v.customerId) ||
+      Boolean(v.newCustomer),
+    { message: "البيع الآجل لازم يكون لزبون", path: ["customerId"] },
+  )
+  .refine((v) => !(v.customerId && v.newCustomer), {
+    message: "اختار زبون موجود أو زبون جديد، مش الاتنين",
+    path: ["newCustomer"],
   })
-  .refine((v) => v.paymentMethod === "debt" || !v.customerId, {
-    message: "الزبون بيتسجل في البيع الآجل بس",
-    path: ["customerId"],
-  })
+  .refine(
+    (v) => v.paymentMethod === "debt" || (!v.customerId && !v.newCustomer),
+    { message: "الزبون بيتسجل في البيع الآجل بس", path: ["customerId"] },
+  )
   .refine((v) => v.paymentMethod === "debt" || v.paidNowPiasters === 0, {
     message: "المدفوع مقدماً للبيع الآجل بس",
     path: ["paidNowPiasters"],
@@ -181,6 +211,7 @@ export type CheckoutInput = z.infer<typeof checkoutSchema>;
 export const salePaymentSchema = z
   .object({
     opId: z.string().uuid("رقم العملية غير صحيح"),
+    paidFrom: paidFromSchema.optional(),
     amountPiasters: salePiasters("المبلغ غير صحيح").refine(
       (v) => v > 0,
       "المبلغ لازم يكون أكبر من صفر",
@@ -229,6 +260,10 @@ export interface SaleInvoice {
   discountPiasters: number;
   totalPiasters: number;
   returnedPiasters: number;
+  /** Of the returns: what lowered a credit invoice's debt … */
+  returnCreditedPiasters: number;
+  /** … and what was paid back to the customer. */
+  returnRefundedPiasters: number;
   /** Credit sale: what the customer still owes on this invoice (never < 0). */
   outstandingPiasters: number;
   voided: boolean;
@@ -243,6 +278,13 @@ export interface SaleInvoice {
     discountPiasters: number;
     totalPiasters: number;
     returnedQuantityBase: number;
+    /** The value of this line already returned. */
+    returnedPiasters: number;
+    /** The product's pack (a carton of 12 …) and a bag's contents: the units the return
+     *  is typed in. */
+    packQty: number;
+    packName: string | null;
+    sizeValue: number | null;
     /** False for lines that hold no stock (services, sandwiches): not returnable here. */
     returnable: boolean;
   }>;

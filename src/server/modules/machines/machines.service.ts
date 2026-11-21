@@ -425,6 +425,12 @@ export class MachinesService {
         if (!machine) {
           throw AppError.notFound("ماكينة الدفع غير موجودة أو تم حذفها بالفعل");
         }
+        // Money still in it would vanish from every total: move it out first.
+        if (machine.currentBalancePiasters > BigInt(0)) {
+          throw AppError.conflict(
+            `${machine.name} فيها رصيد ${formatEgp(machine.currentBalancePiasters)} ج.م — اسحبه الأول وبعدين امسحها`,
+          );
+        }
 
         await tx.posMachine.update({
           where: { id: machineId },

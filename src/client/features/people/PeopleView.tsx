@@ -9,14 +9,7 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import {
-  Icon,
-  Seg,
-  Empty,
-  Modal,
-  useToast,
-  ListSkeleton,
-} from "@/client/shared/ui";
+import { Icon, Empty, Modal, useToast, ListSkeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
@@ -24,6 +17,10 @@ import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import { PurchasesSheet } from "./PurchasesSheet";
 import { CustomerDebtSheet } from "./CustomerDebtSheet";
 import { CustomerInvoicesSheet } from "./CustomerInvoicesSheet";
+import {
+  fetchStoreMachines,
+  type PosMachine,
+} from "@/client/shared/api/machines";
 
 interface SuppliedProduct {
   id: string;
@@ -72,11 +69,6 @@ interface SectionState {
   loaded: boolean;
   loading: boolean;
   error: string | null;
-}
-
-interface PaymentModalState {
-  person: PersonItem;
-  isCollection: boolean;
 }
 
 import {
@@ -151,24 +143,14 @@ export function PeopleView() {
   const toast = useToast();
   // QA-30: the supplier whose purchase invoices are open.
   const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
+  // V19: a row opens the person's sheet with every action on them.
+  const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   // «فواتير الزبون»: the credit invoices behind what a customer owes (Prompt 2).
   const [invoicesTarget, setInvoicesTarget] = useState<PersonItem | null>(null);
   const [purchasesTarget, setPurchasesTarget] = useState<PersonItem | null>(
     null,
   );
   const [isDeleting, setIsDeleting] = useState(false);
-
-  // Payment / Collection Modal state
-  const [paymentTarget, setPaymentTarget] = useState<PaymentModalState | null>(
-    null,
-  );
-  const [paymentAmount, setPaymentAmount] = useState("");
-  const [paymentDate, setPaymentDate] = useState(() =>
-    new Date().toISOString().slice(0, 10),
-  );
-  const [paymentNote, setPaymentNote] = useState("");
-  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
-  const [paymentError, setPaymentError] = useState<string | null>(null);
 
   // Form input state
   const [formName, setFormName] = useState("");
@@ -340,24 +322,6 @@ export function PeopleView() {
     setModalOpen(true);
   };
 
-  const openPaymentModal = (person: PersonItem) => {
-    setPaymentTarget({
-      person,
-      isCollection: section === "owedToMe",
-    });
-    const egpVal = person.amount_piasters / 100;
-    setPaymentAmount(
-      person.amount_piasters > 0
-        ? person.amount_piasters % 100 === 0
-          ? String(egpVal)
-          : egpVal.toFixed(2)
-        : "",
-    );
-    setPaymentDate(new Date().toISOString().slice(0, 10));
-    setPaymentNote("");
-    setPaymentError(null);
-  };
-
   const handleSavePerson = async () => {
     if (!formName.trim()) {
       setFormError(t("pages.people.nameRequired") || "اكتب الاسم");
@@ -470,64 +434,73 @@ export function PeopleView() {
 
   const paymentOp = useRetryOpId();
 
-  const handleRecordPayment = async () => {
-    if (!paymentTarget) return;
-    if (!paymentAmount.trim()) {
-      setPaymentError("اكتب المبلغ");
+  // ─── The person sheet's payment (V19 personPay): cash or one of the shop's wallets ───
+  const [sheetAmount, setSheetAmount] = useState("");
+  const [sheetPay, setSheetPay] = useState<string>("cash");
+  const [sheetError, setSheetError] = useState<string | null>(null);
+  const [sheetBusy, setSheetBusy] = useState(false);
+  const [machines, setMachines] = useState<PosMachine[]>([]);
+  useEffect(() => {
+    void fetchStoreMachines().then((list) =>
+      setMachines(list.filter((m) => m.status !== "inactive")),
+    );
+  }, []);
+  useEffect(() => {
+    // A fresh sheet for every person opened.
+    setSheetAmount("");
+    setSheetPay("cash");
+    setSheetError(null);
+  }, [openPersonId]);
+
+  const payFromSheet = async (p: PersonItem) => {
+    setSheetError(null);
+    const amount = sheetAmount.trim() ? parseEgpToPiasters(sheetAmount) : 0;
+    if (!(amount > 0)) {
+      setSheetError("اكتب المبلغ");
       return;
     }
-
-    const amountNum = parseEgpToPiasters(paymentAmount);
-    if (amountNum <= 0) {
-      setPaymentError("المبلغ لازم يكون أكبر من صفر");
+    const machine =
+      sheetPay === "cash" ? null : machines.find((m) => m.id === sheetPay);
+    const collect = section === "owedToMe";
+    if (machine && !collect && machine.currentBalancePiasters < amount) {
+      setSheetError(`رصيد ${machine.name} مش كافي`);
       return;
     }
-
-    setIsSubmittingPayment(true);
-    setPaymentError(null);
-
+    setSheetBusy(true);
     try {
-      const res = await fetch(
-        `/api/people/${paymentTarget.person.id}/transactions`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            (() => {
-              const body = {
-                personId: paymentTarget.person.id,
-                type: "payment",
-                amountPiasters: amountNum,
-                note: paymentNote.trim() || null,
-                date: paymentDate
-                  ? new Date(paymentDate).toISOString()
-                  : undefined,
-              };
-              // Same payment retried → same opId → recorded once (QA-27).
-              const { personId: _person, ...send } = body;
-              void _person;
-              return { ...send, opId: paymentOp.opIdFor(body) };
-            })(),
-          ),
-        },
-      );
-
+      const body = {
+        type: "payment" as const,
+        amountPiasters: amount,
+        paidFrom: machine ? ("wallet" as const) : ("cash" as const),
+        ...(machine ? { paidFromMachineId: machine.id } : {}),
+        person: p.id,
+      };
+      const { person: _p, ...send } = body;
+      void _p;
+      const res = await fetch(`/api/people/${p.id}/transactions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...send, opId: paymentOp.opIdFor(body) }),
+      });
       if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        throw new Error(errData?.error?.message || "فشل تسجيل العملية");
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err?.error?.message || "مقدرناش نسجّل الدفعة");
       }
-
       paymentOp.reset();
-      setPaymentTarget(null);
-
-      // Refresh section data
+      setSheetAmount("");
+      toast.show({ msg: "تمام ✅", kind: "ok" });
       await fetchSectionData(section);
+      if (machine) {
+        void fetchStoreMachines().then((list) =>
+          setMachines(list.filter((m) => m.status !== "inactive")),
+        );
+      }
     } catch (err: unknown) {
-      setPaymentError(
-        err instanceof Error ? err.message : "حدث خطأ أثناء تسجيل المعاملة",
+      setSheetError(
+        err instanceof Error ? err.message : "مقدرناش نسجّل الدفعة",
       );
     } finally {
-      setIsSubmittingPayment(false);
+      setSheetBusy(false);
     }
   };
 
@@ -550,57 +523,25 @@ export function PeopleView() {
 
   return (
     <div className={styles.container} data-testid="page-people">
-      {/* Header */}
-      <div className={styles.head}>
-        <div>
-          <h1 className={styles.title}>{t("pages.people.title")}</h1>
-          <p className={styles.sub}>{t("pages.people.sub")}</p>
-        </div>
-        <button
-          type="button"
-          className={styles.addBtn}
-          onClick={openAddModal}
-          data-testid="btn-add-person"
-        >
-          <Icon n="plus" s={18} />
-          <span>{t("pages.people.add")}</span>
-        </button>
-      </div>
-
-      {/* Tabs */}
-      <div className={styles.segWrapper}>
-        <Seg<PeopleSection>
-          size="big"
-          value={section}
-          onChange={(newSec) => setSection(newSec)}
-          options={[
+      {/* Tabs (V19 chips) */}
+      <div className={styles.chips} role="tablist">
+        {(
+          [
             ["owedToMe", t("pages.people.owedToMe")],
-            ["iOwe", t("pages.people.iOwe")],
             ["suppliers", t("pages.people.suppliers")],
-          ]}
-        />
-      </div>
-
-      {/* Summary Banner */}
-      <div className={styles.summaryBanner}>
-        <span className={styles.summaryText}>
-          {section === "owedToMe"
-            ? t("pages.people.summaryOwedToMe", {
-                count: currentSectionData.count,
-              })
-            : section === "iOwe"
-              ? t("pages.people.summaryIOwe", {
-                  count: currentSectionData.count,
-                })
-              : t("pages.people.suppliersCountTitle")}
-        </span>
-        <span className={styles.summaryAmount}>
-          {section === "suppliers"
-            ? t("pages.people.suppliersCount", {
-                count: currentSectionData.count,
-              })
-            : formatEgp(currentSectionData.totalPiasters)}
-        </span>
+          ] as Array<[PeopleSection, string]>
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            type="button"
+            role="tab"
+            aria-selected={section === k}
+            className={`${styles.chip} ${section === k ? styles.chipOn : ""}`}
+            onClick={() => setSection(k)}
+          >
+            {label}
+          </button>
+        ))}
       </div>
 
       {/* Content / States */}
@@ -620,316 +561,253 @@ export function PeopleView() {
       ) : loading && !currentSectionData.loaded ? (
         <ListSkeleton label={t("common.loading")} />
       ) : people.length === 0 ? (
-        <Empty
-          icon="users"
-          title={t("pages.people.empty")}
-          action={
+        <Empty icon="users" title={t("pages.people.empty")} />
+      ) : (
+        <div className={styles.rows}>
+          {people.map((p) => (
             <button
               type="button"
-              className={styles.addBtn}
-              onClick={openAddModal}
+              key={p.id}
+              className={styles.row}
+              data-testid={`person-row-${p.id}`}
+              onClick={() => setOpenPersonId(p.id)}
             >
-              <Icon n="plus" s={18} />
-              <span>{t("pages.people.add")}</span>
-            </button>
-          }
-        />
-      ) : (
-        <div className={styles.cardsGrid}>
-          {people.map((p) => {
-            return (
-              <div
-                className={styles.personCard}
-                key={p.id}
-                data-testid={`person-card-${p.id}`}
-              >
-                {/* Header row */}
-                <div className={styles.cardHeader}>
-                  <div className={styles.personMeta}>
-                    <div className={styles.nameRow}>
-                      <span className={styles.personName}>{p.name}</span>
-                      {p.is_settled && (
-                        <span className={styles.settledBadge}>
-                          {section === "owedToMe"
-                            ? "تم التحصيل ✓"
-                            : "تم السداد ✓"}
-                        </span>
-                      )}
-                    </div>
-                    {p.phone ? (
-                      <div className={styles.phoneRow}>
-                        <a
-                          className={styles.personPhone}
-                          href={`tel:${p.phone}`}
-                          dir="ltr"
-                        >
-                          <Icon n="phone" s={13} />
-                          <span>{p.phone}</span>
-                        </a>
-                        {/* WhatsApp: the card's action button (one link per person, QA-45). */}
-                      </div>
-                    ) : (
-                      <span className={styles.noPhone}>
-                        {t("pages.people.noPhone")}
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Card quick actions */}
-                  <div className={styles.cardActionsGroup}>
-                    {/* Collection / Payment quick button */}
-                    {p.amount_piasters > 0 && (
-                      <button
-                        type="button"
-                        className={
-                          section === "owedToMe"
-                            ? styles.collectBtn
-                            : styles.payBtn
-                        }
-                        onClick={() => openPaymentModal(p)}
-                        title={
-                          section === "owedToMe"
-                            ? t("pages.people.collect")
-                            : t("pages.people.pay")
-                        }
-                      >
-                        <span>
-                          {section === "owedToMe"
-                            ? t("pages.people.collect")
-                            : t("pages.people.pay")}
-                        </span>
-                      </button>
-                    )}
-
-                    {/* WhatsApp quick contact */}
-                    {p.phone && (
-                      <a
-                        href={getWaUrl(
-                          p.phone,
-                          p.name,
-                          section,
-                          p.amount_piasters,
-                        )}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={styles.cardWaBtn}
-                        title={t("pages.people.waChat")}
-                        aria-label={`${t("pages.people.waChat")} ${p.name}`}
-                      >
-                        <svg
-                          width={15}
-                          height={15}
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth={2}
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          aria-hidden="true"
-                        >
-                          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
-                        </svg>
-                      </a>
-                    )}
-
-                    {/* Edit button */}
-                    <button
-                      type="button"
-                      className={styles.editBtn}
-                      aria-label={`${t("common.edit")} ${p.name}`}
-                      onClick={() => openEditModal(p)}
-                      title={t("common.edit")}
-                    >
-                      <Icon n="edit" s={15} />
-                    </button>
-
-                    {/* Delete button right next to edit */}
-                    <button
-                      type="button"
-                      className={styles.cardDeleteBtn}
-                      aria-label={`${t("common.delete")} ${p.name}`}
-                      onClick={() => setDeleteTarget(p)}
-                      title={t("common.delete")}
-                    >
-                      <Icon n="trash" s={15} />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Supplier product tags chips */}
-                {section === "suppliers" &&
+              <span className={styles.rowEm} aria-hidden="true">
+                {section === "suppliers" ? "🚚" : "👤"}
+              </span>
+              <span className={styles.rowT}>
+                <b>{p.name}</b>
+                <small>
+                  {p.phone || t("pages.people.noPhone")}
+                  {section === "suppliers" &&
                   p.supplies &&
-                  p.supplies.length > 0 && (
-                    <div className={styles.suppliesChips}>
-                      {p.supplies.map((s) => (
-                        <span className={styles.supplyChip} key={s.id}>
-                          {s.name}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-
-                {/* Customer credit products chips in 'owedToMe' */}
-                {section === "owedToMe" &&
-                  (() => {
-                    const parsedCust = parseCustomerNotes(p.note);
-                    if (parsedCust.products.length === 0) return null;
-                    return (
-                      <div className={styles.suppliesChips}>
-                        {parsedCust.products.map((prodName, idx) => (
-                          <span className={styles.creditProductChip} key={idx}>
-                            <Icon n="box" s={12} />
-                            <span>{prodName}</span>
-                          </span>
-                        ))}
-                      </div>
-                    );
-                  })()}
-
-                {/* «ليك»: record what they took — an amount or products (optional). */}
-                {section === "owedToMe" && (
-                  <button
-                    type="button"
-                    className={styles.purchasesBtn}
-                    data-testid={`customer-debt-${p.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDebtTarget(p);
-                    }}
-                  >
-                    {t("pages.people.recordDebt")}
-                  </button>
-                )}
-                {section === "owedToMe" && (
-                  <button
-                    type="button"
-                    className={styles.purchasesBtn}
-                    data-testid={`customer-invoices-${p.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setInvoicesTarget(p);
-                    }}
-                  >
-                    الفواتير والمدفوعات
-                  </button>
-                )}
-
-                {/* Footer / Notes row */}
-                {section === "suppliers" ? (
-                  (() => {
-                    const parsed = parseSupplierNotes(p.note);
-                    return (
-                      <div className={styles.supplierNotesBlock}>
-                        {parsed.owedMoneyNote && (
-                          <div className={styles.supplierNoteRow}>
-                            <span className={styles.supplierNoteLabel}>
-                              {t("pages.people.supplierOwedLabel")}
-                            </span>
-                            <span className={styles.supplierNoteValOwed}>
-                              {parsed.owedMoneyNote}
-                            </span>
-                          </div>
-                        )}
-                        {parsed.productsNote && (
-                          <div className={styles.supplierNoteRow}>
-                            <span className={styles.supplierNoteLabel}>
-                              {t("pages.people.supplierProductsLabel")}
-                            </span>
-                            <span className={styles.supplierNoteValProducts}>
-                              {parsed.productsNote}
-                            </span>
-                          </div>
-                        )}
-                        {parsed.generalNote && (
-                          <span
-                            className={styles.noteText}
-                            title={parsed.generalNote}
-                          >
-                            {parsed.generalNote}
-                          </span>
-                        )}
-                        {p.amount_piasters < 0 && (
-                          <div className={styles.cardFooter}>
-                            <span
-                              className={styles.amountCredit}
-                              data-testid={`person-balance-${p.id}`}
-                            >
-                              {t("pages.people.creditPayable", {
-                                amount: formatEgp(p.credit_piasters ?? 0),
-                              })}
-                            </span>
-                          </div>
-                        )}
-                        <button
-                          type="button"
-                          className={styles.purchasesBtn}
-                          data-testid={`supplier-purchases-${p.id}`}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setPurchasesTarget(p);
-                          }}
-                        >
-                          {t("invoice.purchasesTitle")}
-                        </button>
-                        {p.amount_piasters > 0 && !parsed.owedMoneyNote && (
-                          <div className={styles.cardFooter}>
-                            <span className={styles.amountLabel}>
-                              {t("pages.people.remainingOwed")}
-                            </span>
-                            <span className={styles.amountDark}>
-                              {formatEgp(p.amount_piasters)}
-                            </span>
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })()
-                ) : (
-                  <div className={styles.cardFooter}>
-                    {section === "owedToMe" ? (
-                      (() => {
-                        const custNote = parseCustomerNotes(p.note).generalNote;
-                        return custNote ? (
-                          <span className={styles.noteText} title={custNote}>
-                            {custNote}
-                          </span>
-                        ) : (
-                          <span />
-                        );
-                      })()
-                    ) : p.note ? (
-                      <span className={styles.noteText} title={p.note}>
-                        {p.note}
-                      </span>
-                    ) : (
-                      <span />
-                    )}
-                    <span
-                      className={
-                        p.amount_piasters < 0
-                          ? styles.amountCredit
-                          : section === "owedToMe"
-                            ? styles.amountPos
-                            : styles.amountNeg
-                      }
-                      data-testid={`person-balance-${p.id}`}
-                    >
-                      {p.amount_piasters < 0
-                        ? t(
-                            section === "owedToMe"
-                              ? "pages.people.creditCustomer"
-                              : "pages.people.creditPayable",
-                            { amount: formatEgp(p.credit_piasters ?? 0) },
-                          )
-                        : formatEgp(p.amount_piasters)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  p.supplies.length > 0
+                    ? ` · ${p.supplies.map((x) => x.name).join("، ")}`
+                    : ""}
+                </small>
+              </span>
+              <b className={styles.rowAmt}>
+                {p.amount_piasters < 0
+                  ? formatEgp(p.credit_piasters ?? 0)
+                  : formatEgp(p.amount_piasters)}
+              </b>
+            </button>
+          ))}
         </div>
       )}
+
+      {/* The total, at the bottom (owed to me / what I owe the suppliers) */}
+      {!error && currentSectionData.loaded && (
+        <div className={styles.totalRow} data-testid="people-total">
+          <span>
+            {section === "suppliers"
+              ? "المجموع اللي عليك للموردين"
+              : "المجموع اللي ليك عند الناس"}
+            <small>
+              {" "}
+              ·{" "}
+              {section === "suppliers"
+                ? t("pages.people.suppliersCount", {
+                    count: currentSectionData.count,
+                  })
+                : `${currentSectionData.count} شخص`}
+            </small>
+          </span>
+          <b>{formatEgp(currentSectionData.totalPiasters)}</b>
+        </div>
+      )}
+
+      <button
+        type="button"
+        className={styles.v19Btn}
+        onClick={openAddModal}
+        data-testid="btn-add-person"
+      >
+        {section === "suppliers"
+          ? "+ مورد جديد"
+          : section === "owedToMe"
+            ? "+ عميل جديد"
+            : `+ ${t("pages.people.add")}`}
+      </button>
+
+      {/* The person's sheet (V19 personSheet): the balance, an amount, how it was paid, one
+          button — plus the person's own actions (message, edit, delete, invoices). */}
+      {(() => {
+        const p = people.find((x) => x.id === openPersonId);
+        if (!p) return null;
+        const collect = section === "owedToMe";
+        const credit = p.amount_piasters < 0;
+        return (
+          <Modal title={p.name} onClose={() => setOpenPersonId(null)}>
+            <div
+              className={styles.v19Sheet}
+              key={p.id}
+              data-testid={`person-card-${p.id}`}
+            >
+              <div className={styles.line}>
+                <span>الرصيد</span>
+                <b data-testid={`person-balance-${p.id}`}>
+                  {credit
+                    ? t(
+                        collect
+                          ? "pages.people.creditCustomer"
+                          : "pages.people.creditPayable",
+                        { amount: formatEgp(p.credit_piasters ?? 0) },
+                      )
+                    : formatEgp(p.amount_piasters)}
+                </b>
+              </div>
+              {p.phone && (
+                <div className={styles.line}>
+                  <span>الموبايل</span>
+                  <a href={`tel:${p.phone}`} dir="ltr" className={styles.tel}>
+                    {p.phone}
+                  </a>
+                </div>
+              )}
+              {section === "suppliers" &&
+                p.supplies &&
+                p.supplies.length > 0 && (
+                  <div className={styles.line}>
+                    <span>بيوردلك</span>
+                    <span>{p.supplies.map((x) => x.name).join("، ")}</span>
+                  </div>
+                )}
+
+              <label className={styles.lbl} htmlFor="person-pay-amount">
+                المبلغ
+              </label>
+              <input
+                id="person-pay-amount"
+                className={styles.v19Input}
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                value={sheetAmount}
+                onChange={(e) => setSheetAmount(e.target.value)}
+                data-testid="person-pay-amount"
+              />
+              <span className={styles.lbl}>
+                {collect ? "الفلوس اتدفعت لك إزاي؟" : "بتدفع إزاي؟"}
+              </span>
+              <div className={styles.chips} data-testid="person-pay-from">
+                <button
+                  type="button"
+                  className={`${styles.chip} ${sheetPay === "cash" ? styles.chipOn : ""}`}
+                  onClick={() => setSheetPay("cash")}
+                  data-testid="payment-from-cash"
+                >
+                  💵 كاش
+                </button>
+                {machines.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    className={`${styles.chip} ${sheetPay === m.id ? styles.chipOn : ""}`}
+                    onClick={() => setSheetPay(m.id)}
+                    data-testid="payment-from-machine"
+                  >
+                    💳 {m.name}
+                  </button>
+                ))}
+              </div>
+              {(() => {
+                // Paying more than is owed is allowed and becomes a visible credit (ADR-0023).
+                const typed = sheetAmount.trim()
+                  ? parseEgpToPiasters(sheetAmount)
+                  : 0;
+                const extra = typed - Math.max(p.amount_piasters, 0);
+                return typed > 0 && extra > 0 ? (
+                  <p className={styles.v19Note} data-testid="overpay-hint">
+                    {t(
+                      collect
+                        ? "pages.people.overpayCustomerHint"
+                        : "pages.people.overpayPayableHint",
+                      { amount: formatEgp(extra) },
+                    )}
+                  </p>
+                ) : null;
+              })()}
+              {sheetError && (
+                <p className={styles.v19Error} role="alert">
+                  {sheetError}
+                </p>
+              )}
+              <button
+                type="button"
+                className={styles.v19Btn}
+                disabled={sheetBusy}
+                onClick={() => void payFromSheet(p)}
+                data-testid="person-pay"
+              >
+                {collect ? "استلمت الفلوس ✅" : "دفعت ✅"}
+              </button>
+
+              <div className={styles.sheetActions}>
+                {collect && (
+                  <button
+                    type="button"
+                    className={styles.ghostBtn}
+                    data-testid={`customer-debt-${p.id}`}
+                    onClick={() => setDebtTarget(p)}
+                  >
+                    📒 {t("pages.people.recordDebt")}
+                  </button>
+                )}
+                {collect ? (
+                  <button
+                    type="button"
+                    className={styles.ghostBtn}
+                    data-testid={`customer-invoices-${p.id}`}
+                    onClick={() => setInvoicesTarget(p)}
+                  >
+                    🧾 الفواتير والمدفوعات
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.ghostBtn}
+                    data-testid={`supplier-purchases-${p.id}`}
+                    onClick={() => setPurchasesTarget(p)}
+                  >
+                    🧾 {t("invoice.purchasesTitle")}
+                  </button>
+                )}
+                {p.phone && (
+                  <a
+                    className={styles.ghostBtn}
+                    href={getWaUrl(p.phone, p.name, section, p.amount_piasters)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    data-testid={`person-message-${p.id}`}
+                    aria-label={`${t("pages.people.waChat")} ${p.name}`}
+                  >
+                    💬 ابعتله رسالة
+                  </a>
+                )}
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  data-testid={`person-edit-${p.id}`}
+                  aria-label={`${t("common.edit")} ${p.name}`}
+                  onClick={() => openEditModal(p)}
+                >
+                  ✏️ {t("common.edit")}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.ghostBtn} ${styles.ghostDanger}`}
+                  data-testid={`person-delete-${p.id}`}
+                  aria-label={`${t("common.delete")} ${p.name}`}
+                  onClick={() => setDeleteTarget(p)}
+                >
+                  🗑️ {t("common.delete")}
+                </button>
+              </div>
+            </div>
+          </Modal>
+        );
+      })()}
 
       {/* Add / Edit Modal */}
       {modalOpen && (
@@ -1452,142 +1330,6 @@ export function PeopleView() {
       )}
 
       {/* Payment / Collection Modal */}
-      {paymentTarget && (
-        <Modal
-          onClose={() => !isSubmittingPayment && setPaymentTarget(null)}
-          title={
-            paymentTarget.isCollection
-              ? t("pages.people.collectFrom", {
-                  name: paymentTarget.person.name,
-                })
-              : t("pages.people.payTo", { name: paymentTarget.person.name })
-          }
-          footer={
-            <div className={styles.modalFooter}>
-              <button
-                type="button"
-                className={styles.btnGhost}
-                onClick={() => setPaymentTarget(null)}
-                disabled={isSubmittingPayment}
-              >
-                <span>{t("common.cancel")}</span>
-              </button>
-
-              <button
-                type="button"
-                className={styles.btnPrimary}
-                onClick={handleRecordPayment}
-                disabled={isSubmittingPayment}
-              >
-                <Icon n="check" s={18} />
-                <span>
-                  {isSubmittingPayment
-                    ? t("common.saving")
-                    : paymentTarget.isCollection
-                      ? t("pages.people.confirmCollection")
-                      : t("pages.people.confirmPayment")}
-                </span>
-              </button>
-            </div>
-          }
-        >
-          <div className={styles.modalForm}>
-            {paymentError && (
-              <div className={styles.formError}>{paymentError}</div>
-            )}
-
-            <div className={styles.currentBalanceBanner}>
-              <span className={styles.currentBalanceLabel}>
-                {t("pages.people.currentBalance")}
-              </span>
-              <span className={styles.currentBalanceValue}>
-                {paymentTarget.person.amount_piasters < 0
-                  ? t(
-                      paymentTarget.isCollection
-                        ? "pages.people.creditCustomer"
-                        : "pages.people.creditPayable",
-                      {
-                        amount: formatEgp(
-                          paymentTarget.person.credit_piasters ?? 0,
-                        ),
-                      },
-                    )
-                  : formatEgp(paymentTarget.person.amount_piasters)}
-              </span>
-            </div>
-
-            {/* Amount */}
-            <div className={styles.formGroup}>
-              <label className={styles.fieldLabel}>
-                {paymentTarget.isCollection
-                  ? t("pages.people.amountCollected")
-                  : t("pages.people.amountPaid")}
-              </label>
-              <div className={styles.amountInputWrapper}>
-                <span className={styles.currencyBadge}>
-                  {t("pages.people.currency")}
-                </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className={styles.amountNumInput}
-                  value={paymentAmount}
-                  onChange={(e) => setPaymentAmount(e.target.value)}
-                  placeholder="0"
-                  autoFocus
-                />
-              </div>
-              {(() => {
-                // Paying more than is owed is allowed and becomes a visible credit (ADR-0023).
-                const extra =
-                  (paymentAmount.trim()
-                    ? parseEgpToPiasters(paymentAmount)
-                    : 0) - Math.max(paymentTarget.person.amount_piasters, 0);
-                return paymentAmount.trim() && extra > 0 ? (
-                  <small
-                    className={styles.fieldHint}
-                    data-testid="overpay-hint"
-                  >
-                    {t(
-                      paymentTarget.isCollection
-                        ? "pages.people.overpayCustomerHint"
-                        : "pages.people.overpayPayableHint",
-                      { amount: formatEgp(extra) },
-                    )}
-                  </small>
-                ) : null;
-              })()}
-            </div>
-
-            {/* Date */}
-            <div className={styles.formGroup}>
-              <label className={styles.fieldLabel}>
-                {t("pages.people.date")}
-              </label>
-              <input
-                type="date"
-                className={styles.inputField}
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-              />
-            </div>
-
-            {/* Note */}
-            <div className={styles.formGroup}>
-              <label className={styles.fieldLabel}>
-                {t("pages.people.formNote")}
-              </label>
-              <input
-                type="text"
-                className={styles.inputField}
-                value={paymentNote}
-                onChange={(e) => setPaymentNote(e.target.value)}
-                placeholder="دفعة نقدية / تحصيل كاش"
-              />
-            </div>
-          </div>
-        </Modal>
-      )}
     </div>
   );
 }

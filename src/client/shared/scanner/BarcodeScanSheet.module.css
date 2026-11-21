@@ -1,0 +1,74 @@
+/* V19 #scanSheet: the title, the camera, a note, the typed fallback, cancel */
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.video {
+  width: 100%;
+  min-height: 200px;
+  max-height: 46vh;
+  border-radius: 16px;
+  background: #000;
+  object-fit: cover;
+}
+
+.note {
+  color: var(--muted);
+  font-size: 15px;
+  margin: 6px 0;
+  line-height: 1.5;
+}
+
+.lbl {
+  display: block;
+  color: var(--muted);
+  font-size: 15px;
+  margin: 8px 0 2px;
+}
+
+.input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 13px;
+  border: 2px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  color: var(--ink);
+  direction: ltr;
+  text-align: start;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 15px;
+  margin: 8px 0 0;
+  border-radius: 16px;
+  background: var(--dark);
+  color: var(--cream);
+  border: 0;
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.ghost {
+  background: transparent;
+  color: var(--ink);
+  border: 2px solid var(--line);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
