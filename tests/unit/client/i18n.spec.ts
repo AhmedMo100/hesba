@@ -24,9 +24,7 @@ describe("i18n and formatting utilities", () => {
     expect(t("auth.signupSub")).toBe(
       "ابدأ تنظيم حسابات محلك ومخزونه مع حِسبة.",
     );
-    expect(t("auth.forgotPasswordSub")).toBe(
-      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
-    );
+    expect(t("auth.forgotPasswordLink")).toBe("نسيت كلمة المرور؟");
     expect(t("auth.loginPasswordPlaceholder")).toBe("••••••");
     expect(t("auth.passwordHint")).toBe(
       "12 حرفًا على الأقل، ويشمل حرفًا ورقمًا، مثال: Cairo2026Pass",

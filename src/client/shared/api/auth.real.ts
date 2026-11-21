@@ -60,48 +60,23 @@ export class RealAuthApi implements AuthApi {
     }
   }
 
-  async requestPasswordReset(
-    email: string,
-  ): Promise<AuthApiResult<{ message: string }>> {
-    try {
-      const res = await fetch("/api/auth/forgot-password/request", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email }),
-      });
-      const json = await res.json();
-      if (!res.ok || !json.success) {
-        return {
-          success: false,
-          error:
-            json.error?.message || "تعذر إرسال كود التأكيد. حاول مرة أخرى.",
-        };
-      }
-      return { success: true, data: json.data };
-    } catch {
-      return {
-        success: false,
-        error: "تعذر الاتصال بالسيرفر. تأكد من اتصال الإنترنت.",
-      };
-    }
-  }
-
-  async resetPassword(data: {
-    email: string;
-    code: string;
+  async changePassword(data: {
+    currentPassword: string;
     newPassword: string;
-  }): Promise<AuthApiResult<{ message: string }>> {
+  }): Promise<AuthApiResult<{ revokedSessions: number }>> {
     try {
-      const res = await fetch("/api/auth/forgot-password/reset", {
+      const res = await fetch("/api/auth/change-password", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(data),
       });
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok || !json.success) {
         return {
           success: false,
-          error: json.error?.message || "كود التأكيد غير صحيح أو انتهت صلاحيته",
+          error:
+            json.error?.message || "تعذر تغيير كلمة المرور. حاول مرة تانية.",
+          field: json.error?.details?.field,
         };
       }
       return { success: true, data: json.data };

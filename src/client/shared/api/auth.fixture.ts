@@ -33,7 +33,6 @@ const STORAGE_KEY = "hesba_test_session";
 class FixtureAuthApi implements AuthApi {
   private session: SessionState | null = null;
   private memoryStorage = new Map<string, string>();
-  private activeResetCodes = new Map<string, string>();
 
   private getStorage():
     | Storage
@@ -83,10 +82,17 @@ class FixtureAuthApi implements AuthApi {
     if (!cleanPhone.startsWith("01") || cleanPhone.length !== 11) {
       return { success: false, error: "رقم الموبايل غير صحيح" };
     }
-    if (data.email && data.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) {
+    if (
+      data.email &&
+      data.email.trim() &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())
+    ) {
       return { success: false, error: "البريد الإلكتروني غير صحيح" };
     }
-    if (data.email && data.email.trim().toLowerCase() === "duplicate@example.com") {
+    if (
+      data.email &&
+      data.email.trim().toLowerCase() === "duplicate@example.com"
+    ) {
       return { success: false, error: "البريد الإلكتروني مسجل بالفعل" };
     }
     const pwdCheck = validatePasswordPolicy(data.password);
@@ -149,68 +155,17 @@ class FixtureAuthApi implements AuthApi {
     return { success: true, data: state };
   }
 
-  async requestPasswordReset(
-    email: string,
-  ): Promise<AuthApiResult<{ message: string }>> {
-    const code = "123456";
-    this.activeResetCodes.set(email.toLowerCase(), code);
-    return {
-      success: true,
-      data: { message: "إذا كان البريد مسجلاً لدينا، تم إرسال كود التأكيد." },
-    };
-  }
-
-  async resetPassword(data: {
-    email: string;
-    code: string;
+  async changePassword(data: {
+    currentPassword: string;
     newPassword: string;
-  }): Promise<AuthApiResult<{ message: string }>> {
-    const expected =
-      this.activeResetCodes.get(data.email.toLowerCase()) || "123456";
-    if (data.code !== expected) {
-      return { success: false, error: "كود التأكيد غير صحيح" };
+  }): Promise<AuthApiResult<{ revokedSessions: number }>> {
+    if (!data.currentPassword) {
+      return { success: false, error: "اكتب كلمة المرور الحالية" };
     }
-    const pwdCheck = validatePasswordPolicy(data.newPassword);
-    if (!pwdCheck.valid) {
-      if (pwdCheck.reason === "too_short" || pwdCheck.reason === "empty") {
-        return {
-          success: false,
-          error: "كلمة السر الجديدة يجب أن تكون 12 حرف على الأقل",
-        };
-      }
-      if (pwdCheck.reason === "missing_letter") {
-        return {
-          success: false,
-          error: "كلمة السر يجب أن تحتوي على حرف واحد على الأقل",
-        };
-      }
-      if (pwdCheck.reason === "missing_number") {
-        return {
-          success: false,
-          error: "كلمة السر يجب أن تحتوي على رقم واحد على الأقل",
-        };
-      }
-      if (pwdCheck.reason === "too_long") {
-        return {
-          success: false,
-          error: "كلمة السر لا يجب أن تتجاوز 128 حرف",
-        };
-      }
-      if (pwdCheck.reason === "too_common") {
-        return {
-          success: false,
-          error: "كلمة السر شائعة وسهلة التخمين، اختار كلمة أصعب أو جملة سرية",
-        };
-      }
+    if (!validatePasswordPolicy(data.newPassword).valid) {
+      return { success: false, error: "كلمة المرور الجديدة ضعيفة" };
     }
-
-    this.activeResetCodes.delete(data.email.toLowerCase());
-    return {
-      success: true,
-      data: {
-        message: "تم تغيير كلمة السر بنجاح. سجل دخولك بكلمة السر الجديدة.",
-      },
-    };
+    return { success: true, data: { revokedSessions: 0 } };
   }
 
   async getSession(): Promise<SessionState | null> {

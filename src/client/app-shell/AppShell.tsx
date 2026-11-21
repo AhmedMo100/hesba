@@ -26,6 +26,7 @@ import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ListSkeleton, ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
+import type { SessionState } from "../shared/api";
 
 // Eagerly loaded default view
 import { HomeView } from "../features/home/HomeView";
@@ -85,6 +86,15 @@ function getRouteFromPathname(pathname: string): NavRoute {
 }
 
 /** A screen's code is loading (first visit only; chunks are preloaded): its list's shape. */
+/** The whole app while the session is read: a neutral page, never the dashboard. */
+function ShellLoading() {
+  return (
+    <div className={styles.shellLoading} dir="rtl" data-testid="shell-loading">
+      <span>{t("common.loading")}</span>
+    </div>
+  );
+}
+
 function ViewLoading() {
   return (
     <div className={styles.viewLoading}>
@@ -111,6 +121,7 @@ import {
   type SaleOutboxOp,
 } from "../offline/outbox";
 import { AuthScreen } from "../features/auth/AuthScreen";
+import { ChangePasswordScreen } from "../features/auth/ChangePasswordScreen";
 import {
   SubscriptionScreen,
   SubscriptionSheet,
@@ -142,9 +153,15 @@ function AppShellInner() {
     isOfflineExpired,
     isSessionRefused,
     isSignedOutByServer,
+    isLoading: authLoading,
     logout,
     refreshSession,
+    setSession,
   } = useAuth();
+  // The shop whose data this tab may request: only a session the SERVER confirmed. Offline (the
+  // session request failed, the server did not answer) the last shop on this device keeps its
+  // queue and its offline copies; signed out, nothing protected is requested at all.
+  const confirmedStore = session?.store?.id ?? null;
   const [showMode, setShowMode] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const router = useRouter();
@@ -183,13 +200,15 @@ function AppShellInner() {
       else fetchAlertsCount();
     };
 
+    // Signed out (or not known yet): no request — it would only be a 401.
+    if (!confirmedStore) return;
     void fetchAlertsCount();
     window.addEventListener("hesba_alerts_updated", onAlertsUpdated);
     return () => {
       isMounted = false;
       window.removeEventListener("hesba_alerts_updated", onAlertsUpdated);
     };
-  }, []);
+  }, [confirmedStore]);
 
   const [route, setRoute] = useState<NavRoute>(() => {
     if (typeof window !== "undefined") {
@@ -357,7 +376,6 @@ function AppShellInner() {
   // startup / sign-in, back online, tab visible again, a new sale, or a tap on the bar.
   // Offline the session request fails; the shop last signed in on this device still owns the
   // queue, so its waiting sales stay visible (and new ones can be queued) after a reload.
-  const { isLoading: authLoading } = useAuth();
   useEffect(() => {
     if (session?.store?.id) {
       rememberOutboxStore(session.store.id);
@@ -375,6 +393,11 @@ function AppShellInner() {
   // While the session is not (re)loaded — offline, or just back online — keep showing the
   // remembered shop's queue instead of a false "0 waiting / synced".
   const storeId = session?.store?.id ?? lastOutboxStore();
+  // Queued sales are SENT only for a confirmed session, or offline for the device's last shop —
+  // never while the session is still loading or after the server said nobody is signed in.
+  const syncStore =
+    confirmedStore ??
+    (!authLoading && !isSignedOutByServer ? lastOutboxStore() : null);
   // `undefined` until IndexedDB has answered: the bar must not claim "synced" before that.
   const queuedSales = useLiveQuery(
     () =>
@@ -383,12 +406,12 @@ function AppShellInner() {
   );
   useEffect(() => {
     // Only the signed-in shop's queued sales are ever sent from this tab.
-    setActiveOutboxStore(storeId ?? null);
-    if (!storeId || typeof window === "undefined") return;
-    scheduleSaleSync(storeId, { now: true });
-    const onOnline = () => scheduleSaleSync(storeId, { now: true });
+    setActiveOutboxStore(syncStore ?? null);
+    if (!syncStore || typeof window === "undefined") return;
+    scheduleSaleSync(syncStore, { now: true });
+    const onOnline = () => scheduleSaleSync(syncStore, { now: true });
     const onVisible = () => {
-      if (document.visibilityState === "visible") scheduleSaleSync(storeId);
+      if (document.visibilityState === "visible") scheduleSaleSync(syncStore);
     };
     window.addEventListener("online", onOnline);
     document.addEventListener("visibilitychange", onVisible);
@@ -396,7 +419,7 @@ function AppShellInner() {
       window.removeEventListener("online", onOnline);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [storeId]);
+  }, [syncStore]);
   // The offline catalog (QA-53): downloaded once a shop is signed in, then brought up to date
   // when the device is back online. Events only; a run resumes where the last one stopped.
   const signedInStore = session?.store?.id ?? null;
@@ -439,6 +462,47 @@ function AppShellInner() {
     await clearReadCache();
     router.push("/");
   };
+
+  // Signed in elsewhere in this tab (the login / sign-up screen): a new session, possibly of
+  // another shop — start from an empty read cache so no other shop's screen is ever shown.
+  const onSignedIn = async (next: SessionState) => {
+    await clearReadCache();
+    setSession(next);
+  };
+
+  // 1. The session is being read: nothing of the app is shown or requested yet (no dashboard
+  //    flash, no 401 noise).
+  if (authLoading) {
+    return <ShellLoading />;
+  }
+
+  // 2. Nobody is signed in. The server said so → the login / sign-up screen, and no API call.
+  //    The server could not be reached (offline) → the app keeps working for the shop last
+  //    signed in on this device (queue + offline copies, ADR-0020); a device that never had
+  //    one gets the login screen with the offline notice.
+  if (!session && (isSignedOutByServer || !lastOutboxStore())) {
+    return (
+      <AuthScreen
+        initialMode="login"
+        onSuccess={(next) => void onSignedIn(next)}
+        isOffline={syncState === "offline"}
+      />
+    );
+  }
+
+  // 3. A temporary password from Hesba's team (admin reset): change it first. The server refuses
+  //    everything else (403 PASSWORD_CHANGE_REQUIRED), whatever URL is opened.
+  if (session?.user?.mustChangePassword) {
+    return (
+      <ChangePasswordScreen
+        onChanged={async () => {
+          await clearReadCache();
+          await refreshSession();
+        }}
+        onLogout={() => void doLogout()}
+      />
+    );
+  }
 
   // The trial or subscription is over (as the server said): only the subscription screen and
   // logout. Nothing is deleted; queued sales stay on the device (ADR-0033).
@@ -524,7 +588,10 @@ function AppShellInner() {
         >
           <AuthScreen
             initialMode="login"
-            onSuccess={() => setShowAuthModal(false)}
+            onSuccess={(next) => {
+              setShowAuthModal(false);
+              void onSignedIn(next);
+            }}
             isOffline={syncState === "offline"}
           />
         </div>

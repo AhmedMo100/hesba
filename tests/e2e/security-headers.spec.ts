@@ -43,11 +43,11 @@ test.describe("Security headers and CSP", () => {
     const cases: Array<{ path: string; method?: string; status: number }> = [
       { path: "/", status: 200 },
       { path: "/login", status: 200 },
-      { path: "/forgot-password", status: 200 },
+      { path: "/forgot-password", status: 307 },
       { path: "/api/health", status: 200 },
       { path: "/api/sales", status: 401 },
       {
-        path: "/api/auth/forgot-password/request",
+        path: "/api/auth/login",
         method: "POST",
         status: 400,
       },

@@ -47,17 +47,18 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // Empty until the session is read: never placeholder people or shops on a real screen.
   const [profile, setProfile] = useState<StoreProfile>({
-    ownerName: "مجدي أحمد (TEST)",
-    phone: "01012345678",
-    email: "magdi.test@hesba.app",
-    emailVerified: true,
-    storeName: "سوبر ماركت البركة (TEST)",
-    shopType: "سوبر ماركت",
-    governorate: "القاهرة",
-    area: "المعادي (TEST)",
-    openedOn: "2020-01-01",
-    workersCount: 2,
+    ownerName: "",
+    phone: "",
+    email: "",
+    emailVerified: false,
+    storeName: "",
+    shopType: "",
+    governorate: "",
+    area: "",
+    openedOn: "",
+    workersCount: 1,
   });
 
   useEffect(() => {
@@ -66,8 +67,8 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
         setProfile({
           ownerName: session.user.name,
           phone: toLocalPhone(session.user.phone),
-          email: session.user.email,
-          emailVerified: session.user.emailVerified ?? true,
+          email: session.user.email ?? "",
+          emailVerified: session.user.emailVerified ?? false,
           storeName: session.store.name,
           shopType: session.store.shopType,
           governorate: session.store.governorate,
@@ -95,7 +96,8 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
     if (!okPhone(profile.phone)) {
       errs["phone"] = t("errors.invalidPhone");
     }
-    if (!okMail(profile.email)) {
+    // Optional, as at sign-up: empty removes it, anything typed must be a real address.
+    if ((profile.email ?? "").trim() && !okMail((profile.email ?? "").trim())) {
       errs["email"] = t("errors.invalidEmail");
     }
     if (!profile.storeName.trim()) {
@@ -114,7 +116,7 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
       const res = await authApi.updateProfile({
         ...profile,
         phone: normDigits(profile.phone).replace(/\s|-/g, ""),
-        email: profile.email.trim().toLowerCase(),
+        email: (profile.email ?? "").trim().toLowerCase(),
       });
 
       if (!res.success || !res.data) {
@@ -211,12 +213,14 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
               />
             </Field>
             <Field
-              label={t("auth.emailLabel")}
+              label={t("auth.emailOptionalLabel")}
               err={fieldErrors["email"]}
               hint={
-                profile.emailVerified
-                  ? `✓ ${t("profile.verifiedEmailBadge")}`
-                  : t("profile.unverifiedEmailBadge")
+                !profile.email
+                  ? undefined
+                  : profile.emailVerified
+                    ? `✓ ${t("profile.verifiedEmailBadge")}`
+                    : t("profile.unverifiedEmailBadge")
               }
             >
               <input
@@ -224,7 +228,7 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
                 className="ltr"
                 inputMode="email"
                 autoComplete="email"
-                value={profile.email}
+                value={profile.email ?? ""}
                 onChange={(e) => update({ email: e.target.value })}
               />
             </Field>

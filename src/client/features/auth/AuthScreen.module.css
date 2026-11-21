@@ -280,6 +280,19 @@ button.secondaryLink:focus-visible {
   }
 }
 
+.forgotHelp {
+  margin: 4px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--sf2, var(--sf));
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+}
+
 .forgotLink {
   display: block;
   margin: 10px auto 0;

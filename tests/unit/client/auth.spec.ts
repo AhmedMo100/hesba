@@ -214,78 +214,33 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
     });
   });
 
-  describe("Forgot Password via 6-Digit Email Code Flow", () => {
-    it("dispatches reset code and allows resetting password with code", async () => {
-      const email = "owner@example.com";
-      const reqRes = await fixtureAuthApi.requestPasswordReset(email);
-      expect(reqRes.success).toBe(true);
-      expect(reqRes.data?.message).toContain("تم إرسال كود التأكيد");
-
-      // Verify and set new password
-      const resetRes = await fixtureAuthApi.resetPassword({
-        email,
-        code: "123456",
-        newPassword: "newSecurePassword123",
-      });
-      expect(resetRes.success).toBe(true);
-      expect(resetRes.data?.message).toContain("تم تغيير كلمة السر بنجاح");
-    });
-
-    it("rejects invalid code", async () => {
-      const res = await fixtureAuthApi.resetPassword({
-        email: "owner@example.com",
-        code: "000000",
-        newPassword: "newSecurePassword123",
-      });
-
-      expect(res.success).toBe(false);
-      expect(res.error).toBe("كود التأكيد غير صحيح");
-    });
-
-    it("rejects reset with short password (< 12 chars)", async () => {
-      const res = await fixtureAuthApi.resetPassword({
-        email: "owner@example.com",
-        code: "123456",
-        newPassword: "short1234",
-      });
-
-      expect(res.success).toBe(false);
-      expect(res.error).toBe("كلمة السر الجديدة يجب أن تكون 12 حرف على الأقل");
-    });
-
-    it("rejects reset with password lacking letters", async () => {
-      const res = await fixtureAuthApi.resetPassword({
-        email: "owner@example.com",
-        code: "123456",
-        newPassword: "1234567890123",
-      });
-
-      expect(res.success).toBe(false);
-      expect(res.error).toBe("كلمة السر يجب أن تحتوي على حرف واحد على الأقل");
-    });
-
-    it("rejects reset with password lacking numbers", async () => {
-      const res = await fixtureAuthApi.resetPassword({
-        email: "owner@example.com",
-        code: "123456",
-        newPassword: "LongPasswordWithoutNumbers",
-      });
-
-      expect(res.success).toBe(false);
-      expect(res.error).toBe("كلمة السر يجب أن تحتوي على رقم واحد على الأقل");
-    });
-
-    it("rejects reset with common password", async () => {
-      const res = await fixtureAuthApi.resetPassword({
-        email: "owner@example.com",
-        code: "123456",
-        newPassword: "password1234",
-      });
-
-      expect(res.success).toBe(false);
-      expect(res.error).toBe(
-        "كلمة السر شائعة وسهلة التخمين، اختار كلمة أصعب أو جملة سرية",
-      );
+  describe("Change password (the forced change after an admin reset)", () => {
+    it("needs the current password and a policy-compliant new one", async () => {
+      const api = fixtureAuthApi;
+      expect(
+        (
+          await api.changePassword({
+            currentPassword: "",
+            newPassword: "Cairo-2026-Strong",
+          })
+        ).success,
+      ).toBe(false);
+      expect(
+        (
+          await api.changePassword({
+            currentPassword: "Temp-pass-2026",
+            newPassword: "short1",
+          })
+        ).success,
+      ).toBe(false);
+      expect(
+        (
+          await api.changePassword({
+            currentPassword: "Temp-pass-2026",
+            newPassword: "Cairo-2026-Strong",
+          })
+        ).success,
+      ).toBe(true);
     });
   });
 
