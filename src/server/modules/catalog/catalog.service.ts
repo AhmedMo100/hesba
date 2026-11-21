@@ -353,8 +353,12 @@ export class CatalogService {
           }
         }
 
-        // 2. Fetch all approved global products from unified shared catalog
-        const globalProducts = await this.prisma.globalProduct.findMany({
+        // 2. Fetch all approved global products from unified shared catalog. On `tx`, never the
+        // outer client: inside this transaction a second client query needs a SECOND pool
+        // connection while the first is held, and under concurrent requests every request ends
+        // up waiting for a connection the others hold (pool starvation → 500s, measured in the
+        // production readiness audit). `global_products` is readable by every role (read_all).
+        const globalProducts = await tx.globalProduct.findMany({
           where: { status: "approved" },
           include: {
             brand: true,
@@ -724,7 +728,8 @@ export class CatalogService {
             data: { isActive: false, updatedAt: new Date() },
           });
         } else if (actualGlobalId) {
-          const gp = await this.prisma.globalProduct.findUnique({
+          // On `tx` (same connection): see getStoreProducts.
+          const gp = await tx.globalProduct.findUnique({
             where: { id: actualGlobalId },
             include: { globalVariants: true },
           });

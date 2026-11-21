@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 /** GET /api/admin/me — whether the signed-in user is a Hesba platform admin. */
 export async function GET(req: Request) {
   try {
-    const context = await requireSession(req);
+    const context = await requireSession(req, { allowInactive: true });
     return NextResponse.json({
       isAdmin: await isPlatformAdmin(context.user.id),
     });

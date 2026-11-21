@@ -79,6 +79,20 @@ function cashWhere(storeId: string, since: Date) {
       createdAt: { lte: since },
       deletedAt: after,
     },
+    // إدارة المحل's daily sales total: its cash part came into the drawer (ADR-0033) …
+    dailySales: {
+      storeId,
+      cashPiasters: { gt: ZERO },
+      cancelledAt: null,
+      createdAt: after,
+    },
+    // … and a total recorded before the count, cancelled after it, took that cash back out.
+    dailySalesCancels: {
+      storeId,
+      cashPiasters: { gt: ZERO },
+      createdAt: { lte: since },
+      cancelledAt: after,
+    },
   };
 }
 
@@ -102,6 +116,8 @@ async function movementsSince(
     batches,
     topups,
     cancels,
+    daily,
+    dailyCancels,
   ] = await Promise.all([
     tx.sale.findMany({
       where: w.cashSales,
@@ -208,6 +224,28 @@ async function movementsSince(
         category: true,
       },
     }),
+    tx.dailySalesEntry.findMany({
+      where: w.dailySales,
+      orderBy: desc,
+      take,
+      select: {
+        id: true,
+        createdAt: true,
+        cashPiasters: true,
+        businessDay: true,
+      },
+    }),
+    tx.dailySalesEntry.findMany({
+      where: w.dailySalesCancels,
+      orderBy: { cancelledAt: "desc" },
+      take,
+      select: {
+        id: true,
+        cancelledAt: true,
+        cashPiasters: true,
+        businessDay: true,
+      },
+    }),
   ]);
   const n = (v: bigint | null | undefined) => Number(v ?? ZERO);
   const all: DrawerMovement[] = [
@@ -240,6 +278,22 @@ async function movementsSince(
       title: `مصروف اتلغى: ${x.category}`,
       amountPiasters: n(x.amountPiasters),
       at: (x.deletedAt ?? new Date()).toISOString(),
+    })),
+    ...daily.map((x) => ({
+      id: `daily:${x.id}`,
+      kind: "dailySales" as const,
+      direction: "in" as const,
+      title: `مبيعات يوم ${x.businessDay.toISOString().slice(0, 10)} (كاش)`,
+      amountPiasters: n(x.cashPiasters),
+      at: x.createdAt.toISOString(),
+    })),
+    ...dailyCancels.map((x) => ({
+      id: `dailyc:${x.id}`,
+      kind: "dailySalesCancels" as const,
+      direction: "out" as const,
+      title: `مبيعات يوم ${x.businessDay.toISOString().slice(0, 10)} اتلغت`,
+      amountPiasters: n(x.cashPiasters),
+      at: (x.cancelledAt ?? new Date()).toISOString(),
     })),
     ...refunds.map((x) => ({
       id: `ret:${x.id}`,
@@ -305,6 +359,8 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
     stockPurchases,
     topups,
     expenseCancels,
+    dailySales,
+    dailySalesCancels,
   ] = await Promise.all([
     tx.sale.aggregate({
       where: w.cashSales,
@@ -352,6 +408,16 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
       _sum: { amountPiasters: true },
       _count: true,
     }),
+    tx.dailySalesEntry.aggregate({
+      where: w.dailySales,
+      _sum: { cashPiasters: true },
+      _count: true,
+    }),
+    tx.dailySalesEntry.aggregate({
+      where: w.dailySalesCancels,
+      _sum: { cashPiasters: true },
+      _count: true,
+    }),
   ]);
 
   const voidsTotal = voidedOld.reduce((n, v) => n + v.sale.totalPiasters, ZERO);
@@ -367,6 +433,18 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
       direction: "in",
       count: collections._count,
       amountPiasters: Number(sum(collections._sum.amountPiasters)),
+    },
+    {
+      key: "dailySales",
+      direction: "in",
+      count: dailySales._count,
+      amountPiasters: Number(sum(dailySales._sum.cashPiasters)),
+    },
+    {
+      key: "dailySalesCancels",
+      direction: "out",
+      count: dailySalesCancels._count,
+      amountPiasters: Number(sum(dailySalesCancels._sum.cashPiasters)),
     },
     {
       key: "expenseCancels",

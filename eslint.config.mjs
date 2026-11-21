@@ -67,8 +67,18 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@prisma/*", "next", "next/*", "react", "react-dom", "react/*", "dexie", "server-only"],
-              message: "src/domain and src/schemas must stay pure: no DB, framework, or React imports.",
+              group: [
+                "@prisma/*",
+                "next",
+                "next/*",
+                "react",
+                "react-dom",
+                "react/*",
+                "dexie",
+                "server-only",
+              ],
+              message:
+                "src/domain and src/schemas must stay pure: no DB, framework, or React imports.",
             },
           ],
         },
@@ -83,8 +93,15 @@ const eslintConfig = defineConfig([
         {
           patterns: [
             {
-              group: ["@/client/features/*", "@/client/app-shell", "@/client/app-shell/*", "**/features/*", "**/app-shell/*"],
-              message: "shared/ and offline/ are used by features; they must not depend on a feature or the shell.",
+              group: [
+                "@/client/features/*",
+                "@/client/app-shell",
+                "@/client/app-shell/*",
+                "**/features/*",
+                "**/app-shell/*",
+              ],
+              message:
+                "shared/ and offline/ are used by features; they must not depend on a feature or the shell.",
             },
           ],
         },
@@ -100,7 +117,8 @@ const eslintConfig = defineConfig([
           patterns: [
             {
               group: ["@/server/modules/*/*"],
-              message: "Import a server module through its public API (@/server/modules/<module>), not its internal files.",
+              message:
+                "Import a server module through its public API (@/server/modules/<module>), not its internal files.",
             },
           ],
         },

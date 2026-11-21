@@ -56,7 +56,14 @@ export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> 
 
 export function Input({ className = "", type, ...rest }: InputProps) {
   const dir = type === "password" ? "ltr" : "auto";
-  return <input className={`${styles.input} ${className}`} type={type} dir={dir} {...rest} />;
+  return (
+    <input
+      className={`${styles.input} ${className}`}
+      type={type}
+      dir={dir}
+      {...rest}
+    />
+  );
 }
 
 export interface NumProps extends Omit<

@@ -110,45 +110,74 @@ describe("validateSignup", () => {
   });
 
   it("returns storeName error when empty", () => {
-    const errs = validateSignup({ ...valid, storeName: "" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, storeName: "" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["storeName"]).toBe("errors.writeStoreName");
   });
 
   it("returns phone error for invalid number", () => {
-    const errs = validateSignup({ ...valid, phone: "0131234" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, phone: "0131234" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["phone"]).toBe("errors.invalidPhone");
   });
 
   it("accepts Arabic-Indic phone digits", () => {
     const errs = validateSignup(
       { ...valid, phone: "٠١٠١٢٣٤٥٦٧٨" },
-      t, validatePasswordPolicy,
+      t,
+      validatePasswordPolicy,
     );
     expect(errs["phone"]).toBeUndefined();
   });
 
   it("allows empty email (optional)", () => {
-    const errs = validateSignup({ ...valid, email: "" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, email: "" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["email"]).toBeUndefined();
   });
 
   it("returns email error when invalid format", () => {
-    const errs = validateSignup({ ...valid, email: "bad" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, email: "bad" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["email"]).toBe("errors.invalidEmail");
   });
 
   it("returns password error for too short", () => {
-    const errs = validateSignup({ ...valid, password: "Ab1" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, password: "Ab1" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["password"]).toBe("auth.passwordLength");
   });
 
   it("returns password error for missing letter", () => {
-    const errs = validateSignup({ ...valid, password: "123456789012" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, password: "123456789012" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["password"]).toBe("auth.passwordMissingLetter");
   });
 
   it("returns password error for missing number", () => {
-    const errs = validateSignup({ ...valid, password: "abcdefghijkl" }, t, validatePasswordPolicy);
+    const errs = validateSignup(
+      { ...valid, password: "abcdefghijkl" },
+      t,
+      validatePasswordPolicy,
+    );
     expect(errs["password"]).toBe("auth.passwordMissingNumber");
   });
 });

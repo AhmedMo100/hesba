@@ -28,6 +28,12 @@ import "server-only";
 import { prisma } from "@/server/infra/db/client";
 import { hashToken, generateSecureToken } from "./crypto";
 import { AppError } from "@/server/platform/error";
+import { effectiveSubscription } from "@/domain/subscription";
+import {
+  modeAllows,
+  modeRefusal,
+  type ModeCapability,
+} from "@/domain/operating-mode";
 import { logger } from "@/server/platform/logger";
 
 export const SESSION_COOKIE_NAME = "hesba_session";
@@ -46,8 +52,10 @@ export interface SessionContext {
     id: string;
     name: string;
     phone: string;
-    email: string;
+    email: string | null;
     emailVerifiedAt: Date | null;
+    /** Signed in with an admin-issued temporary password: only the change-password flow runs. */
+    mustChangePassword: boolean;
   };
   store: {
     id: string;
@@ -57,6 +65,15 @@ export interface SessionContext {
     area: string | null;
     openedOn: Date | null;
     workersCount: number | null;
+    /** 'simple' | 'pos' (ADR-0033). */
+    operatingMode: string;
+    /** The stored subscription fields; `effectiveSubscription` reads them against the server clock. */
+    subscriptionStatus: string;
+    subscriptionPlan: string | null;
+    trialStartedAt: Date | null;
+    trialEndsAt: Date | null;
+    subscriptionStartedAt: Date | null;
+    subscriptionEndsAt: Date | null;
   };
 }
 
@@ -231,6 +248,7 @@ export async function validateSession(
       phone: record.user.phone,
       email: record.user.email,
       emailVerifiedAt: record.user.emailVerifiedAt,
+      mustChangePassword: record.user.mustChangePassword,
     },
     store: {
       id: store.id,
@@ -240,6 +258,13 @@ export async function validateSession(
       area: store.area,
       openedOn: store.openedOn,
       workersCount: store.workersCount,
+      operatingMode: store.operatingMode,
+      subscriptionStatus: store.subscriptionStatus,
+      subscriptionPlan: store.subscriptionPlan,
+      trialStartedAt: store.trialStartedAt,
+      trialEndsAt: store.trialEndsAt,
+      subscriptionStartedAt: store.subscriptionStartedAt,
+      subscriptionEndsAt: store.subscriptionEndsAt,
     },
   };
 }
@@ -395,12 +420,53 @@ export async function getSessionFromRequest(
  *
  * @throws AppError (401) when the request has no valid session.
  */
-export async function requireSession(req: Request): Promise<SessionContext> {
+export async function requireSession(
+  req: Request,
+  options: RequireSessionOptions = {},
+): Promise<SessionContext> {
   // Every cookie-authenticated write passes here: refuse cross-site writes (QA-39).
   assertSameOriginWrite(req);
   const context = await getSessionFromRequest(req);
   if (!context) {
     throw AppError.unauthorized();
   }
+  // An admin reset (scripts/admin-reset-password.ts) issued a temporary password: until the
+  // owner picks their own, no API works except changing it — enforced here, on the server, so no
+  // URL, cached screen or direct API call gets around it. Checked before the subscription so the
+  // owner always sees the password screen first.
+  if (context.user.mustChangePassword && !options.allowPasswordChange) {
+    throw AppError.passwordChangeRequired();
+  }
+  // ADR-0033: the shop may use Hesba only while its trial / subscription runs — decided on the
+  // server's clock for every protected request, so no cron, client date or cached screen can
+  // keep an expired shop working. Only the subscription screens opt out.
+  if (!options.allowInactive) {
+    const sub = effectiveSubscription(context.store, new Date());
+    if (!sub.allowed) throw AppError.subscriptionInactive(sub.status);
+  }
+  if (
+    options.capability &&
+    !modeAllows(context.store.operatingMode, options.capability)
+  ) {
+    throw AppError.modeForbidden(
+      modeRefusal(options.capability),
+      context.store.operatingMode,
+    );
+  }
   return context;
+}
+
+export interface RequireSessionOptions {
+  /**
+   * The few routes an expired shop may still use: its subscription status, logout, the account's
+   * own security. Everything else (the default) needs an active trial or subscription.
+   */
+  allowInactive?: boolean;
+  /** A feature of one operating mode only (ADR-0033): refused in the other mode. */
+  capability?: ModeCapability;
+  /**
+   * Only `POST /api/auth/change-password`: the one route an account holding a temporary
+   * password may use (besides reading its session and logging out, which do not come here).
+   */
+  allowPasswordChange?: boolean;
 }

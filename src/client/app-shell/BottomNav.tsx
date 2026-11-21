@@ -9,6 +9,7 @@ export type NavRoute =
   | "home"
   | "products"
   | "sales"
+  | "daily-sales"
   | "stock"
   | "expenses"
   | "people"

@@ -197,8 +197,12 @@ export async function salesFinancialsInTx(
   unknownCostCount: number;
   knownCostRevenuePiasters: number;
   knownCostPiasters: number;
+  dailyTotalsCount: number;
+  dailyTotalsPiasters: number;
+  dailyTotalsCashPiasters: number;
 }> {
   const sales = await salesInRange(tx, storeId, from, to);
+  const daily = await dailyTotalsInRange(tx, storeId, from, to);
   let revenue = 0;
   let unknownCostCount = 0;
   let knownRevenue = 0;
@@ -217,15 +221,52 @@ export async function salesFinancialsInTx(
       }
     }
   }
-  const cogs = unknownCostCount === 0 ? knownCost : null;
+  // إدارة المحل's daily totals are revenue too, but with no cost per item: profit is unknown
+  // (never guessed from the stock) while any of them is in the period (ADR-0033).
+  const cogs = unknownCostCount === 0 && daily.count === 0 ? knownCost : null;
+  const total = revenue + daily.totalPiasters;
   return {
     count: sales.length,
-    revenuePiasters: revenue,
+    revenuePiasters: total,
     cogsPiasters: cogs,
-    grossProfitPiasters: cogs === null ? null : revenue - cogs,
+    grossProfitPiasters: cogs === null ? null : total - cogs,
     unknownCostCount,
     knownCostRevenuePiasters: knownRevenue,
     knownCostPiasters: knownCost,
+    dailyTotalsCount: daily.count,
+    dailyTotalsPiasters: daily.totalPiasters,
+    dailyTotalsCashPiasters: daily.cashPiasters,
+  };
+}
+
+/**
+ * The daily sales totals (إدارة المحل) whose Cairo business day falls in [from, to); cancelled
+ * ones count nowhere. Shared with the AI business tools (same numbers as the reports).
+ */
+export async function dailyTotalsInRange(
+  tx: TenantTx,
+  storeId: string,
+  from: Date | null,
+  to: Date,
+): Promise<{ count: number; totalPiasters: number; cashPiasters: number }> {
+  const lastDay = toCairoDateString(new Date(to.getTime() - 1));
+  const firstDay = from ? toCairoDateString(from) : null;
+  const agg = await tx.dailySalesEntry.aggregate({
+    where: {
+      storeId,
+      cancelledAt: null,
+      businessDay: {
+        ...(firstDay ? { gte: new Date(`${firstDay}T00:00:00Z`) } : {}),
+        lte: new Date(`${lastDay}T00:00:00Z`),
+      },
+    },
+    _sum: { totalPiasters: true, cashPiasters: true },
+    _count: true,
+  });
+  return {
+    count: agg._count,
+    totalPiasters: Number(agg._sum.totalPiasters ?? 0),
+    cashPiasters: Number(agg._sum.cashPiasters ?? 0),
   };
 }
 
@@ -365,6 +406,10 @@ export async function getHomeReport(
       for (const s of sales) {
         byPaymentMethod[s.paymentMethod] += netSaleRevenue(s);
       }
+      // Daily totals (إدارة المحل): their cash part and their wallet parts.
+      byPaymentMethod.cash += financials.dailyTotalsCashPiasters;
+      byPaymentMethod.wallet +=
+        financials.dailyTotalsPiasters - financials.dailyTotalsCashPiasters;
 
       for (const s of sales) {
         const key =

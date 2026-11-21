@@ -1,3 +1,4 @@
+import { OPERATING_MODES } from "@/domain/operating-mode";
 import { z } from "zod";
 import { MAX_PERSON_NAME_LENGTH } from "@/domain/limits";
 import {
@@ -37,17 +38,29 @@ const ownerNameSchema = (required: string) =>
       `الاسم طويل قوي (أقصى حاجة ${MAX_PERSON_NAME_LENGTH} حرف)`,
     );
 
+/**
+ * An optional e-mail (sign-up and the profile): empty or missing = no e-mail (stored as NULL);
+ * anything typed must be a valid address, stored trimmed and lower-cased.
+ */
+const optionalEmailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .max(254, "بريد إلكتروني غير صحيح")
+  .refine((v) => v === "" || z.string().email().safeParse(v).success, {
+    message: "بريد إلكتروني غير صحيح",
+  })
+  .optional()
+  .nullable()
+  .transform((v) => (v ? v : undefined));
+
 export const signupInputSchema = z.object({
   ownerName: ownerNameSchema("اسم صاحب المحل مطلوب"),
   phone: z
     .string()
     .trim()
     .regex(/^(01[0125]\d{8}|\+201[0125]\d{8})$/, "رقم هاتف مصري غير صحيح"),
-  email: z
-    .string()
-    .trim()
-    .min(1, "البريد الإلكتروني مطلوب")
-    .email("بريد إلكتروني غير صحيح"),
+  email: optionalEmailSchema,
   password: passwordPolicySchema,
   storeName: z.string().trim().min(2, "اسم المحل مطلوب"),
   shopType: z.string().trim().min(2, "نوع المحل مطلوب"),
@@ -61,6 +74,13 @@ export const signupInputSchema = z.object({
     .optional()
     .default(1),
   withDemoData: z.boolean().optional().default(false),
+  /**
+   * How the shop will use Hesba (ADR-0033), chosen on the sign-up screen — required: the app
+   * never picks it silently for the owner.
+   */
+  operatingMode: z.enum(OPERATING_MODES, {
+    message: "اختار طريقة تشغيل المحل: إدارة المحل أو الكاشير الذكي",
+  }),
   /**
    * Optional referral (influencer) code, e.g. `mogamal123`. Empty = none. Matched without
    * case; checked against `referral_codes` on the server (an unknown code is a 400).
@@ -84,26 +104,23 @@ export const loginInputSchema = z.object({
 
 export type LoginInput = z.input<typeof loginInputSchema>;
 
-export const forgotPasswordRequestSchema = z.object({
-  email: z.string().trim().email("بريد إلكتروني غير صحيح"),
-});
+/**
+ * Changing the account's password while signed in — the forced change after an admin reset, or
+ * a normal change. The current (or temporary) password is always required: a stolen session
+ * alone cannot take over the account.
+ */
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "اكتب كلمة المرور الحالية"),
+    newPassword: passwordPolicySchema,
+  })
+  .strict()
+  .refine((v) => v.currentPassword !== v.newPassword, {
+    path: ["newPassword"],
+    message: "اختار كلمة مرور جديدة غير الحالية",
+  });
 
-export type ForgotPasswordRequestInput = z.input<
-  typeof forgotPasswordRequestSchema
->;
-
-export const resetPasswordWithCodeSchema = z.object({
-  email: z.string().trim().email("بريد إلكتروني غير صحيح"),
-  code: z
-    .string()
-    .trim()
-    .regex(/^\d{6}$/, "كود التأكيد يتكون من 6 أرقام"),
-  newPassword: passwordPolicySchema,
-});
-
-export type ResetPasswordWithCodeInput = z.input<
-  typeof resetPasswordWithCodeSchema
->;
+export type ChangePasswordInput = z.input<typeof changePasswordSchema>;
 
 export const storeProfileUpdateSchema = z.object({
   ownerName: ownerNameSchema("اسم المالك مطلوب"),
@@ -111,7 +128,7 @@ export const storeProfileUpdateSchema = z.object({
     .string()
     .trim()
     .regex(/^(01[0125]\d{8}|\+201[0125]\d{8})$/, "رقم هاتف مصري غير صحيح"),
-  email: z.string().trim().email("بريد إلكتروني غير صحيح"),
+  email: optionalEmailSchema,
   storeName: z.string().trim().min(2, "اسم المحل مطلوب"),
   shopType: z.string().trim().min(2, "نوع المحل مطلوب"),
   governorate: z.string().trim().min(2, "المحافظة مطلوبة"),

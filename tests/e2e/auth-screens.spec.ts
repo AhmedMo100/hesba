@@ -57,43 +57,26 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
       fullPage: false,
     });
 
-    // 3. Forgot Password Screen (Email + 6-digit code request)
-    await page.goto("/dev/auth?screen=forgot-password");
+    // 3. «نسيت كلمة المرور؟» — no e-mail flow: who to contact (Hesba resets it by hand).
+    await page.goto("/dev/auth?screen=login");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({ content: hideChrome });
-
-    await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
-    await expect(page.locator("p").first()).toContainText(
-      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
+    await page.getByTestId("forgot-password-link").click();
+    await expect(page.getByTestId("forgot-password-help")).toHaveText(
+      "نسيت كلمة المرور؟ تواصل مع إدارة حِسبة لمساعدتك في استعادة الحساب.",
     );
-    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
     await page.screenshot({
       path: path.join(screenshotsDir, "auth-forgot-password.png"),
       fullPage: false,
     });
 
-    // 3b. Forgot Password Step 2 (Verification code entry + new password)
-    await page.goto("/dev/auth?screen=forgot-password-code");
+    // 3b. The forced change after an admin reset (temporary password)
+    await page.goto("/dev/auth?screen=change-password");
     await page.waitForLoadState("domcontentloaded");
     await page.addStyleTag({ content: hideChrome });
-
-    await expect(page.locator("h1")).toHaveText("تعيين كلمة السر الجديدة");
+    await expect(page.locator("h1")).toHaveText("غيّر كلمة المرور");
     await page.screenshot({
-      path: path.join(screenshotsDir, "auth-forgot-code.png"),
-      fullPage: false,
-    });
-
-    // 3c. Password Reset Confirmation State
-    await page.goto("/dev/auth?screen=reset-success");
-    await page.waitForLoadState("domcontentloaded");
-    await page.addStyleTag({ content: hideChrome });
-
-    await expect(page.locator("role=status")).toBeVisible();
-    await expect(page.locator("role=status")).toContainText(
-      "تم تغيير كلمة السر بنجاح",
-    );
-    await page.screenshot({
-      path: path.join(screenshotsDir, "auth-reset-success.png"),
+      path: path.join(screenshotsDir, "auth-change-password.png"),
       fullPage: false,
     });
 
@@ -152,14 +135,11 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     ).toBeVisible();
     await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
 
-    // 4. /forgot-password renders recovery request
+    // 4. /forgot-password (old links) lands on the login screen: no e-mail recovery any more.
     await page.goto("/forgot-password");
-    await page.waitForLoadState("domcontentloaded");
-    await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
-    await expect(page.locator("p").first()).toContainText(
-      "خطوة بسيطة وترجع لحسابك وتكمل شغلك.",
-    );
-    await expect(page.locator("body")).not.toContainText("نسخة تجريبية");
+    await page.waitForURL(/\/login$/);
+    await expect(page.locator("h1")).toHaveText("حِسبة");
+    await expect(page.locator("input[type='email']")).toHaveCount(0);
   });
 
   test("persists theme between auth pages and defaults to light when unset", async ({
@@ -226,11 +206,11 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
   test("navigation buttons work between login and signup", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 800 });
 
-    // 1. Login page: «سجّل محلك لأول مرة» and «نسيت الباسورد؟»
+    // 1. Login page: «سجّل محلك لأول مرة» and «نسيت كلمة المرور؟»
     await page.goto("/login");
     await page.waitForLoadState("domcontentloaded");
     const newAccountBtn = page.locator("button:has-text('سجّل محلك لأول مرة')");
-    const forgotPwdLink = page.locator("button:has-text('نسيت الباسورد')");
+    const forgotPwdLink = page.getByTestId("forgot-password-link");
     await expect(newAccountBtn).toBeVisible();
     await expect(forgotPwdLink).toBeVisible();
 
@@ -245,24 +225,29 @@ test.describe("Auth & Profile UI at 360px (Phone + Password)", () => {
     // Click back to login
     await hasAccountBtn.click();
     await expect(page.locator("h1")).toHaveText("حِسبة");
-
-    // 3. Forgot Password page: «رجوع لتسجيل الدخول»
-    await page.goto("/forgot-password");
-    await page.waitForLoadState("domcontentloaded");
-    const backToLoginLink = page.locator(
-      "button:has-text('رجوع لتسجيل الدخول')",
-    );
-    await expect(backToLoginLink).toBeVisible();
   });
 
-  test("forgot-password link opens the existing flow", async ({ page }) => {
+  test("«نسيت كلمة المرور؟» says to contact Hesba; password fields have a show/hide eye", async ({
+    page,
+  }) => {
     await page.setViewportSize({ width: 360, height: 800 });
     await page.goto("/login");
     await page.waitForLoadState("domcontentloaded");
 
-    await page.locator("button:has-text('نسيت الباسورد')").click();
-    await expect(page.locator("h1")).toHaveText("نسيت كلمة السر؟");
-    await expect(page.locator("input[type='email']")).toBeVisible();
+    await page.getByTestId("forgot-password-link").click();
+    await expect(page.getByTestId("forgot-password-help")).toContainText(
+      "تواصل مع إدارة حِسبة",
+    );
+    await expect(page.locator("input[type='email']")).toHaveCount(0);
+
+    const pw = page.locator("input[autocomplete='current-password']");
+    await pw.fill("Secret-2026-x");
+    await expect(pw).toHaveAttribute("type", "password");
+    await page.getByTestId("password-toggle").click();
+    await expect(pw).toHaveAttribute("type", "text");
+    await expect(pw).toHaveValue("Secret-2026-x");
+    await page.getByTestId("password-toggle").click();
+    await expect(pw).toHaveAttribute("type", "password");
   });
 
   test("email is optional on signup form", async ({ page }) => {

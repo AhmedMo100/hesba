@@ -2,6 +2,7 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { getSessionFromRequest } from "@/server/modules/auth";
 import { toSafeErrorResponse } from "@/server/platform/error";
+import { storeAccessView } from "@/domain/subscription";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,8 @@ export async function GET(req: Request) {
           phone: context.user.phone,
           email: context.user.email,
           emailVerified: !!context.user.emailVerifiedAt,
+          // An admin reset: the app shows only the change-password screen until it is done.
+          mustChangePassword: context.user.mustChangePassword,
         },
         store: {
           id: context.store.id,
@@ -40,6 +43,8 @@ export async function GET(req: Request) {
           area: context.store.area ?? undefined,
           openedOn: context.store.openedOn?.toISOString() ?? "",
           workersCount: context.store.workersCount ?? 1,
+          // The operating mode and the subscription as the server sees them now (ADR-0033).
+          ...storeAccessView(context.store, new Date()),
         },
       },
     });

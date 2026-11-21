@@ -214,12 +214,45 @@ let installed = false;
  * DELETE on a same-origin `/api/` URL) invalidates the read cache — one place for all screens,
  * so no mutation can leave a stale balance or stock figure behind. Reads are untouched.
  */
+/**
+ * Fired when the server answers that the shop's access changed (ADR-0033): 402 (trial or
+ * subscription over) or 403 MODE_FORBIDDEN (the other operating mode). The session is read
+ * again and the shell shows the subscription screen or the mode's navigation.
+ */
+export const ACCESS_CHANGED_EVENT = "hesba_access_changed";
+
 export function installWriteInvalidation(): void {
   if (installed || typeof window === "undefined") return;
   installed = true;
   const original = window.fetch.bind(window);
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
     const res = await original(input, init);
+    try {
+      if (res.status === 402 || res.status === 403) {
+        const raw = input instanceof Request ? input.url : String(input);
+        const u = new URL(raw, window.location.origin);
+        if (
+          u.origin === window.location.origin &&
+          u.pathname.startsWith("/api/")
+        ) {
+          if (res.status === 402) {
+            window.dispatchEvent(new Event(ACCESS_CHANGED_EVENT));
+          } else {
+            void res
+              .clone()
+              .json()
+              .then((b: { error?: { code?: string } }) => {
+                if (b?.error?.code === "MODE_FORBIDDEN") {
+                  window.dispatchEvent(new Event(ACCESS_CHANGED_EVENT));
+                }
+              })
+              .catch(() => {});
+          }
+        }
+      }
+    } catch {
+      // Never break the request.
+    }
     try {
       const method = (
         init?.method ?? (input instanceof Request ? input.method : "GET")

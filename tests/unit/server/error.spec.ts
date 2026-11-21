@@ -46,6 +46,10 @@ describe("AppError model and safe error response", () => {
     expect(body.error.message).not.toContain("محفوظ");
     expect(body.error.request_id).toBe("req_999");
 
+    // Without a caller id, an unexpected failure still gets one (logged + returned) for support.
+    const anon = await toSafeErrorResponse(new Error("boom")).json();
+    expect(anon.error.request_id).toMatch(/^[0-9a-f]{8}$/);
+
     // Must never leak database schema or internal query in client response
     const raw = JSON.stringify(body);
     expect(raw).not.toContain("relation 'users' does not exist");

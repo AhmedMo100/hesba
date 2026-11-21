@@ -142,10 +142,7 @@ describe("formatStockText", () => {
 
   it("shows service brand name", () => {
     expect(
-      formatStockText(
-        { ...base, isService: true, brandName: "فوري" },
-        mockT,
-      ),
+      formatStockText({ ...base, isService: true, brandName: "فوري" }, mockT),
     ).toBe("ماكينة فوري");
   });
 });
@@ -185,9 +182,13 @@ describe("weightSalePiasters", () => {
 
 describe("getServicesStorageKey", () => {
   it("uses storeId when provided", () => {
-    expect(getServicesStorageKey("abc")).toBe("hesba_sales_enabled_services_abc");
+    expect(getServicesStorageKey("abc")).toBe(
+      "hesba_sales_enabled_services_abc",
+    );
   });
   it("uses default when no storeId", () => {
-    expect(getServicesStorageKey()).toBe("hesba_sales_enabled_services_default");
+    expect(getServicesStorageKey()).toBe(
+      "hesba_sales_enabled_services_default",
+    );
   });
 });

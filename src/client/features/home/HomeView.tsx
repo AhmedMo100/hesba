@@ -48,12 +48,15 @@ export interface HomeViewProps {
   alertCount?: number;
   onOpenAlerts?: () => void;
   onLogout?: () => void;
+  /** إدارة المحل: «مبيعات اليوم» instead of «بيع حاجة» (ADR-0033). */
+  operatingMode?: "simple" | "pos";
 }
 
 export function HomeView({
   onNavigate,
   alertCount = 0,
   onLogout,
+  operatingMode = "pos",
 }: HomeViewProps) {
   // ─── Today's KPIs (from report) ───
   const [report, setReport] = useState<HomeReport | null>(null);
@@ -307,7 +310,9 @@ export function HomeView({
       <div className={styles.tiles17}>
         {tile("stock", "📦", t("home.addStock"), styles.tileNum, "١")}
         {tile("expenses", "💰", t("home.expenses"), styles.tileNum, "٢")}
-        {tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
+        {operatingMode === "simple"
+          ? tile("daily-sales", "💵", "مبيعات اليوم", styles.tileSell, "٣")
+          : tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
         {tile("people", "👥", t("home.people"), undefined)}
         {tile("alerts", "💳", t("home.walletsMachines"), undefined)}
         {tile("products", "🧃", t("home.myProducts"), undefined)}

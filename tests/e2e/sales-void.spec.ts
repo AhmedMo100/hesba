@@ -42,6 +42,7 @@ test.describe("Sales screen: server-only totals and undo", () => {
         storeName: `محل تراجع ${runId}`,
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       },
     });
     expect(signup.ok()).toBe(true);

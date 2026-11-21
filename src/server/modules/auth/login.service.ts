@@ -1,4 +1,5 @@
 import "server-only";
+import { storeAccessView } from "@/domain/subscription";
 import { prisma } from "@/server/infra/db/client";
 import { type LoginInput, loginInputSchema } from "@/schemas/auth";
 import { AppError } from "@/server/platform/error";
@@ -100,6 +101,21 @@ export async function loginWithPassword(
     throw AppError.unauthorized("البيانات غير صحيحة");
   }
 
+  // A temporary password (admin reset) signs in only until its expiry; after that the owner
+  // asks Hesba for a new one. Checked after the hash so it reveals nothing to a wrong guess.
+  if (
+    user.mustChangePassword &&
+    (!user.tempPasswordExpiresAt || user.tempPasswordExpiresAt <= new Date())
+  ) {
+    logger.warn(
+      { userId: user.id },
+      "Login refused: temporary password expired",
+    );
+    throw AppError.unauthorized(
+      "كلمة المرور المؤقتة انتهت صلاحيتها. كلّم إدارة حِسبة عشان تبعتلك واحدة جديدة.",
+    );
+  }
+
   authRateLimiter.reset(rateLimitKey);
   if (ipAttempt && !ipAttempt.locked) ipAttempt.release();
 
@@ -155,6 +171,7 @@ export async function loginWithPassword(
       name: user.name,
       phone: user.phone,
       email: user.email,
+      mustChangePassword: user.mustChangePassword,
     },
     store: {
       id: primaryMember.store.id,
@@ -164,6 +181,7 @@ export async function loginWithPassword(
       area: primaryMember.store.area ?? undefined,
       openedOn: primaryMember.store.openedOn?.toISOString() ?? "",
       workersCount: primaryMember.store.workersCount ?? 1,
+      ...storeAccessView(primaryMember.store, new Date()),
     },
   };
 }

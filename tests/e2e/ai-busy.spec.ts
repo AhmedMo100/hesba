@@ -25,6 +25,7 @@ test("AI chat: a busy provider shows a waiting state, then a readable retry mess
       storeName: "محل مساعد",
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(signup.ok()).toBe(true);
