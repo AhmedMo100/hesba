@@ -1,3 +1,6 @@
+import type { OperatingMode } from "@/domain/operating-mode";
+import type { StoreAccessView } from "@/domain/subscription";
+
 export interface SignupInput {
   ownerName: string;
   phone: string;
@@ -12,6 +15,8 @@ export interface SignupInput {
   withDemoData?: boolean;
   /** Optional influencer/referral code (checked on the server). */
   referralCode?: string;
+  /** إدارة المحل or الكاشير الذكي — chosen by the owner, never by default (ADR-0033). */
+  operatingMode?: OperatingMode;
 }
 
 export interface LoginInput {
@@ -24,8 +29,11 @@ export interface UserSession {
   id: string;
   name: string;
   phone: string;
-  email: string;
+  /** Optional at sign-up: null when the owner gave none. */
+  email: string | null;
   emailVerified?: boolean;
+  /** Signed in with a temporary password from Hesba's team: only the change screen is shown. */
+  mustChangePassword?: boolean;
 }
 
 export interface StoreSession {
@@ -36,6 +44,10 @@ export interface StoreSession {
   area?: string;
   openedOn: string;
   workersCount: number;
+  /** 'simple' | 'pos' (ADR-0033). */
+  operatingMode?: string;
+  /** The subscription as the server read it (the server enforces it; the screen shows it). */
+  subscription?: StoreAccessView["subscription"];
 }
 
 export interface SessionState {
@@ -49,7 +61,8 @@ export interface SessionState {
 export interface StoreProfile {
   ownerName: string;
   phone: string;
-  email: string;
+  /** Optional: empty = no e-mail. */
+  email: string | null;
   emailVerified?: boolean;
   storeName: string;
   shopType: string;
@@ -72,15 +85,12 @@ export interface AuthApi {
   login(credentials: LoginInput): Promise<AuthApiResult<SessionState>>;
   signup(data: SignupInput): Promise<AuthApiResult<SessionState>>;
 
-  // Forgot Password via 6-Digit Email Code
-  requestPasswordReset(
-    email: string,
-  ): Promise<AuthApiResult<{ message: string }>>;
-  resetPassword(data: {
-    email: string;
-    code: string;
+  // The signed-in account changes its own password (also the forced change after an admin
+  // reset). There is no e-mail recovery: a forgotten password is reset by Hesba's team.
+  changePassword(data: {
+    currentPassword: string;
     newPassword: string;
-  }): Promise<AuthApiResult<{ message: string }>>;
+  }): Promise<AuthApiResult<{ revokedSessions: number }>>;
 
   // Session & Profile
   getSession(): Promise<SessionState | null>;

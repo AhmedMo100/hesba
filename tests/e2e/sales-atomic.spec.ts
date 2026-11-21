@@ -54,6 +54,7 @@ test.describe("Atomic sale on the sales screen", () => {
         storeName: `محل بيع ${runId}`,
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       },
     });
     expect(signup.ok()).toBe(true);

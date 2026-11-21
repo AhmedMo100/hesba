@@ -1,6 +1,7 @@
 export * from "./Icon/Icon";
 export * from "./Button/Button";
 export * from "./Field/Field";
+export * from "./PasswordInput/PasswordInput";
 export * from "./Alert/Alert";
 export * from "./SearchBox/SearchBox";
 export * from "./Seg/Seg";

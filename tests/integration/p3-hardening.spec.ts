@@ -356,6 +356,7 @@ describe("QA-40 — the session token is only in the HttpOnly cookie", () => {
         storeName: `محل ${f.runId}`,
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       },
     );
     expect(sign.status).toBe(200);

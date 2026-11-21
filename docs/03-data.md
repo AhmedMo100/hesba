@@ -825,7 +825,7 @@ Every rejected operation is assigned a canonical reason and must appear in the "
 | `validation` | Payload violates zod schema | "العملية دي فيها مشكلة في البيانات" | User can view field errors, edit payload, and retry |
 | `duplicate_op_id` | Operation was already applied | Treated as success | Automatically removed from Outbox |
 | `forbidden` | Tenant mismatch / unauthorized action | "غير مصرح لك بإجراء العملية دي" | Logged; operation quarantined |
-| `subscription_expired` | Account is in read-only trial mode | "الاشتراك خلص، متاح العرض فقط" | Prompts renewal; keeps queue saved |
+| `subscription_expired` | Trial or subscription over (HTTP 402 `SUBSCRIPTION_INACTIVE`, ADR-0033) | "الحساب محتاج تفعيل — العمليات محفوظة على الجهاز" | Shows the subscription screen; queue kept untouched, sent once after activation |
 | `not_found` | Target entity does not exist on server | "العنصر المطلوب غير موجود" | Shown in review screen |
 | `fefo_depleted` | Selected batch has no remaining stock | "الكمية مش متوفرة في المخزن" | Server flags negative stock or prompts stock intake |
 | `already_reversed` | Void operation attempted on already voided record | "العملية ملغية بالفعل" | Marked applied with no second effect |

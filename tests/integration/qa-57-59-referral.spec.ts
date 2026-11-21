@@ -39,6 +39,7 @@ async function signup(extra: Record<string, unknown>) {
         storeName: "محل الدعوة",
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
         ...extra,
       }),
     }),

@@ -5,6 +5,6 @@ export * from "./rate-limiter";
 export * from "./password.service";
 export * from "./login.service";
 export * from "./signup.service";
-export * from "./forgot-password.service";
+export * from "./password-change.service";
 export * from "./session.service";
 export * from "./request-guard";

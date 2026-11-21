@@ -43,6 +43,7 @@ async function signup(api: APIRequestContext, runId: string, tag: string) {
       storeName: `محل ساندوتشات ${tag} ${runId}`,
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(res.ok()).toBe(true);

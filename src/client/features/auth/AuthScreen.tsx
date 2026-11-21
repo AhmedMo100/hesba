@@ -1,8 +1,9 @@
 "use client";
 
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef } from "react";
+import { ModeChoice } from "../subscription/ModeChoice";
 import styles from "./AuthScreen.module.css";
-import { Button, Field, Alert } from "@/client/shared/ui";
+import { Button, Field, Alert, PasswordInput } from "@/client/shared/ui";
 import { useTranslation } from "@/client/shared/i18n";
 import { authApi } from "@/client/shared/api";
 import type { SessionState, SignupInput } from "@/client/shared/api";
@@ -25,9 +26,15 @@ export {
   isEmailIdentifier,
 } from "./auth.logic";
 
+/**
+ * There is no e-mail recovery (retired): a forgotten password is reset by Hesba's team, who
+ * give the owner a temporary one (docs/ops/password-reset.md).
+ */
+export const FORGOT_PASSWORD_HELP =
+  "نسيت كلمة المرور؟ تواصل مع إدارة حِسبة لمساعدتك في استعادة الحساب.";
+
 export interface AuthScreenProps {
-  initialMode?: "signup" | "login" | "forgot-password";
-  initialForgotStep?: 0 | 1;
+  initialMode?: "signup" | "login";
   initialSuccess?: string;
   initialSuccessTitle?: string;
   initialError?: string;
@@ -38,7 +45,6 @@ export interface AuthScreenProps {
 
 export function AuthScreen({
   initialMode = "login",
-  initialForgotStep = 0,
   initialSuccess = "",
   initialSuccessTitle = "",
   initialError = "",
@@ -48,10 +54,11 @@ export function AuthScreen({
 }: AuthScreenProps) {
   const { t } = useTranslation();
 
-  const [mode, setMode] = useState<"signup" | "login" | "forgot-password">(
-    initialMode,
-  );
-  const [forgotStep, setForgotStep] = useState<0 | 1>(initialForgotStep);
+  const [mode, setMode] = useState<"signup" | "login">(initialMode);
+  const [showForgotHelp, setShowForgotHelp] = useState(false);
+  // Set synchronously on submit: a double tap / double Enter in the same tick still sends ONE
+  // request (the `busy` state only applies after the next render).
+  const inFlight = useRef(false);
   const [busy, setBusy] = useState(false);
   const [globalErr, setGlobalErr] = useState(initialError);
   const [globalSuccess, setGlobalSuccess] = useState(initialSuccess);
@@ -78,13 +85,6 @@ export function AuthScreen({
   // Login fields
   const [loginIdentifier, setLoginIdentifier] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-
-  // Forgot password fields
-  const [forgotEmail, setForgotEmail] = useState("");
-  const [resetCode, setResetCode] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [resendCooldown, setResendCooldown] = useState(0);
 
   const showErr = useCallback(
     (field: string) =>
@@ -118,9 +118,9 @@ export function AuthScreen({
     else form.requestSubmit();
   };
 
-  const switchMode = (newMode: "signup" | "login" | "forgot-password") => {
+  const switchMode = (newMode: "signup" | "login") => {
     setMode(newMode);
-    setForgotStep(0);
+    setShowForgotHelp(false);
     setGlobalErr("");
     setGlobalSuccess("");
     setGlobalSuccessTitle("");
@@ -129,7 +129,7 @@ export function AuthScreen({
     setSubmitted(false);
 
     if (typeof window !== "undefined") {
-      const targetPath = newMode === "login" ? "/login" : "/" + newMode;
+      const targetPath = newMode === "login" ? "/login" : "/signup";
       if (
         window.location.pathname !== targetPath &&
         window.location.pathname !== "/"
@@ -142,6 +142,7 @@ export function AuthScreen({
   // --- 1. Login Handler ---
   const handleLogin = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (inFlight.current) return;
     setGlobalErr("");
     setGlobalSuccess("");
     setSubmitted(true);
@@ -167,6 +168,7 @@ export function AuthScreen({
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
+    inFlight.current = true;
     setBusy(true);
     try {
       const identifier = isEmailIdentifier(loginIdentifier.trim())
@@ -187,6 +189,7 @@ export function AuthScreen({
     } catch {
       setGlobalErr(t("errors.serverError"));
     } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
@@ -194,12 +197,19 @@ export function AuthScreen({
   // --- 2. Signup Handler (single step) ---
   const handleSignup = async (e?: React.FormEvent) => {
     e?.preventDefault();
+    if (inFlight.current) return;
     setGlobalErr("");
     setSubmitted(true);
     const errs = validateSignup(signupData, t, validatePasswordPolicy);
+    // ADR-0033: the owner picks how the shop works; it is never chosen for them.
+    if (!signupData.operatingMode) {
+      errs["operatingMode"] =
+        "اختار طريقة تشغيل المحل: إدارة المحل أو الكاشير الذكي";
+    }
     setFieldErrors(errs);
     if (Object.keys(errs).length > 0) return;
 
+    inFlight.current = true;
     setBusy(true);
     try {
       const res = await authApi.signup({
@@ -218,107 +228,7 @@ export function AuthScreen({
     } catch {
       setGlobalErr(t("errors.serverError"));
     } finally {
-      setBusy(false);
-    }
-  };
-
-  // --- 3. Forgot Password Handlers ---
-  const handleRequestCode = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setGlobalErr("");
-    setGlobalSuccess("");
-    setSubmitted(true);
-
-    if (!okMail(forgotEmail)) {
-      setFieldErrors({ forgotEmail: t("errors.invalidEmail") });
-      return;
-    }
-
-    setBusy(true);
-    try {
-      const res = await authApi.requestPasswordReset(
-        forgotEmail.trim().toLowerCase(),
-      );
-      if (!res.success) {
-        setGlobalErr(res.error || t("errors.serverError"));
-        return;
-      }
-
-      setForgotStep(1);
-      setSubmitted(false);
-      setTouched({});
-      setGlobalSuccessTitle(t("auth.codeSentTitle"));
-      setGlobalSuccess(res.data?.message || t("auth.forgotPasswordSub"));
-      setResendCooldown(60);
-      const timer = setInterval(() => {
-        setResendCooldown((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } catch {
-      setGlobalErr(t("errors.serverError"));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleResetPassword = async (e?: React.FormEvent) => {
-    e?.preventDefault();
-    setGlobalErr("");
-    setGlobalSuccess("");
-    setGlobalSuccessTitle("");
-    setSubmitted(true);
-    const errs: Record<string, string> = {};
-
-    const cleanCode = normDigits(resetCode).replace(/\s|-/g, "");
-    if (cleanCode.length !== 6) {
-      errs["code"] = t("auth.codeLabel");
-    }
-    const pwdRes = validatePasswordPolicy(newPassword);
-    if (!pwdRes.valid) {
-      if (pwdRes.reason === "too_short" || pwdRes.reason === "empty") {
-        errs["newPassword"] = t("auth.passwordLength");
-      } else if (pwdRes.reason === "missing_letter") {
-        errs["newPassword"] = t("auth.passwordMissingLetter");
-      } else if (pwdRes.reason === "missing_number") {
-        errs["newPassword"] = t("auth.passwordMissingNumber");
-      } else if (pwdRes.reason === "too_long") {
-        errs["newPassword"] = t("auth.passwordTooLong");
-      } else if (pwdRes.reason === "too_common") {
-        errs["newPassword"] = t("auth.passwordTooCommon");
-      }
-    }
-    if (newPassword !== confirmPassword) {
-      errs["confirmPassword"] = t("auth.passwordMismatch");
-    }
-
-    setFieldErrors(errs);
-    if (Object.keys(errs).length > 0) return;
-
-    setBusy(true);
-    try {
-      const res = await authApi.resetPassword({
-        email: forgotEmail.trim().toLowerCase(),
-        code: cleanCode,
-        newPassword,
-      });
-
-      if (!res.success) {
-        setGlobalErr(res.error || t("errors.serverError"));
-        return;
-      }
-
-      switchMode("login");
-      setGlobalSuccessTitle(t("auth.passwordResetSuccessTitle"));
-      setGlobalSuccess(t("auth.passwordResetSuccess"));
-      setLoginPassword("");
-    } catch {
-      setGlobalErr(t("errors.serverError"));
-    } finally {
+      inFlight.current = false;
       setBusy(false);
     }
   };
@@ -391,8 +301,7 @@ export function AuthScreen({
                 err={showErr("loginPassword")}
               >
                 <div className={styles.passwordWrapper}>
-                  <input
-                    type="password"
+                  <PasswordInput
                     autoComplete="current-password"
                     placeholder={t("auth.loginPasswordPlaceholder")}
                     value={loginPassword}
@@ -424,10 +333,20 @@ export function AuthScreen({
               <button
                 type="button"
                 className={styles.forgotLink}
-                onClick={() => switchMode("forgot-password")}
+                aria-expanded={showForgotHelp}
+                onClick={() => setShowForgotHelp((v) => !v)}
+                data-testid="forgot-password-link"
               >
                 {t("auth.forgotPasswordLink")}
               </button>
+              {showForgotHelp && (
+                <p
+                  className={styles.forgotHelp}
+                  data-testid="forgot-password-help"
+                >
+                  {FORGOT_PASSWORD_HELP}
+                </p>
+              )}
 
               <div className={styles.switchSection}>
                 <span className={styles.switchText}>{t("auth.noAccount")}</span>
@@ -515,8 +434,7 @@ export function AuthScreen({
                 err={showErr("password")}
               >
                 <div className={styles.passwordWrapper}>
-                  <input
-                    type="password"
+                  <PasswordInput
                     autoComplete="new-password"
                     value={signupData.password}
                     onChange={(e) => {
@@ -533,6 +451,27 @@ export function AuthScreen({
                   />
                 </div>
               </Field>
+
+              <div className={styles.modeHead}>
+                <b>هتشغّل محلك إزاي؟</b>
+                <small>
+                  تقدر تغيّرها بعدين من إعدادات المحل من غير ما يتمسح أي حاجة.
+                </small>
+              </div>
+              <ModeChoice
+                value={signupData.operatingMode ?? null}
+                onChange={(operatingMode) => {
+                  setSignupData({ ...signupData, operatingMode });
+                  setFieldErrors((prev) => ({ ...prev, operatingMode: "" }));
+                  setGlobalErr("");
+                }}
+                error={showErr("operatingMode")}
+                disabled={busy}
+              />
+              <p className={styles.trialNote} data-testid="trial-note">
+                🎁 أول 3 أيام مجانًا، وبعدها بتكلم إدارة حِسبة عشان تفعّل
+                الاشتراك.
+              </p>
 
               <Button
                 type="submit"
@@ -553,190 +492,6 @@ export function AuthScreen({
               </button>
             </form>
           </>
-        )}
-
-        {/* ----------------- 3. FORGOT PASSWORD MODE ----------------- */}
-        {mode === "forgot-password" && (
-          <div>
-            <div className={styles.signupHead}>
-              <h1>
-                {forgotStep === 0
-                  ? t("auth.forgotPasswordTitle")
-                  : t("auth.resetPasswordTitle")}
-              </h1>
-              <p className={styles.brandSub}>
-                {forgotStep === 0
-                  ? t("auth.forgotPasswordSub")
-                  : t("auth.resetPasswordSub")}
-              </p>
-            </div>
-
-            {forgotStep === 0 ? (
-              <form
-                onSubmit={handleRequestCode}
-                className={styles.body}
-                noValidate
-              >
-                <Field
-                  label={t("auth.emailLabel")}
-                  err={showErr("forgotEmail")}
-                >
-                  <input
-                    type="email"
-                    inputMode="email"
-                    autoComplete="email"
-                    placeholder={t("auth.emailPlaceholder")}
-                    value={forgotEmail}
-                    onChange={(e) => {
-                      setForgotEmail(e.target.value);
-                      setFieldErrors({});
-                      setGlobalErr("");
-                    }}
-                    onBlur={() => markTouched("forgotEmail")}
-                    onKeyDown={enterNext}
-                    disabled={busy}
-                    autoFocus
-                  />
-                </Field>
-
-                <Button
-                  type="submit"
-                  kind="primary"
-                  wide
-                  busy={busy}
-                  disabled={busy}
-                >
-                  {busy ? t("auth.sendingCode") : t("auth.sendCodeBtn")}
-                </Button>
-
-                <button
-                  type="button"
-                  className={styles.outlineBtn}
-                  onClick={() => switchMode("login")}
-                >
-                  {t("auth.backToLogin")}
-                </button>
-              </form>
-            ) : (
-              <form
-                onSubmit={handleResetPassword}
-                className={styles.body}
-                noValidate
-              >
-                <Field label={t("auth.codeLabel")} err={showErr("code")}>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    pattern="[0-9]*"
-                    maxLength={6}
-                    placeholder={t("auth.codePlaceholder")}
-                    className={styles.codeBox}
-                    value={resetCode}
-                    onChange={(e) => {
-                      setResetCode(e.target.value);
-                      setFieldErrors((prev) => ({ ...prev, code: "" }));
-                      setGlobalErr("");
-                    }}
-                    onBlur={() => markTouched("code")}
-                    onKeyDown={enterNext}
-                    disabled={busy}
-                    autoFocus
-                  />
-                </Field>
-
-                <Field
-                  label={t("auth.newPasswordLabel")}
-                  hint={t("auth.passwordHint")}
-                  err={showErr("newPassword")}
-                >
-                  <div className={styles.passwordWrapper}>
-                    <input
-                      type="password"
-                      autoComplete="new-password"
-                      value={newPassword}
-                      onChange={(e) => {
-                        setNewPassword(e.target.value);
-                        setFieldErrors((prev) => ({
-                          ...prev,
-                          newPassword: "",
-                        }));
-                        setGlobalErr("");
-                      }}
-                      onBlur={() => markTouched("newPassword")}
-                      onKeyDown={enterNext}
-                      disabled={busy}
-                    />
-                  </div>
-                </Field>
-
-                <Field
-                  label={t("auth.confirmPasswordLabel")}
-                  err={showErr("confirmPassword")}
-                >
-                  <div className={styles.passwordWrapper}>
-                    <input
-                      type="password"
-                      autoComplete="new-password"
-                      value={confirmPassword}
-                      onChange={(e) => {
-                        setConfirmPassword(e.target.value);
-                        setFieldErrors((prev) => ({
-                          ...prev,
-                          confirmPassword: "",
-                        }));
-                        setGlobalErr("");
-                      }}
-                      onBlur={() => markTouched("confirmPassword")}
-                      onKeyDown={enterNext}
-                      disabled={busy}
-                    />
-                  </div>
-                </Field>
-
-                <Button
-                  type="submit"
-                  kind="primary"
-                  wide
-                  busy={busy}
-                  disabled={busy}
-                >
-                  {busy
-                    ? t("auth.savingPassword")
-                    : t("auth.saveNewPasswordBtn")}
-                </Button>
-
-                {resendCooldown > 0 ? (
-                  <span
-                    className={styles.secondaryLink}
-                    style={{ cursor: "default" }}
-                  >
-                    {t("auth.resendInSeconds").replace(
-                      "{seconds}",
-                      String(resendCooldown),
-                    )}
-                  </span>
-                ) : (
-                  <button
-                    type="button"
-                    className={styles.secondaryLink}
-                    onClick={handleRequestCode}
-                    disabled={busy}
-                  >
-                    {t("auth.resendCode")}
-                  </button>
-                )}
-
-                <button
-                  type="button"
-                  className={styles.outlineBtn}
-                  onClick={() => switchMode("login")}
-                >
-                  {t("auth.backToLogin")}
-                </button>
-              </form>
-            )}
-          </div>
         )}
       </div>
     </div>

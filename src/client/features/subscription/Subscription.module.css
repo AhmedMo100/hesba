@@ -1,0 +1,114 @@
+/* The subscription screen (also the expiry screen) and the mode switch — V19 tokens */
+.screen {
+  min-height: 100dvh;
+  background: var(--bg);
+  color: var(--ink);
+  display: flex;
+  justify-content: center;
+  padding: 24px 16px 40px;
+}
+
+.box {
+  width: 100%;
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+}
+
+.hero {
+  text-align: center;
+  font-size: 46px;
+  margin: 8px 0 4px;
+}
+
+.title {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 800;
+  margin: 0 0 6px;
+}
+
+.lead {
+  text-align: center;
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1.6;
+  margin: 0 0 12px;
+}
+
+.sumbox {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 12px 14px;
+  margin: 10px 0;
+}
+
+.line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 16px;
+}
+
+.line:last-child {
+  border: 0;
+}
+
+.ok {
+  color: var(--ok);
+}
+
+.bad {
+  color: var(--red);
+}
+
+.note {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 6px 0;
+}
+
+.btn {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  padding: 14px;
+  margin: 8px 0;
+  border-radius: 16px;
+  background: var(--dark);
+  color: var(--cream);
+  border: 0;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+}
+
+.ghost {
+  background: var(--card);
+  color: var(--ink);
+  border: 2px solid var(--line);
+}
+
+.danger {
+  color: var(--red);
+}
+
+.err {
+  color: var(--red);
+  background: var(--redBg);
+  border-radius: 12px;
+  padding: 10px 12px;
+  font-weight: 700;
+  margin: 6px 0;
+}

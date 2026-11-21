@@ -109,24 +109,35 @@ enum AiMessageRole {
 }
 
 model Store {
-  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name                String    @db.Text
-  nameAr              String?   @default("") @map("name_ar") @db.Text
-  ownerName           String?   @map("owner_name") @db.Text
-  city                String?   @db.Text
-  shopType            String    @map("shop_type") @db.Text
-  governorate         String    @db.Text
-  area                String?   @db.Text
-  openedOn            DateTime? @map("opened_on") @db.Date
-  workersCount        Int?      @map("workers_count")
-  shareCustomProducts Boolean   @default(true) @map("share_custom_products")
-  receiveSuggestions  Boolean   @default(true) @map("receive_suggestions")
-  settings            Json      @default("{}") @db.JsonB
-  createdBy           String?   @map("created_by") @db.Uuid
-  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                   String    @db.Text
+  nameAr                 String?   @default("") @map("name_ar") @db.Text
+  ownerName              String?   @map("owner_name") @db.Text
+  city                   String?   @db.Text
+  shopType               String    @map("shop_type") @db.Text
+  governorate            String    @db.Text
+  area                   String?   @db.Text
+  openedOn               DateTime? @map("opened_on") @db.Date
+  workersCount           Int?      @map("workers_count")
+  shareCustomProducts    Boolean   @default(true) @map("share_custom_products")
+  receiveSuggestions     Boolean   @default(true) @map("receive_suggestions")
+  settings               Json      @default("{}") @db.JsonB
+  createdBy              String?   @map("created_by") @db.Uuid
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// 'simple' (إدارة المحل) | 'pos' (الكاشير الذكي) — ADR-0033. Changing it changes no data.
+  operatingMode          String    @default("pos") @map("operating_mode") @db.Text
+  operatingModeChangedAt DateTime? @map("operating_mode_changed_at") @db.Timestamptz(6)
+  /// 'trialing' | 'active' | 'expired' | 'suspended'. Managed by Hesba only: a DB trigger refuses
+  /// any change from the runtime roles, and a shop the app creates always starts a 72 h trial.
+  subscriptionStatus     String    @default("trialing") @map("subscription_status") @db.Text
+  subscriptionPlan       String?   @map("subscription_plan") @db.Text
+  trialStartedAt         DateTime? @map("trial_started_at") @db.Timestamptz(6)
+  trialEndsAt            DateTime? @map("trial_ends_at") @db.Timestamptz(6)
+  subscriptionStartedAt  DateTime? @map("subscription_started_at") @db.Timestamptz(6)
+  subscriptionEndsAt     DateTime? @map("subscription_ends_at") @db.Timestamptz(6)
 
-  creator              User?                 @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  creator              User?                    @relation("StoreCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   referral             StoreReferral?
   members              StoreMember[]
   devices              Device[]
@@ -174,22 +185,92 @@ model Store {
   aiUsageEvents        AiUsageEvent[]
   aiAdminAudits        AiAdminAudit[]
   cashDrawerCounts     CashDrawerCount[]
+  subscriptionEvents   StoreSubscriptionEvent[]
+  dailySalesEntries    DailySalesEntry[]
+  dailySalesEntryParts DailySalesEntryPart[]
 
   @@map("stores")
 }
 
+/// Every change of a shop's subscription fields (ADR-0033), written by a DB trigger. Hesba's own
+/// table: the runtime roles have no access.
+model StoreSubscriptionEvent {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String    @map("store_id") @db.Uuid
+  changedBy      String    @map("changed_by") @db.Text
+  oldStatus      String?   @map("old_status") @db.Text
+  newStatus      String?   @map("new_status") @db.Text
+  oldPlan        String?   @map("old_plan") @db.Text
+  newPlan        String?   @map("new_plan") @db.Text
+  oldEndsAt      DateTime? @map("old_ends_at") @db.Timestamptz(6)
+  newEndsAt      DateTime? @map("new_ends_at") @db.Timestamptz(6)
+  oldTrialEndsAt DateTime? @map("old_trial_ends_at") @db.Timestamptz(6)
+  newTrialEndsAt DateTime? @map("new_trial_ends_at") @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_store_subscription_events_store_at")
+  @@map("store_subscription_events")
+}
+
+/// إدارة المحل's daily sales total (ADR-0033): the cash part counts in the drawer, each machine /
+/// wallet part raised that machine's balance. Cancelled entries stay on record.
+model DailySalesEntry {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId       String    @map("store_id") @db.Uuid
+  opId          String    @map("op_id") @db.Uuid
+  businessDay   DateTime  @map("business_day") @db.Date
+  totalPiasters BigInt    @map("total_piasters")
+  cashPiasters  BigInt    @default(0) @map("cash_piasters")
+  note          String?   @db.Text
+  createdBy     String?   @map("created_by") @db.Uuid
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledAt   DateTime? @map("cancelled_at") @db.Timestamptz(6)
+
+  store Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User?                 @relation("DailySalesCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  parts DailySalesEntryPart[]
+
+  @@unique([storeId, opId], map: "uq_daily_sales_entries_store_op")
+  @@index([storeId, businessDay(sort: Desc)], map: "idx_daily_sales_entries_store_day")
+  @@map("daily_sales_entries")
+}
+
+model DailySalesEntryPart {
+  id             String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String @map("store_id") @db.Uuid
+  entryId        String @map("entry_id") @db.Uuid
+  machineId      String @map("machine_id") @db.Uuid
+  amountPiasters BigInt @map("amount_piasters")
+
+  store   Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  entry   DailySalesEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  machine PosMachine      @relation(fields: [machineId], references: [id], onDelete: Restrict)
+
+  @@index([entryId], map: "idx_daily_sales_entry_parts_entry")
+  @@map("daily_sales_entry_parts")
+}
+
 model User {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String    @db.Text
-  phone           String    @unique @db.Text
-  email           String    @unique @db.Text
-  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
-  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz(6)
-  passwordHash    String?   @map("password_hash") @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String    @db.Text
+  phone                 String    @unique @db.Text
+  /// Optional (the sign-up screen does not require it); NULL = no e-mail, never ''.
+  email                 String?   @unique @db.Text
+  emailVerifiedAt       DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  phoneVerifiedAt       DateTime? @map("phone_verified_at") @db.Timestamptz(6)
+  passwordHash          String?   @map("password_hash") @db.Text
+  /// Set only by the admin reset tool (scripts/admin-reset-password.ts): the account must choose
+  /// a new password before anything else works (requireSession → 403 PASSWORD_CHANGE_REQUIRED).
+  mustChangePassword    Boolean   @default(false) @map("must_change_password")
+  /// When the temporary password stops signing in (set with mustChangePassword, cleared with it).
+  tempPasswordExpiresAt DateTime? @map("temp_password_expires_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   createdStores           Store[]                  @relation("StoreCreator")
+  dailySalesEntries       DailySalesEntry[]        @relation("DailySalesCreator")
   members                 StoreMember[]
   devices                 Device[]
   passkeys                UserPasskey[]
@@ -739,9 +820,9 @@ model DebtEntry {
   @@unique([storeId, opId])
   @@index([storeId, purchaseId], map: "idx_debt_entries_store_purchase")
   @@index([storeId, saleId], map: "idx_debt_entries_store_sale")
-  @@index([storeId, customerId])
-  @@index([storeId, payableId])
-  @@index([storeId, supplierId])
+  @@index([storeId, customerId], map: "idx_debt_entries_store_customer")
+  @@index([storeId, payableId], map: "idx_debt_entries_store_payable")
+  @@index([storeId, supplierId], map: "idx_debt_entries_store_supplier")
   @@map("debt_entries")
 }
 
@@ -766,6 +847,8 @@ model Purchase {
 
   @@unique([storeId, opId])
   @@unique([storeId, id], map: "uq_purchases_store_id_id")
+  // Created by 20261030050000_isolate_customers_payables_suppliers (supplier statement queries).
+  @@index([storeId, supplierId], map: "idx_purchases_store_supplier")
   @@map("purchases")
 }
 
@@ -817,6 +900,8 @@ model Sale {
   @@unique([storeId, opId])
   @@unique([storeId, id], map: "uq_sales_store_id_id")
   @@index([storeId, createdAt(sort: Desc)], map: "idx_sales_store_created")
+  // Created by 20261030050000_isolate_customers_payables_suppliers (customer statement queries).
+  @@index([storeId, customerId], map: "idx_sales_store_customer")
   @@map("sales")
 }
 
@@ -1135,6 +1220,11 @@ model WasteRecord {
   storeVariant StoreVariant @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
 
   @@index([storeId, createdAt(sort: Desc)], map: "idx_waste_records_store_created")
+  // NOT expressible in Prisma, kept in SQL (migrations): waste_records_sale_return_fkey =
+  // FOREIGN KEY (store_id, sale_return_id) REFERENCES sale_returns (store_id, id)
+  // ON DELETE SET NULL (sale_return_id) — a return's waste row can only point to a return of the
+  // SAME shop. `prisma migrate diff` lists it as "removed": never accept a generated migration
+  // that drops it (tests/integration/schema-drift.spec.ts guards this).
   @@map("waste_records")
 }
 
@@ -1173,8 +1263,9 @@ model PosMachine {
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store  Store             @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  topups PosMachineTopup[]
+  store           Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  topups          PosMachineTopup[]
+  dailySalesParts DailySalesEntryPart[]
 
   @@index([storeId, deletedAt], map: "idx_pos_machines_store_deleted")
   @@map("pos_machines")
@@ -1473,8 +1564,8 @@ model AiAdminAudit {
   reason        String?
   createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  admin       User   @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
-  targetStore Store? @relation(fields: [targetStoreId], references: [id], onDelete: SetNull)
+  admin       User   @relation(fields: [adminUserId], references: [id], onDelete: Restrict, map: "ai_admin_audit_admin_fkey")
+  targetStore Store? @relation(fields: [targetStoreId], references: [id], onDelete: SetNull, map: "ai_admin_audit_store_fkey")
 
   @@index([createdAt(sort: Desc)], map: "idx_ai_admin_audit_created")
   @@map("ai_admin_audit")

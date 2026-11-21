@@ -21,6 +21,7 @@ const session = (storeId: string, storeName: string, owner: string) => ({
     name: storeName,
     shopType: "سوبر ماركت",
     governorate: "القاهرة",
+    operatingMode: "pos",
     openedOn: "2024-01-01",
     workersCount: 1,
   },
@@ -76,6 +77,7 @@ describe("QA-58 — owner name length", () => {
     storeName: "محل",
     shopType: "سوبر ماركت",
     governorate: "القاهرة",
+    operatingMode: "pos",
   };
   it("refuses a 10,000-character name with a message, accepts the limit exactly, never trims content", () => {
     const huge = signupInputSchema.safeParse({

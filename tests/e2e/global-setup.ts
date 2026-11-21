@@ -33,7 +33,6 @@ export default async function globalSetup(config: FullConfig) {
   const pages = [
     "/login",
     "/signup",
-    "/forgot-password",
     "/app",
     // First compiles of these reload every open page in `next dev` (QA-54): warm them too.
     "/admin",

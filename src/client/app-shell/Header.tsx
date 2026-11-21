@@ -16,6 +16,7 @@ const THEME_GLYPH: Record<ThemeMode, string> = {
 const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
   stock: "pageTitle.stock",
   sales: "pageTitle.sales",
+  "daily-sales": "pageTitle.dailySales",
   expenses: "pageTitle.expenses",
   people: "pageTitle.people",
   alerts: "pageTitle.alerts",

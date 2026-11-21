@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { AuthScreen } from "@/client/features/auth/AuthScreen";
 import { ProfileModal } from "@/client/features/auth/ProfileModal";
+import { ChangePasswordScreen } from "@/client/features/auth/ChangePasswordScreen";
 import { ToastProvider, Button } from "@/client/shared/ui";
 
 export default function DevAuthClient() {
@@ -11,9 +12,8 @@ export default function DevAuthClient() {
     | "signup-2"
     | "login"
     | "forgot-password"
-    | "forgot-password-code"
+    | "change-password"
     | "profile"
-    | "reset-success"
     | "error-feedback"
   >(() => {
     if (typeof window !== "undefined") {
@@ -23,9 +23,8 @@ export default function DevAuthClient() {
         p === "signup-2" ||
         p === "login" ||
         p === "forgot-password" ||
-        p === "forgot-password-code" ||
+        p === "change-password" ||
         p === "profile" ||
-        p === "reset-success" ||
         p === "error-feedback"
       ) {
         return p;
@@ -83,19 +82,13 @@ export default function DevAuthClient() {
             kind={screen === "forgot-password" ? "primary" : "ghost"}
             onClick={() => setScreen("forgot-password")}
           >
-            طلب الكود
+            نسيت كلمة المرور
           </Button>
           <Button
-            kind={screen === "forgot-password-code" ? "primary" : "ghost"}
-            onClick={() => setScreen("forgot-password-code")}
+            kind={screen === "change-password" ? "primary" : "ghost"}
+            onClick={() => setScreen("change-password")}
           >
-            إدخال الكود
-          </Button>
-          <Button
-            kind={screen === "reset-success" ? "primary" : "ghost"}
-            onClick={() => setScreen("reset-success")}
-          >
-            تأكيد النجاح
+            كلمة مرور مؤقتة
           </Button>
           <Button
             kind={screen === "error-feedback" ? "primary" : "ghost"}
@@ -121,20 +114,10 @@ export default function DevAuthClient() {
 
           {screen === "login" && <AuthScreen initialMode="login" />}
 
-          {screen === "forgot-password" && (
-            <AuthScreen initialMode="forgot-password" initialForgotStep={0} />
-          )}
+          {screen === "forgot-password" && <AuthScreen initialMode="login" />}
 
-          {screen === "forgot-password-code" && (
-            <AuthScreen initialMode="forgot-password" initialForgotStep={1} />
-          )}
-
-          {screen === "reset-success" && (
-            <AuthScreen
-              initialMode="login"
-              initialSuccessTitle="تم تغيير كلمة السر بنجاح"
-              initialSuccess="سجل دخولك الآن بكلمة السر الجديدة للاستمرار في إدارة محلك."
-            />
+          {screen === "change-password" && (
+            <ChangePasswordScreen onChanged={() => {}} onLogout={() => {}} />
           )}
 
           {screen === "error-feedback" && (

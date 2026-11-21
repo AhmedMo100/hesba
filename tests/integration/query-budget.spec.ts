@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { prisma } from "@/server/infra/db/client";
+import { withTenant } from "@/server/infra/db/tenant";
 import { createSession } from "@/server/modules/auth";
 import { GET as session } from "@/app/api/auth/session/route";
 import { GET as alerts } from "@/app/api/alerts/route";
@@ -100,9 +101,12 @@ const BUDGET: Record<string, number> = {
   salesConfig: 10,
   promotions: 10,
   sales: 15,
-  people: 10,
+  // 6 session (token lookup + user + store context transaction) + 5 withTenant (BEGIN, set_config,
+  // findMany customers, findMany debtEntries relation query to calculate ledger balances, COMMIT).
+  people: 11,
   expenses: 10,
-  home: 22, // +1: the losses of the period (P4, waste_records)
+  home: 23, // +1: the losses of the period (P4, waste_records); +1: the daily sales totals
+  // of إدارة المحل (ADR-0033) — part of revenue even for a shop that switched to the cashier
 };
 
 beforeAll(async () => {
@@ -119,6 +123,26 @@ beforeAll(async () => {
     });
     if (i < 5) await f.sell(f.shopA, p.variantId, 1);
   }
+  // Realistic small shop contacts: a customer with debt entries so the debtEntries relation query is exercised (QA-32).
+  await withTenant(f.shopA.storeId, f.shopA.userId, async (tx) => {
+    const customer = await tx.customer.create({
+      data: {
+        storeId: f.shopA.storeId,
+        nameAr: "عميل تجريبي قياس",
+        phone: "01011112222",
+      },
+    });
+    await tx.debtEntry.create({
+      data: {
+        storeId: f.shopA.storeId,
+        customerId: customer.id,
+        direction: "owed_to_me",
+        amountPiasters: BigInt(15000),
+        opId: crypto.randomUUID(),
+        entryKind: "opening",
+      },
+    });
+  });
 }, 120_000);
 afterAll(() => f.teardown());
 

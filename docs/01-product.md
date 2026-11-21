@@ -572,7 +572,7 @@ No headcounts/salaries here; the budget comes from reality (`04` P0-B-03).
 ## 7. Subscription evolution (without invented prices)
 - **V1:** one simple plan + a trial period. The price comes from the actual cost calculation ÷ active shops + margin (after Alpha).
 - **Later (by data):** a higher plan for (workers/branches/reports), or annual with a discount. **We do not add plans before shops ask for a difference in usage.**
-- **Fixed rule:** subscription expiry = read-only, **no data deletion**.
+- **Fixed rule (ADR-0033, 2026-11-21):** when the trial or subscription ends the shop is stopped — only the subscription screen, contacting Hesba and logout — and **no data is deleted**. (Replaces the earlier "read-only" rule.) Activation is manual (`docs/ops/subscriptions.md`).
 - Local payment methods (gateways/InstaPay/Fawry) are verified with the providers.
 
 ## 8. Roadmap risks

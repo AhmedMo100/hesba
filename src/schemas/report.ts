@@ -41,6 +41,10 @@ export const homeReportSchema = z.object({
     /** The part of revenue whose cost IS recorded, and that cost (for an honest partial view). */
     knownCostRevenuePiasters: piasters,
     knownCostPiasters: piasters,
+    /** إدارة المحل's daily sales totals in the period (included in revenue; no cost known). */
+    dailyTotalsCount: z.number().int().min(0).default(0),
+    dailyTotalsPiasters: piasters.default(0),
+    dailyTotalsCashPiasters: piasters.default(0),
   }),
   expenses: z.object({
     count: z.number().int().min(0),

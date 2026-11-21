@@ -20,6 +20,7 @@ async function signup(api: APIRequestContext) {
       storeName: "محل نهائي",
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(res.ok()).toBe(true);

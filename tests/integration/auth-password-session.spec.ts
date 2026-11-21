@@ -5,8 +5,6 @@ import { PrismaClient } from "@prisma/client";
 import {
   registerUserWithPassword,
   loginWithPassword,
-  requestPasswordResetCode,
-  resetPasswordWithCode,
   hashPassword,
   verifyPassword,
   createSession,
@@ -15,7 +13,6 @@ import {
   revokeSession,
   revokeOtherUserSessions,
   hashToken,
-  authRateLimiter,
 } from "@/server/modules/auth";
 import { assertStoreOwner, assertStoreAccess } from "@/server/modules/tenancy";
 import { withTenant } from "@/server/infra/db/tenant";
@@ -45,7 +42,7 @@ const directUrl =
   process.env["HESBA_TEST_ADMIN_URL"] ??
   "postgres://postgres:change-me-local-root@localhost:5434/hesba";
 
-describe("Hesba Authentication & Sessions Integration — Phone + Password & Reset Code", () => {
+describe("Hesba Authentication & Sessions Integration — Phone + Password & Sessions", () => {
   let prisma: PrismaClient;
   let sql: postgres.Sql;
 
@@ -214,6 +211,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
         storeName: "سوبر ماركت الإخلاص",
         shopType: "سوبر ماركت",
         governorate: "الجيزة",
+        operatingMode: "pos",
         openedOn: "2024-01-01",
         workersCount: 2,
         withDemoData: true,
@@ -253,6 +251,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
           openedOn: "2024-01-01",
           workersCount: 1,
         }),
@@ -267,40 +266,45 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
           openedOn: "2024-01-01",
           workersCount: 1,
         }),
       ).rejects.toThrow("البريد الإلكتروني مسجل بالفعل");
     });
 
-    it("rejects signup with empty, whitespace, or invalid email", async () => {
-      // 1. Empty email
-      await expect(
-        registerUserWithPassword({
-          ownerName: "صاحب",
-          phone: "01088888811",
-          email: "",
-          password: "ValidPass1234",
-          storeName: "محل",
-          shopType: "بقالة",
-          governorate: "القاهرة",
-        }),
-      ).rejects.toThrow("البريد الإلكتروني مطلوب");
+    it("accepts an empty or blank e-mail (optional: stored as NULL), rejects an invalid one", async () => {
+      // The e-mail is optional on the sign-up screen: empty and whitespace-only mean «none».
+      const created: Array<{ userId: string; storeId: string }> = [];
+      try {
+        for (const email of ["", "   "]) {
+          const r = await registerUserWithPassword({
+            ownerName: "صاحب",
+            phone: `0108${String(Math.floor(1e6 + Math.random() * 9e6))}`,
+            email,
+            password: "ValidPass1234",
+            storeName: "محل",
+            shopType: "بقالة",
+            governorate: "القاهرة",
+            operatingMode: "pos",
+          });
+          created.push({ userId: r.userId, storeId: r.storeId });
+          expect(r.user.email).toBeNull();
+        }
+        const rows = await sql<{ email: string | null }[]>`
+          SELECT email FROM users WHERE id IN ${sql(created.map((c) => c.userId))}`;
+        expect(rows.every((r) => r.email === null)).toBe(true);
+      } finally {
+        for (const c of created) {
+          await sql`DELETE FROM sessions WHERE user_id = ${c.userId}`;
+          await sql`DELETE FROM devices WHERE store_id = ${c.storeId}`;
+          await sql`DELETE FROM store_members WHERE store_id = ${c.storeId}`;
+          await sql`DELETE FROM stores WHERE id = ${c.storeId}`;
+          await sql`DELETE FROM users WHERE id = ${c.userId}`;
+        }
+      }
 
-      // 2. Whitespace email
-      await expect(
-        registerUserWithPassword({
-          ownerName: "صاحب",
-          phone: "01088888812",
-          email: "   ",
-          password: "ValidPass1234",
-          storeName: "محل",
-          shopType: "بقالة",
-          governorate: "القاهرة",
-        }),
-      ).rejects.toThrow("البريد الإلكتروني مطلوب");
-
-      // 3. Invalid format
+      // An address that is typed must be a real one.
       await expect(
         registerUserWithPassword({
           ownerName: "صاحب",
@@ -310,6 +314,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("بريد إلكتروني غير صحيح");
     });
@@ -325,6 +330,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر يجب أن تكون 12 حرف على الأقل");
 
@@ -338,6 +344,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر لا يجب أن تتجاوز 128 حرف");
 
@@ -351,6 +358,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow(
         "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
@@ -367,6 +375,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
         storeName: "محل الأهلي",
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       });
 
       expect(result.userId).toBeDefined();
@@ -393,6 +402,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "سوبر ماركت",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر يجب أن تحتوي على حرف واحد على الأقل");
     });
@@ -407,6 +417,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "سوبر ماركت",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر يجب أن تحتوي على رقم واحد على الأقل");
     });
@@ -622,190 +633,8 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
     });
   });
 
-  describe("5. Forgot Password: 6-Digit Email Verification Code Flow", () => {
-    beforeAll(() => {
-      authRateLimiter.clear();
-      mockEmailProvider.clear();
-    });
-
-    it("returns generic message for non-existent email to prevent enumeration", async () => {
-      const response = await requestPasswordResetCode({
-        email: "non-existent-user@hesba.test",
-      });
-      expect(response.message).toContain("تم إرسال كود التأكيد");
-      expect(mockEmailProvider.getSentEmails()).toHaveLength(0);
-    });
-
-    it("dispatches 6-digit code via email and stores keyed HMAC hash", async () => {
-      const response = await requestPasswordResetCode({
-        email: testUserEmail,
-      });
-      expect(response.message).toContain("تم إرسال كود التأكيد");
-
-      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
-      expect(lastEmail).toBeDefined();
-      expect(lastEmail?.type).toBe("recovery");
-      expect(lastEmail?.code).toMatch(/^\d{6}$/);
-
-      // Verify code in DB
-      const codeRecord = await prisma.passwordResetCode.findFirst({
-        where: { userId: testUserId },
-        orderBy: { createdAt: "desc" },
-      });
-      expect(codeRecord).toBeDefined();
-      expect(codeRecord?.usedAt).toBeNull();
-      expect(codeRecord?.attempts).toBe(0);
-      expect(codeRecord?.codeHash).not.toBe(lastEmail!.code);
-    });
-
-    it("rejects wrong verification code and increments attempts", async () => {
-      await expect(
-        resetPasswordWithCode({
-          email: testUserEmail,
-          code: "000000",
-          newPassword: "NewBrandPassword@123",
-        }),
-      ).rejects.toThrow("كود التأكيد غير صحيح");
-
-      const codeRecord = await prisma.passwordResetCode.findFirst({
-        where: { userId: testUserId },
-        orderBy: { createdAt: "desc" },
-      });
-      expect(codeRecord?.attempts).toBe(1);
-    });
-
-    it("successfully resets password with correct code and revokes all sessions", async () => {
-      // First create active session to verify revocation
-      const { rawToken: activeToken } = await createSession(
-        testUserId,
-        testStoreId,
-      );
-      expect(await validateSession(activeToken)).not.toBeNull();
-
-      // Retrieve the generated code from mock email provider
-      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
-      const validCode = lastEmail!.code!;
-
-      const newPassword = "BrandNewPassword#999";
-      const result = await resetPasswordWithCode({
-        email: testUserEmail,
-        code: validCode,
-        newPassword,
-      });
-
-      expect(result.success).toBe(true);
-      expect(result.message).toContain("تم تغيير كلمة السر بنجاح");
-
-      // Verify code is marked as used
-      const codeRecord = await prisma.passwordResetCode.findFirst({
-        where: { userId: testUserId },
-        orderBy: { createdAt: "desc" },
-      });
-      expect(codeRecord?.usedAt).not.toBeNull();
-
-      // Verify previous session was revoked
-      const sessionDb = await prisma.session.findUnique({
-        where: { idHash: hashToken(activeToken) },
-      });
-      expect(sessionDb?.revokedAt).not.toBeNull();
-
-      // Verify user can now log in with the new password
-      const loginResult = await loginWithPassword({
-        identifier: testUserPhone,
-        password: newPassword,
-      });
-      expect(loginResult.userId).toBe(testUserId);
-
-      // Verify old password no longer works
-      await expect(
-        loginWithPassword({
-          identifier: testUserPhone,
-          password: testUserPassword,
-        }),
-      ).rejects.toThrow("البيانات غير صحيحة");
-    });
-
-    it("REPLAY PROTECTION: consumed code cannot be reused", async () => {
-      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
-      const usedCode = lastEmail!.code!;
-
-      await expect(
-        resetPasswordWithCode({
-          email: testUserEmail,
-          code: usedCode,
-          newPassword: "AnotherPassword123",
-        }),
-      ).rejects.toThrow("كود التأكيد غير صحيح أو انتهت صلاحيته");
-    });
-
-    it("rejects password reset when newPassword does not meet security policy (short or common)", async () => {
-      await requestPasswordResetCode({ email: testUserEmail });
-      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
-      const code = lastEmail!.code!;
-
-      // 1. Too short (< 12)
-      await expect(
-        resetPasswordWithCode({
-          email: testUserEmail,
-          code,
-          newPassword: "shortpass12",
-        }),
-      ).rejects.toThrow("كلمة السر يجب أن تكون 12 حرف على الأقل");
-
-      // 2. Common password
-      await expect(
-        resetPasswordWithCode({
-          email: testUserEmail,
-          code,
-          newPassword: "password1234",
-        }),
-      ).rejects.toThrow(
-        "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
-      );
-    });
-
-    it("enforces attempt limit: locks after 5 wrong attempts", async () => {
-      mockEmailProvider.clear();
-      authRateLimiter.clear();
-
-      await requestPasswordResetCode({ email: testUserEmail });
-      const lastEmail = mockEmailProvider.getLastEmailFor(testUserEmail);
-      const correctCode = lastEmail!.code!;
-
-      // Attempt wrong code 5 times
-      for (let i = 0; i < 5; i++) {
-        await expect(
-          resetPasswordWithCode({
-            email: testUserEmail,
-            code: "111111",
-            newPassword: "ValidNewPass@123",
-          }),
-        ).rejects.toThrow();
-      }
-
-      // 6th attempt with CORRECT code should fail because limit reached
-      await expect(
-        resetPasswordWithCode({
-          email: testUserEmail,
-          code: correctCode,
-          newPassword: "ValidNewPass@123",
-        }),
-      ).rejects.toThrow("الحد الأقصى للمحاولات الخاطئة");
-    });
-
-    it("enforces rate limiting on forgot password requests (max 3/hr per email)", async () => {
-      authRateLimiter.clear();
-      const email = `ratelimit-reset-${Math.random()}@hesba.test`;
-
-      await requestPasswordResetCode({ email });
-      await requestPasswordResetCode({ email });
-      await requestPasswordResetCode({ email });
-
-      await expect(requestPasswordResetCode({ email })).rejects.toThrow(
-        "تجاوزت الحد الأقصى لطلب الأكواد",
-      );
-    });
-  });
+  // 5. The e-mail reset-code flow was retired: a forgotten password is reset by Hesba's team
+  // with a temporary password (tests/integration/password-reset-admin.spec.ts).
 
   describe("6. Email Provider Isolation in Automated Tests", () => {
     it("ensures automated tests use mock email provider without real network calls", () => {

@@ -68,7 +68,8 @@ export async function isPlatformAdmin(
 export async function requirePlatformAdmin(
   req: Request,
 ): Promise<SessionContext> {
-  const context = await requireSession(req);
+  // Hesba's own admin screens do not depend on the admin's shop subscription (ADR-0033).
+  const context = await requireSession(req, { allowInactive: true });
   if (!(await isPlatformAdmin(context.user.id))) {
     throw AppError.forbidden("الصفحة دي لإدارة حسبة بس");
   }

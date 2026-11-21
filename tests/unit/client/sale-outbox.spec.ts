@@ -159,6 +159,40 @@ describe("sales outbox", () => {
     });
   });
 
+  it("ADR-0033: a shop whose subscription is over keeps its queued sales untouched (402) and stops syncing", async () => {
+    setActiveOutboxStore(STORE_A);
+    const first = await queue();
+    const second = await queue(STORE_A, "شيبسي");
+    const expired = {
+      status: 402,
+      body: {
+        error: {
+          code: "SUBSCRIPTION_INACTIVE",
+          message: "الفترة خلصت، والحساب محتاج تفعيل.",
+        },
+      },
+    };
+    replies = [expired];
+    const report = await syncSaleOutbox(STORE_A);
+    expect(report.stoppedBy).toBe("subscription");
+    // Only the first was tried; nothing was rejected, deleted or counted as a failure.
+    expect(requests).toHaveLength(1);
+    const ops = await listSaleOps(STORE_A);
+    expect(ops.map((o) => o.op_id).sort()).toEqual([first, second].sort());
+    expect(ops.every((o) => o.status === "pending")).toBe(true);
+    expect(ops.find((o) => o.op_id === first)).toMatchObject({
+      attempts: 0,
+      last_status: 402,
+    });
+    // Activated again: the same op_ids are sent and recorded once each.
+    const report2 = await syncSaleOutbox(STORE_A);
+    expect(report2.applied).toBe(2);
+    expect(requests.slice(1).map((r) => r.opId)).toEqual(
+      expect.arrayContaining([first, second]),
+    );
+    expect(await listSaleOps(STORE_A)).toEqual([]);
+  });
+
   it("quarantines after MAX_SYNC_ATTEMPTS transient failures (kept, not dropped)", async () => {
     const opId = await queue();
     await db.outbox.update(opId, { attempts: MAX_SYNC_ATTEMPTS - 1 });

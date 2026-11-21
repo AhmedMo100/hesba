@@ -3,8 +3,8 @@
  * - QA-14: sessions are independent per device; a revoked token is just refused.
  * - QA-24: login lockout counts failures only, answers 429 + Retry-After, and treats unknown
  *   phones like known ones.
- * - QA-25: forgot-password answers the same for registered and unregistered emails, even when
- *   the email provider fails; codes are single-use, expire, and are rate-limited.
+ * (QA-25, the e-mail reset codes, was retired with that flow: the admin reset with a temporary
+ *  password is covered by password-reset-admin.spec.ts.)
  */
 import {
   afterAll,
@@ -23,17 +23,13 @@ import {
   createSession,
   hashPassword,
   hashToken,
-  requestPasswordResetCode,
-  resetPasswordWithCode,
   revokeOtherUserSessions,
   revokeSession,
   rotateSession,
   validateSession,
   ROTATION_GRACE_MS,
 } from "@/server/modules/auth";
-import { mockEmailProvider } from "@/server/infra/email";
 import { POST as loginRoute } from "@/app/api/auth/login/route";
-import { POST as forgotRoute } from "@/app/api/auth/forgot-password/request/route";
 import { GET as sessionRoute } from "@/app/api/auth/session/route";
 import { GET as expensesRoute } from "@/app/api/expenses/route";
 
@@ -73,17 +69,6 @@ async function login(phone: string, pw: string, ip = "198.51.100.7") {
     }),
   );
   return { status: res.status, headers: res.headers, json: await res.json() };
-}
-
-async function forgot(email: string, ip = "203.0.113.9") {
-  const res = await forgotRoute(
-    new Request("http://localhost:3000/api/auth/forgot-password/request", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "x-forwarded-for": ip },
-      body: JSON.stringify({ email }),
-    }),
-  );
-  return { status: res.status, body: await res.text() };
 }
 
 beforeAll(async () => {
@@ -293,107 +278,5 @@ describe("QA-24 — login lockout counts failures only and answers 429", () => {
     }
     expect((await login(A.phone, password, ip)).status).toBe(429);
     expect((await login(A.phone, password, "192.0.2.56")).status).toBe(200);
-  });
-});
-
-describe("QA-25 — forgot-password reveals nothing about which emails have accounts", () => {
-  it("a registered and an unregistered email get the same status and the same body", async () => {
-    mockEmailProvider.clear();
-    const known = await forgot(A.email, "203.0.113.10");
-    const unknown = await forgot(`nobody-${runId}@hesba.test`, "203.0.113.11");
-    expect(known.status).toBe(200);
-    expect(unknown.status).toBe(known.status);
-    expect(unknown.body).toBe(known.body);
-  });
-
-  it("only the registered email gets a code; nothing is created for an unknown one", async () => {
-    mockEmailProvider.clear();
-    const before = await admin.passwordResetCode.count();
-    await requestPasswordResetCode({ email: `ghost-${runId}@hesba.test` });
-    expect(await admin.passwordResetCode.count()).toBe(before);
-    expect(mockEmailProvider.getSentEmails()).toHaveLength(0);
-
-    await requestPasswordResetCode({ email: A.email });
-    const sent = mockEmailProvider.getLastEmailFor(A.email);
-    expect(sent?.code).toMatch(/^\d{6}$/);
-  });
-
-  it("when the email provider fails, the answer is still the same 200 (it used to be a 503)", async () => {
-    const spy = vi
-      .spyOn(mockEmailProvider, "sendPasswordResetCode")
-      .mockRejectedValue(new Error("provider down"));
-    try {
-      const known = await forgot(A.email, "203.0.113.12");
-      const unknown = await forgot(`none2-${runId}@hesba.test`, "203.0.113.13");
-      expect(known.status).toBe(200);
-      expect(known.body).toBe(unknown.body);
-      // The undeliverable code is invalidated (it never reached the owner).
-      await vi.waitFor(async () => {
-        const latest = await admin.passwordResetCode.findFirst({
-          where: { userId: A.user },
-          orderBy: { createdAt: "desc" },
-        });
-        expect(latest?.usedAt).not.toBeNull();
-      });
-    } finally {
-      spy.mockRestore();
-    }
-  });
-
-  it("a code works once, and a wrong or expired code is refused", async () => {
-    mockEmailProvider.clear();
-    await requestPasswordResetCode({ email: A.email });
-    const code = mockEmailProvider.getLastEmailFor(A.email)!.code!;
-    await expect(
-      resetPasswordWithCode({
-        email: A.email,
-        code: "000000",
-        newPassword: "Another-pass-2026",
-      }),
-    ).rejects.toThrow();
-    const ok = await resetPasswordWithCode({
-      email: A.email,
-      code,
-      newPassword: password,
-    });
-    expect(ok.success).toBe(true);
-    await expect(
-      resetPasswordWithCode({ email: A.email, code, newPassword: password }),
-    ).rejects.toThrow();
-    // The code is bound to its account: it cannot reset another email.
-    await requestPasswordResetCode({ email: A.email });
-    const codeA = mockEmailProvider.getLastEmailFor(A.email)!.code!;
-    await expect(
-      resetPasswordWithCode({
-        email: B.email,
-        code: codeA,
-        newPassword: password,
-      }),
-    ).rejects.toThrow();
-    // Expired: move the code's expiry into the past.
-    await admin.passwordResetCode.updateMany({
-      where: { userId: A.user, usedAt: null },
-      data: { expiresAt: new Date(Date.now() - 1000) },
-    });
-    await expect(
-      resetPasswordWithCode({
-        email: A.email,
-        code: codeA,
-        newPassword: password,
-      }),
-    ).rejects.toThrow();
-  });
-
-  it("requests are rate-limited the same way for registered and unregistered emails", async () => {
-    const statusesFor = async (email: string) => {
-      const out: number[] = [];
-      for (let i = 0; i < 4; i++)
-        out.push((await forgot(email, `198.18.0.${i + 1}`)).status);
-      return out;
-    };
-    const known = await statusesFor(B.email);
-    const unknown = await statusesFor(`nobody3-${runId}@hesba.test`);
-    expect(known).toEqual([200, 200, 200, 429]);
-    expect(unknown).toEqual(known);
   });
 });

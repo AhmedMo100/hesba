@@ -30,7 +30,7 @@ const CANONICAL_PHONE = /^\+201[0125]\d{8}$/;
 export interface SavedStoreProfile {
   ownerName: string;
   phone: string;
-  email: string;
+  email: string | null;
   emailVerified: boolean;
   storeName: string;
   shopType: string;
@@ -59,7 +59,8 @@ export async function updateStoreProfile(
       field: "phone",
     });
   }
-  const email = input.email.trim().toLowerCase();
+  // Optional: an empty field removes the e-mail (NULL), it is never stored as ''.
+  const email = input.email ? input.email.trim().toLowerCase() : null;
   const openedOn = input.openedOn ? new Date(input.openedOn) : null;
   if (openedOn && Number.isNaN(openedOn.getTime())) {
     throw new AppError("VALIDATION_ERROR", "تاريخ الافتتاح غير صحيح", 400, {

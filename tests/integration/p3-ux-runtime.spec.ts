@@ -153,6 +153,7 @@ describe("QA-50 — a failed signup leaves no half-made account", () => {
       storeName,
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     });
     const failed = await call(
       signupRoute as Handler,

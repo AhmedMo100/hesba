@@ -33,6 +33,7 @@ async function signup(api: APIRequestContext, tag: string): Promise<string> {
       storeName: `محل أوفلاين ${tag}`,
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(res.ok()).toBe(true);

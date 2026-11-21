@@ -28,6 +28,7 @@ import type { SessionState, StoreProfile } from "../api";
 import { authApi } from "../api";
 import { clearInflightRequests } from "../api/dedupe";
 import { sessionRefusedByServer, signedOutByServer } from "../api/auth.real";
+import { ACCESS_CHANGED_EVENT } from "../api/read-cache";
 
 interface AuthContextValue {
   session: SessionState | null;
@@ -44,6 +45,8 @@ interface AuthContextValue {
   setSession: (session: SessionState | null) => void;
   updateProfile: (profile: StoreProfile) => Promise<boolean>;
   simulateOfflineExpiry: () => Promise<void>;
+  /** Reads the session again (mode or subscription changed on the server). */
+  refreshSession: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -81,7 +84,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       });
     };
     window.addEventListener("online", onOnline);
-    return () => window.removeEventListener("online", onOnline);
+    // A request answered «subscription over» (402) or «other mode» (403 MODE_FORBIDDEN):
+    // the server's view changed, so read the session again (ADR-0033).
+    window.addEventListener(ACCESS_CHANGED_EVENT, onOnline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener(ACCESS_CHANGED_EVENT, onOnline);
+    };
+  }, []);
+
+  const refreshSession = useCallback(async () => {
+    const s = await authApi.getSession();
+    if (s) setSession(s);
   }, []);
 
   const unlock = useCallback(() => {}, []);
@@ -144,6 +158,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setSession: handleSetSession,
         updateProfile,
         simulateOfflineExpiry,
+        refreshSession,
       }}
     >
       {children}
@@ -165,6 +180,7 @@ export function useAuth(): AuthContextValue {
       lock: () => {},
       logout: async () => {},
       setSession: () => {},
+      refreshSession: async () => {},
       updateProfile: async () => false,
       simulateOfflineExpiry: async () => {},
     };

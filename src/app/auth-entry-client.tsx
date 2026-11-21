@@ -9,7 +9,7 @@ import { authApi } from "@/client/shared/api";
 import { ToastProvider } from "@/client/shared/ui";
 
 export interface AuthEntryClientProps {
-  initialMode?: "login" | "signup" | "forgot-password";
+  initialMode?: "login" | "signup";
 }
 
 export function AuthEntryClient({

@@ -10,6 +10,8 @@
  *                          ├─ no answer / 408 / 429 / 5xx → pending, retried with backoff
  *                          │      (after MAX_ATTEMPTS → quarantined, kept for review)
  *                          ├─ 401 → pending (waits for login, not counted as an attempt)
+ *                          ├─ 402 → pending (the shop's subscription is over: kept untouched
+ *                          │      until Hesba activates it, not counted as an attempt; ADR-0033)
  *                          └─ other 4xx (e.g. 409 not enough stock) → rejected (review)
  *
  * Guarantees:
@@ -73,6 +75,7 @@ export type SendOutcome =
   | { kind: "pending"; message: string; status: number }
   | { kind: "quarantined"; message: string; status: number }
   | { kind: "login"; message: string }
+  | { kind: "subscription"; message: string }
   | { kind: "missing" };
 
 /** Detail of `SALE_SYNCED_EVENT`: a queued sale the server has now recorded. */
@@ -231,6 +234,18 @@ async function attempt(
     const message = err instanceof Error ? err.message : "";
     const wrongSession =
       err instanceof SaleApiError && err.code === "STORE_MISMATCH";
+    // The trial / subscription is over (ADR-0033): keep the sale exactly as it is — never
+    // rejected, never deleted, never counted as a failure — and stop syncing. It is sent with
+    // its same op_id once the shop is active again (the server records it once).
+    if (status === 402) {
+      await db.outbox.update(op.op_id, {
+        status: "pending",
+        last_error: message,
+        last_status: 402,
+      });
+      emit(OUTBOX_CHANGED_EVENT);
+      return { kind: "subscription", message };
+    }
     if (status === 401 || wrongSession) {
       await db.outbox.update(op.op_id, {
         status: "pending",
@@ -300,7 +315,7 @@ export interface SyncReport {
   applied: number;
   rejected: number;
   pending: number;
-  stoppedBy?: "offline" | "login";
+  stoppedBy?: "offline" | "login" | "subscription";
 }
 
 /**
@@ -341,6 +356,9 @@ export async function syncSaleOutbox(
       else if (outcome.kind === "rejected") report.rejected += 1;
       else if (outcome.kind === "login") {
         report.stoppedBy = "login";
+        break;
+      } else if (outcome.kind === "subscription") {
+        report.stoppedBy = "subscription";
         break;
       } else if (outcome.kind === "pending" || outcome.kind === "quarantined") {
         if (outcome.status === 0) {
