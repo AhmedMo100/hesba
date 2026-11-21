@@ -63,7 +63,10 @@ describe("parseCustomerNotes / serializeCustomerNotes", () => {
     const parsed = parseCustomerNotes(original);
     expect(parsed.products).toEqual(["سكر", "أرز"]);
     expect(parsed.generalNote).toBe("ملاحظة عامة");
-    const serialized = serializeCustomerNotes(parsed.products, parsed.generalNote);
+    const serialized = serializeCustomerNotes(
+      parsed.products,
+      parsed.generalNote,
+    );
     expect(serialized).toBe(original);
   });
   it("handles null", () => {
@@ -80,7 +83,8 @@ describe("parseCustomerNotes / serializeCustomerNotes", () => {
 
 describe("parseSupplierNotes / serializeSupplierNotes", () => {
   it("round-trips all fields", () => {
-    const original = "عليك ليهم فلوس: 500 جنيه\nليك عندهم منتجات: 3 كرتونة\nتفاصيل أخرى";
+    const original =
+      "عليك ليهم فلوس: 500 جنيه\nليك عندهم منتجات: 3 كرتونة\nتفاصيل أخرى";
     const parsed = parseSupplierNotes(original);
     expect(parsed.owedMoneyNote).toBe("500 جنيه");
     expect(parsed.productsNote).toBe("3 كرتونة");
