@@ -221,7 +221,7 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
         (
           await api.changePassword({
             currentPassword: "",
-            newPassword: "Cairo-2026-Strong",
+            newPassword: "ValidPassword123",
           })
         ).success,
       ).toBe(false);
@@ -237,7 +237,7 @@ describe("Hesba Authentication Client — Phone, Password & Recovery Code", () =
         (
           await api.changePassword({
             currentPassword: "Temp-pass-2026",
-            newPassword: "Cairo-2026-Strong",
+            newPassword: "ValidPassword123",
           })
         ).success,
       ).toBe(true);

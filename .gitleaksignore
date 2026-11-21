@@ -2,3 +2,6 @@
 6d3f9dd40200fb8d2da1b7ff0f4d484913d1886b:tests/unit/server/env.spec.ts:generic-api-key:9
 6d3f9dd40200fb8d2da1b7ff0f4d484913d1886b:tests/unit/server/env.spec.ts:generic-api-key:10
 367f77cb68405f0fd03cdc2033dca997ec7c0b18:.env.example:generic-api-key:22
+c1f107b860f1222af8b2a209d9bdb6699838de1e:tests/unit/client/auth.spec.ts:generic-api-key:224
+c1f107b860f1222af8b2a209d9bdb6699838de1e:tests/unit/client/auth.spec.ts:generic-api-key:240
+
