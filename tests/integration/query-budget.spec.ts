@@ -102,7 +102,8 @@ const BUDGET: Record<string, number> = {
   sales: 15,
   people: 10,
   expenses: 10,
-  home: 22, // +1: the losses of the period (P4, waste_records)
+  home: 23, // +1: the losses of the period (P4, waste_records); +1: the daily sales totals
+  // of إدارة المحل (ADR-0033) — part of revenue even for a shop that switched to the cashier
 };
 
 beforeAll(async () => {

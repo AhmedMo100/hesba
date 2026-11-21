@@ -93,6 +93,7 @@ test.describe("Security headers and CSP", () => {
         storeName: `محل أمان ${runId}`,
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       },
     });
     expect(signup.ok()).toBe(true);

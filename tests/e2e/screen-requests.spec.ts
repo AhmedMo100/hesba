@@ -31,6 +31,7 @@ test("main screens: requests to load, duplicates, and none while idle", async ({
       storeName: "محل قياس",
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(signup.ok()).toBe(true);

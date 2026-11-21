@@ -214,6 +214,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
         storeName: "سوبر ماركت الإخلاص",
         shopType: "سوبر ماركت",
         governorate: "الجيزة",
+        operatingMode: "pos",
         openedOn: "2024-01-01",
         workersCount: 2,
         withDemoData: true,
@@ -253,6 +254,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
           openedOn: "2024-01-01",
           workersCount: 1,
         }),
@@ -267,6 +269,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل مكرر",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
           openedOn: "2024-01-01",
           workersCount: 1,
         }),
@@ -284,6 +287,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("البريد الإلكتروني مطلوب");
 
@@ -297,6 +301,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("البريد الإلكتروني مطلوب");
 
@@ -310,6 +315,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("بريد إلكتروني غير صحيح");
     });
@@ -325,6 +331,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر يجب أن تكون 12 حرف على الأقل");
 
@@ -338,6 +345,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر لا يجب أن تتجاوز 128 حرف");
 
@@ -351,6 +359,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "بقالة",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow(
         "كلمة السر شائعة وسهلة التخمين، اختار كلمة سر أقوى أو جملة سرية",
@@ -367,6 +376,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
         storeName: "محل الأهلي",
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       });
 
       expect(result.userId).toBeDefined();
@@ -393,6 +403,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "سوبر ماركت",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر يجب أن تحتوي على حرف واحد على الأقل");
     });
@@ -407,6 +418,7 @@ describe("Hesba Authentication & Sessions Integration — Phone + Password & Res
           storeName: "محل",
           shopType: "سوبر ماركت",
           governorate: "القاهرة",
+          operatingMode: "pos",
         }),
       ).rejects.toThrow("كلمة السر يجب أن تحتوي على رقم واحد على الأقل");
     });

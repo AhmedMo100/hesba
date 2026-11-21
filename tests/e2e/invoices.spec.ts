@@ -28,6 +28,7 @@ async function signup(api: APIRequestContext) {
       storeName: "محل فواتير",
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(res.ok()).toBe(true);

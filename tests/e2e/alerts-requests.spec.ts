@@ -24,6 +24,7 @@ test("Alerts screen: loads once, then makes no repeated requests while idle", as
       storeName: "محل تنبيهات",
       shopType: "سوبر ماركت",
       governorate: "القاهرة",
+      operatingMode: "pos",
     },
   });
   expect(signup.ok()).toBe(true);

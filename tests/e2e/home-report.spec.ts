@@ -62,6 +62,7 @@ test.describe("Home report", () => {
         storeName: `محل تقرير ${runId}`,
         shopType: "سوبر ماركت",
         governorate: "القاهرة",
+        operatingMode: "pos",
       },
     });
     expect(signup.ok()).toBe(true);
