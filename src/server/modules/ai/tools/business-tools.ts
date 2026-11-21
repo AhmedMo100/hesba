@@ -15,7 +15,10 @@ import "server-only";
  */
 import { PrismaClient, Prisma } from "@prisma/client";
 import { withTenant } from "@/server/infra/db/tenant";
-import { salesFinancialsInTx } from "@/server/modules/reports";
+import {
+  salesFinancialsInTx,
+  dailyTotalsInRange,
+} from "@/server/modules/reports";
 import {
   addDaysToDateKey,
   cairoDayStartUtc,
@@ -340,13 +343,30 @@ export class BusinessToolsService {
 
     const avgPiasters = count > 0 ? Number(totalPiasters / BigInt(count)) : 0;
 
+    // إدارة المحل records the day's sales as one total (cash + wallets, all paid on the spot), not
+    // as invoices: they are sales too, counted exactly as the reports count them (ADR-0033).
+    const daily = await dailyTotalsInRange(
+      tx,
+      storeId,
+      start,
+      new Date(end.getTime() + 1),
+    );
+
     return {
       period,
       sales_count: count,
-      sales_total_piasters: Number(totalPiasters),
-      paid_now_sales_piasters: Number(cashPiasters),
+      sales_total_piasters: Number(totalPiasters) + daily.totalPiasters,
+      paid_now_sales_piasters: Number(cashPiasters) + daily.totalPiasters,
       credit_sales_piasters: Number(creditPiasters),
       average_invoice_piasters: avgPiasters,
+      invoice_sales_total_piasters: Number(totalPiasters),
+      daily_totals_count: daily.count,
+      daily_totals_piasters: daily.totalPiasters,
+      ...(daily.count > 0
+        ? {
+            note: "جزء من المبيعات متسجل كإجمالي يومي (من غير فواتير)، فمتوسط الفاتورة محسوب على الفواتير بس.",
+          }
+        : {}),
     };
   }
 
@@ -702,9 +722,12 @@ export class BusinessToolsService {
       expenses_total_piasters: Number(expensesTotalPiasters),
       net_profit_piasters: netProfit,
       sales_without_recorded_cost: financials.unknownCostCount,
+      daily_totals_piasters: financials.dailyTotalsPiasters,
       note:
         grossProfit === null
-          ? `تكلفة ${financials.unknownCostCount} بيعة مش متسجلة، فمجمل الربح وصافي الربح غير معروفين (مش هنقدّرهم).`
+          ? financials.dailyTotalsCount > 0 && financials.unknownCostCount === 0
+            ? "جزء من المبيعات متسجل كإجمالي يومي من غير تكلفة لكل صنف، فمجمل الربح وصافي الربح غير معروفين (مش هنقدّرهم)."
+            : `تكلفة ${financials.unknownCostCount} بيعة مش متسجلة، فمجمل الربح وصافي الربح غير معروفين (مش هنقدّرهم).`
           : "صافي الربح = مجمل الربح (المبيعات - تكلفة البضاعة) ناقص المصروفات التشغيلية.",
     };
   }

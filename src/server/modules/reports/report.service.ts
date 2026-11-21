@@ -241,9 +241,9 @@ export async function salesFinancialsInTx(
 
 /**
  * The daily sales totals (إدارة المحل) whose Cairo business day falls in [from, to); cancelled
- * ones count nowhere.
+ * ones count nowhere. Shared with the AI business tools (same numbers as the reports).
  */
-async function dailyTotalsInRange(
+export async function dailyTotalsInRange(
   tx: TenantTx,
   storeId: string,
   from: Date | null,

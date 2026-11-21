@@ -34,6 +34,7 @@ import { POST as aiChatRoute } from "@/app/api/ai/chat/route";
 import { GET as catalogSyncRoute } from "@/app/api/sync/catalog/route";
 import * as dailySales from "@/app/api/daily-sales/route";
 import { DELETE as dailyCancelRoute } from "@/app/api/daily-sales/[id]/route";
+import { BusinessToolsService } from "@/server/modules/ai/tools/business-tools";
 import { SaleFixtures, type Json, type Shop } from "./helpers/sale-fixtures";
 
 const f = new SaleFixtures();
@@ -838,5 +839,52 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     expect(foreign.status).toBe(404);
     expect(await balance()).toBe(0);
     await setMode(B.storeId, "pos");
+  });
+
+  it("the AI assistant counts إدارة المحل's daily totals as sales (same numbers as the reports)", async () => {
+    await setMode(A.storeId, "simple");
+    const tools = new BusinessToolsService(appPrisma);
+    const ctx = { storeId: A.storeId, userId: A.userId, prisma: appPrisma };
+    type Summary = {
+      sales_total_piasters: number;
+      paid_now_sales_piasters: number;
+      daily_totals_piasters: number;
+    };
+    const before = (await tools.executeTool(
+      "getSalesSummary",
+      { period: "today" },
+      ctx,
+    )) as Summary;
+    const r = await call(
+      dailySales.POST as Handler,
+      A,
+      "POST",
+      "/api/daily-sales",
+      { opId: crypto.randomUUID(), cashPiasters: 123400 },
+    );
+    expect(r.status).toBe(201);
+    const after = (await tools.executeTool(
+      "getSalesSummary",
+      { period: "today" },
+      ctx,
+    )) as Summary;
+    expect(after.daily_totals_piasters - before.daily_totals_piasters).toBe(
+      123400,
+    );
+    expect(after.sales_total_piasters - before.sales_total_piasters).toBe(
+      123400,
+    );
+    expect(after.paid_now_sales_piasters - before.paid_now_sales_piasters).toBe(
+      123400,
+    );
+    const overview = (await tools.executeTool(
+      "getFinancialOverview",
+      { period: "today" },
+      ctx,
+    )) as { gross_profit_piasters: number | null; note: string };
+    // A daily total has no cost per item: profit is unknown, never guessed — and the note says why.
+    expect(overview.gross_profit_piasters).toBeNull();
+    expect(overview.note).toContain("إجمالي يومي");
+    await setMode(A.storeId, "pos");
   });
 });
