@@ -31,6 +31,8 @@ export interface DrawerFlow {
   key:
     | "cashSales"
     | "collections"
+    | "dailySales"
+    | "dailySalesCancels"
     | "expenseCancels"
     | "refunds"
     | "voids"
