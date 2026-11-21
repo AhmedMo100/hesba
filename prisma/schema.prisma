@@ -253,15 +253,21 @@ model DailySalesEntryPart {
 }
 
 model User {
-  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  name            String    @db.Text
-  phone           String    @unique @db.Text
-  email           String    @unique @db.Text
-  emailVerifiedAt DateTime? @map("email_verified_at") @db.Timestamptz(6)
-  phoneVerifiedAt DateTime? @map("phone_verified_at") @db.Timestamptz(6)
-  passwordHash    String?   @map("password_hash") @db.Text
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name                  String    @db.Text
+  phone                 String    @unique @db.Text
+  /// Optional (the sign-up screen does not require it); NULL = no e-mail, never ''.
+  email                 String?   @unique @db.Text
+  emailVerifiedAt       DateTime? @map("email_verified_at") @db.Timestamptz(6)
+  phoneVerifiedAt       DateTime? @map("phone_verified_at") @db.Timestamptz(6)
+  passwordHash          String?   @map("password_hash") @db.Text
+  /// Set only by the admin reset tool (scripts/admin-reset-password.ts): the account must choose
+  /// a new password before anything else works (requireSession → 403 PASSWORD_CHANGE_REQUIRED).
+  mustChangePassword    Boolean   @default(false) @map("must_change_password")
+  /// When the temporary password stops signing in (set with mustChangePassword, cleared with it).
+  tempPasswordExpiresAt DateTime? @map("temp_password_expires_at") @db.Timestamptz(6)
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   createdStores           Store[]                  @relation("StoreCreator")
   dailySalesEntries       DailySalesEntry[]        @relation("DailySalesCreator")
