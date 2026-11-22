@@ -6,13 +6,15 @@ import { SearchBox, Icon, Empty, Seg } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import { stockValuePiasters } from "@/domain/stock/stock-value";
 import { ExportSheet } from "./ExportSheet";
-import { PhysicalStocktakeSheet } from "@/client/features/stock/PhysicalStocktakeSheet";
+import { StocktakePage } from "@/client/features/stock/StocktakePage";
 import {
   fetchStoreMachines,
   type PosMachine,
 } from "@/client/shared/api/machines";
 import { normalizeArabic } from "@/domain/normalize";
 import type { StockInventoryItem } from "@/client/shared/store-items";
+import type { StocktakeScope } from "@/schemas/stocktake";
+import { Modal, Button } from "@/client/shared/ui";
 import { formatQtyText } from "./HomeView";
 import styles from "./HomeView.module.css";
 
@@ -27,6 +29,30 @@ export function InventoryView() {
     iOwe: number | null;
   }>({ owedToMe: null, iOwe: null });
 
+  // Active stocktaking session tracking
+  const [activeSession, setActiveSession] = useState<{
+    id: string;
+    totalProducts: number;
+    countedProducts: number;
+    scope: string;
+  } | null>(null);
+  const [showScopeModal, setShowScopeModal] = useState(false);
+  const [selectedScope, setSelectedScope] = useState<StocktakeScope>("full");
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [selectedVariantIds, setSelectedVariantIds] = useState<string[]>([]);
+  const [startingSession, setStartingSession] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
+
+  const fetchStocktakeStatus = useCallback(async () => {
+    try {
+      const res = await fetch("/api/stock/stocktake");
+      if (res.ok) {
+        const data = await res.json();
+        setActiveSession(data.activeSession || null);
+      }
+    } catch {}
+  }, []);
+
   const fetchData = useCallback(async () => {
     try {
       const stockRes = await apiGet("/api/stock").catch(() => null);
@@ -36,8 +62,9 @@ export function InventoryView() {
           setInventory(sData.inventory);
         }
       }
+      await fetchStocktakeStatus();
     } catch {}
-  }, []);
+  }, [fetchStocktakeStatus]);
 
   useEffect(() => {
     let ignore = false;
@@ -135,23 +162,169 @@ export function InventoryView() {
     (people.iOwe ?? 0);
   const show = (v: number | null) => (v === null ? "—" : formatMoney(v));
 
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    inventory.forEach((i) => {
+      if (i.category) set.add(i.category);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "ar"));
+  }, [inventory]);
+
+  const handleStartStocktake = async () => {
+    setStartError(null);
+    try {
+      setStartingSession(true);
+      const res = await fetch("/api/stock/stocktake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          scope: selectedScope,
+          category: selectedScope === "category" ? selectedCategory : undefined,
+          selectedVariantIds:
+            selectedScope === "selected" ? selectedVariantIds : undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(
+          err?.error?.message || err.message || "فشل بدء جلسة الجرد",
+        );
+      }
+
+      setShowScopeModal(false);
+      await fetchData();
+      setTab("stocktake");
+    } catch (err: unknown) {
+      setStartError(err instanceof Error ? err.message : "تعذر بدء الجرد");
+    } finally {
+      setStartingSession(false);
+    }
+  };
+
   return (
     <div className={styles.page} data-testid="page-inventory" dir="rtl">
-      <div style={{ marginBottom: "14px" }}>
-        <Seg
-          value={tab}
-          onChange={setTab}
-          options={[
-            ["overview", "ملخص المخزون", "boxes"],
-            ["stocktake", "الجرد الفعلي", "history"],
-          ]}
-        />
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: "10px",
+          marginBottom: "14px",
+          flexWrap: "wrap",
+        }}
+      >
+        <div style={{ flex: "1 1 200px" }}>
+          <Seg
+            value={tab}
+            onChange={setTab}
+            options={[
+              ["overview", "الجرد", "boxes"],
+              ["stocktake", "الجرد الفعلي", "history"],
+            ]}
+          />
+        </div>
+        <button
+          type="button"
+          className={styles.miniDark}
+          style={{
+            padding: "10px 16px",
+            borderRadius: "14px",
+            fontWeight: 700,
+            fontSize: "14px",
+            display: "flex",
+            alignItems: "center",
+            gap: "8px",
+            background: activeSession
+              ? "var(--green, #2ec4b6)"
+              : "var(--card, #171b16)",
+            color: activeSession ? "#0f1715" : "var(--ink, #ffffff)",
+            border: "1px solid var(--edge, rgba(255,255,255,0.12))",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+          }}
+          onClick={() => {
+            if (activeSession) {
+              setTab("stocktake");
+            } else {
+              setShowScopeModal(true);
+            }
+          }}
+          data-testid="start-stocktake-btn"
+        >
+          <Icon n={activeSession ? "history" : "plus"} s={16} />
+          <span>{activeSession ? "كمّل الجرد السابق" : "ابدأ جرد جديد"}</span>
+          {activeSession && (
+            <span
+              style={{
+                fontSize: "11px",
+                background: "rgba(0,0,0,0.2)",
+                padding: "2px 6px",
+                borderRadius: "8px",
+                marginInlineStart: "4px",
+              }}
+            >
+              {activeSession.countedProducts}/{activeSession.totalProducts}
+            </span>
+          )}
+        </button>
       </div>
 
+      {activeSession && tab === "overview" && (
+        <div
+          style={{
+            background: "rgba(46, 196, 182, 0.12)",
+            border: "1px solid var(--green, #2ec4b6)",
+            borderRadius: "14px",
+            padding: "12px 14px",
+            marginBottom: "14px",
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: "10px",
+            cursor: "pointer",
+          }}
+          onClick={() => setTab("stocktake")}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+            <Icon n="history" s={20} />
+            <div>
+              <b
+                style={{
+                  fontSize: "14px",
+                  display: "block",
+                  color: "var(--green, #2ec4b6)",
+                }}
+              >
+                جلسة جرد فعلي شغالة حالياً
+              </b>
+              <small
+                style={{ fontSize: "12px", color: "var(--muted, #8e948c)" }}
+              >
+                تم عدّ {activeSession.countedProducts} من إجمالي{" "}
+                {activeSession.totalProducts} صنف
+              </small>
+            </div>
+          </div>
+          <span
+            style={{
+              fontSize: "13px",
+              fontWeight: 700,
+              color: "var(--green, #2ec4b6)",
+              whiteSpace: "nowrap",
+            }}
+          >
+            كمّل الجرد ←
+          </span>
+        </div>
+      )}
+
       {tab === "stocktake" ? (
-        <PhysicalStocktakeSheet
+        <StocktakePage
           inventory={inventory}
+          onBack={() => setTab("overview")}
           onStockUpdated={fetchData}
+          initialSessionId={activeSession?.id}
         />
       ) : (
         <>
@@ -330,6 +503,247 @@ export function InventoryView() {
           fallbackName="جرد حسبة"
           onClose={() => setExporting(false)}
         />
+      )}
+
+      {showScopeModal && (
+        <Modal title="ابدأ جرد جديد" onClose={() => setShowScopeModal(false)}>
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "14px",
+              padding: "6px 0",
+            }}
+            dir="rtl"
+          >
+            <p
+              style={{
+                fontSize: "13px",
+                color: "var(--muted, #8e948c)",
+                margin: 0,
+              }}
+            >
+              اختر نطاق الجرد للبدء في عدّ الأصناف:
+            </p>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr",
+                gap: "8px",
+              }}
+            >
+              <button
+                type="button"
+                style={{
+                  background:
+                    selectedScope === "full"
+                      ? "rgba(46, 196, 182, 0.15)"
+                      : "var(--surface, #1e221d)",
+                  border: `1px solid ${
+                    selectedScope === "full"
+                      ? "var(--green, #2ec4b6)"
+                      : "var(--edge, rgba(255,255,255,0.12))"
+                  }`,
+                  color: "var(--ink, #ffffff)",
+                  borderRadius: "12px",
+                  padding: "12px 14px",
+                  textAlign: "right",
+                  cursor: "pointer",
+                }}
+                onClick={() => setSelectedScope("full")}
+              >
+                <b style={{ fontSize: "14px", display: "block" }}>
+                  1. جرد المحل بالكامل
+                </b>
+                <small
+                  style={{ fontSize: "12px", color: "var(--muted, #8e948c)" }}
+                >
+                  عدّ كافة الأصناف والأقسام المتاحة في المحل ({inventory.length}{" "}
+                  صنف)
+                </small>
+              </button>
+
+              <button
+                type="button"
+                style={{
+                  background:
+                    selectedScope === "category"
+                      ? "rgba(46, 196, 182, 0.15)"
+                      : "var(--surface, #1e221d)",
+                  border: `1px solid ${
+                    selectedScope === "category"
+                      ? "var(--green, #2ec4b6)"
+                      : "var(--edge, rgba(255,255,255,0.12))"
+                  }`,
+                  color: "var(--ink, #ffffff)",
+                  borderRadius: "12px",
+                  padding: "12px 14px",
+                  textAlign: "right",
+                  cursor: "pointer",
+                }}
+                onClick={() => setSelectedScope("category")}
+              >
+                <b style={{ fontSize: "14px", display: "block" }}>
+                  2. جرد قسم معين
+                </b>
+                <small
+                  style={{ fontSize: "12px", color: "var(--muted, #8e948c)" }}
+                >
+                  اختيار قسم محدد مثل الألبان أو المشروبات لجرده فقط
+                </small>
+              </button>
+
+              {selectedScope === "category" && (
+                <div style={{ marginTop: "4px" }}>
+                  <select
+                    style={{
+                      width: "100%",
+                      background: "var(--surface, #1e221d)",
+                      border: "1px solid var(--edge, rgba(255,255,255,0.12))",
+                      borderRadius: "10px",
+                      padding: "10px 12px",
+                      color: "var(--ink, #ffffff)",
+                      fontSize: "14px",
+                    }}
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                  >
+                    <option value="">-- اختر القسم --</option>
+                    {categories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <button
+                type="button"
+                style={{
+                  background:
+                    selectedScope === "selected"
+                      ? "rgba(46, 196, 182, 0.15)"
+                      : "var(--surface, #1e221d)",
+                  border: `1px solid ${
+                    selectedScope === "selected"
+                      ? "var(--green, #2ec4b6)"
+                      : "var(--edge, rgba(255,255,255,0.12))"
+                  }`,
+                  color: "var(--ink, #ffffff)",
+                  borderRadius: "12px",
+                  padding: "12px 14px",
+                  textAlign: "right",
+                  cursor: "pointer",
+                }}
+                onClick={() => setSelectedScope("selected")}
+              >
+                <b style={{ fontSize: "14px", display: "block" }}>
+                  3. جرد منتجات محددة
+                </b>
+                <small
+                  style={{ fontSize: "12px", color: "var(--muted, #8e948c)" }}
+                >
+                  تحديد أصناف بالاسم لعمل جرد فوري لها
+                </small>
+              </button>
+
+              {selectedScope === "selected" && (
+                <div
+                  style={{
+                    maxHeight: "150px",
+                    overflowY: "auto",
+                    border: "1px solid var(--edge, rgba(255,255,255,0.12))",
+                    borderRadius: "10px",
+                    padding: "8px",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "4px",
+                  }}
+                >
+                  {inventory.map((i) => {
+                    const checked = selectedVariantIds.includes(i.variantId);
+                    return (
+                      <label
+                        key={i.variantId}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: "8px",
+                          fontSize: "13px",
+                          padding: "4px 8px",
+                          borderRadius: "6px",
+                          background: checked
+                            ? "rgba(46,196,182,0.1)"
+                            : "transparent",
+                          cursor: "pointer",
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setSelectedVariantIds((prev) => [
+                                ...prev,
+                                i.variantId,
+                              ]);
+                            } else {
+                              setSelectedVariantIds((prev) =>
+                                prev.filter((id) => id !== i.variantId),
+                              );
+                            }
+                          }}
+                        />
+                        <span>{i.productName}</span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {startError && (
+              <div
+                style={{
+                  color: "var(--red, #e63946)",
+                  fontSize: "13px",
+                  background: "rgba(230, 57, 70, 0.1)",
+                  padding: "8px 12px",
+                  borderRadius: "8px",
+                }}
+              >
+                {startError}
+              </div>
+            )}
+
+            <div style={{ display: "flex", gap: "10px", marginTop: "8px" }}>
+              <Button
+                kind="ghost"
+                size="md"
+                onClick={() => setShowScopeModal(false)}
+                disabled={startingSession}
+              >
+                إلغاء
+              </Button>
+              <Button
+                kind="primary"
+                size="md"
+                style={{ width: "100%" }}
+                onClick={handleStartStocktake}
+                disabled={
+                  startingSession ||
+                  (selectedScope === "category" && !selectedCategory) ||
+                  (selectedScope === "selected" &&
+                    selectedVariantIds.length === 0)
+                }
+              >
+                {startingSession ? "جاري البدء…" : "بدء الجرد الآن"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );

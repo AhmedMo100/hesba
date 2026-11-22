@@ -824,6 +824,42 @@ export class StocktakeService {
     );
   }
 
+  /**
+   * Returns overview containing active session (if any) and historical sessions
+   * within a single withTenant transaction to prevent connection pool exhaustion.
+   */
+  async getOverview(
+    storeId: string,
+    userId: string | null,
+    limit = 50,
+  ): Promise<{
+    activeSession: StocktakeSessionSummary | null;
+    sessions: StocktakeSessionSummary[];
+  }> {
+    return await withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const [active, history] = await Promise.all([
+          tx.stocktakeSession.findFirst({
+            where: { storeId, status: "in_progress" },
+          }),
+          tx.stocktakeSession.findMany({
+            where: { storeId },
+            orderBy: { createdAt: "desc" },
+            take: limit,
+          }),
+        ]);
+
+        return {
+          activeSession: active ? this.toSummary(active) : null,
+          sessions: history.map((s) => this.toSummary(s)),
+        };
+      },
+      this.db,
+    );
+  }
+
   private toSummary(
     session: Prisma.StocktakeSessionGetPayload<Record<string, never>>,
   ): StocktakeSessionSummary {

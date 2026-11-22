@@ -17,15 +17,12 @@ export async function GET(req: Request) {
     const context = await requireSession(req);
     const service = new StocktakeService(prisma);
 
-    const [activeSession, sessions] = await Promise.all([
-      service.getActiveSession(context.store.id, context.user.id),
-      service.listSessions(context.store.id, context.user.id),
-    ]);
+    const overview = await service.getOverview(
+      context.store.id,
+      context.user.id,
+    );
 
-    return NextResponse.json({
-      activeSession,
-      sessions,
-    });
+    return NextResponse.json(overview);
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }
