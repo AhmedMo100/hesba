@@ -1,11 +1,12 @@
 "use client";
 
 import { apiGet } from "@/client/shared/api/read-cache";
-import React, { useState, useEffect, useMemo } from "react";
-import { SearchBox, Icon, Empty } from "@/client/shared/ui";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { SearchBox, Icon, Empty, Seg } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import { stockValuePiasters } from "@/domain/stock/stock-value";
 import { ExportSheet } from "./ExportSheet";
+import { PhysicalStocktakeSheet } from "@/client/features/stock/PhysicalStocktakeSheet";
 import {
   fetchStoreMachines,
   type PosMachine,
@@ -16,6 +17,7 @@ import { formatQtyText } from "./HomeView";
 import styles from "./HomeView.module.css";
 
 export function InventoryView() {
+  const [tab, setTab] = useState<"overview" | "stocktake">("overview");
   const [inventory, setInventory] = useState<StockInventoryItem[]>([]);
   const [query, setQuery] = useState("");
   const [exporting, setExporting] = useState(false);
@@ -24,6 +26,18 @@ export function InventoryView() {
     owedToMe: number | null;
     iOwe: number | null;
   }>({ owedToMe: null, iOwe: null });
+
+  const fetchData = useCallback(async () => {
+    try {
+      const stockRes = await apiGet("/api/stock").catch(() => null);
+      if (stockRes && stockRes.ok) {
+        const sData = await stockRes.json();
+        if (sData?.inventory && Array.isArray(sData.inventory)) {
+          setInventory(sData.inventory);
+        }
+      }
+    } catch {}
+  }, []);
 
   useEffect(() => {
     let ignore = false;
@@ -54,28 +68,16 @@ export function InventoryView() {
   }, []);
 
   useEffect(() => {
-    let ignore = false;
-    const fetchData = async () => {
-      try {
-        const stockRes = await apiGet("/api/stock").catch(() => null);
-        if (stockRes && stockRes.ok && !ignore) {
-          const sData = await stockRes.json();
-          if (sData?.inventory && Array.isArray(sData.inventory)) {
-            setInventory(sData.inventory);
-          }
-        }
-      } catch {}
-    };
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch of inventory
     void fetchData();
     const handleUpdates = () => void fetchData();
     window.addEventListener("hesba_stock_updated", handleUpdates);
     window.addEventListener("hesba_sales_config_updated", handleUpdates);
     return () => {
-      ignore = true;
       window.removeEventListener("hesba_stock_updated", handleUpdates);
       window.removeEventListener("hesba_sales_config_updated", handleUpdates);
     };
-  }, []);
+  }, [fetchData]);
 
   const inventoryRows = useMemo(() => {
     // Exact, as a sale prices it (the export uses the same rule).
@@ -135,170 +137,192 @@ export function InventoryView() {
 
   return (
     <div className={styles.page} data-testid="page-inventory" dir="rtl">
-      <div className={styles.note}>
-        الجرد بيتحسب لوحده. ده إجمالي اللي عندك دلوقتي.
+      <div style={{ marginBottom: "14px" }}>
+        <Seg
+          value={tab}
+          onChange={setTab}
+          options={[
+            ["overview", "ملخص المخزون", "boxes"],
+            ["stocktake", "الجرد الفعلي", "history"],
+          ]}
+        />
       </div>
 
-      <h3 className={styles.sech}>🧃 البضاعة</h3>
-      <div className={styles.sumbox}>
-        <div className={styles.line}>
-          <span>عدد المنتجات</span>
-          <b>{inventory.length}</b>
-        </div>
-        <div className={styles.line}>
-          <span>خلصانين</span>
-          <b>{outCount}</b>
-        </div>
-        <div className={styles.line}>
-          <span>قربوا يخلصوا</span>
-          <b>{lowCount}</b>
-        </div>
-        <div className={styles.line}>
-          <span>قيمتها بسعر الشراء</span>
-          <b>{formatMoney(totalCostPiasters)}</b>
-        </div>
-        <div className={styles.line}>
-          <span>قيمتها بسعر البيع</span>
-          <b>{formatMoney(totalSellPiasters)}</b>
-        </div>
-      </div>
-
-      <h3 className={styles.sech}>💳 الماكينات والمحافظ</h3>
-      <div className={styles.sumbox}>
-        {(machines ?? []).map((m) => (
-          <div key={m.id} className={styles.line}>
-            <span>{m.name}</span>
-            <b>{formatMoney(m.currentBalancePiasters || 0)}</b>
+      {tab === "stocktake" ? (
+        <PhysicalStocktakeSheet
+          inventory={inventory}
+          onStockUpdated={fetchData}
+        />
+      ) : (
+        <>
+          <div className={styles.note}>
+            الجرد بيتحسب لوحده. ده إجمالي اللي عندك دلوقتي.
           </div>
-        ))}
-        <div className={styles.line}>
-          <b>الإجمالي</b>
-          <b>{machines === null ? "—" : formatMoney(machinesTotal)}</b>
-        </div>
-      </div>
 
-      <h3 className={styles.sech}>👥 الناس</h3>
-      <div className={styles.sumbox}>
-        <div className={styles.line}>
-          <span>ليك عند الناس</span>
-          <b>{show(people.owedToMe)}</b>
-        </div>
-        <div className={styles.line}>
-          <span>عليك للناس</span>
-          <b>{show(people.iOwe)}</b>
-        </div>
-      </div>
+          <h3 className={styles.sech}>🧃 البضاعة</h3>
+          <div className={styles.sumbox}>
+            <div className={styles.line}>
+              <span>عدد المنتجات</span>
+              <b>{inventory.length}</b>
+            </div>
+            <div className={styles.line}>
+              <span>خلصانين</span>
+              <b>{outCount}</b>
+            </div>
+            <div className={styles.line}>
+              <span>قربوا يخلصوا</span>
+              <b>{lowCount}</b>
+            </div>
+            <div className={styles.line}>
+              <span>قيمتها بسعر الشراء</span>
+              <b>{formatMoney(totalCostPiasters)}</b>
+            </div>
+            <div className={styles.line}>
+              <span>قيمتها بسعر البيع</span>
+              <b>{formatMoney(totalSellPiasters)}</b>
+            </div>
+          </div>
 
-      <h3 className={styles.sech}>🧮 لو صفّيت دلوقتي</h3>
-      <div className={styles.sumbox}>
-        <div className={styles.line}>
-          <span>البضاعة بسعر البيع</span>
-          <b>{formatMoney(totalSellPiasters)}</b>
-        </div>
-        <div className={styles.line}>
-          <span>الماكينات والمحافظ</span>
-          <b>{machines === null ? "—" : formatMoney(machinesTotal)}</b>
-        </div>
-        <div className={styles.line}>
-          <span>ليك عند الناس</span>
-          <b>{show(people.owedToMe)}</b>
-        </div>
-        <div className={styles.line}>
-          <span>عليك للناس</span>
-          <b>{people.iOwe === null ? "—" : `−${formatMoney(people.iOwe)}`}</b>
-        </div>
-        <div className={styles.line}>
-          <b>هيبقى معاك (من غير فلوس الدرج)</b>
-          <b className={styles.goodText}>{formatMoney(liquidation)}</b>
-        </div>
-      </div>
+          <h3 className={styles.sech}>💳 الماكينات والمحافظ</h3>
+          <div className={styles.sumbox}>
+            {(machines ?? []).map((m) => (
+              <div key={m.id} className={styles.line}>
+                <span>{m.name}</span>
+                <b>{formatMoney(m.currentBalancePiasters || 0)}</b>
+              </div>
+            ))}
+            <div className={styles.line}>
+              <b>الإجمالي</b>
+              <b>{machines === null ? "—" : formatMoney(machinesTotal)}</b>
+            </div>
+          </div>
 
-      {/* الأصناف: every item at once (no filter tabs) — its stock first and large, its value
+          <h3 className={styles.sech}>👥 الناس</h3>
+          <div className={styles.sumbox}>
+            <div className={styles.line}>
+              <span>ليك عند الناس</span>
+              <b>{show(people.owedToMe)}</b>
+            </div>
+            <div className={styles.line}>
+              <span>عليك للناس</span>
+              <b>{show(people.iOwe)}</b>
+            </div>
+          </div>
+
+          <h3 className={styles.sech}>🧮 لو صفّيت دلوقتي</h3>
+          <div className={styles.sumbox}>
+            <div className={styles.line}>
+              <span>البضاعة بسعر البيع</span>
+              <b>{formatMoney(totalSellPiasters)}</b>
+            </div>
+            <div className={styles.line}>
+              <span>الماكينات والمحافظ</span>
+              <b>{machines === null ? "—" : formatMoney(machinesTotal)}</b>
+            </div>
+            <div className={styles.line}>
+              <span>ليك عند الناس</span>
+              <b>{show(people.owedToMe)}</b>
+            </div>
+            <div className={styles.line}>
+              <span>عليك للناس</span>
+              <b>
+                {people.iOwe === null ? "—" : `−${formatMoney(people.iOwe)}`}
+              </b>
+            </div>
+            <div className={styles.line}>
+              <b>هيبقى معاك (من غير فلوس الدرج)</b>
+              <b className={styles.goodText}>{formatMoney(liquidation)}</b>
+            </div>
+          </div>
+
+          {/* الأصناف: every item at once (no filter tabs) — its stock first and large, its value
           at buy and sell prices under the name, then the totals. */}
-      <section className={styles.itemsCard} data-testid="inventory-items">
-        <div className={styles.itemsHead}>
-          <h3>📋 الأصناف</h3>
-          <span className={styles.itemsCount}>{inventory.length} صنف</span>
-        </div>
-        {(outCount > 0 || lowCount > 0) && (
-          <p className={styles.itemsHint}>
-            {outCount > 0 && (
-              <span className={styles.tagOut}>{outCount} خلصان</span>
+          <section className={styles.itemsCard} data-testid="inventory-items">
+            <div className={styles.itemsHead}>
+              <h3>📋 الأصناف</h3>
+              <span className={styles.itemsCount}>{inventory.length} صنف</span>
+            </div>
+            {(outCount > 0 || lowCount > 0) && (
+              <p className={styles.itemsHint}>
+                {outCount > 0 && (
+                  <span className={styles.tagOut}>{outCount} خلصان</span>
+                )}
+                {lowCount > 0 && (
+                  <span className={styles.tagLow}>{lowCount} قرب يخلص</span>
+                )}
+              </p>
             )}
-            {lowCount > 0 && (
-              <span className={styles.tagLow}>{lowCount} قرب يخلص</span>
+
+            <div className={styles.invBar}>
+              <div className={styles.invSearch}>
+                <SearchBox
+                  value={query}
+                  onChange={setQuery}
+                  placeholder="دوّر في الجرد"
+                />
+              </div>
+              <button
+                type="button"
+                className={styles.exportBtn}
+                onClick={() => setExporting(true)}
+                title="تصدير الجرد ومشاركته"
+                data-testid="inventory-export"
+              >
+                <Icon n="download" s={15} />
+                <span>تصدير ومشاركة</span>
+              </button>
+            </div>
+
+            {filteredInventory.length === 0 ? (
+              <Empty
+                icon="search"
+                title="مفيش أصناف مطابقة"
+                sub="تأكد من كتابة اسم المنتج بشكل صحيح"
+              />
+            ) : (
+              <div className={styles.invList}>
+                {filteredInventory.map((item) => {
+                  const isOut = item.status === "out";
+                  const isLow = item.status === "low";
+                  return (
+                    <div
+                      key={item.variantId}
+                      className={`${styles.invRow} ${isOut ? styles.invRowOut : isLow ? styles.invRowLow : ""}`}
+                      data-testid="inventory-row"
+                    >
+                      <div className={styles.invMain}>
+                        <b className={styles.invName}>{item.productName}</b>
+                        <small className={styles.invMoney}>
+                          بالشراء {formatMoney(item.costPiasters)} · بالبيع{" "}
+                          {formatMoney(item.valPiasters)}
+                        </small>
+                      </div>
+                      <div className={styles.invQty}>
+                        <b>
+                          {isOut
+                            ? "0"
+                            : formatQtyText(
+                                item.unitMode,
+                                item.currentStockBase,
+                                item.packQty,
+                                item.unit,
+                                item.packName || undefined,
+                              )}
+                        </b>
+                        {isOut ? (
+                          <span className={styles.tagOut}>خلصان</span>
+                        ) : isLow ? (
+                          <span className={styles.tagLow}>قرب يخلص</span>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             )}
-          </p>
-        )}
-
-        <div className={styles.invBar}>
-          <div className={styles.invSearch}>
-            <SearchBox
-              value={query}
-              onChange={setQuery}
-              placeholder="دوّر في الجرد"
-            />
-          </div>
-          <button
-            type="button"
-            className={styles.exportBtn}
-            onClick={() => setExporting(true)}
-            title="تصدير الجرد ومشاركته"
-            data-testid="inventory-export"
-          >
-            <Icon n="download" s={15} />
-            <span>تصدير ومشاركة</span>
-          </button>
-        </div>
-
-        {filteredInventory.length === 0 ? (
-          <Empty
-            icon="search"
-            title="مفيش أصناف مطابقة"
-            sub="تأكد من كتابة اسم المنتج بشكل صحيح"
-          />
-        ) : (
-          <div className={styles.invList}>
-            {filteredInventory.map((item) => {
-              const isOut = item.status === "out";
-              const isLow = item.status === "low";
-              return (
-                <div
-                  key={item.variantId}
-                  className={`${styles.invRow} ${isOut ? styles.invRowOut : isLow ? styles.invRowLow : ""}`}
-                  data-testid="inventory-row"
-                >
-                  <div className={styles.invMain}>
-                    <b className={styles.invName}>{item.productName}</b>
-                    <small className={styles.invMoney}>
-                      بالشراء {formatMoney(item.costPiasters)} · بالبيع{" "}
-                      {formatMoney(item.valPiasters)}
-                    </small>
-                  </div>
-                  <div className={styles.invQty}>
-                    <b>
-                      {isOut
-                        ? "0"
-                        : formatQtyText(
-                            item.unitMode,
-                            item.currentStockBase,
-                            item.packQty,
-                            item.unit,
-                            item.packName || undefined,
-                          )}
-                    </b>
-                    {isOut ? (
-                      <span className={styles.tagOut}>خلصان</span>
-                    ) : isLow ? (
-                      <span className={styles.tagLow}>قرب يخلص</span>
-                    ) : null}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </section>
+          </section>
+        </>
+      )}
       {exporting && (
         <ExportSheet
           title="تصدير الجرد"

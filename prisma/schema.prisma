@@ -108,6 +108,30 @@ enum AiMessageRole {
   @@map("ai_message_role")
 }
 
+enum StocktakeSessionStatus {
+  in_progress
+  reconciled
+  cancelled
+
+  @@map("stocktake_session_status")
+}
+
+enum StocktakeScope {
+  full
+  category
+  selected
+
+  @@map("stocktake_scope")
+}
+
+enum StocktakeDiscrepancyKind {
+  unrecorded_sales
+  damaged_or_expired
+  unknown_adjustment
+
+  @@map("stocktake_discrepancy_kind")
+}
+
 model Store {
   id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                   String    @db.Text
@@ -178,6 +202,8 @@ model Store {
   sandwichIngredients  SandwichIngredient[]
   saleVoids            SaleVoid[]
   purchaseVoids        PurchaseVoid[]
+  stocktakeSessions    StocktakeSession[]
+  stocktakeItems       StocktakeItem[]
   saleReturns          SaleReturn[]
   saleReturnLines      SaleReturnLine[]
   aiScannerQuota       AiScannerShopQuota?
@@ -286,6 +312,7 @@ model User {
   aiAdminAudits           AiAdminAudit[]
   saleReturns             SaleReturn[]
   cashDrawerCounts        CashDrawerCount[]
+  stocktakeSessionsReconciled StocktakeSession[] @relation("StocktakeReconciler")
 
   @@map("users")
 }
@@ -510,6 +537,7 @@ model StoreProduct {
   saleLines           SaleLine[]
   supplierProducts    SupplierProduct[]
   sandwichIngredients SandwichIngredient[]
+  stocktakeItems      StocktakeItem[]
 
   @@index([storeId, nameNorm], map: "idx_store_products_store_name_norm")
   @@map("store_products")
@@ -543,6 +571,7 @@ model StoreVariant {
   stockMovements    StockMovement[]
   stockLevels       StockLevel[]
   wasteRecords      WasteRecord[]
+  stocktakeItems    StocktakeItem[]
   usedInSandwiches  SandwichIngredient[]
 
   @@index([storeProductId], map: "idx_store_variants_product")
@@ -1226,6 +1255,65 @@ model WasteRecord {
   // SAME shop. `prisma migrate diff` lists it as "removed": never accept a generated migration
   // that drops it (tests/integration/schema-drift.spec.ts guards this).
   @@map("waste_records")
+}
+
+model StocktakeSession {
+  id              String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId         String                 @map("store_id") @db.Uuid
+  status          StocktakeSessionStatus @default(in_progress) @map("status")
+  scope           StocktakeScope         @default(full) @map("scope")
+  category        String?                @map("category") @db.Text
+  notes           String?                @map("notes") @db.Text
+  opId            String?                @map("op_id") @db.Uuid
+  totalProducts   Int                    @default(0) @map("total_products")
+  countedProducts Int                    @default(0) @map("counted_products")
+  shortageCount   Int                    @default(0) @map("shortage_count")
+  surplusCount    Int                    @default(0) @map("surplus_count")
+  matchedCount    Int                    @default(0) @map("matched_count")
+  netCostPiasters BigInt                 @default(0) @map("net_cost_piasters")
+  costConfirmed   Boolean                @default(true) @map("cost_confirmed")
+  reconciledAt    DateTime?              @map("reconciled_at") @db.Timestamptz(6)
+  reconciledBy    String?                @map("reconciled_by") @db.Uuid
+  cancelledAt     DateTime?              @map("cancelled_at") @db.Timestamptz(6)
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store Store           @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  user  User?           @relation("StocktakeReconciler", fields: [reconciledBy], references: [id], onDelete: SetNull)
+  items StocktakeItem[]
+
+  @@unique([storeId, opId], map: "uq_stocktake_sessions_store_op")
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_stocktake_sessions_store_created")
+  @@map("stocktake_sessions")
+}
+
+model StocktakeItem {
+  id                      String                    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId                 String                    @map("store_id") @db.Uuid
+  sessionId               String                    @map("session_id") @db.Uuid
+  storeVariantId          String                    @map("store_variant_id") @db.Uuid
+  storeProductId          String                    @map("store_product_id") @db.Uuid
+  snapshotQuantityBase    BigInt                    @map("snapshot_quantity_base")
+  snapshotCostPiasters    BigInt?                   @map("snapshot_cost_piasters")
+  countedQuantityBase     BigInt?                   @map("counted_quantity_base")
+  countedAt               DateTime?                 @map("counted_at") @db.Timestamptz(6)
+  expectedQuantityBase    BigInt?                   @map("expected_quantity_base")
+  discrepancyQuantityBase BigInt?                   @map("discrepancy_quantity_base")
+  discrepancyCostPiasters BigInt?                   @map("discrepancy_cost_piasters")
+  costConfirmed           Boolean                   @default(true) @map("cost_confirmed")
+  classification          StocktakeDiscrepancyKind? @map("classification")
+  notes                   String?                   @map("notes") @db.Text
+  createdAt               DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  store        Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  session      StocktakeSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  storeVariant StoreVariant     @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
+  storeProduct StoreProduct     @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, storeVariantId], map: "uq_stocktake_items_session_variant")
+  @@index([storeId, sessionId], map: "idx_stocktake_items_store_session")
+  @@map("stocktake_items")
 }
 
 model Expense {
