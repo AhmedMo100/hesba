@@ -26,6 +26,13 @@ import {
   toCairoDateString,
 } from "@/domain/time";
 import type { HomeReport, ReportPeriod } from "@/schemas/report";
+import { stockValuePiasters } from "@/domain/stock/stock-value";
+import {
+  countEffectsInRange,
+  lastConfirmedCountAt,
+} from "@/server/modules/inventory";
+import { serviceSummaryInRange } from "@/server/modules/services";
+import { ownerMoneyInRange } from "@/server/modules/money";
 
 const UNCATEGORIZED = "متفرقات";
 const MAX_ACTIVITY = 50;
@@ -200,6 +207,7 @@ export async function salesFinancialsInTx(
   dailyTotalsCount: number;
   dailyTotalsPiasters: number;
   dailyTotalsCashPiasters: number;
+  dailyTotalsCreditPiasters: number;
 }> {
   const sales = await salesInRange(tx, storeId, from, to);
   const daily = await dailyTotalsInRange(tx, storeId, from, to);
@@ -236,6 +244,7 @@ export async function salesFinancialsInTx(
     dailyTotalsCount: daily.count,
     dailyTotalsPiasters: daily.totalPiasters,
     dailyTotalsCashPiasters: daily.cashPiasters,
+    dailyTotalsCreditPiasters: daily.creditPiasters,
   };
 }
 
@@ -248,7 +257,12 @@ export async function dailyTotalsInRange(
   storeId: string,
   from: Date | null,
   to: Date,
-): Promise<{ count: number; totalPiasters: number; cashPiasters: number }> {
+): Promise<{
+  count: number;
+  totalPiasters: number;
+  cashPiasters: number;
+  creditPiasters: number;
+}> {
   const lastDay = toCairoDateString(new Date(to.getTime() - 1));
   const firstDay = from ? toCairoDateString(from) : null;
   const agg = await tx.dailySalesEntry.aggregate({
@@ -260,13 +274,231 @@ export async function dailyTotalsInRange(
         lte: new Date(`${lastDay}T00:00:00Z`),
       },
     },
-    _sum: { totalPiasters: true, cashPiasters: true },
+    _sum: { totalPiasters: true, cashPiasters: true, creditPiasters: true },
     _count: true,
   });
   return {
     count: agg._count,
     totalPiasters: Number(agg._sum.totalPiasters ?? 0),
     cashPiasters: Number(agg._sum.cashPiasters ?? 0),
+    creditPiasters: Number(agg._sum.creditPiasters ?? 0),
+  };
+}
+
+/** Expense categories that are the owner's own spending: shown apart, never operating cost. */
+export const OWNER_PERSONAL_CATEGORIES: ReadonlySet<string> = new Set([
+  "مصاريف شخصية",
+]);
+
+/** What today's stock is worth: FEFO batches at cost, stock levels at the selling price. */
+export async function inventoryValueInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<{
+  costPiasters: number;
+  sellPiasters: number;
+  unknownCostItems: number;
+}> {
+  const cost = await tx.$queryRaw<
+    Array<{ cost: bigint | null; unknown: bigint }>
+  >`SELECT COALESCE(SUM(ROUND(b.cost_total_minor::numeric * b.remaining_quantity_base
+                         / NULLIF(b.received_quantity_base, 0))), 0)::bigint AS cost,
+           COUNT(DISTINCT b.store_variant_id) FILTER (WHERE b.cost_total_minor IS NULL)::bigint AS unknown
+      FROM store_stock_batches b
+     WHERE b.store_id = ${storeId}::uuid AND b.remaining_quantity_base > 0`;
+  const levels = await tx.stockLevel.findMany({
+    where: { storeId, quantityBase: { gt: BigInt(0) } },
+    select: {
+      quantityBase: true,
+      storeVariant: {
+        select: {
+          sellPricePiasters: true,
+          storeProduct: { select: { unit: true } },
+        },
+      },
+    },
+  });
+  let sell = 0;
+  for (const l of levels) {
+    sell += stockValuePiasters(
+      l.storeVariant.storeProduct?.unit ?? "piece",
+      Number(l.quantityBase),
+      Number(l.storeVariant.sellPricePiasters),
+    );
+  }
+  return {
+    costPiasters: Number(cost[0]?.cost ?? 0),
+    sellPiasters: sell,
+    unknownCostItems: Number(cost[0]?.unknown ?? 0),
+  };
+}
+
+/** Everything profit needs beyond invoices, daily totals, expenses and waste. */
+async function profitInputsInTx(
+  tx: TenantTx,
+  storeId: string,
+  from: Date | null,
+  to: Date,
+) {
+  const counts = await countEffectsInRange(tx, storeId, from, to);
+  const services = await serviceSummaryInRange(tx, storeId, from, to);
+  const owner = await ownerMoneyInRange(tx, storeId, from, to);
+  const dailyItems = await tx.dailySalesEntryItem.aggregate({
+    where: {
+      storeId,
+      createdAt: { ...(from ? { gte: from } : {}), lt: to },
+      entry: { cancelledAt: null },
+    },
+    _sum: { costMinor: true },
+  });
+  const inventoryValue = await inventoryValueInTx(tx, storeId);
+  const last = await lastConfirmedCountAt(tx, storeId);
+  return {
+    counts,
+    services,
+    owner,
+    dailyItemsCostPiasters: Number(dailyItems._sum.costMinor ?? 0),
+    inventoryValue,
+    lastStocktakeAt: last,
+  };
+}
+
+type ProfitInputs = Awaited<ReturnType<typeof profitInputsInTx>> & {
+  financials: Awaited<ReturnType<typeof salesFinancialsInTx>>;
+  operatingExpensesPiasters: number;
+  ownerPersonalExpensesPiasters: number;
+  wasteLossPiasters: number;
+  wasteUnknownCount: number;
+};
+
+/**
+ * Net profit = gross profit + service commissions − operating expenses − inventory losses.
+ * - Actual: every product sale has a recorded cost (no daily totals in the period).
+ * - Estimated: daily totals (إدارة المحل) have no cost per item; their gross profit is valued
+ *   at the margin of the shop's own stock today (selling vs cost value) — labelled as such.
+ * - Incomplete: no basis for the estimate (no stock with both prices), or invoices without cost.
+ * Stocktake: «اتباع ومتسجلش» is a sale (its FEFO cost in COGS), an unexplained shortage is a
+ * loss, damaged / lost goods are losses once (waste_records). Collections, supplier payments,
+ * transfers, owner withdrawals / deposits and a service's operation amount are never here.
+ */
+export function buildProfit(
+  i: ProfitInputs,
+): NonNullable<HomeReport["profit"]> {
+  const f = i.financials;
+  const notes: string[] = [];
+  const discovered = i.counts.discoveredSalesPiasters;
+  const productSales = f.revenuePiasters + discovered;
+  const invoiceRevenue = f.revenuePiasters - f.dailyTotalsPiasters;
+  const invoiceCostKnown = f.unknownCostCount === 0;
+  const discoveredCostKnown = !i.counts.discoveredSalesUnknownCost;
+  const knownCogs =
+    f.knownCostPiasters +
+    i.dailyItemsCostPiasters +
+    i.counts.discoveredSalesCostPiasters;
+
+  // Recorded-cost gross profit: only when nothing in the period lacks a cost.
+  const allCostKnown =
+    invoiceCostKnown && discoveredCostKnown && f.dailyTotalsPiasters === 0;
+  const gross = allCostKnown
+    ? invoiceRevenue +
+      discovered -
+      f.knownCostPiasters -
+      i.counts.discoveredSalesCostPiasters
+    : null;
+
+  // The estimate's margin: the shop's own stock, selling vs cost value.
+  const inv = i.inventoryValue;
+  const margin =
+    inv.sellPiasters > 0 &&
+    inv.costPiasters > 0 &&
+    inv.costPiasters < inv.sellPiasters
+      ? (inv.sellPiasters - inv.costPiasters) / inv.sellPiasters
+      : null;
+  let estimatedGross: number | null = null;
+  if (gross !== null) {
+    estimatedGross = gross;
+  } else if (invoiceCostKnown && discoveredCostKnown && margin !== null) {
+    const knownPart =
+      invoiceRevenue +
+      discovered -
+      f.knownCostPiasters -
+      i.counts.discoveredSalesCostPiasters;
+    estimatedGross = Math.round(knownPart + f.dailyTotalsPiasters * margin);
+  }
+
+  const losses = i.wasteLossPiasters + i.counts.unknownShortageCostPiasters;
+  const commissions = i.services.commissionPiasters;
+  const net =
+    gross === null
+      ? null
+      : gross + commissions - i.operatingExpensesPiasters - losses;
+  const estimatedNet =
+    estimatedGross === null
+      ? null
+      : estimatedGross + commissions - i.operatingExpensesPiasters - losses;
+
+  if (f.dailyTotalsPiasters > 0) {
+    notes.push(
+      margin !== null
+        ? `مبيعات اليوم المتسجلة كإجمالي (${f.dailyTotalsCount}) مالهاش تكلفة لكل صنف: مكسبها محسوب تقديري بهامش بضاعتك الحالية (${Math.round(margin * 100)}%).`
+        : "مبيعات اليوم المتسجلة كإجمالي مالهاش تكلفة لكل صنف، ومفيش أسعار شراء كفاية لتقدير المكسب.",
+    );
+  }
+  if (!invoiceCostKnown) {
+    notes.push(`${f.unknownCostCount} فاتورة بيع تكلفة بضاعتها مش متسجلة.`);
+  }
+  if (!discoveredCostKnown) {
+    notes.push("مبيعات اكتشفها الجرد ليها أصناف من غير تكلفة.");
+  }
+  if (i.wasteUnknownCount > 0) {
+    notes.push(
+      `${i.wasteUnknownCount} حالة تالف تكلفتها مش متسجلة (مش محسوبة في الخسارة).`,
+    );
+  }
+  if (discovered > 0) {
+    notes.push(
+      "فيه مبيعات أكدتها في الجرد (اتباعت ومتسجلتش): محسوبة بسعر البيع.",
+    );
+  }
+  if (i.counts.unknownShortageCostPiasters > 0) {
+    notes.push("فيه عجز في الجرد سببه مش معروف: محسوب كخسارة، مش كمبيعات.");
+  }
+  const last = i.lastStocktakeAt;
+  const days = last
+    ? Math.floor((Date.now() - last.getTime()) / 86_400_000)
+    : null;
+  if (days === null)
+    notes.push("لسه ما اتعملش جرد: المخزون والمكسب ممكن يكونوا مش دقيقين.");
+  else if (days > 30) notes.push(`آخر جرد من ${days} يوم: يستحسن تعمل جرد.`);
+  if (i.ownerPersonalExpensesPiasters > 0) {
+    notes.push("المصاريف الشخصية مش محسوبة من مصاريف المحل (اتحسبت مسحوبات).");
+  }
+
+  return {
+    status:
+      gross !== null
+        ? "actual"
+        : estimatedGross !== null
+          ? "estimated"
+          : "incomplete",
+    productSalesPiasters: productSales,
+    discoveredSalesPiasters: discovered,
+    knownCogsPiasters: knownCogs,
+    grossProfitPiasters: gross,
+    estimatedGrossProfitPiasters: estimatedGross,
+    estimateMarginPercent:
+      margin === null ? null : Math.round(margin * 1000) / 10,
+    serviceCommissionsPiasters: commissions,
+    serviceOperationsPiasters: i.services.amountPiasters,
+    operatingExpensesPiasters: i.operatingExpensesPiasters,
+    inventoryLossesPiasters: losses,
+    netProfitPiasters: net,
+    estimatedNetProfitPiasters: estimatedNet,
+    ownerWithdrawalsPiasters:
+      i.owner.withdrawalsPiasters + i.ownerPersonalExpensesPiasters,
+    ownerDepositsPiasters: i.owner.depositsPiasters,
+    lastStocktakeAt: last ? last.toISOString() : null,
+    notes,
   };
 }
 
@@ -408,8 +640,11 @@ export async function getHomeReport(
       }
       // Daily totals (إدارة المحل): their cash part and their wallet parts.
       byPaymentMethod.cash += financials.dailyTotalsCashPiasters;
+      byPaymentMethod.debt += financials.dailyTotalsCreditPiasters;
       byPaymentMethod.wallet +=
-        financials.dailyTotalsPiasters - financials.dailyTotalsCashPiasters;
+        financials.dailyTotalsPiasters -
+        financials.dailyTotalsCashPiasters -
+        financials.dailyTotalsCreditPiasters;
 
       for (const s of sales) {
         const key =
@@ -479,6 +714,22 @@ export async function getHomeReport(
         .slice(0, MAX_ACTIVITY);
 
       const purchaseRow = purchases[0];
+      const expenseTotal = expenses.reduce(
+        (t, e) => t + Number(e.amountPiasters),
+        0,
+      );
+      const personal = expenses
+        .filter((e) => OWNER_PERSONAL_CATEGORIES.has(e.category))
+        .reduce((t, e) => t + Number(e.amountPiasters), 0);
+      const extra = await profitInputsInTx(tx, storeId, from, to);
+      const profit = buildProfit({
+        financials,
+        operatingExpensesPiasters: expenseTotal - personal,
+        ownerPersonalExpensesPiasters: personal,
+        wasteLossPiasters: lossCost,
+        wasteUnknownCount: lossUnknown,
+        ...extra,
+      });
       return {
         period,
         from: from ? from.toISOString() : null,
@@ -529,6 +780,8 @@ export async function getHomeReport(
             grossProfitPiasters: m.profit,
           })),
         byPaymentMethod,
+        profit,
+        inventoryValue: extra.inventoryValue,
         activity,
       };
     },
