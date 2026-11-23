@@ -153,6 +153,33 @@ export function HomeView({
 
   const todayRevenue = report?.sales.revenuePiasters ?? null;
   const todayProfit = report?.sales.grossProfitPiasters ?? null;
+  const profit = report?.profit;
+  const netToday =
+    profit?.netProfitPiasters ?? profit?.estimatedNetProfitPiasters ?? null;
+  const netIsEstimate =
+    profit?.netProfitPiasters == null &&
+    profit?.estimatedNetProfitPiasters != null;
+  const lastCountDays = profit?.daysSinceLastStocktake ?? null;
+
+  // «فلوس حِسبة»: every account's money together (the drawer from its last count).
+  const [moneyTotal, setMoneyTotal] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const load = () =>
+      apiGet("/api/money")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d: { totalPiasters?: number } | null) => {
+          if (alive && typeof d?.totalPiasters === "number")
+            setMoneyTotal(d.totalPiasters);
+        })
+        .catch(() => {});
+    load();
+    window.addEventListener("online", load);
+    return () => {
+      alive = false;
+      window.removeEventListener("online", load);
+    };
+  }, []);
 
   const money = (piasters: number) =>
     `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
@@ -266,6 +293,76 @@ export function HomeView({
         </button>
       </div>
 
+      {/* «أنا كسبت كام؟ وفلوسي فين؟»: net profit (labelled when estimated), money, goods */}
+      <div className={styles.sumrow} data-testid="home-financials">
+        <button
+          type="button"
+          className={`${styles.stat} ${styles.good}`}
+          onClick={() => onNavigate("reports")}
+          data-testid="home-net-today"
+        >
+          <small>
+            {netIsEstimate ? "صافي المكسب (تقديري)" : "صافي المكسب"}
+          </small>
+          <b>
+            {reportLoading ? (
+              <Skeleton width={70} height={24} />
+            ) : netToday === null ? (
+              "—"
+            ) : (
+              money(netToday)
+            )}
+          </b>
+        </button>
+        <button
+          type="button"
+          className={styles.stat}
+          onClick={() => onNavigate("money")}
+          data-testid="home-money-total"
+        >
+          <small>فلوسك كلها</small>
+          <b>
+            {moneyTotal === null ? (
+              <Skeleton width={70} height={24} />
+            ) : (
+              money(moneyTotal)
+            )}
+          </b>
+        </button>
+        <button
+          type="button"
+          className={styles.stat}
+          onClick={() => onNavigate("inventory")}
+          data-testid="home-stock-value"
+        >
+          <small>قيمة البضاعة (بالتكلفة)</small>
+          <b>
+            {reportLoading ? (
+              <Skeleton width={70} height={24} />
+            ) : report?.inventoryValue ? (
+              money(report.inventoryValue.costPiasters)
+            ) : (
+              "—"
+            )}
+          </b>
+        </button>
+      </div>
+      {report &&
+        (lastCountDays === null || lastCountDays > 30) &&
+        (productCount ?? 0) > 0 && (
+          <button
+            type="button"
+            className={styles.warn}
+            onClick={() => onNavigate("stocktake")}
+            data-testid="home-stocktake-reminder"
+          >
+            📋{" "}
+            {lastCountDays === null
+              ? "لسه ما عملتش جرد: اعمل أول جرد عشان المخزون والمكسب يبقوا مظبوطين"
+              : `آخر جرد من ${lastCountDays} يوم: يستحسن تعمل جرد`}
+          </button>
+        )}
+
       {/* The drawer (V19): what should be in it now, from the last count */}
       <button
         type="button"
@@ -316,6 +413,9 @@ export function HomeView({
         {tile("people", "👥", t("home.people"), undefined)}
         {tile("alerts", "💳", t("home.walletsMachines"), undefined)}
         {tile("products", "🧃", t("home.myProducts"), undefined)}
+        {tile("services", "📲", "الخدمات والعمولات", undefined)}
+        {tile("money", "💼", "فلوس حِسبة", undefined)}
+        {tile("stocktake", "🧮", "اعمل جرد", undefined)}
         {tile("inventory", "📋", t("home.inventory"), styles.tileAlt)}
         {tile("ai", "💬", t("home.askHesba"), styles.tileAlt)}
       </div>

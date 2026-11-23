@@ -201,7 +201,7 @@ export async function takeStockInTx(
     storeVariantId: string;
     storeProductId: string | null;
     quantityBase: bigint;
-    type: "sale" | "waste" | "adjustment";
+    type: "sale" | "waste" | "adjustment" | "count_adjustment" | "daily_sale";
     batchId?: string | null;
     saleLineId?: string | null;
     wasteId?: string | null;
