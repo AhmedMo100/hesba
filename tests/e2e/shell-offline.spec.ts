@@ -45,7 +45,10 @@ test.describe("App Shell Offline Navigation", () => {
       ["stock", "page-stock"],
       ["expenses", "page-expenses"],
       ["people", "page-people"],
-      ["alerts", "page-alerts"],
+      // The stand-alone machines page is gone: machines live in «الخدمات والعمولات».
+      ["services", "page-services"],
+      ["money", "page-money"],
+      ["stocktake", "page-stocktake"],
       ["inventory", "page-inventory"],
       ["ai", "page-ai"],
     ] as const) {

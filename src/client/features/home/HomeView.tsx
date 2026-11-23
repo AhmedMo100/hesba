@@ -314,8 +314,10 @@ export function HomeView({
           ? tile("daily-sales", "💵", "مبيعات اليوم", styles.tileSell, "٣")
           : tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
         {tile("people", "👥", t("home.people"), undefined)}
-        {tile("alerts", "💳", t("home.walletsMachines"), undefined)}
         {tile("products", "🧃", t("home.myProducts"), undefined)}
+        {tile("services", "📲", "الخدمات والعمولات", undefined)}
+        {tile("money", "💼", "فلوس حِسبة", undefined)}
+        {tile("stocktake", "🧮", "اعمل جرد", undefined)}
         {tile("inventory", "📋", t("home.inventory"), styles.tileAlt)}
         {tile("ai", "💬", t("home.askHesba"), styles.tileAlt)}
       </div>

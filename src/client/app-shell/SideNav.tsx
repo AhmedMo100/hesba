@@ -27,7 +27,9 @@ const NAV_ITEMS: NavItem[] = [
   { route: "stock", labelKey: "nav.stock", icon: "boxes" },
   { route: "expenses", labelKey: "nav.expenses", icon: "wallet" },
   { route: "people", labelKey: "nav.people", icon: "users" },
-  { route: "alerts", labelKey: "nav.alerts", icon: "bell" },
+  { route: "money", labelKey: "nav.money", icon: "wallet" },
+  { route: "services", labelKey: "nav.services", icon: "phone" },
+  { route: "stocktake", labelKey: "nav.stocktake", icon: "layers" },
   { route: "ai", labelKey: "nav.ai", icon: "sparkle" },
 ];
 
