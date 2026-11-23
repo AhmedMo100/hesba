@@ -18,7 +18,11 @@ import { withTenant } from "@/server/infra/db/tenant";
 import {
   salesFinancialsInTx,
   dailyTotalsInRange,
+  periodProfitInTx,
 } from "@/server/modules/reports";
+import { drawerViewInTx } from "@/server/modules/drawer";
+import { serviceSummaryInRange } from "@/server/modules/services";
+import { countEffectsInRange } from "@/server/modules/inventory";
 import {
   addDaysToDateKey,
   cairoDayStartUtc,
@@ -205,6 +209,42 @@ export class BusinessToolsService {
         },
       },
       {
+        name: "getMoneyAccounts",
+        description:
+          "فلوس المحل فين دلوقتي: المفروض في الدرج (من آخر عدّ) ورصيد كل محفظة وماكينة، وآخر سحب شخصي أو تحويل. دي فلوس موجودة، مش مبيعات.",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "getServicesSummary",
+        description:
+          "الخدمات اللي اتعملت للزباين (فودافون كاش، فوري، أمان، شحن، فواتير، كروت): عددها، قيمة العمليات (مش إيراد)، والعمولات اللي هي المكسب الوحيد منها، حسب القسم.",
+        parameters: {
+          type: "object",
+          properties: {
+            period: {
+              type: "string",
+              enum: [...TOOL_PERIODS],
+              description: "الفترة بتوقيت القاهرة.",
+            },
+          },
+        },
+      },
+      {
+        name: "getStocktakeSummary",
+        description:
+          "الجرد الفعلي: آخر جرد اتأكد إمتى، فروق الجرد في الفترة (اتباع ومتسجلش، عجز مش معروف سببه، زيادة)، وقيمة البضاعة الحالية بالتكلفة وبسعر البيع. العجز مش مبيعات إلا لو صاحب المحل قال كده.",
+        parameters: {
+          type: "object",
+          properties: {
+            period: {
+              type: "string",
+              enum: [...TOOL_PERIODS],
+              description: "الفترة بتوقيت القاهرة.",
+            },
+          },
+        },
+      },
+      {
         name: "searchMarketTrends",
         description:
           "يبحث في أسعار السلع الغذائية بسوق الجملة في مصر، وتأثيرات الوقود والدولار وأخبار التموين.",
@@ -291,6 +331,63 @@ export class BusinessToolsService {
             (args.period as string) || "today",
           );
 
+        case "getMoneyAccounts":
+          return await this.getMoneyAccounts(tx, storeId);
+
+        case "getServicesSummary": {
+          const { start, end } = this.getDateRange(
+            (args.period as string) || "today",
+          );
+          const summary = await serviceSummaryInRange(
+            tx,
+            storeId,
+            start,
+            new Date(end.getTime() + 1),
+          );
+          return {
+            period: (args.period as string) || "today",
+            services_count: summary.count,
+            operations_value_piasters_not_revenue: summary.amountPiasters,
+            commissions_piasters: summary.commissionPiasters,
+            by_category: summary.byCategory.map((c) => ({
+              category: c.label,
+              count: c.count,
+              commissions_piasters: c.commissionPiasters,
+            })),
+          };
+        }
+
+        case "getStocktakeSummary": {
+          const period = (args.period as string) || "month";
+          const { start, end } = this.getDateRange(period);
+          const effects = await countEffectsInRange(
+            tx,
+            storeId,
+            start,
+            new Date(end.getTime() + 1),
+          );
+          const { profit, inventoryValue } = await periodProfitInTx(
+            tx,
+            storeId,
+            start,
+            new Date(end.getTime() + 1),
+          );
+          return {
+            period,
+            last_confirmed_stocktake: profit.lastStocktakeAt,
+            days_since_last_stocktake: profit.daysSinceLastStocktake,
+            confirmed_counts_in_period: effects.counts,
+            sold_unrecorded_value_piasters: effects.discoveredSalesPiasters,
+            unexplained_shortage_cost_piasters:
+              effects.unknownShortageCostPiasters,
+            surplus_cost_piasters: effects.surplusCostPiasters,
+            stock_value_at_cost_piasters: inventoryValue.costPiasters,
+            stock_value_at_selling_piasters: inventoryValue.sellPiasters,
+            items_without_cost: inventoryValue.unknownCostItems,
+            note: "العجز اللي سببه مش معروف خسارة، مش مبيعات. التالف والضايع محسوبين في الخسارة مرة واحدة.",
+          };
+        }
+
         case "searchMarketTrends":
           if (searchFn) {
             return await searchFn(String(args.query || ""));
@@ -301,6 +398,47 @@ export class BusinessToolsService {
           return { error: `Tool ${name} is not recognized` };
       }
     });
+  }
+
+  private async getMoneyAccounts(
+    tx: Prisma.TransactionClient,
+    storeId: string,
+  ) {
+    const drawer = await drawerViewInTx(tx, storeId);
+    const machines = await tx.posMachine.findMany({
+      where: { storeId, deletedAt: null },
+      select: { name: true, currentBalancePiasters: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const recent = await tx.moneyMovement.findMany({
+      where: { storeId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: { kind: true, amountPiasters: true, createdAt: true },
+    });
+    const wallets = machines.map((m) => ({
+      name: m.name,
+      balance_piasters: Number(m.currentBalancePiasters),
+    }));
+    return {
+      drawer_expected_piasters: drawer.expectedPiasters,
+      drawer_never_counted: drawer.expectedPiasters === null,
+      wallets,
+      total_known_piasters:
+        (drawer.expectedPiasters ?? 0) +
+        wallets.reduce((s, w) => s + w.balance_piasters, 0),
+      recent_owner_and_transfer_movements: recent.map((r) => ({
+        kind:
+          r.kind === "owner_withdrawal"
+            ? "سحب شخصي"
+            : r.kind === "owner_deposit"
+              ? "إيداع من صاحب المحل"
+              : "تحويل",
+        amount_piasters: Number(r.amountPiasters),
+        at: r.createdAt.toISOString(),
+      })),
+      note: "دي الفلوس الموجودة دلوقتي، مش المبيعات. الدرج محسوب من آخر عدّ.",
+    };
   }
 
   private getDateRange(period: string): { start: Date; end: Date } {
@@ -713,6 +851,13 @@ export class BusinessToolsService {
     const netProfit =
       grossProfit === null ? null : grossProfit - Number(expensesTotalPiasters);
 
+    // The full account, with the same rules as the reports (actual / estimated / incomplete).
+    const { profit } = await periodProfitInTx(
+      tx,
+      storeId,
+      start,
+      new Date(end.getTime() + 1),
+    );
     return {
       period,
       sales_count: financials.count,
@@ -721,6 +866,17 @@ export class BusinessToolsService {
       gross_profit_piasters: grossProfit,
       expenses_total_piasters: Number(expensesTotalPiasters),
       net_profit_piasters: netProfit,
+      full_account: {
+        status: profit.status,
+        estimated_gross_profit_piasters: profit.estimatedGrossProfitPiasters,
+        service_commissions_piasters: profit.serviceCommissionsPiasters,
+        operating_expenses_piasters: profit.operatingExpensesPiasters,
+        inventory_losses_piasters: profit.inventoryLossesPiasters,
+        net_profit_piasters: profit.netProfitPiasters,
+        estimated_net_profit_piasters: profit.estimatedNetProfitPiasters,
+        owner_withdrawals_piasters_not_expense: profit.ownerWithdrawalsPiasters,
+        notes: profit.notes,
+      },
       sales_without_recorded_cost: financials.unknownCostCount,
       daily_totals_piasters: financials.dailyTotalsPiasters,
       note:
