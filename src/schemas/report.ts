@@ -157,6 +157,8 @@ export const homeReportSchema = z.object({
       ownerWithdrawalsPiasters: piasters,
       ownerDepositsPiasters: piasters,
       lastStocktakeAt: z.string().nullable(),
+      /** Whole days since the last confirmed stocktake (server clock); null = never. */
+      daysSinceLastStocktake: z.number().int().nullable(),
       notes: z.array(z.string()),
     })
     .optional(),

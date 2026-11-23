@@ -63,6 +63,9 @@ CREATE TABLE IF NOT EXISTS "inventory_count_lines" (
   -- Filled at confirmation: the quantity really applied and its cost (FEFO batches / batch in).
   "applied_delta_base" BIGINT,
   "applied_cost_minor" BIGINT,
+  -- For an «اتباع ومتسجلش» line: the discovered sale's value at the selling price, fixed at
+  -- confirmation (the report reads it; a later price change never rewrites it).
+  "applied_sale_minor" BIGINT,
   "created_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updated_at" TIMESTAMPTZ(6) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "inventory_count_lines_pkey" PRIMARY KEY ("id"),
@@ -282,7 +285,8 @@ BEGIN
     GRANT SELECT, INSERT, DELETE ON "inventory_count_lines" TO hesba_app;
     REVOKE UPDATE ON "inventory_count_lines" FROM hesba_app;
     -- expected_base is the count-time snapshot: refreshed when a line is (re)counted.
-    GRANT UPDATE ("expected_base", "counted_base", "reason", "applied_delta_base", "applied_cost_minor", "updated_at")
+    GRANT UPDATE ("expected_base", "counted_base", "reason", "applied_delta_base", "applied_cost_minor",
+                  "applied_sale_minor", "updated_at")
       ON "inventory_count_lines" TO hesba_app;
     -- Money movements: append-only (a mistake is corrected by the opposite movement).
     GRANT SELECT, INSERT ON "money_movements" TO hesba_app;

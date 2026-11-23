@@ -26,13 +26,11 @@ import {
   toCairoDateString,
 } from "@/domain/time";
 import type { HomeReport, ReportPeriod } from "@/schemas/report";
-import { stockValuePiasters } from "@/domain/stock/stock-value";
 import {
-  countEffectsInRange,
-  lastConfirmedCountAt,
+  COUNT_EFFECTS_SELECT,
+  countEffectsFromRow,
+  type CountEffectsRow,
 } from "@/server/modules/inventory";
-import { serviceSummaryInRange } from "@/server/modules/services";
-import { ownerMoneyInRange } from "@/server/modules/money";
 
 const UNCATEGORIZED = "متفرقات";
 const MAX_ACTIVITY = 50;
@@ -290,7 +288,11 @@ export const OWNER_PERSONAL_CATEGORIES: ReadonlySet<string> = new Set([
   "مصاريف شخصية",
 ]);
 
-/** What today's stock is worth: FEFO batches at cost, stock levels at the selling price. */
+/**
+ * What today's stock is worth, in ONE query: the FEFO batches' remaining cost, and the stock
+ * levels at the selling price with the rule of `stockValuePiasters` / a sale line (per kilo over
+ * grams for `kg`, per piece otherwise; rounded once, half up) — kept equal by a unit test.
+ */
 export async function inventoryValueInTx(
   tx: TenantTx,
   storeId: string,
@@ -299,67 +301,107 @@ export async function inventoryValueInTx(
   sellPiasters: number;
   unknownCostItems: number;
 }> {
-  const cost = await tx.$queryRaw<
-    Array<{ cost: bigint | null; unknown: bigint }>
-  >`SELECT COALESCE(SUM(ROUND(b.cost_total_minor::numeric * b.remaining_quantity_base
-                         / NULLIF(b.received_quantity_base, 0))), 0)::bigint AS cost,
-           COUNT(DISTINCT b.store_variant_id) FILTER (WHERE b.cost_total_minor IS NULL)::bigint AS unknown
-      FROM store_stock_batches b
-     WHERE b.store_id = ${storeId}::uuid AND b.remaining_quantity_base > 0`;
-  const levels = await tx.stockLevel.findMany({
-    where: { storeId, quantityBase: { gt: BigInt(0) } },
-    select: {
-      quantityBase: true,
-      storeVariant: {
-        select: {
-          sellPricePiasters: true,
-          storeProduct: { select: { unit: true } },
-        },
-      },
-    },
-  });
-  let sell = 0;
-  for (const l of levels) {
-    sell += stockValuePiasters(
-      l.storeVariant.storeProduct?.unit ?? "piece",
-      Number(l.quantityBase),
-      Number(l.storeVariant.sellPricePiasters),
-    );
-  }
+  const rows = await tx.$queryRaw<
+    Array<{ cost: bigint | null; unknown: bigint; sell: bigint | null }>
+  >`SELECT
+      (SELECT COALESCE(SUM(ROUND(b.cost_total_minor::numeric * b.remaining_quantity_base
+                                 / NULLIF(b.received_quantity_base, 0))), 0)
+         FROM store_stock_batches b
+        WHERE b.store_id = ${storeId}::uuid AND b.remaining_quantity_base > 0)::bigint AS cost,
+      (SELECT COUNT(DISTINCT b.store_variant_id)
+         FROM store_stock_batches b
+        WHERE b.store_id = ${storeId}::uuid AND b.remaining_quantity_base > 0
+          AND b.cost_total_minor IS NULL)::bigint AS unknown,
+      (SELECT COALESCE(SUM(ROUND(v.sell_price_piasters::numeric * l.quantity_base
+                                 / CASE WHEN p.unit = 'kg' THEN 1000 ELSE 1 END)), 0)
+         FROM stock_levels l
+         JOIN store_variants v ON v.id = l.store_variant_id
+         LEFT JOIN store_products p ON p.id = v.store_product_id
+        WHERE l.store_id = ${storeId}::uuid AND l.quantity_base > 0
+          AND v.sell_price_piasters > 0)::bigint AS sell`;
+  const r = rows[0];
   return {
-    costPiasters: Number(cost[0]?.cost ?? 0),
-    sellPiasters: sell,
-    unknownCostItems: Number(cost[0]?.unknown ?? 0),
+    costPiasters: Number(r?.cost ?? 0),
+    sellPiasters: Number(r?.sell ?? 0),
+    unknownCostItems: Number(r?.unknown ?? 0),
   };
 }
 
-/** Everything profit needs beyond invoices, daily totals, expenses and waste. */
+/**
+ * Everything profit needs beyond invoices, daily totals, expenses and waste — in ONE query
+ * (the Home report's round-trip budget, QA-32), plus the inventory value (one more).
+ */
 async function profitInputsInTx(
   tx: TenantTx,
   storeId: string,
   from: Date | null,
   to: Date,
 ) {
-  const counts = await countEffectsInRange(tx, storeId, from, to);
-  const services = await serviceSummaryInRange(tx, storeId, from, to);
-  const owner = await ownerMoneyInRange(tx, storeId, from, to);
-  const dailyItems = await tx.dailySalesEntryItem.aggregate({
-    where: {
-      storeId,
-      createdAt: { ...(from ? { gte: from } : {}), lt: to },
-      entry: { cancelledAt: null },
-    },
-    _sum: { costMinor: true },
-  });
+  const rows = await tx.$queryRaw<
+    Array<
+      CountEffectsRow & {
+        svc_count: bigint;
+        svc_amount: bigint;
+        svc_commission: bigint;
+        owner_withdrawals: bigint;
+        owner_deposits: bigint;
+        items_cost: bigint;
+        last_count: Date | null;
+      }
+    >
+  >`
+    WITH l AS (
+      SELECT l.* FROM inventory_count_lines l
+        JOIN inventory_counts s ON s.id = l.session_id
+       WHERE l.store_id = ${storeId}::uuid AND s.status = 'confirmed'
+         AND s.confirmed_at < ${to}
+         AND (${from}::timestamptz IS NULL OR s.confirmed_at >= ${from}::timestamptz)
+         AND l.applied_delta_base <> 0
+    ), c AS (SELECT ${COUNT_EFFECTS_SELECT} FROM l)
+    SELECT c.*,
+      (SELECT COUNT(*) FROM service_transactions t
+        WHERE t.store_id = ${storeId}::uuid AND t.status = 'completed'
+          AND t.created_at < ${to}
+          AND (${from}::timestamptz IS NULL OR t.created_at >= ${from}::timestamptz))::bigint AS svc_count,
+      (SELECT COALESCE(SUM(t.amount_piasters), 0) FROM service_transactions t
+        WHERE t.store_id = ${storeId}::uuid AND t.status = 'completed'
+          AND t.created_at < ${to}
+          AND (${from}::timestamptz IS NULL OR t.created_at >= ${from}::timestamptz))::bigint AS svc_amount,
+      (SELECT COALESCE(SUM(t.commission_piasters), 0) FROM service_transactions t
+        WHERE t.store_id = ${storeId}::uuid AND t.status = 'completed'
+          AND t.created_at < ${to}
+          AND (${from}::timestamptz IS NULL OR t.created_at >= ${from}::timestamptz))::bigint AS svc_commission,
+      (SELECT COALESCE(SUM(m.amount_piasters), 0) FROM money_movements m
+        WHERE m.store_id = ${storeId}::uuid AND m.kind = 'owner_withdrawal'
+          AND m.created_at < ${to}
+          AND (${from}::timestamptz IS NULL OR m.created_at >= ${from}::timestamptz))::bigint AS owner_withdrawals,
+      (SELECT COALESCE(SUM(m.amount_piasters), 0) FROM money_movements m
+        WHERE m.store_id = ${storeId}::uuid AND m.kind = 'owner_deposit'
+          AND m.created_at < ${to}
+          AND (${from}::timestamptz IS NULL OR m.created_at >= ${from}::timestamptz))::bigint AS owner_deposits,
+      (SELECT COALESCE(SUM(i.cost_minor), 0) FROM daily_sales_entry_items i
+         JOIN daily_sales_entries e ON e.id = i.entry_id AND e.cancelled_at IS NULL
+        WHERE i.store_id = ${storeId}::uuid AND i.created_at < ${to}
+          AND (${from}::timestamptz IS NULL OR i.created_at >= ${from}::timestamptz))::bigint AS items_cost,
+      (SELECT MAX(s.confirmed_at) FROM inventory_counts s
+        WHERE s.store_id = ${storeId}::uuid AND s.status = 'confirmed') AS last_count
+    FROM c`;
+  const r = rows[0];
   const inventoryValue = await inventoryValueInTx(tx, storeId);
-  const last = await lastConfirmedCountAt(tx, storeId);
   return {
-    counts,
-    services,
-    owner,
-    dailyItemsCostPiasters: Number(dailyItems._sum.costMinor ?? 0),
+    counts: countEffectsFromRow(r),
+    services: {
+      count: Number(r?.svc_count ?? 0),
+      amountPiasters: Number(r?.svc_amount ?? 0),
+      commissionPiasters: Number(r?.svc_commission ?? 0),
+    },
+    owner: {
+      withdrawalsPiasters: Number(r?.owner_withdrawals ?? 0),
+      depositsPiasters: Number(r?.owner_deposits ?? 0),
+    },
+    dailyItemsCostPiasters: Number(r?.items_cost ?? 0),
     inventoryValue,
-    lastStocktakeAt: last,
+    lastStocktakeAt: r?.last_count ?? null,
   };
 }
 
@@ -498,7 +540,63 @@ export function buildProfit(
       i.owner.withdrawalsPiasters + i.ownerPersonalExpensesPiasters,
     ownerDepositsPiasters: i.owner.depositsPiasters,
     lastStocktakeAt: last ? last.toISOString() : null,
+    daysSinceLastStocktake: days,
     notes,
+  };
+}
+
+/**
+ * «أنا كسبت كام؟» for any period inside a caller's tenant transaction — the same rules and
+ * numbers as the Home report's `profit` (the AI assistant uses it).
+ */
+export async function periodProfitInTx(
+  tx: TenantTx,
+  storeId: string,
+  from: Date | null,
+  to: Date,
+): Promise<{
+  profit: NonNullable<HomeReport["profit"]>;
+  inventoryValue: NonNullable<HomeReport["inventoryValue"]>;
+}> {
+  const financials = await salesFinancialsInTx(tx, storeId, from, to);
+  const expenses = await tx.expense.groupBy({
+    by: ["category"],
+    where: {
+      storeId,
+      deletedAt: null,
+      spentAt: { ...(from ? { gte: from } : {}), lt: to },
+    },
+    _sum: { amountPiasters: true },
+  });
+  let total = 0;
+  let personal = 0;
+  for (const e of expenses) {
+    const v = Number(e._sum.amountPiasters ?? 0);
+    total += v;
+    if (OWNER_PERSONAL_CATEGORIES.has(e.category)) personal += v;
+  }
+  const waste = await tx.wasteRecord.aggregate({
+    where: { storeId, createdAt: { ...(from ? { gte: from } : {}), lt: to } },
+    _sum: { costMinor: true },
+  });
+  const wasteUnknown = await tx.wasteRecord.count({
+    where: {
+      storeId,
+      costMinor: BigInt(0),
+      createdAt: { ...(from ? { gte: from } : {}), lt: to },
+    },
+  });
+  const extra = await profitInputsInTx(tx, storeId, from, to);
+  return {
+    profit: buildProfit({
+      financials,
+      operatingExpensesPiasters: total - personal,
+      ownerPersonalExpensesPiasters: personal,
+      wasteLossPiasters: Number(waste._sum.costMinor ?? 0),
+      wasteUnknownCount: wasteUnknown,
+      ...extra,
+    }),
+    inventoryValue: extra.inventoryValue,
   };
 }
 

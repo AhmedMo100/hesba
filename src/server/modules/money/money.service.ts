@@ -20,51 +20,18 @@ import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
 import { drawerViewInTx } from "@/server/modules/drawer";
-import type { MoneyMovementInput } from "@/schemas/money";
+import type {
+  MoneyAccountView,
+  MoneyMovementInput,
+  MoneyMovementView,
+  MoneyOverview,
+} from "@/schemas/money";
 
 export const MONEY_KIND_LABELS: Record<MoneyMovementInput["kind"], string> = {
   owner_withdrawal: "سحب شخصي من صاحب المحل",
   owner_deposit: "إيداع من صاحب المحل",
   transfer: "تحويل بين الحسابات",
 };
-
-export interface MoneyMovementView {
-  id: string;
-  kind: MoneyMovementInput["kind"];
-  label: string;
-  amountPiasters: number;
-  from: string | null;
-  to: string | null;
-  note: string | null;
-  at: string;
-}
-
-export interface MoneyAccountView {
-  /** "cash" or a machine id. */
-  id: string;
-  kind: "cash" | "machine";
-  name: string;
-  provider: string | null;
-  /** null for the drawer before its first count (its amount is not known yet). */
-  balancePiasters: number | null;
-}
-
-export interface MoneyOverview {
-  accounts: MoneyAccountView[];
-  /** Sum of the known balances; `cashKnown` false = the drawer was never counted. */
-  totalPiasters: number;
-  cashKnown: boolean;
-  movements: MoneyMovementView[];
-  /** Recent movements of the machines / wallets (sales, services, top-ups, transfers…). */
-  machineActivity: Array<{
-    id: string;
-    machine: string;
-    amountPiasters: number;
-    balanceAfterPiasters: number;
-    source: string | null;
-    at: string;
-  }>;
-}
 
 const machineName = async (tx: TenantTx, storeId: string, id: string) => {
   const m = await tx.posMachine.findFirst({

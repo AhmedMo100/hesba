@@ -7,6 +7,7 @@ export {
   dailyTotalsInRange,
   inventoryValueInTx,
   buildProfit,
+  periodProfitInTx,
   OWNER_PERSONAL_CATEGORIES,
 } from "./report.service";
 

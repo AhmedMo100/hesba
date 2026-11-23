@@ -22,6 +22,7 @@ import "server-only";
  *   A closed count is frozen by the database (trigger).
  */
 
+import { Prisma } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { isServiceProduct } from "@/domain/sale-pricing";
@@ -672,11 +673,16 @@ export async function confirmInventoryCount(
           appliedCost = taken.costPiasters;
         }
       }
+      const saleValue =
+        diff < ZERO && l.reason === "unrecorded_sale"
+          ? valueOf(l.unitPriceMinor, -diff, unit)
+          : null;
       await tx.inventoryCountLine.update({
         where: { id: l.id },
         data: {
           appliedDeltaBase: diff,
           appliedCostMinor: appliedCost,
+          appliedSaleMinor: saleValue === null ? null : BigInt(saleValue),
           updatedAt: now,
         },
       });
@@ -699,65 +705,60 @@ export async function countEffectsInRange(
   storeId: string,
   from: Date | null,
   to: Date,
-): Promise<{
+): Promise<CountEffects> {
+  const rows = await tx.$queryRaw<CountEffectsRow[]>`
+    SELECT ${COUNT_EFFECTS_SELECT}
+      FROM inventory_count_lines l
+      JOIN inventory_counts s ON s.id = l.session_id
+     WHERE l.store_id = ${storeId}::uuid AND s.status = 'confirmed'
+       AND s.confirmed_at < ${to}
+       AND (${from}::timestamptz IS NULL OR s.confirmed_at >= ${from}::timestamptz)
+       AND l.applied_delta_base <> 0`;
+  return countEffectsFromRow(rows[0]);
+}
+
+export interface CountEffects {
   discoveredSalesPiasters: number;
   discoveredSalesCostPiasters: number;
   discoveredSalesUnknownCost: boolean;
   unknownShortageCostPiasters: number;
   surplusCostPiasters: number;
   counts: number;
-}> {
-  const lines = await tx.inventoryCountLine.findMany({
-    where: {
-      storeId,
-      session: {
-        status: "confirmed",
-        confirmedAt: { ...(from ? { gte: from } : {}), lt: to },
-      },
-      appliedDeltaBase: { not: ZERO },
-    },
-    select: {
-      sessionId: true,
-      appliedDeltaBase: true,
-      appliedCostMinor: true,
-      reason: true,
-      unitPriceMinor: true,
-      storeVariant: { select: { storeProduct: { select: { unit: true } } } },
-    },
-  });
-  let sales = 0;
-  let salesCost = 0;
-  let unknownCost = false;
-  let shortage = 0;
-  let surplus = 0;
-  for (const l of lines) {
-    const d = l.appliedDeltaBase ?? ZERO;
-    const cost =
-      l.appliedCostMinor === null ? null : Number(l.appliedCostMinor);
-    if (d > ZERO) {
-      surplus += cost ?? 0;
-      continue;
-    }
-    if (l.reason === "unrecorded_sale") {
-      sales +=
-        valueOf(
-          l.unitPriceMinor,
-          -d,
-          l.storeVariant.storeProduct?.unit ?? "piece",
-        ) ?? 0;
-      if (cost === null) unknownCost = true;
-      else salesCost += cost;
-    } else if (l.reason === "unknown" || l.reason === null) {
-      shortage += cost ?? 0;
-    }
-  }
+}
+
+export interface CountEffectsRow {
+  discovered_sales: bigint | null;
+  discovered_cost: bigint | null;
+  discovered_unknown: boolean | null;
+  unknown_shortage: bigint | null;
+  surplus_cost: bigint | null;
+  counts: bigint | null;
+}
+
+/**
+ * The aggregate over confirmed lines `l` (alias required), shared with the report's single
+ * profit query so both read the same rules: «اتباع ومتسجلش» = sale (value fixed at
+ * confirmation, FEFO cost); 'unknown' shortage = loss at cost; damaged / lost are NOT here
+ * (they are in waste_records, counted there once).
+ */
+export const COUNT_EFFECTS_SELECT = Prisma.sql`
+  COALESCE(SUM(l.applied_sale_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.applied_delta_base < 0), 0)::bigint AS discovered_sales,
+  COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.applied_delta_base < 0), 0)::bigint AS discovered_cost,
+  COALESCE(BOOL_OR(l.applied_cost_minor IS NULL) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.applied_delta_base < 0), false) AS discovered_unknown,
+  COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE (l.reason = 'unknown' OR l.reason IS NULL) AND l.applied_delta_base < 0), 0)::bigint AS unknown_shortage,
+  COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE l.applied_delta_base > 0), 0)::bigint AS surplus_cost,
+  COUNT(DISTINCT l.session_id)::bigint AS counts`;
+
+export function countEffectsFromRow(
+  r: CountEffectsRow | undefined,
+): CountEffects {
   return {
-    discoveredSalesPiasters: sales,
-    discoveredSalesCostPiasters: salesCost,
-    discoveredSalesUnknownCost: unknownCost,
-    unknownShortageCostPiasters: shortage,
-    surplusCostPiasters: surplus,
-    counts: new Set(lines.map((l) => l.sessionId)).size,
+    discoveredSalesPiasters: Number(r?.discovered_sales ?? 0),
+    discoveredSalesCostPiasters: Number(r?.discovered_cost ?? 0),
+    discoveredSalesUnknownCost: Boolean(r?.discovered_unknown),
+    unknownShortageCostPiasters: Number(r?.unknown_shortage ?? 0),
+    surplusCostPiasters: Number(r?.surplus_cost ?? 0),
+    counts: Number(r?.counts ?? 0),
   };
 }
 

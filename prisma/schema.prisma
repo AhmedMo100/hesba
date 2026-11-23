@@ -299,6 +299,8 @@ model InventoryCountLine {
   unitPriceMinor   BigInt   @default(0) @map("unit_price_minor")
   appliedDeltaBase BigInt?  @map("applied_delta_base")
   appliedCostMinor BigInt?  @map("applied_cost_minor")
+  /// «اتباع ومتسجلش»: the discovered sale's value at the selling price, fixed at confirmation.
+  appliedSaleMinor BigInt?  @map("applied_sale_minor")
   createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
 
