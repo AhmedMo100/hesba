@@ -9,8 +9,11 @@ import "server-only";
  * float (a machine / wallet) and the customer's side (drawer or another wallet) move so that
  * (money in) − (money out) = commission, checked again by a database CHECK.
  *
- * - The commission is computed on the server from the shop's rule (or typed by the owner) and
- *   stored on the transaction: later rule changes never rewrite history.
+ * - ONE commission rule per service (ADR-0035): the service is one of the shop's service
+ *   products — the same one the cashier sells — and its rule is the one saved for it in
+ *   `salesConfig.serviceCommissions` (slabs / fixed / percent). The commission is computed on the
+ *   server from that rule (or typed by the owner) and stored on the transaction: later rule
+ *   changes never rewrite history.
  * - Atomic and idempotent by `opId`; the float never goes negative (a send larger than the float
  *   is a 400 and nothing is recorded).
  * - Hesba has no provider API: the owner records an operation AFTER it went through on the
@@ -21,34 +24,35 @@ import "server-only";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
-import {
-  readStoreSettings,
-  updateStoreSettings,
-} from "@/server/modules/tenancy";
+import { getSalesViewConfig } from "@/server/modules/sales";
 import {
   SERVICE_BY_KEY,
   SERVICE_CATEGORY_LABELS,
-  SERVICES,
   serviceMoney,
   type CommissionMode,
   type ServiceCategory,
 } from "@/domain/services-catalog";
 import {
+  describeCommission,
+  serviceRuleOf,
   slabFor,
   type ServiceCommissionRule,
 } from "@/domain/service-commission";
-import type {
-  ServiceRulesInput,
-  ServiceTransactionInput,
-} from "@/schemas/money";
+import {
+  SERVICE_CATEGORIES as SERVICE_PRODUCT_CATEGORIES,
+  isServiceProduct,
+} from "@/domain/sale-pricing";
+import { Prisma } from "@prisma/client";
+import type { ServiceTransactionInput } from "@/schemas/money";
 
-export interface ServiceRule {
-  mode: CommissionMode;
+/** One of the shop's services (a service product) with its single commission rule. */
+export interface ShopService {
+  id: string;
+  name: string;
+  category: string;
   rule: ServiceCommissionRule;
+  ruleText: string;
 }
-export type ServiceRules = Record<string, ServiceRule>;
-
-const SETTINGS_KEY = "serviceRules";
 
 export interface ServiceTransactionView {
   id: string;
@@ -113,43 +117,46 @@ function view(r: NonNullable<Row>): ServiceTransactionView {
   };
 }
 
-export async function getServiceRules(
+/** The shop's services (service products) with their one commission rule each. */
+export async function listShopServices(
   storeId: string,
   userId: string,
-): Promise<ServiceRules> {
-  const settings = await readStoreSettings(storeId, userId);
-  return (settings[SETTINGS_KEY] as ServiceRules | undefined) ?? {};
-}
-
-/** Merges rules (null removes one). Only the owner's screen calls it; validated by the schema. */
-export async function saveServiceRules(
-  storeId: string,
-  userId: string,
-  input: ServiceRulesInput,
-): Promise<ServiceRules> {
-  return updateStoreSettings(storeId, userId, (settings) => {
-    const saved = {
-      ...((settings[SETTINGS_KEY] as ServiceRules | undefined) ?? {}),
+): Promise<ShopService[]> {
+  const config = await getSalesViewConfig(storeId, userId);
+  const products = await withTenant(storeId, userId, (tx) =>
+    tx.storeProduct.findMany({
+      where: {
+        storeId,
+        isActive: true,
+        OR: [
+          { unit: "service" },
+          { category: { in: [...SERVICE_PRODUCT_CATEGORIES] } },
+        ],
+      },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        nameAr: true,
+        category: true,
+        sellPricePiasters: true,
+        globalProduct: { select: { nameAr: true } },
+      },
+    }),
+  );
+  return products.map((p) => {
+    const rule = serviceRuleOf(
+      config.serviceCommissions,
+      p.id,
+      Number(p.sellPricePiasters),
+    );
+    return {
+      id: p.id,
+      name: p.nameAr || p.globalProduct?.nameAr || "خدمة",
+      category: p.category,
+      rule,
+      ruleText: describeCommission(rule),
     };
-    for (const [key, value] of Object.entries(input.rules)) {
-      if (value === null) delete saved[key];
-      else
-        saved[key] = {
-          mode: value.mode,
-          rule: value.rule as ServiceCommissionRule,
-        };
-    }
-    return { patch: { [SETTINGS_KEY]: saved }, result: saved };
   });
-}
-
-/** The commission the rule gives (undefined: the amount is outside every slab of the rule). */
-export function commissionFromRule(
-  rule: ServiceRule | undefined,
-  amountPiasters: number,
-): number | undefined {
-  if (!rule) return 0;
-  return slabFor(rule.rule, amountPiasters)?.piasters;
 }
 
 /**
@@ -162,12 +169,42 @@ export async function recordServiceTransaction(
   userId: string,
   input: ServiceTransactionInput,
 ): Promise<ServiceTransactionView & { duplicate: boolean }> {
-  const def = SERVICE_BY_KEY.get(input.serviceKey);
-  if (!def) throw AppError.badRequest("اختار الخدمة");
-  const rules = await getServiceRules(storeId, userId);
-  const rule = rules[input.serviceKey];
-  const mode: CommissionMode = rule?.mode ?? def.defaultMode;
-  const fromRule = commissionFromRule(rule, input.amountPiasters);
+  const config = await getSalesViewConfig(storeId, userId);
+  const product = await withTenant(storeId, userId, (tx) =>
+    tx.storeProduct.findFirst({
+      where: { storeId, id: input.serviceProductId },
+      select: {
+        id: true,
+        nameAr: true,
+        category: true,
+        unit: true,
+        isActive: true,
+        sellPricePiasters: true,
+        globalProduct: { select: { nameAr: true } },
+      },
+    }),
+  );
+  if (!product || !product.isActive) {
+    throw AppError.notFound("الخدمة دي مش موجودة");
+  }
+  if (!isServiceProduct(product)) {
+    throw AppError.badRequest("ده منتج مش خدمة");
+  }
+  const name = (
+    product.nameAr ||
+    product.globalProduct?.nameAr ||
+    "خدمة"
+  ).slice(0, 60);
+  const direction = input.direction;
+  // The cashier's model, for both directions: the customer pays the commission on top of a send,
+  // and it is kept from what the customer receives.
+  const mode: CommissionMode = "customer_fee";
+  const rule = serviceRuleOf(
+    config.serviceCommissions,
+    product.id,
+    Number(product.sellPricePiasters),
+  );
+  const fromRule = slabFor(rule, input.amountPiasters)?.piasters;
   const commission = input.commissionPiasters ?? fromRule;
   if (commission === undefined) {
     throw new AppError(
@@ -179,7 +216,7 @@ export async function recordServiceTransaction(
   }
   let money;
   try {
-    money = serviceMoney(def.direction, mode, input.amountPiasters, commission);
+    money = serviceMoney(direction, mode, input.amountPiasters, commission);
   } catch {
     throw new AppError(
       "VALIDATION_ERROR",
@@ -195,7 +232,7 @@ export async function recordServiceTransaction(
     const existing = await findRow(tx, storeId, { opId: input.opId });
     if (existing) {
       if (
-        existing.serviceKey !== input.serviceKey ||
+        existing.serviceKey !== product.id ||
         existing.amountPiasters !== BigInt(input.amountPiasters) ||
         existing.floatMachineId !== input.floatMachineId
       ) {
@@ -203,15 +240,27 @@ export async function recordServiceTransaction(
       }
       return { ...view(existing), duplicate: true };
     }
+    // Both accounts must be this shop's (checked before anything is written: a foreign id is a
+    // 404, whatever the foreign key would accept).
+    const ids = [input.floatMachineId, paymentMachineId].filter(
+      (x): x is string => x !== null,
+    );
+    const owned = await tx.posMachine.count({
+      where: { storeId, id: { in: ids } },
+    });
+    if (owned !== ids.length) {
+      throw AppError.notFound("الماكينة أو المحفظة دي مش موجودة");
+    }
     const created = await tx.serviceTransaction.create({
       data: {
         storeId,
         opId: input.opId,
-        serviceKey: def.key,
-        category: def.category,
-        provider: input.provider.trim(),
-        serviceType: def.serviceType,
-        direction: def.direction,
+        // The service product (its id) — label, category and rule come from it.
+        serviceKey: product.id,
+        category: product.category.slice(0, 40),
+        provider: name,
+        serviceType: name.slice(0, 40),
+        direction,
         amountPiasters: BigInt(input.amountPiasters),
         commissionPiasters: BigInt(commission),
         commissionMode: mode,
@@ -233,7 +282,7 @@ export async function recordServiceTransaction(
         input.floatMachineId,
         { kind: "delta", amountPiasters: money.floatDeltaPiasters },
         {
-          source: `خدمة: ${def.label} (${input.provider.trim()})`,
+          source: `خدمة: ${name}`,
           reference: created.id,
         },
       );
@@ -247,12 +296,12 @@ export async function recordServiceTransaction(
         {
           kind: "delta",
           amountPiasters:
-            def.direction === "send"
+            direction === "send"
               ? money.customerPiasters
               : -money.customerPiasters,
         },
         {
-          source: `${def.direction === "send" ? "دفع خدمة" : "صرف خدمة"}: ${def.label}`,
+          source: `${direction === "send" ? "دفع خدمة" : "صرف خدمة"}: ${name}`,
           reference: created.id,
         },
       );
@@ -339,11 +388,19 @@ export async function listServiceTransactions(
       opts.from ?? null,
       opts.to ?? new Date(Date.now() + 1),
     );
-    return { items: rows.map(view), summary, catalog: SERVICES };
+    return { items: rows.map(view), summary };
   });
 }
 
-/** Completed services of a period: count, operations' value (NOT revenue), commissions. */
+/**
+ * Completed services of a period: count, operations' value (NOT revenue), commissions — the
+ * services page's operations AND the services sold at the cashier (ADR-0035), so «كسبت كام من
+ * الخدمات؟» has one answer everywhere (the report's `serviceCommissionsPiasters` adds the same
+ * two parts).
+ * - cashier: a sale line of a service product, voided sales excluded, returns netted; its
+ *   commission is what the customer paid − what the machine paid out (lines whose machine charge
+ *   is not recorded are counted in `unknownCommissionCount`, never guessed).
+ */
 export async function serviceSummaryInRange(
   tx: TenantTx,
   storeId: string,
@@ -359,6 +416,12 @@ export async function serviceSummaryInRange(
     count: number;
     commissionPiasters: number;
   }>;
+  cashier: {
+    count: number;
+    paidPiasters: number;
+    commissionPiasters: number;
+    unknownCommissionCount: number;
+  };
 }> {
   const rows = await tx.serviceTransaction.groupBy({
     by: ["category"],
@@ -370,6 +433,45 @@ export async function serviceSummaryInRange(
     _sum: { amountPiasters: true, commissionPiasters: true },
     _count: true,
   });
+  const cashierRows = await tx.$queryRaw<
+    Array<{
+      count: bigint;
+      paid: bigint | null;
+      known_paid: bigint | null;
+      known_cost: bigint | null;
+      unknown: bigint;
+    }>
+  >`
+    WITH line AS (
+      SELECT sl.total_piasters
+               - COALESCE((SELECT SUM(r.amount_piasters) FROM sale_return_lines r
+                            WHERE r.store_id = sl.store_id AND r.sale_line_id = sl.id), 0) AS paid,
+             sl.cost_piasters AS cost
+        FROM sale_lines sl
+        JOIN sales s ON s.id = sl.sale_id AND s.store_id = sl.store_id
+        LEFT JOIN store_variants v ON v.id = sl.store_variant_id
+        JOIN store_products p ON p.id = COALESCE(sl.store_product_id, v.store_product_id)
+       WHERE sl.store_id = ${storeId}::uuid
+         AND s.created_at < ${to}
+         AND (${from}::timestamptz IS NULL OR s.created_at >= ${from}::timestamptz)
+         AND NOT EXISTS (SELECT 1 FROM sale_voids sv
+                          WHERE sv.store_id = s.store_id AND sv.sale_id = s.id)
+         AND (p.unit = 'service'
+              OR p.category IN (${Prisma.join([...SERVICE_PRODUCT_CATEGORIES])}))
+    )
+    SELECT COUNT(*)::bigint AS count,
+           SUM(paid)::bigint AS paid,
+           SUM(paid) FILTER (WHERE cost IS NOT NULL)::bigint AS known_paid,
+           SUM(cost) FILTER (WHERE cost IS NOT NULL)::bigint AS known_cost,
+           COUNT(*) FILTER (WHERE cost IS NULL)::bigint AS unknown
+      FROM line`;
+  const c = cashierRows[0];
+  const cashier = {
+    count: Number(c?.count ?? 0),
+    paidPiasters: Number(c?.paid ?? 0),
+    commissionPiasters: Number(c?.known_paid ?? 0) - Number(c?.known_cost ?? 0),
+    unknownCommissionCount: Number(c?.unknown ?? 0),
+  };
   const byCategory = rows
     .map((r) => ({
       category: r.category,
@@ -380,15 +482,14 @@ export async function serviceSummaryInRange(
     }))
     .sort((a, b) => b.commissionPiasters - a.commissionPiasters);
   return {
-    count: rows.reduce((s, r) => s + r._count, 0),
-    amountPiasters: rows.reduce(
-      (s, r) => s + Number(r._sum.amountPiasters ?? 0),
-      0,
-    ),
-    commissionPiasters: byCategory.reduce(
-      (s, r) => s + r.commissionPiasters,
-      0,
-    ),
+    count: rows.reduce((s, r) => s + r._count, 0) + cashier.count,
+    amountPiasters:
+      rows.reduce((s, r) => s + Number(r._sum.amountPiasters ?? 0), 0) +
+      Number(c?.known_cost ?? 0),
+    commissionPiasters:
+      byCategory.reduce((s, r) => s + r.commissionPiasters, 0) +
+      cashier.commissionPiasters,
     byCategory,
+    cashier,
   };
 }

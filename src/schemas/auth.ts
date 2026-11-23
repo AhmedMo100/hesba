@@ -75,12 +75,11 @@ export const signupInputSchema = z.object({
     .default(1),
   withDemoData: z.boolean().optional().default(false),
   /**
-   * How the shop will use Hesba (ADR-0033), chosen on the sign-up screen — required: the app
-   * never picks it silently for the owner.
+   * Hesba has ONE package (2026-11-23, owner's decision): every shop works as الكاشير الذكي.
+   * The field is accepted (an older app may still send it) and ignored — the server always
+   * creates the shop in 'pos' (ADR-0035).
    */
-  operatingMode: z.enum(OPERATING_MODES, {
-    message: "اختار طريقة تشغيل المحل: إدارة المحل أو الكاشير الذكي",
-  }),
+  operatingMode: z.enum(OPERATING_MODES).optional(),
   /**
    * Optional referral (influencer) code, e.g. `mogamal123`. Empty = none. Matched without
    * case; checked against `referral_codes` on the server (an unknown code is a 400).

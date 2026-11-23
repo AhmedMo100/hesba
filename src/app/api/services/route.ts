@@ -2,8 +2,8 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import {
-  getServiceRules,
   listServiceTransactions,
+  listShopServices,
 } from "@/server/modules/services";
 import { toSafeErrorResponse } from "@/server/platform/error";
 import { reportRangeQuerySchema } from "@/schemas/report";
@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 
 /**
  * GET /api/services?from=YYYY-MM-DD&to=YYYY-MM-DD — the services recorded (newest first), the
- * period's commissions, the catalog and the shop's commission rules.
+ * period's commissions (services page + cashier), and the shop's services, each with its ONE
+ * commission rule (ADR-0035).
  */
 export async function GET(req: Request) {
   try {
@@ -31,8 +32,8 @@ export async function GET(req: Request) {
         to: to ? cairoDayStartUtc(addDaysToDateKey(to, 1)) : undefined,
       },
     );
-    const rules = await getServiceRules(context.store.id, context.user.id);
-    return NextResponse.json({ ...list, rules });
+    const services = await listShopServices(context.store.id, context.user.id);
+    return NextResponse.json({ ...list, services });
   } catch (err: unknown) {
     return toSafeErrorResponse(err);
   }

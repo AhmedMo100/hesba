@@ -1,10 +1,5 @@
 import { z } from "zod";
 import { MAX_AMOUNT_PIASTERS } from "@/domain/limits";
-import {
-  commissionRuleErrors,
-  type ServiceCommissionRule,
-} from "@/domain/service-commission";
-import { SERVICE_BY_KEY } from "@/domain/services-catalog";
 
 const piasters = (message: string) =>
   z
@@ -68,14 +63,18 @@ export const moneyMovementSchema = z
   });
 export type MoneyMovementInput = z.infer<typeof moneyMovementSchema>;
 
-/** `POST /api/services/transactions`: a service the owner already performed. */
+/**
+ * `POST /api/services/transactions`: a service the owner already performed, for one of the
+ * shop's service products — the same service the cashier sells, with the same single
+ * commission rule (ADR-0035).
+ */
 export const serviceTransactionSchema = z
   .object({
     opId: z.string().uuid("رقم العملية غير صحيح"),
-    serviceKey: z
-      .string()
-      .refine((k) => SERVICE_BY_KEY.has(k), { message: "اختار الخدمة" }),
-    provider: z.string().trim().min(1, "اكتب اسم الشركة").max(60),
+    /** The shop's service product (its name, category and commission rule). */
+    serviceProductId: z.string().uuid("اختار الخدمة"),
+    /** send: the customer pays, the float sends it out; receive: the float gets it, the shop pays out. */
+    direction: z.enum(["send", "receive"], { message: "اختار نوع العملية" }),
     amountPiasters: piasters("مبلغ العملية غير صحيح"),
     /** The provider float the operation used (a machine / wallet of the shop). */
     floatMachineId: z.string().uuid("اختار رصيد الخدمة"),
@@ -100,48 +99,6 @@ export const serviceTransactionSchema = z
     },
   );
 export type ServiceTransactionInput = z.infer<typeof serviceTransactionSchema>;
-
-const ruleSchema = z
-  .object({
-    type: z.enum(["fixed", "percent"]),
-    value: z.number().min(0),
-    tiers: z
-      .array(
-        z
-          .object({
-            fromPiasters: z.number().int().min(0),
-            toPiasters: z.number().int().min(1),
-            type: z.enum(["fixed", "percent"]),
-            value: z.number().min(0),
-          })
-          .strict(),
-      )
-      .max(20, "الشرائح كتير قوي")
-      .default([]),
-  })
-  .strict()
-  .superRefine((rule, ctx) => {
-    for (const message of commissionRuleErrors(rule as ServiceCommissionRule)) {
-      ctx.addIssue({ code: "custom", message });
-    }
-  });
-
-/** `PUT /api/services/rules`: the shop's commission rule per service (null removes it). */
-export const serviceRulesSchema = z
-  .object({
-    rules: z.record(
-      z.string().refine((k) => SERVICE_BY_KEY.has(k), "خدمة غير معروفة"),
-      z
-        .object({
-          mode: z.enum(["customer_fee", "provider_discount"]),
-          rule: ruleSchema,
-        })
-        .strict()
-        .nullable(),
-    ),
-  })
-  .strict();
-export type ServiceRulesInput = z.infer<typeof serviceRulesSchema>;
 
 export const cancelServiceSchema = z
   .object({ reason: z.string().trim().max(200).optional().nullable() })

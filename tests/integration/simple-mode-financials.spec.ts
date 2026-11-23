@@ -25,9 +25,11 @@ import {
 import { recordMoneyMovement, getMoneyOverview } from "@/server/modules/money";
 import {
   cancelServiceTransaction,
+  listShopServices,
   recordServiceTransaction,
-  saveServiceRules,
 } from "@/server/modules/services";
+import { saveSalesViewConfig } from "@/server/modules/sales";
+import type { ServiceCommissionRule } from "@/domain/service-commission";
 import {
   cancelDailySales,
   recordDailySales,
@@ -309,83 +311,111 @@ describe("«فلوس حِسبة»: withdrawals, deposits and transfers", () => {
   });
 });
 
-describe("services and commissions", () => {
-  it("send with a customer fee: drawer + (a + c), float − a, income = c only", async () => {
-    await saveServiceRules(A.storeId, A.userId, {
-      rules: {
-        fawry_payment: {
-          mode: "customer_fee",
-          rule: { type: "fixed", value: 500, tiers: [] },
-        },
-      },
+describe("services and commissions (one rule per service, ADR-0035)", () => {
+  /** A service product of the shop with its ONE commission rule (the cashier's rule store). */
+  const service = async (
+    name: string,
+    category: string,
+    rule: ServiceCommissionRule,
+  ) => {
+    const { productId } = await f.product(A, { name, sell: 500, category });
+    await saveSalesViewConfig(A.storeId, A.userId, {
+      serviceCommissions: { [productId]: rule },
     });
+    return productId;
+  };
+
+  it("send: the customer pays 500, the machine sends 490, the commission is 10 — only 10 is income", async () => {
+    const bill = await service("فاتورة فوري", "خدمات مرافق", {
+      type: "fixed",
+      value: 1000,
+      tiers: [],
+    });
+    // The services page reads the same single rule the cashier uses.
+    const listed = (await listShopServices(A.storeId, A.userId)).find(
+      (x) => x.id === bill,
+    )!;
+    expect(listed.rule).toEqual({ type: "fixed", value: 1000, tiers: [] });
     await machines.topupMachine(A.storeId, A.userId, fawry, 100000);
     const d0 = await expectedDrawer();
     const f0 = await machineBalance(fawry);
     const before = await getHomeReport(A.storeId, A.userId, "today");
     const t = await recordServiceTransaction(A.storeId, A.userId, {
       opId: op(),
-      serviceKey: "fawry_payment",
-      provider: "فوري",
-      amountPiasters: 20000,
-      floatMachineId: fawry,
-      payment: "cash",
-    });
-    expect(t.commissionPiasters).toBe(500);
-    expect(t.customerPiasters).toBe(20500);
-    expect(await expectedDrawer()).toBe(d0 + 20500);
-    expect(await machineBalance(fawry)).toBe(f0 - 20000);
-    const after = await getHomeReport(A.storeId, A.userId, "today");
-    expect(
-      after.profit!.serviceCommissionsPiasters -
-        before.profit!.serviceCommissionsPiasters,
-    ).toBe(500);
-    // The bill's value is never sales revenue.
-    expect(after.sales.revenuePiasters).toBe(before.sales.revenuePiasters);
-  });
-
-  it("the provider's discount (500 paid, float − 490, commission 10) and a wallet withdrawal", async () => {
-    await saveServiceRules(A.storeId, A.userId, {
-      rules: {
-        mobile_recharge: {
-          mode: "provider_discount",
-          rule: { type: "percent", value: 2, tiers: [] },
-        },
-      },
-    });
-    const f0 = await machineBalance(fawry);
-    const d0 = await expectedDrawer();
-    const r = await recordServiceTransaction(A.storeId, A.userId, {
-      opId: op(),
-      serviceKey: "mobile_recharge",
-      provider: "فودافون",
-      amountPiasters: 50000,
+      serviceProductId: bill,
+      direction: "send",
+      amountPiasters: 49000,
       floatMachineId: fawry,
       payment: "cash",
     });
     expect([
-      r.customerPiasters,
-      r.floatDeltaPiasters,
-      r.commissionPiasters,
+      t.customerPiasters,
+      t.floatDeltaPiasters,
+      t.commissionPiasters,
     ]).toEqual([50000, -49000, 1000]);
-    expect(await machineBalance(fawry)).toBe(f0 - 49000);
     expect(await expectedDrawer()).toBe(d0 + 50000);
+    expect(await machineBalance(fawry)).toBe(f0 - 49000);
+    const after = await getHomeReport(A.storeId, A.userId, "today");
+    expect(
+      after.profit!.serviceCommissionsPiasters -
+        before.profit!.serviceCommissionsPiasters,
+    ).toBe(1000);
+    // The operation's value is never sales revenue.
+    expect(after.sales.revenuePiasters).toBe(before.sales.revenuePiasters);
+  });
 
-    // Withdrawal: 1,000 arrives in the shop's wallet, the customer gets 990 cash (fee 10).
-    await saveServiceRules(A.storeId, A.userId, {
-      rules: {
-        wallet_withdrawal: {
-          mode: "customer_fee",
-          rule: { type: "fixed", value: 1000, tiers: [] },
-        },
+  it("slabs decide the commission; an amount outside every slab must be typed; a rule change never rewrites history", async () => {
+    const recharge = await service("شحن فودافون", "شحن رصيد", {
+      type: "fixed",
+      value: 0,
+      tiers: [
+        { fromPiasters: 100, toPiasters: 10000, type: "fixed", value: 100 },
+        { fromPiasters: 10000, toPiasters: 50000, type: "percent", value: 2 },
+      ],
+    });
+    const first = await recordServiceTransaction(A.storeId, A.userId, {
+      opId: op(),
+      serviceProductId: recharge,
+      direction: "send",
+      amountPiasters: 20000,
+      floatMachineId: fawry,
+      payment: "cash",
+    });
+    expect(first.commissionPiasters).toBe(400); // 2% of 200.00
+    await expect(
+      recordServiceTransaction(A.storeId, A.userId, {
+        opId: op(),
+        serviceProductId: recharge,
+        direction: "send",
+        amountPiasters: 90000,
+        floatMachineId: fawry,
+        payment: "cash",
+      }),
+    ).rejects.toThrow(/برة شرائح العمولة/);
+    // Changing the rule later keeps the stored commission.
+    await saveSalesViewConfig(A.storeId, A.userId, {
+      serviceCommissions: {
+        [recharge]: { type: "fixed", value: 5000, tiers: [] },
       },
+    });
+    const stored = await f.as(A, (tx) =>
+      tx.serviceTransaction.findUniqueOrThrow({ where: { id: first.id } }),
+    );
+    expect(Number(stored.commissionPiasters)).toBe(400);
+  });
+
+  it("receive (a wallet withdrawal) and cancel: books reversed exactly once", async () => {
+    const withdraw = await service("سحب فودافون كاش", "تحويل أموال", {
+      type: "fixed",
+      value: 1000,
+      tiers: [],
     });
     const w0 = await machineBalance(wallet);
     const d1 = await expectedDrawer();
     const w = await recordServiceTransaction(A.storeId, A.userId, {
       opId: op(),
-      serviceKey: "wallet_withdrawal",
-      provider: "فودافون كاش",
+      serviceProductId: withdraw,
+      direction: "receive",
       amountPiasters: 100000,
       floatMachineId: wallet,
       payment: "cash",
@@ -398,19 +428,86 @@ describe("services and commissions", () => {
     expect(await machineBalance(wallet)).toBe(w0 + 100000);
     expect(await expectedDrawer()).toBe(d1 - 99000);
 
-    // Cancel reverses Hesba's books exactly (float and drawer), once.
     await cancelServiceTransaction(A.storeId, A.userId, w.id);
     await cancelServiceTransaction(A.storeId, A.userId, w.id);
     expect(await machineBalance(wallet)).toBe(w0);
     expect(await expectedDrawer()).toBe(d1);
   });
 
+  it("a product that is not a service, another shop's service or machine: refused, nothing written", async () => {
+    const goods = (await f.product(A, { name: "سكر مش خدمة", sell: 500 }))
+      .productId;
+    const n0 = await f.as(A, (tx) =>
+      tx.serviceTransaction.count({ where: { storeId: A.storeId } }),
+    );
+    await expect(
+      recordServiceTransaction(A.storeId, A.userId, {
+        opId: op(),
+        serviceProductId: goods,
+        direction: "send",
+        amountPiasters: 1000,
+        floatMachineId: fawry,
+        payment: "cash",
+        commissionPiasters: 100,
+      }),
+    ).rejects.toThrow(/مش خدمة/);
+    const otherService = (
+      await f.product(B, {
+        name: "خدمة محل تاني",
+        sell: 500,
+        category: "شحن رصيد",
+      })
+    ).productId;
+    await expect(
+      recordServiceTransaction(A.storeId, A.userId, {
+        opId: op(),
+        serviceProductId: otherService,
+        direction: "send",
+        amountPiasters: 1000,
+        floatMachineId: fawry,
+        payment: "cash",
+        commissionPiasters: 100,
+      }),
+    ).rejects.toThrow(/مش موجودة/);
+    const mine = await service("خدمة معزولة", "شحن رصيد", {
+      type: "fixed",
+      value: 100,
+      tiers: [],
+    });
+    const foreignMachine = (
+      await machines.upsertMachine(B.storeId, B.userId, {
+        name: `ماكينة محل تاني ${f.runId}`,
+        provider: "fawry",
+      })
+    ).id;
+    await expect(
+      recordServiceTransaction(A.storeId, A.userId, {
+        opId: op(),
+        serviceProductId: mine,
+        direction: "send",
+        amountPiasters: 1000,
+        floatMachineId: foreignMachine,
+        payment: "cash",
+      }),
+    ).rejects.toThrow(/مش موجودة/);
+    expect(
+      await f.as(A, (tx) =>
+        tx.serviceTransaction.count({ where: { storeId: A.storeId } }),
+      ),
+    ).toBe(n0);
+  });
+
   it("a duplicate request counts once; a float too low records nothing", async () => {
+    const elec = await service("كهربا", "خدمات مرافق", {
+      type: "fixed",
+      value: 200,
+      tiers: [],
+    });
     const f0 = await machineBalance(fawry);
     const body = {
       opId: op(),
-      serviceKey: "electricity_bill",
-      provider: "الكهربا",
+      serviceProductId: elec,
+      direction: "send" as const,
       amountPiasters: 1000,
       floatMachineId: fawry,
       payment: "cash" as const,

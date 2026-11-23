@@ -112,10 +112,17 @@ describe("the reads that returned 500 answer from the database", () => {
       from: "cash",
       to: { machineId: wallet },
     });
+    const deposit = (
+      await f.product(A, {
+        name: "إيداع محفظة",
+        sell: 500,
+        category: "تحويل أموال",
+      })
+    ).productId;
     await recordServiceTransaction(A.storeId, A.userId, {
       opId: op(),
-      serviceKey: "wallet_deposit",
-      provider: "فودافون كاش",
+      serviceProductId: deposit,
+      direction: "send",
       amountPiasters: 10_000,
       commissionPiasters: 500,
       floatMachineId: wallet,

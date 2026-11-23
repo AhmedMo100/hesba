@@ -349,6 +349,14 @@ export class BusinessToolsService {
             services_count: summary.count,
             operations_value_piasters_not_revenue: summary.amountPiasters,
             commissions_piasters: summary.commissionPiasters,
+            cashier_service_sales: {
+              count: summary.cashier.count,
+              paid_by_customers_piasters_not_revenue:
+                summary.cashier.paidPiasters,
+              commissions_piasters: summary.cashier.commissionPiasters,
+              without_machine_charge_commission_unknown:
+                summary.cashier.unknownCommissionCount,
+            },
             by_category: summary.byCategory.map((c) => ({
               category: c.label,
               count: c.count,
