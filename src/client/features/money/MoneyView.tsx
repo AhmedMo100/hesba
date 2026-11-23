@@ -22,6 +22,8 @@ import {
 } from "@/client/shared/api/machines";
 import { useToast } from "@/client/shared/ui";
 import { MachineTopupModal } from "../stock/MachineTopupModal";
+import { MachineFormSheet } from "../alerts/MachineFormSheet";
+import type { NavRoute } from "@/client/app-shell/BottomNav";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "../expenses/ExpensesView.module.css";
 
@@ -50,7 +52,12 @@ async function errorText(res: Response, fallback: string) {
 
 const accountRef = (id: string) => (id === "cash" ? "cash" : { machineId: id });
 
-export function MoneyView() {
+export function MoneyView({
+  onNavigate,
+}: {
+  /** Opens the drawer count («عدّ الدرج»). */
+  onNavigate?: (route: NavRoute) => void;
+} = {}) {
   const [data, setData] = useState<MoneyOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<Kind>("owner_withdrawal");
@@ -66,11 +73,35 @@ export function MoneyView() {
   // The shop's machines (full rows) for the existing top-up form.
   const [machines, setMachines] = useState<PosMachine[]>([]);
   const [topup, setTopup] = useState<PosMachine | null>(null);
-  useEffect(() => {
+  const [machineForm, setMachineForm] = useState<{
+    machine: PosMachine | null;
+  } | null>(null);
+  const reloadMachines = useCallback(() => {
     void fetchStoreMachines()
       .then(setMachines)
       .catch(() => undefined);
   }, []);
+  useEffect(reloadMachines, [reloadMachines]);
+
+  /** Only an empty machine is removed (its history stays on the server). */
+  const deleteMachine = async (m: PosMachine) => {
+    if ((m.currentBalancePiasters || 0) > 0) {
+      toast.show({ msg: "الرصيد لازم يبقى صفر قبل المسح", kind: "err" });
+      return;
+    }
+    if (!window.confirm(`تمسح «${m.name}»؟`)) return;
+    try {
+      const res = await fetch(`/api/machines?id=${encodeURIComponent(m.id)}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) throw new Error(await errorText(res, "مقدرناش نمسحها"));
+      toast.show({ msg: "اتمسحت", kind: "ok" });
+      reloadMachines();
+      load();
+    } catch (e: unknown) {
+      toast.show({ msg: failureMessage(e, "مقدرناش نمسحها"), kind: "err" });
+    }
+  };
 
   const load = useCallback(() => {
     fetch("/api/money", { credentials: "same-origin" })
@@ -140,45 +171,83 @@ export function MoneyView() {
                 {formatMoney(data.totalPiasters)}
               </span>
             </div>
-            <div className={styles.listCard} data-testid="money-accounts">
-              {data.accounts.map((a) => (
-                <div
-                  key={a.id}
-                  className={styles.expenseRow}
-                  data-testid="money-account"
-                >
-                  <div className={styles.itemInfo}>
-                    <b className={styles.itemCategory}>
+            <div className={styles.moneyGrid} data-testid="money-accounts">
+              {data.accounts.map((a) => {
+                const machine = machines.find((m) => m.id === a.id);
+                return (
+                  <div
+                    key={a.id}
+                    className={`${styles.moneyCard} ${a.kind === "cash" ? styles.moneyCardCash : ""}`}
+                    data-testid="money-account"
+                  >
+                    <span className={styles.moneyCardName}>
                       {a.kind === "cash" ? "🧮" : "💳"} {a.name}
-                    </b>
-                    {a.kind === "cash" && (
-                      <span className={styles.itemMeta}>
-                        المفروض في الدرج من آخر عدّ
-                      </span>
-                    )}
-                  </div>
-                  <div className={styles.itemActions}>
-                    <b>
+                    </span>
+                    <b className={styles.moneyCardBal}>
                       {a.balancePiasters === null
                         ? "عدّه أول مرة"
                         : formatMoney(a.balancePiasters)}
                     </b>
-                    {a.kind !== "cash" &&
-                      machines.some((m) => m.id === a.id) && (
-                        <button
-                          type="button"
-                          className={styles.undoBtn}
-                          onClick={() =>
-                            setTopup(machines.find((m) => m.id === a.id)!)
-                          }
-                          data-testid="money-topup"
-                        >
-                          ➕ حط رصيد
-                        </button>
-                      )}
+                    {a.kind === "cash" ? (
+                      <>
+                        <span className={styles.moneyCardNote}>
+                          بيتغير لوحده مع البيع والمصاريف
+                        </span>
+                        {onNavigate && (
+                          <button
+                            type="button"
+                            className={styles.moneyBtn}
+                            onClick={() => onNavigate("drawer")}
+                            data-testid="money-drawer-count"
+                          >
+                            🧮 عدّ الدرج
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      machine && (
+                        <div className={styles.moneyBtns}>
+                          <button
+                            type="button"
+                            className={styles.moneyBtn}
+                            onClick={() => setTopup(machine)}
+                            data-testid="money-topup"
+                          >
+                            ➕ حط رصيد
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.moneyBtnGhost}
+                            onClick={() => setMachineForm({ machine })}
+                            data-testid="money-rename"
+                            aria-label={`غيّر اسم ${machine.name}`}
+                          >
+                            ✏️ الاسم
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.moneyBtnGhost}
+                            onClick={() => void deleteMachine(machine)}
+                            data-testid="money-delete"
+                            aria-label={`امسح ${machine.name}`}
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      )
+                    )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
+              <button
+                type="button"
+                className={`${styles.moneyCard} ${styles.moneyAdd}`}
+                onClick={() => setMachineForm({ machine: null })}
+                data-testid="money-add-machine"
+              >
+                <span aria-hidden="true">➕</span>
+                <b>ماكينة / محفظة</b>
+              </button>
             </div>
           </>
         )}
@@ -347,6 +416,19 @@ export function MoneyView() {
           لحد ما يتحصّل، والبضاعة ليها قيمة في التقارير. الدرج مبيتشحنش بإيدك:
           فلوسه بتتغير لوحدها مع البيع والمصاريف والعمليات الكاش.
         </p>
+        {machineForm && (
+          <MachineFormSheet
+            machine={machineForm.machine}
+            storeId={session?.store?.id}
+            onClose={() => setMachineForm(null)}
+            onSaved={(list, message) => {
+              setMachineForm(null);
+              setMachines(list);
+              toast.show({ msg: message, kind: "ok" });
+              load();
+            }}
+          />
+        )}
         {topup && (
           <MachineTopupModal
             machine={topup}

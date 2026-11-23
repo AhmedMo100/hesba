@@ -2,74 +2,64 @@
 
 /**
  * @file StocktakeView.tsx
- * @description «الجرد الفعلي»: count what is really on the shelves and settle the differences.
- * The owner types what he found; Hesba shows the difference and its value, and for every
- * shortage asks WHY (sold and not recorded, damaged, lost / stolen, or don't know). A shortage
- * is never turned into sales by itself. Nothing changes in stock until «أكّد الجرد»; a cancelled
- * count changes nothing. Moving goods from the store room to the shelf is not counted here.
+ * @description «اعمل جرد» — a very simple, step-by-step stocktake (owner's design, 2026-11-23).
+ *
+ * 1. An unfinished count? «تكمل من حيث وقفت؟» → أكمل الجرد / ابدأ جرد جديد.
+ * 2. New: كل المحل / قسم / منتجات معينة.
+ * 3. One product at a time: name, المتوقع, الفعلي, then «التالي» (progress and what is left).
+ * 4. A difference: المتوقع / الموجود / الفرق, then «ليه حصل الفرق؟» (تالف · مفقود ·
+ *    اتباع ومتسجلش · خطأ في العد → count again · سبب آخر). The owner decides; nothing guesses.
+ * 5. Summary → «راجع الجرد» → «تطبيق الجرد» → an explicit confirmation. Only then does the
+ *    server change the stock, atomically and once (the confirm `opId`); «إلغاء» changes nothing.
+ * 6. The report: date, who, scope, expected / actual / differences / reasons / values / what was
+ *    applied — download (CSV) or share (WhatsApp…).
+ *
+ * The AI only helps (explains, summarises): «اسأل حسبة» opens the assistant with a question the
+ * owner sends himself. The AI never changes stock or applies a count.
  */
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { formatMoney } from "@/client/shared/i18n";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { apiGet } from "@/client/shared/api/read-cache";
+import { formatMoney } from "@/client/shared/i18n";
+import { isServiceProduct } from "@/domain/sale-pricing";
 import {
+  failureMessage,
   formatBaseQty,
   qtyUnitWord,
   toBaseQty,
   variantOptions,
   type StoreVariantOption,
-  failureMessage,
 } from "@/client/shared/quantity";
+import { useToast } from "@/client/shared/ui";
+import { shareReport, downloadFile } from "@/client/shared/share";
+import { writeAiDraft } from "@/client/shared/ai-draft";
+import type { NavRoute } from "@/client/app-shell/BottomNav";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
-import styles from "../expenses/ExpensesView.module.css";
+import styles from "./StocktakeView.module.css";
+import {
+  REASON_LABEL,
+  buildReportCsv,
+  buildReportText,
+  reportFileName,
+  scopeText,
+  type CountReason,
+  type ReportCount,
+  type ReportLine,
+} from "./stocktake-report";
 
-type Reason = "unrecorded_sale" | "damaged" | "lost" | "unknown" | "surplus";
-const SHORTAGE_REASONS: Array<[Reason, string]> = [
-  ["unknown", "مش عارف السبب"],
-  ["unrecorded_sale", "اتباع ومتسجلش"],
-  ["damaged", "تالف"],
-  ["lost", "ضايع / مسروق"],
-];
-
-interface Line {
+interface Line extends ReportLine {
   variantId: string;
-  productName: string;
-  category: string;
-  unit: string;
-  expectedBase: number;
-  countedBase: number | null;
-  differenceBase: number | null;
-  reason: Reason | null;
-  differenceCostPiasters: number | null;
   differenceSellPiasters: number | null;
 }
-interface Count {
-  id: string;
-  scope: string;
-  category: string | null;
-  status: "open" | "confirmed" | "abandoned";
-  startedAt: string;
-  confirmedAt: string | null;
-  /** simple: «اتباع» = its money is in the daily totals; pos: a sale nobody rang up. */
-  salesMode?: "simple" | "pos";
-  totals: {
-    lines: number;
-    counted: number;
-    matched: number;
-    discrepancies: number;
-    shortageCostPiasters: number;
-    surplusCostPiasters: number;
-    damagedBase: number;
-    lostBase: number;
-    unrecordedSaleBase: number;
-    unrecordedSaleSellPiasters: number;
-    unknownBase: number;
-    unknownCostLines: number;
-  };
+interface Count extends ReportCount {
   lines: Line[];
 }
 interface Overview {
-  lastConfirmedAt: string | null;
-  daysSinceLastCount: number | null;
   open: { id: string } | null;
   history: Array<{
     id: string;
@@ -79,13 +69,28 @@ interface Overview {
     startedAt: string;
     confirmedAt: string | null;
     lines: number;
-    counted: number;
     discrepancies: number;
-    damagedBase: number;
-    shortageCostPiasters: number;
-    surplusCostPiasters: number;
   }>;
 }
+
+type Step =
+  | "home"
+  | "pickCategory"
+  | "pickProducts"
+  | "count"
+  | "summary"
+  | "review"
+  | "confirm"
+  | "report";
+
+/** The answers to «ليه حصل الفرق؟» («خطأ في العد» is not a reason: the owner counts again). */
+const SHORTAGE_CHOICES: Array<[CountReason | "recount", string, string]> = [
+  ["damaged", "🗑️", "تالف"],
+  ["lost", "❓", "مفقود"],
+  ["unrecorded_sale", "🛒", "اتباع ومتسجلش"],
+  ["recount", "🔁", "خطأ في العد"],
+  ["unknown", "…", "سبب آخر"],
+];
 
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString("ar-EG", {
@@ -93,11 +98,6 @@ const day = (iso: string) =>
     day: "numeric",
     month: "long",
   });
-const STATUS: Record<string, string> = {
-  open: "شغال",
-  confirmed: "اتأكد",
-  abandoned: "اتلغى",
-};
 
 async function errorText(res: Response, fallback: string) {
   const b = (await res.json().catch(() => null)) as {
@@ -106,45 +106,50 @@ async function errorText(res: Response, fallback: string) {
   return b?.error?.message || fallback;
 }
 
-export function StocktakeView() {
+export function StocktakeView({
+  onNavigate,
+}: { onNavigate?: (route: NavRoute) => void } = {}) {
+  const toast = useToast();
+  const [step, setStep] = useState<Step>("home");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [count, setCount] = useState<Count | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [variants, setVariants] = useState<StoreVariantOption[]>([]);
-  const [category, setCategory] = useState("");
   const [picked, setPicked] = useState<string[]>([]);
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState("");
-  // Typed quantities and reasons not saved yet, per variant.
-  const [typed, setTyped] = useState<Record<string, string>>({});
-  const [reasons, setReasons] = useState<Record<string, Reason>>({});
-  const [review, setReview] = useState(false);
+  // Counting one product at a time.
+  const [index, setIndex] = useState(0);
+  const [typed, setTyped] = useState("");
+  const [reason, setReason] = useState<CountReason | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const loadOverview = useCallback(() => {
     fetch("/api/inventory-counts", { credentials: "same-origin" })
       .then(async (r) => {
-        if (!r.ok) throw new Error(await errorText(r, "مقدرناش نجيب الجرد"));
+        if (!r.ok)
+          throw new Error(await errorText(r, "حصلت مشكلة. جرّب تاني."));
         return (await r.json()) as Overview;
       })
-      .then(setOverview)
-      .catch((e: unknown) => setError(failureMessage(e, "مفيش نت")));
-  }, []);
-  const openCount = useCallback(async (id: string) => {
-    const r = await fetch(`/api/inventory-counts/${id}`, {
-      credentials: "same-origin",
-    });
-    if (!r.ok) return setError(await errorText(r, "مقدرناش نفتح الجرد"));
-    setCount(((await r.json()) as { count: Count }).count);
-    setTyped({});
-    setReasons({});
-    setReview(false);
+      .then((o) => {
+        setOverview(o);
+        setError(null);
+      })
+      .catch((e: unknown) =>
+        setError(failureMessage(e, "حصلت مشكلة. جرّب تاني.")),
+      );
   }, []);
   useEffect(loadOverview, [loadOverview]);
   useEffect(() => {
     apiGet("/api/products?scope=store")
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => setVariants(variantOptions(d)))
+      .then((d) =>
+        setVariants(
+          variantOptions(d).filter(
+            (v) => !isServiceProduct({ unit: v.unit, category: v.category }),
+          ),
+        ),
+      )
       .catch(() => {});
   }, []);
   const categories = useMemo(
@@ -152,7 +157,45 @@ export function StocktakeView() {
     [variants],
   );
 
-  const start = async (scope: "full" | "category" | "selected") => {
+  /** Puts the line at `i` on screen with what was already counted for it. */
+  const showLine = useCallback((c: Count, i: number) => {
+    const safe = Math.max(0, Math.min(i, c.lines.length - 1));
+    const l = c.lines[safe];
+    setIndex(safe);
+    setTyped(
+      l && l.countedBase !== null
+        ? l.unit === "kg"
+          ? String(l.countedBase / 1000)
+          : String(l.countedBase)
+        : "",
+    );
+    setReason(l && l.reason && l.reason !== "surplus" ? l.reason : null);
+    setTimeout(() => inputRef.current?.focus(), 50);
+  }, []);
+
+  const openCount = useCallback(
+    async (id: string, then: Step) => {
+      setError(null);
+      const r = await fetch(`/api/inventory-counts/${id}`, {
+        credentials: "same-origin",
+      });
+      if (!r.ok) return setError(await errorText(r, "مقدرناش نفتح الجرد"));
+      const c = ((await r.json()) as { count: Count }).count;
+      setCount(c);
+      if (then === "count") {
+        // Resume at the first product not counted yet.
+        const next = c.lines.findIndex((l) => l.countedBase === null);
+        showLine(c, next === -1 ? c.lines.length - 1 : next);
+      }
+      setStep(c.status === "open" ? then : "report");
+    },
+    [showLine],
+  );
+
+  const start = async (
+    scope: "full" | "category" | "selected",
+    category?: string,
+  ) => {
     setError(null);
     setBusy(true);
     try {
@@ -168,8 +211,14 @@ export function StocktakeView() {
       });
       if (!res.ok) throw new Error(await errorText(res, "مقدرناش نبدأ الجرد"));
       const c = ((await res.json()) as { count: Count }).count;
+      if (c.lines.length === 0) {
+        setError("مفيش منتجات في الجرد ده.");
+        return;
+      }
       setCount(c);
       setPicked([]);
+      showLine(c, 0);
+      setStep("count");
       loadOverview();
     } catch (e: unknown) {
       setError(failureMessage(e, "مقدرناش نبدأ الجرد"));
@@ -178,58 +227,80 @@ export function StocktakeView() {
     }
   };
 
-  const pending = count
-    ? count.lines.filter(
-        (l) =>
-          typed[l.variantId] !== undefined ||
-          reasons[l.variantId] !== undefined,
-      )
-    : [];
-  const saveCounts = async (): Promise<Count | null> => {
-    if (!count || pending.length === 0) return count;
-    const lines = [];
-    for (const l of pending) {
-      const t = typed[l.variantId];
-      const base =
-        t === undefined
-          ? l.countedBase
-          : t.trim() === ""
-            ? null
-            : toBaseQty(l.unit, t);
-      if (t !== undefined && t.trim() !== "" && base === null) {
-        setError(`«${l.productName}»: اكتب الكمية صح (${qtyUnitWord(l.unit)})`);
-        return null;
-      }
-      lines.push({
-        variantId: l.variantId,
-        countedBase: base,
-        reason: reasons[l.variantId] ?? l.reason ?? null,
-      });
-    }
-    const res = await fetch(`/api/inventory-counts/${count.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lines }),
-    });
-    if (!res.ok) {
-      setError(await errorText(res, "مقدرناش نحفظ العدّ"));
-      return null;
-    }
-    const c = ((await res.json()) as { count: Count }).count;
-    setCount(c);
-    setTyped({});
-    setReasons({});
-    return c;
-  };
-
-  const confirm = async () => {
-    if (!count) return;
+  /** «ابدأ جرد جديد» while one is open: the open one is cancelled first (no stock change). */
+  const startOver = async () => {
+    if (!overview?.open) return setStep("home");
     if (
       !window.confirm(
-        "تأكد الجرد؟ المخزون هيتعدّل بالفروق دي، ومش هينفع تعدّل الجرد بعد كده.",
+        "الجرد اللي مخلصش هيتلغي (المخزون مش هيتغير) وتبدأ جرد جديد. موافق؟",
       )
     )
       return;
+    const res = await fetch(
+      `/api/inventory-counts/${overview.open.id}/abandon`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!res.ok) return setError(await errorText(res, "مقدرناش نلغي"));
+    setCount(null);
+    loadOverview();
+    setStep("home");
+  };
+
+  const line = count?.lines[index];
+  const typedBase = line ? toBaseQty(line.unit, typed) : null;
+  const diff =
+    line && typedBase !== null ? typedBase - line.expectedBase : null;
+
+  /** Saves the shown product, then moves by `delta` (or to the summary after the last one). */
+  const saveAndMove = async (delta: number) => {
+    if (!count || !line) return;
+    setError(null);
+    if (typed.trim() !== "" && typedBase === null) {
+      return setError(`اكتب الكمية صح (${qtyUnitWord(line.unit)})`);
+    }
+    if (diff !== null && diff < 0 && !reason) {
+      return setError("اختار ليه حصل الفرق");
+    }
+    const changed =
+      typedBase !== line.countedBase ||
+      (diff !== null && diff < 0 && reason !== line.reason);
+    let c: Count = count;
+    if (changed) {
+      setBusy(true);
+      try {
+        const res = await fetch(`/api/inventory-counts/${count.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lines: [
+              {
+                variantId: line.variantId,
+                countedBase: typedBase,
+                reason: diff !== null && diff < 0 ? reason : null,
+              },
+            ],
+          }),
+        });
+        if (!res.ok) throw new Error(await errorText(res, "مقدرناش نحفظ"));
+        c = ((await res.json()) as { count: Count }).count;
+        setCount(c);
+      } catch (e: unknown) {
+        setBusy(false);
+        return setError(failureMessage(e, "مقدرناش نحفظ"));
+      }
+      setBusy(false);
+    }
+    const next = index + delta;
+    if (next >= c.lines.length) return setStep("summary");
+    showLine(c, next);
+  };
+
+  const apply = async () => {
+    if (!count) return;
     setBusy(true);
     setError(null);
     try {
@@ -238,13 +309,15 @@ export function StocktakeView() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ opId: crypto.randomUUID() }),
       });
-      if (!res.ok) throw new Error(await errorText(res, "مقدرناش نأكد الجرد"));
+      if (!res.ok) throw new Error(await errorText(res, "مقدرناش نطبّق الجرد"));
       setCount(((await res.json()) as { count: Count }).count);
-      setReview(false);
+      setStep("report");
       loadOverview();
       window.dispatchEvent(new Event("hesba_stock_updated"));
+      toast.show({ msg: "الجرد اتطبّق على المخزون ✓", kind: "ok" });
     } catch (e: unknown) {
-      setError(failureMessage(e, "مقدرناش نأكد الجرد"));
+      setError(failureMessage(e, "مقدرناش نطبّق الجرد"));
+      setStep("summary");
     } finally {
       setBusy(false);
     }
@@ -256,284 +329,162 @@ export function StocktakeView() {
       return;
     const res = await fetch(`/api/inventory-counts/${count.id}/abandon`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
     });
     if (!res.ok) return setError(await errorText(res, "مقدرناش نلغي"));
     setCount(null);
     loadOverview();
+    setStep("home");
   };
 
-  // ── A count is open (or being looked at) ──
-  if (count) {
-    const t = count.totals;
-    const shown = count.lines.filter(
-      (l) => !filter.trim() || l.productName.includes(filter.trim()),
-    );
-    const readOnly = count.status !== "open";
+  const askHesba = (question: string) => {
+    writeAiDraft(question);
+    onNavigate?.("ai");
+  };
+
+  const share = async (c: Count) => {
+    const result = await shareReport({
+      title: `تقرير جرد — ${scopeText(c)}`,
+      text: buildReportText(c),
+      file: {
+        name: reportFileName(c, "csv"),
+        content: buildReportCsv(c),
+        mime: "text/csv;charset=utf-8",
+      },
+    });
+    if (result === "downloaded")
+      toast.show({ msg: "التقرير اتنزل ✓", kind: "ok" });
+    if (result === "copied") toast.show({ msg: "التقرير اتنسخ ✓", kind: "ok" });
+  };
+
+  const errorBox = error && (
+    <p className={styles.error} role="alert" data-testid="stocktake-error">
+      {error}
+    </p>
+  );
+
+  // ── 1. Start: resume an unfinished count, or a new one ──
+  if (step === "home") {
     return (
       <div className={viewStyles.view} data-testid="page-stocktake">
-        <div className={styles.container}>
-          <button
-            type="button"
-            className={styles.undoBtn}
-            onClick={() => {
-              setCount(null);
-              loadOverview();
-            }}
-          >
-            → رجوع لصفحة الجرد
-          </button>
-          <h2 className={styles.askTitle}>
-            {count.scope === "full"
-              ? "جرد المحل كله"
-              : count.scope === "category"
-                ? `جرد ${count.category}`
-                : "جرد أصناف معينة"}
-            {" · "}
-            {STATUS[count.status]}
-          </h2>
-          <div className={styles.totalBanner} data-testid="stocktake-totals">
-            <span className={styles.totalLabel}>
-              اتعدّ {t.counted} من {t.lines} · مظبوط {t.matched} · فيه فرق{" "}
-              {t.discrepancies}
-            </span>
-            <span className={styles.totalAmount}>
-              {t.shortageCostPiasters > 0
-                ? `−${formatMoney(t.shortageCostPiasters)}`
-                : ""}
-            </span>
-          </div>
-          {error && (
-            <p
-              className={styles.formError}
-              role="alert"
-              data-testid="stocktake-error"
+        <div className={styles.wrap}>
+          {errorBox}
+          {error && !overview && (
+            <button
+              type="button"
+              className={styles.ghost}
+              onClick={loadOverview}
             >
-              {error}
-            </p>
+              جرّب تاني
+            </button>
           )}
-
-          {review && !readOnly ? (
-            <div className={styles.v19Form} data-testid="stocktake-review">
-              <h3 className={styles.askTitle} style={{ fontSize: 18 }}>
-                راجع قبل ما تأكد
-              </h3>
-              <p
-                className={styles.historyNote}
-                style={{ textAlign: "start", margin: 0 }}
-              >
-                • ناقص بقيمة {formatMoney(t.shortageCostPiasters)} (بسعر الشراء)
-              </p>
-              {t.unrecordedSaleBase > 0 && (
-                <p
-                  className={styles.historyNote}
-                  style={{ textAlign: "start", margin: 0 }}
-                >
-                  {count.salesMode === "simple" ? (
-                    <>
-                      • قلت إنه اتباع: فلوسه داخلة في إجمالي المبيعات اليومي،
-                      فمش هيتحسب مبيعات تاني ولا خسارة — المخزون بس هيتظبط
-                    </>
-                  ) : (
-                    <>
-                      • قلت إنه اتباع ومتسجلش: هيتحسب مبيعات بـ{" "}
-                      {formatMoney(t.unrecordedSaleSellPiasters)} (من غير فلوس
-                      جديدة في الدرج)
-                    </>
-                  )}
-                </p>
-              )}
-              {(t.damagedBase > 0 || t.lostBase > 0) && (
-                <p
-                  className={styles.historyNote}
-                  style={{ textAlign: "start", margin: 0 }}
-                >
-                  • تالف وضايع: هيتحسب خسارة مرة واحدة
-                </p>
-              )}
-              {t.unknownBase > 0 && (
-                <p
-                  className={styles.historyNote}
-                  style={{ textAlign: "start", margin: 0 }}
-                >
-                  • فرق مش معروف سببه: هيتحسب خسارة، مش مبيعات
-                </p>
-              )}
-              {t.surplusCostPiasters > 0 && (
-                <p
-                  className={styles.historyNote}
-                  style={{ textAlign: "start", margin: 0 }}
-                >
-                  • زيادة بقيمة {formatMoney(t.surplusCostPiasters)}: هتتضاف
-                  للمخزون
-                </p>
-              )}
-              {t.unknownCostLines > 0 && (
-                <p
-                  className={styles.historyNote}
-                  style={{ textAlign: "start", margin: 0 }}
-                >
-                  • {t.unknownCostLines} صنف من غير سعر شراء: قيمته مش محسوبة
-                </p>
-              )}
+          {!overview && !error && <p className={styles.muted}>بنحمّل…</p>}
+          {overview?.open ? (
+            <div className={styles.card} data-testid="stocktake-resume">
+              <h2 className={styles.h2}>عندك جرد لسه مخلصش</h2>
+              <p className={styles.muted}>تكمل من حيث وقفت؟</p>
               <button
                 type="button"
-                className={styles.saveBtn}
-                disabled={busy}
-                onClick={() => void confirm()}
-                data-testid="stocktake-confirm"
+                className={styles.primary}
+                onClick={() => void openCount(overview.open!.id, "count")}
+                data-testid="stocktake-continue"
               >
-                {busy ? "بيتأكد…" : "✅ أكّد الجرد"}
+                أكمل الجرد
               </button>
               <button
                 type="button"
-                className={styles.undoBtn}
-                onClick={() => setReview(false)}
+                className={styles.ghost}
+                onClick={() => void startOver()}
+                data-testid="stocktake-start-over"
               >
-                رجوع للعدّ
+                ابدأ جرد جديد
               </button>
             </div>
           ) : (
+            overview && (
+              <>
+                <h2 className={styles.h2}>هتجرد إيه؟</h2>
+                <button
+                  type="button"
+                  className={styles.choice}
+                  disabled={busy}
+                  onClick={() => void start("full")}
+                  data-testid="stocktake-start-full"
+                >
+                  <span aria-hidden="true">🏪</span>
+                  <b>كل المحل</b>
+                  <small>كل المنتجات</small>
+                </button>
+                <button
+                  type="button"
+                  className={styles.choice}
+                  disabled={busy || categories.length === 0}
+                  onClick={() => setStep("pickCategory")}
+                  data-testid="stocktake-start-category"
+                >
+                  <span aria-hidden="true">🗂️</span>
+                  <b>قسم</b>
+                  <small>مثلاً البقالة بس</small>
+                </button>
+                <button
+                  type="button"
+                  className={styles.choice}
+                  disabled={busy || variants.length === 0}
+                  onClick={() => setStep("pickProducts")}
+                  data-testid="stocktake-start-selected"
+                >
+                  <span aria-hidden="true">✅</span>
+                  <b>منتجات معينة</b>
+                  <small>تختارها بنفسك</small>
+                </button>
+              </>
+            )
+          )}
+
+          <button
+            type="button"
+            className={styles.help}
+            onClick={() =>
+              askHesba(
+                "مش عارف أعمل الجرد. اشرحلي خطوة خطوة إزاي أجرد محلي في حِسبة.",
+              )
+            }
+            data-testid="stocktake-ask-howto"
+          >
+            💬 مش عارف أعمل الجرد؟ اسأل حسبة
+          </button>
+
+          {overview && overview.history.some((h) => h.status !== "open") && (
             <>
-              <input
-                className={styles.input}
-                dir="auto"
-                placeholder="دوّر على صنف…"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-              />
-              <div className={styles.listCard} data-testid="stocktake-lines">
-                {shown.map((l) => {
-                  const typedText = typed[l.variantId];
-                  const counted =
-                    typedText !== undefined
-                      ? toBaseQty(l.unit, typedText)
-                      : l.countedBase;
-                  const diff =
-                    counted === null ? null : counted - l.expectedBase;
-                  const reason = reasons[l.variantId] ?? l.reason ?? "unknown";
-                  return (
-                    <div
-                      key={l.variantId}
-                      className={styles.expenseRow}
-                      data-testid="stocktake-line"
+              <h3 className={styles.h3}>الجرد اللي فات</h3>
+              <div className={styles.list}>
+                {overview.history
+                  .filter((h) => h.status !== "open")
+                  .slice(0, 10)
+                  .map((h) => (
+                    <button
+                      key={h.id}
+                      type="button"
+                      className={styles.row}
+                      onClick={() => void openCount(h.id, "report")}
+                      data-testid="stocktake-history-row"
                     >
-                      <div className={styles.itemInfo}>
-                        <b className={styles.itemCategory}>{l.productName}</b>
-                        <span className={styles.itemMeta}>
-                          المتسجل: {formatBaseQty(l.unit, l.expectedBase)}
-                          {diff !== null && diff !== 0 && (
-                            <>
-                              {" · "}
-                              <b
-                                style={{
-                                  color:
-                                    diff < 0
-                                      ? "var(--danger, #b42318)"
-                                      : "var(--good, #067647)",
-                                }}
-                              >
-                                {diff < 0 ? "ناقص " : "زيادة "}
-                                {formatBaseQty(l.unit, Math.abs(diff))}
-                              </b>
-                            </>
-                          )}
-                          {diff === 0 && " · ✓ مظبوط"}
-                        </span>
-                        {!readOnly && diff !== null && diff < 0 && (
-                          <select
-                            className={styles.input}
-                            value={reason}
-                            onChange={(e) =>
-                              setReasons((r) => ({
-                                ...r,
-                                [l.variantId]: e.target.value as Reason,
-                              }))
-                            }
-                            aria-label={`سبب النقص في ${l.productName}`}
-                            data-testid="stocktake-reason"
-                          >
-                            {SHORTAGE_REASONS.map(([k, label]) => (
-                              <option key={k} value={k}>
-                                {k === "unrecorded_sale" &&
-                                count.salesMode === "simple"
-                                  ? "اتباع (فلوسه في إجمالي اليوم)"
-                                  : label}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                      <div className={styles.itemActions}>
-                        {readOnly ? (
-                          <b>
-                            {l.countedBase === null
-                              ? "—"
-                              : formatBaseQty(l.unit, l.countedBase)}
-                          </b>
-                        ) : (
-                          <input
-                            className={styles.input}
-                            style={{ maxWidth: 110 }}
-                            inputMode="decimal"
-                            placeholder={qtyUnitWord(l.unit)}
-                            value={
-                              typedText ??
-                              (l.countedBase === null
-                                ? ""
-                                : l.unit === "kg"
-                                  ? String(l.countedBase / 1000)
-                                  : String(l.countedBase))
-                            }
-                            onChange={(e) =>
-                              setTyped((x) => ({
-                                ...x,
-                                [l.variantId]: e.target.value,
-                              }))
-                            }
-                            aria-label={`العدد الفعلي لـ ${l.productName}`}
-                            data-testid="stocktake-count"
-                          />
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                      <span>
+                        <b>{scopeText(h)}</b>
+                        <small>
+                          {day(h.confirmedAt ?? h.startedAt)} ·{" "}
+                          {h.status === "confirmed" ? "اتطبّق" : "اتلغى"}
+                        </small>
+                      </span>
+                      <small>
+                        {h.discrepancies > 0
+                          ? `${h.discrepancies} فرق`
+                          : "مظبوط"}
+                      </small>
+                    </button>
+                  ))}
               </div>
-              {!readOnly && (
-                <div className={styles.v19Form}>
-                  <button
-                    type="button"
-                    className={styles.saveBtn}
-                    disabled={busy || pending.length === 0}
-                    onClick={() => void saveCounts()}
-                    data-testid="stocktake-save"
-                  >
-                    💾 احفظ العدّ{" "}
-                    {pending.length > 0 ? `(${pending.length})` : ""}
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.saveBtn}
-                    disabled={busy}
-                    onClick={async () => {
-                      const c = await saveCounts();
-                      if (c && c.totals.counted > 0) setReview(true);
-                      else if (c) setError("اعدّ صنف واحد على الأقل");
-                    }}
-                    data-testid="stocktake-review-open"
-                  >
-                    راجع وأكّد ←
-                  </button>
-                  <button
-                    type="button"
-                    className={styles.undoBtn}
-                    onClick={() => void abandon()}
-                    data-testid="stocktake-abandon"
-                  >
-                    ✕ الغي الجرد ده
-                  </button>
-                </div>
-              )}
             </>
           )}
         </div>
@@ -541,157 +492,556 @@ export function StocktakeView() {
     );
   }
 
-  // ── The stocktaking page ──
-  const matches = search.trim()
-    ? variants
-        .filter(
-          (v) =>
-            v.name.includes(search.trim()) && !picked.includes(v.variantId),
-        )
-        .slice(0, 8)
-    : [];
-  return (
-    <div className={viewStyles.view} data-testid="page-stocktake">
-      <div className={styles.container}>
-        <h2 className={styles.askTitle}>الجرد الفعلي</h2>
-        <p
-          className={styles.historyNote}
-          style={{ textAlign: "start", margin: "0 0 8px" }}
-        >
-          اعدّ اللي على الرفوف فعلاً، وحِسبة تقولك الفرق وقيمته. أي نقص بتختار
-          سببه إنت — عمره ما بيتحسب مبيعات لوحده. نقل البضاعة من المخزن للرف مش
-          محتاج تسجيل.
-        </p>
-        {error && (
-          <p className={styles.formError} role="alert">
-            {error}
-          </p>
-        )}
-        {overview && (
-          <div className={styles.totalBanner} data-testid="stocktake-last">
-            <span className={styles.totalLabel}>آخر جرد</span>
-            <span className={styles.totalAmount}>
-              {overview.lastConfirmedAt
-                ? `${day(overview.lastConfirmedAt)} (من ${overview.daysSinceLastCount} يوم)`
-                : "لسه ما اتعملش"}
-            </span>
-          </div>
-        )}
-        {overview?.open ? (
+  // ── 2a. Pick a category ──
+  if (step === "pickCategory") {
+    return (
+      <div className={viewStyles.view} data-testid="page-stocktake">
+        <div className={styles.wrap}>
+          <h2 className={styles.h2}>اختار القسم</h2>
+          {errorBox}
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              type="button"
+              className={styles.choice}
+              disabled={busy}
+              onClick={() => void start("category", cat)}
+              data-testid="stocktake-category"
+            >
+              <b>{cat}</b>
+              <small>
+                {variants.filter((v) => v.category === cat).length} منتج
+              </small>
+            </button>
+          ))}
           <button
             type="button"
-            className={styles.saveBtn}
-            onClick={() => void openCount(overview.open!.id)}
-            data-testid="stocktake-continue"
+            className={styles.ghost}
+            onClick={() => setStep("home")}
           >
-            كمّل الجرد المفتوح ←
+            رجوع
           </button>
-        ) : (
-          <div className={styles.v19Form}>
-            <b>اعمل جرد جديد</b>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 2b. Pick products ──
+  if (step === "pickProducts") {
+    const shown = variants.filter(
+      (v) => !search.trim() || v.name.includes(search.trim()),
+    );
+    return (
+      <div className={viewStyles.view} data-testid="page-stocktake">
+        <div className={styles.wrap}>
+          <h2 className={styles.h2}>اختار المنتجات</h2>
+          <input
+            className={styles.input}
+            placeholder="دوّر على منتج…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="stocktake-search"
+          />
+          {errorBox}
+          <div className={styles.list}>
+            {shown.slice(0, 200).map((v) => {
+              const on = picked.includes(v.variantId);
+              return (
+                <label
+                  key={v.variantId}
+                  className={`${styles.row} ${on ? styles.rowOn : ""}`}
+                >
+                  <span>
+                    <b>{v.name}</b>
+                    <small>عندك {formatBaseQty(v.unit, v.stockBase)}</small>
+                  </span>
+                  <input
+                    type="checkbox"
+                    className={styles.check}
+                    checked={on}
+                    onChange={() =>
+                      setPicked((p) =>
+                        on
+                          ? p.filter((x) => x !== v.variantId)
+                          : [...p, v.variantId],
+                      )
+                    }
+                    data-testid="stocktake-pick"
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <div className={styles.stickyBar}>
             <button
               type="button"
-              className={styles.saveBtn}
-              disabled={busy}
-              onClick={() => void start("full")}
-              data-testid="stocktake-start-full"
+              className={styles.primary}
+              disabled={busy || picked.length === 0}
+              onClick={() => void start("selected")}
+              data-testid="stocktake-start-picked"
             >
-              📋 جرد المحل كله
+              ابدأ الجرد ({picked.length})
             </button>
-            <div style={{ display: "flex", gap: 8 }}>
-              <select
-                className={styles.input}
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-                aria-label="القسم"
-                data-testid="stocktake-category"
-              >
-                <option value="">اختار قسم…</option>
-                {categories.map((c) => (
-                  <option key={c} value={c}>
-                    {c}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className={styles.undoBtn}
-                disabled={busy || !category}
-                onClick={() => void start("category")}
-                data-testid="stocktake-start-category"
-              >
-                جرد القسم
-              </button>
-            </div>
-            <input
-              className={styles.input}
-              dir="auto"
-              placeholder="أو دوّر على أصناف معينة…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              data-testid="stocktake-search"
-            />
-            {matches.map((v) => (
-              <button
-                key={v.variantId}
-                type="button"
-                className={styles.undoBtn}
-                style={{ textAlign: "start" }}
-                onClick={() => {
-                  setPicked((p) => [...p, v.variantId]);
-                  setSearch("");
-                }}
-              >
-                ➕ {v.name}
-              </button>
-            ))}
-            {picked.length > 0 && (
-              <button
-                type="button"
-                className={styles.undoBtn}
-                disabled={busy}
-                onClick={() => void start("selected")}
-                data-testid="stocktake-start-selected"
-              >
-                جرد {picked.length} صنف
-              </button>
-            )}
+            <button
+              type="button"
+              className={styles.ghost}
+              onClick={() => setStep("home")}
+            >
+              رجوع
+            </button>
           </div>
-        )}
-        {overview && overview.history.length > 0 && (
-          <div className={styles.listCard} data-testid="stocktake-history">
-            {overview.history.map((h) => (
-              <button
-                key={h.id}
-                type="button"
-                className={styles.expenseRow}
-                style={{ width: "100%", textAlign: "start" }}
-                onClick={() => void openCount(h.id)}
-              >
-                <div className={styles.itemInfo}>
-                  <b className={styles.itemCategory}>
-                    {h.scope === "full"
-                      ? "المحل كله"
-                      : h.scope === "category"
-                        ? h.category
-                        : "أصناف معينة"}{" "}
-                    · {STATUS[h.status]}
-                  </b>
-                  <span className={styles.itemMeta}>
-                    {day(h.confirmedAt ?? h.startedAt)} · اتعدّ {h.counted}/
-                    {h.lines} · فروق {h.discrepancies}
-                    {h.damagedBase > 0 ? " · فيه تالف" : ""}
+        </div>
+      </div>
+    );
+  }
+
+  if (!count) return null;
+  const t = count.totals;
+  const diffs = count.lines.filter(
+    (l) => l.differenceBase !== null && l.differenceBase !== 0,
+  );
+
+  // ── 3–4. One product at a time ──
+  if (step === "count" && line) {
+    const total = count.lines.length;
+    const left = count.lines.filter((l) => l.countedBase === null).length;
+    return (
+      <div className={viewStyles.view} data-testid="page-stocktake">
+        <div className={styles.wrap}>
+          <div className={styles.progressHead}>
+            <span data-testid="stocktake-progress">
+              منتج {index + 1} من {total}
+            </span>
+            <span>باقي {left}</span>
+          </div>
+          <div className={styles.progress}>
+            <span style={{ width: `${((total - left) / total) * 100}%` }} />
+          </div>
+
+          <div className={styles.card} data-testid="stocktake-line">
+            <h2 className={styles.product}>{line.productName}</h2>
+            <p className={styles.expected}>
+              المتوقع: <b>{formatBaseQty(line.unit, line.expectedBase)}</b>{" "}
+              {qtyUnitWord(line.unit)}
+            </p>
+            <label className={styles.lbl} htmlFor="st-actual">
+              الفعلي ({qtyUnitWord(line.unit)})
+            </label>
+            <input
+              id="st-actual"
+              ref={inputRef}
+              className={styles.bigInput}
+              inputMode="decimal"
+              placeholder="عدّ واكتب هنا"
+              value={typed}
+              onChange={(e) => {
+                setTyped(e.target.value);
+                setError(null);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void saveAndMove(1);
+              }}
+              data-testid="stocktake-count"
+            />
+
+            {diff !== null && diff !== 0 && (
+              <div className={styles.diffBox} data-testid="stocktake-diff">
+                <div className={styles.diffNums}>
+                  <span>
+                    المتوقع <b>{formatBaseQty(line.unit, line.expectedBase)}</b>
+                  </span>
+                  <span>
+                    الموجود <b>{formatBaseQty(line.unit, typedBase!)}</b>
+                  </span>
+                  <span className={diff < 0 ? styles.neg : styles.pos}>
+                    الفرق{" "}
+                    <b>
+                      {diff > 0 ? "+" : "−"}
+                      {formatBaseQty(line.unit, Math.abs(diff))}
+                    </b>
                   </span>
                 </div>
-                <b>
-                  {h.shortageCostPiasters > 0
-                    ? `−${formatMoney(h.shortageCostPiasters)}`
-                    : "✓"}
-                </b>
-              </button>
-            ))}
+                {diff < 0 ? (
+                  <>
+                    <p className={styles.why}>ليه حصل الفرق؟</p>
+                    <div className={styles.reasons}>
+                      {SHORTAGE_CHOICES.map(([k, icon, label]) => (
+                        <button
+                          key={k}
+                          type="button"
+                          className={`${styles.reason} ${reason === k ? styles.reasonOn : ""}`}
+                          onClick={() => {
+                            if (k === "recount") {
+                              setTyped("");
+                              setReason(null);
+                              inputRef.current?.focus();
+                              return;
+                            }
+                            setReason(k);
+                          }}
+                          data-testid={`stocktake-reason-${k}`}
+                        >
+                          <span aria-hidden="true">{icon}</span>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className={styles.muted}>
+                    زيادة عن المتسجل: هترجع للمخزون بسعر الشراء (مش مشتريات).
+                  </p>
+                )}
+              </div>
+            )}
+            {diff === 0 && <p className={styles.ok}>✓ مظبوط</p>}
           </div>
-        )}
+
+          {errorBox}
+          <div className={styles.stickyBar}>
+            <button
+              type="button"
+              className={styles.primary}
+              disabled={busy}
+              onClick={() => void saveAndMove(1)}
+              data-testid="stocktake-next"
+            >
+              {index + 1 >= total ? "خلصت ←" : "التالي ←"}
+            </button>
+            <div className={styles.twoBtns}>
+              <button
+                type="button"
+                className={styles.ghost}
+                disabled={busy || index === 0}
+                onClick={() => void saveAndMove(-1)}
+              >
+                → السابق
+              </button>
+              <button
+                type="button"
+                className={styles.ghost}
+                disabled={busy}
+                onClick={() => setStep("summary")}
+                data-testid="stocktake-to-summary"
+              >
+                الملخص
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── 5. Summary, review, confirmation ──
+  if (step === "summary" || step === "review" || step === "confirm") {
+    return (
+      <div className={viewStyles.view} data-testid="page-stocktake">
+        <div className={styles.wrap}>
+          <h2 className={styles.h2}>ملخص الجرد</h2>
+          <div className={styles.stats} data-testid="stocktake-summary">
+            <div>
+              <small>اتعدّ</small>
+              <b>
+                {t.counted} من {t.lines}
+              </b>
+            </div>
+            <div>
+              <small>ناقص</small>
+              <b>{diffs.filter((l) => l.differenceBase! < 0).length}</b>
+            </div>
+            <div>
+              <small>زيادة</small>
+              <b>{diffs.filter((l) => l.differenceBase! > 0).length}</b>
+            </div>
+            <div>
+              <small>قيمة الناقص</small>
+              <b>{formatMoney(t.shortageCostPiasters)}</b>
+            </div>
+          </div>
+          {t.surplusCostPiasters > 0 && (
+            <p className={styles.muted}>
+              قيمة الزيادة: {formatMoney(t.surplusCostPiasters)} (بسعر الشراء)
+            </p>
+          )}
+          {diffs.some((l) => l.differenceBase! < 0) && (
+            <div className={styles.card}>
+              <b>الأسباب</b>
+              {(["damaged", "lost", "unrecorded_sale", "unknown"] as const)
+                .map(
+                  (k) =>
+                    [k, diffs.filter((l) => l.reason === k).length] as const,
+                )
+                .filter(([, n]) => n > 0)
+                .map(([k, n]) => (
+                  <p key={k} className={styles.reasonLine}>
+                    {REASON_LABEL[k]}: {n} منتج
+                  </p>
+                ))}
+              {t.unrecordedSaleBase > 0 && (
+                <p className={styles.muted}>
+                  {count.salesMode === "simple"
+                    ? "«اتباع»: فلوسه في إجمالي المبيعات اليومي، فمش هيتحسب مبيعات تاني."
+                    : "«اتباع ومتسجلش» هيتحسب مبيعات اكتشفها الجرد (من غير فلوس جديدة في الدرج)."}
+                </p>
+              )}
+            </div>
+          )}
+          {t.counted < t.lines && (
+            <p className={styles.muted}>
+              {t.lines - t.counted} منتج ما اتعدّش: مش هيتغير.
+            </p>
+          )}
+
+          {step === "review" && (
+            <div className={styles.list} data-testid="stocktake-review">
+              {diffs.length === 0 && (
+                <p className={styles.muted}>كل اللي اتعدّ مظبوط.</p>
+              )}
+              {diffs.map((l) => (
+                <button
+                  key={l.variantId}
+                  type="button"
+                  className={styles.row}
+                  onClick={() => {
+                    showLine(
+                      count,
+                      count.lines.findIndex((x) => x.variantId === l.variantId),
+                    );
+                    setStep("count");
+                  }}
+                >
+                  <span>
+                    <b>{l.productName}</b>
+                    <small>
+                      المتوقع {formatBaseQty(l.unit, l.expectedBase)} · الموجود{" "}
+                      {formatBaseQty(l.unit, l.countedBase ?? 0)}
+                      {l.reason ? ` · ${REASON_LABEL[l.reason]}` : ""}
+                    </small>
+                  </span>
+                  <b
+                    className={l.differenceBase! < 0 ? styles.neg : styles.pos}
+                  >
+                    {l.differenceBase! > 0 ? "+" : "−"}
+                    {formatBaseQty(l.unit, Math.abs(l.differenceBase!))}
+                  </b>
+                </button>
+              ))}
+            </div>
+          )}
+
+          {errorBox}
+
+          {step === "confirm" ? (
+            <div
+              className={styles.confirm}
+              role="alertdialog"
+              data-testid="stocktake-confirm-box"
+            >
+              <p>
+                <b>أنت على وشك تطبيق الجرد وتعديل كميات المخزون.</b>
+              </p>
+              <p>بعد التطبيق مش هتقدر تعدّل الجرد ده.</p>
+              <button
+                type="button"
+                className={styles.danger}
+                disabled={busy}
+                onClick={() => void apply()}
+                data-testid="stocktake-confirm"
+              >
+                {busy ? "بيتطبّق…" : "تأكيد وتطبيق الجرد"}
+              </button>
+              <button
+                type="button"
+                className={styles.ghost}
+                disabled={busy}
+                onClick={() => setStep("review")}
+                data-testid="stocktake-confirm-cancel"
+              >
+                إلغاء
+              </button>
+            </div>
+          ) : (
+            <div className={styles.stickyBar}>
+              {step === "summary" ? (
+                <button
+                  type="button"
+                  className={styles.primary}
+                  onClick={() => setStep("review")}
+                  data-testid="stocktake-review-open"
+                >
+                  راجع الجرد
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className={styles.primary}
+                  disabled={busy || t.counted === 0}
+                  onClick={() => setStep("confirm")}
+                  data-testid="stocktake-apply"
+                >
+                  تطبيق الجرد
+                </button>
+              )}
+              <div className={styles.twoBtns}>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => {
+                    const next = count.lines.findIndex(
+                      (l) => l.countedBase === null,
+                    );
+                    showLine(count, next === -1 ? 0 : next);
+                    setStep("count");
+                  }}
+                >
+                  كمّل العدّ
+                </button>
+                <button
+                  type="button"
+                  className={styles.ghost}
+                  onClick={() => void abandon()}
+                  data-testid="stocktake-abandon"
+                >
+                  إلغاء الجرد
+                </button>
+              </div>
+              {diffs.length > 0 && (
+                <button
+                  type="button"
+                  className={styles.help}
+                  onClick={() =>
+                    askHesba(
+                      `حلّلّي فروق الجرد ده قبل ما أطبّقه:\n${buildReportText(count)}`,
+                    )
+                  }
+                  data-testid="stocktake-ask-diffs"
+                >
+                  💬 اسأل حسبة عن الفروق دي
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 6. The report (a confirmed or cancelled count) ──
+  return (
+    <div className={viewStyles.view} data-testid="page-stocktake">
+      <div className={styles.wrap} data-testid="stocktake-report">
+        <h2 className={styles.h2}>تقرير الجرد</h2>
+        <div className={styles.card}>
+          <p>
+            <b>{scopeText(count)}</b> ·{" "}
+            {day(count.confirmedAt ?? count.abandonedAt ?? count.startedAt)}
+          </p>
+          {count.startedBy && (
+            <p className={styles.muted}>بدأه: {count.startedBy}</p>
+          )}
+          {count.closedBy && (
+            <p className={styles.muted}>
+              {count.status === "confirmed" ? "طبّقه" : "لغاه"}:{" "}
+              {count.closedBy}
+            </p>
+          )}
+          <p
+            className={count.status === "confirmed" ? styles.ok : styles.muted}
+          >
+            {count.status === "confirmed"
+              ? "✅ اتطبّق على المخزون مرة واحدة"
+              : "اتلغى: المخزون ما اتغيرش"}
+          </p>
+        </div>
+        <div className={styles.stats}>
+          <div>
+            <small>اتعدّ</small>
+            <b>
+              {t.counted} من {t.lines}
+            </b>
+          </div>
+          <div>
+            <small>فيه فرق</small>
+            <b>{t.discrepancies}</b>
+          </div>
+          <div>
+            <small>قيمة الناقص</small>
+            <b>{formatMoney(t.shortageCostPiasters)}</b>
+          </div>
+          <div>
+            <small>قيمة الزيادة</small>
+            <b>{formatMoney(t.surplusCostPiasters)}</b>
+          </div>
+        </div>
+        <div className={styles.list}>
+          {diffs.map((l) => (
+            <div key={l.variantId} className={styles.row}>
+              <span>
+                <b>{l.productName}</b>
+                <small>
+                  المتوقع {formatBaseQty(l.unit, l.expectedBase)} · الموجود{" "}
+                  {formatBaseQty(l.unit, l.countedBase ?? 0)}
+                  {l.reason ? ` · ${REASON_LABEL[l.reason]}` : ""}
+                  {l.appliedCostPiasters != null
+                    ? ` · ${formatMoney(l.appliedCostPiasters)}`
+                    : ""}
+                </small>
+              </span>
+              <b className={l.differenceBase! < 0 ? styles.neg : styles.pos}>
+                {l.differenceBase! > 0 ? "+" : "−"}
+                {formatBaseQty(l.unit, Math.abs(l.differenceBase!))}
+              </b>
+            </div>
+          ))}
+          {diffs.length === 0 && <p className={styles.muted}>مفيش فروق.</p>}
+        </div>
+        <div className={styles.twoBtns}>
+          <button
+            type="button"
+            className={styles.primary}
+            onClick={() => void share(count)}
+            data-testid="stocktake-share"
+          >
+            📤 شارك التقرير
+          </button>
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={() =>
+              downloadFile({
+                name: reportFileName(count, "csv"),
+                content: buildReportCsv(count),
+                mime: "text/csv;charset=utf-8",
+              })
+            }
+            data-testid="stocktake-download"
+          >
+            ⬇️ نزّل
+          </button>
+        </div>
+        <button
+          type="button"
+          className={styles.help}
+          onClick={() =>
+            askHesba(
+              `اكتبلي تقرير واضح بالمصري عن الجرد ده:\n${buildReportText(count)}`,
+            )
+          }
+          data-testid="stocktake-ask-report"
+        >
+          💬 خلي حسبة تكتبلك تقرير عنه
+        </button>
+        <button
+          type="button"
+          className={styles.ghost}
+          onClick={() => {
+            setCount(null);
+            setStep("home");
+          }}
+        >
+          خلاص
+        </button>
       </div>
     </div>
   );

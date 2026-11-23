@@ -53,8 +53,10 @@ export function Header({ onBack, route, ...menu }: HeaderProps) {
             className={styles.backBtn}
             onClick={onBack}
             aria-label="رجوع للرئيسية"
+            data-testid="header-back"
           >
             <span aria-hidden="true">→</span>
+            <span>رجوع</span>
           </button>
         )}
         <StoreMenu {...menu} pageTitle={pageTitle} />

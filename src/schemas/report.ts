@@ -50,6 +50,12 @@ export const homeReportSchema = z.object({
     dailyTotalsCashPiasters: piasters.default(0),
     /** The part of the daily totals sold on credit (آجل): revenue, not cash. */
     dailyTotalsCreditPiasters: piasters.default(0),
+    /**
+     * Services sold at the cashier (bills, recharge, wallets), INSIDE the revenue above: what
+     * the customers paid. Only the commission is profit (`profit.serviceCommissionsPiasters`),
+     * so the screens show this part apart from goods sales.
+     */
+    serviceSalesPiasters: piasters.default(0),
   }),
   expenses: z.object({
     count: z.number().int().min(0),

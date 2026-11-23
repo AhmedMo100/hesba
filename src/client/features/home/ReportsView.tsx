@@ -61,9 +61,15 @@ const dayLabel = (iso: string) =>
     timeZone: "Africa/Cairo",
   }).format(new Date(iso));
 
-export function ReportsView() {
+export function ReportsView({
+  onNavigate,
+}: {
+  /** Opens «لو صفّيت دلوقتي» (the shop's full position). */
+  onNavigate?: (route: "inventory") => void;
+} = {}) {
   const [today] = useState(() => toCairoDateString(new Date()));
-  const [period, setPeriod] = useState<ReportPeriod>("today");
+  // One package: the month first (the same number as Home's «ربحك الشهر ده»), any period on tap.
+  const [period, setPeriod] = useState<ReportPeriod>("month");
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [report, setReport] = useState<HomeReport | null>(null);
@@ -203,6 +209,16 @@ export function ReportsView() {
       >
         📤 تصدير التقرير ومشاركته
       </button>
+      {onNavigate && (
+        <button
+          type="button"
+          className={styles.exportBtn}
+          onClick={() => onNavigate("inventory")}
+          data-testid="report-position"
+        >
+          🧮 حساب المحل كله لو صفّيت دلوقتي
+        </button>
+      )}
       {exporting && (
         <ExportSheet
           title="تصدير التقرير"
@@ -240,6 +256,12 @@ export function ReportsView() {
             <small className={styles.qsub}>
               {sales?.count ?? 0} عملية بيع · بعد المرتجعات
             </small>
+            {(sales?.serviceSalesPiasters ?? 0) > 0 && (
+              <small className={styles.qsub} data-testid="report-service-sales">
+                منها خدمات بـ {money(sales?.serviceSalesPiasters)}: مكسبك منها
+                العمولة بس
+              </small>
+            )}
           </section>
 
           {/* 2. كسبت كام؟ */}
