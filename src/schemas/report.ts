@@ -6,7 +6,10 @@ import { z } from "zod";
  * instead of silently showing zeros.
  *
  * Money is integer piasters. A cost or profit is `null` when it is not known from recorded
- * data — it is never estimated (no percentage of revenue, no lookup by product name).
+ * data — never guessed (no percentage of revenue, no lookup by product name). The one estimate,
+ * `profit.estimatedGrossProfitPiasters` / `estimatedNetProfitPiasters` (daily totals valued at
+ * the shop's own stock margin), is a separate field and is labelled: `profit.status` is
+ * `actual` | `estimated` | `incomplete`, with the reasons in `profit.notes` (ADR-0034).
  */
 
 export const REPORT_PERIODS = [
@@ -134,7 +137,10 @@ export const homeReportSchema = z.object({
   profit: z
     .object({
       status: z.enum(["actual", "estimated", "incomplete"]),
-      /** Products: invoices + daily totals + sales the owner confirmed in a stocktake. */
+      /**
+       * Goods: invoices + daily totals + sales a cashier shop confirmed in a stocktake. Service
+       * sales are NOT here (their margin is a commission below).
+       */
       productSalesPiasters: piasters,
       discoveredSalesPiasters: piasters,
       /** Cost of goods sold where it is recorded (invoices, quantities, stocktake sales). */
@@ -145,7 +151,12 @@ export const homeReportSchema = z.object({
       estimatedGrossProfitPiasters: maybePiasters,
       /** The margin used for that estimate (selling vs cost value of today's stock), %. */
       estimateMarginPercent: z.number().nullable(),
+      /**
+       * The services page's commissions + the cashier's service sales (paid − machine charge):
+       * the only income from services.
+       */
       serviceCommissionsPiasters: piasters,
+      /** The operations' own amounts (money passing through the machines): never income. */
       serviceOperationsPiasters: piasters,
       /** Operating expenses (owner's personal spending excluded). */
       operatingExpensesPiasters: piasters,

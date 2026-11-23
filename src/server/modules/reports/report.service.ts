@@ -26,8 +26,10 @@ import {
   toCairoDateString,
 } from "@/domain/time";
 import type { HomeReport, ReportPeriod } from "@/schemas/report";
+import { isServiceProduct } from "@/domain/sale-pricing";
 import {
   COUNT_EFFECTS_SELECT,
+  confirmedCountLines,
   countEffectsFromRow,
   type CountEffectsRow,
 } from "@/server/modules/inventory";
@@ -156,7 +158,7 @@ async function salesInRange(
   to: Date,
 ): Promise<SaleRow[]> {
   const product = {
-    select: { id: true, nameAr: true, category: true },
+    select: { id: true, nameAr: true, category: true, unit: true },
   } as const;
   return tx.sale.findMany({
     where: {
@@ -206,6 +208,14 @@ export async function salesFinancialsInTx(
   dailyTotalsPiasters: number;
   dailyTotalsCashPiasters: number;
   dailyTotalsCreditPiasters: number;
+  /**
+   * Cashier sales of SERVICES (bills, wallets, recharge…), already inside the figures above:
+   * the amount the customer paid, and — for lines whose machine charge is recorded — that
+   * amount and the charge. The difference is the shop's commission, not goods profit.
+   */
+  serviceSalesPiasters: number;
+  serviceKnownRevenuePiasters: number;
+  serviceKnownCostPiasters: number;
 }> {
   const sales = await salesInRange(tx, storeId, from, to);
   const daily = await dailyTotalsInRange(tx, storeId, from, to);
@@ -213,6 +223,9 @@ export async function salesFinancialsInTx(
   let unknownCostCount = 0;
   let knownRevenue = 0;
   let knownCost = 0;
+  let serviceSales = 0;
+  let serviceKnownRevenue = 0;
+  let serviceKnownCost = 0;
   for (const s of sales) {
     revenue += netSaleRevenue(s);
     const lines = s.saleLines;
@@ -224,6 +237,14 @@ export async function salesFinancialsInTx(
       if (net.cost !== null) {
         knownRevenue += net.revenue;
         knownCost += net.cost;
+      }
+      const p = l.storeProduct ?? l.storeVariant?.storeProduct ?? null;
+      if (p && isServiceProduct(p)) {
+        serviceSales += net.revenue;
+        if (net.cost !== null) {
+          serviceKnownRevenue += net.revenue;
+          serviceKnownCost += net.cost;
+        }
       }
     }
   }
@@ -243,6 +264,9 @@ export async function salesFinancialsInTx(
     dailyTotalsPiasters: daily.totalPiasters,
     dailyTotalsCashPiasters: daily.cashPiasters,
     dailyTotalsCreditPiasters: daily.creditPiasters,
+    serviceSalesPiasters: serviceSales,
+    serviceKnownRevenuePiasters: serviceKnownRevenue,
+    serviceKnownCostPiasters: serviceKnownCost,
   };
 }
 
@@ -337,6 +361,8 @@ async function profitInputsInTx(
   from: Date | null,
   to: Date,
 ) {
+  const lastDay = toCairoDateString(new Date(to.getTime() - 1));
+  const firstDay = from ? toCairoDateString(from) : null;
   const rows = await tx.$queryRaw<
     Array<
       CountEffectsRow & {
@@ -350,14 +376,7 @@ async function profitInputsInTx(
       }
     >
   >`
-    WITH l AS (
-      SELECT l.* FROM inventory_count_lines l
-        JOIN inventory_counts s ON s.id = l.session_id
-       WHERE l.store_id = ${storeId}::uuid AND s.status = 'confirmed'
-         AND s.confirmed_at < ${to}
-         AND (${from}::timestamptz IS NULL OR s.confirmed_at >= ${from}::timestamptz)
-         AND l.applied_delta_base <> 0
-    ), c AS (SELECT ${COUNT_EFFECTS_SELECT} FROM l)
+    WITH l AS (${confirmedCountLines(storeId, from, to)}), c AS (SELECT ${COUNT_EFFECTS_SELECT} FROM l)
     SELECT c.*,
       (SELECT COUNT(*) FROM service_transactions t
         WHERE t.store_id = ${storeId}::uuid AND t.status = 'completed'
@@ -381,8 +400,10 @@ async function profitInputsInTx(
           AND (${from}::timestamptz IS NULL OR m.created_at >= ${from}::timestamptz))::bigint AS owner_deposits,
       (SELECT COALESCE(SUM(i.cost_minor), 0) FROM daily_sales_entry_items i
          JOIN daily_sales_entries e ON e.id = i.entry_id AND e.cancelled_at IS NULL
-        WHERE i.store_id = ${storeId}::uuid AND i.created_at < ${to}
-          AND (${from}::timestamptz IS NULL OR i.created_at >= ${from}::timestamptz))::bigint AS items_cost,
+        WHERE i.store_id = ${storeId}::uuid
+          -- The same Cairo business days as the totals themselves (dailyTotalsInRange).
+          AND e.business_day <= ${lastDay}::date
+          AND (${firstDay}::date IS NULL OR e.business_day >= ${firstDay}::date))::bigint AS items_cost,
       (SELECT MAX(s.confirmed_at) FROM inventory_counts s
         WHERE s.store_id = ${storeId}::uuid AND s.status = 'confirmed') AS last_count
     FROM c`;
@@ -414,7 +435,10 @@ type ProfitInputs = Awaited<ReturnType<typeof profitInputsInTx>> & {
 };
 
 /**
- * Net profit = gross profit + service commissions − operating expenses − inventory losses.
+ * Net profit = goods gross profit + service commissions − operating expenses − inventory losses.
+ * - Service commissions = the services page's operations (their stored commission) + the
+ *   cashier's service sales (what the customer paid − what the machine paid out). A service's
+ *   operation amount is never sales: a cashier service sale leaves the goods figures here.
  * - Actual: every product sale has a recorded cost (no daily totals in the period).
  * - Estimated: daily totals (إدارة المحل) have no cost per item; their gross profit is valued
  *   at the margin of the shop's own stock today (selling vs cost value) — labelled as such.
@@ -429,12 +453,18 @@ export function buildProfit(
   const f = i.financials;
   const notes: string[] = [];
   const discovered = i.counts.discoveredSalesPiasters;
-  const productSales = f.revenuePiasters + discovered;
-  const invoiceRevenue = f.revenuePiasters - f.dailyTotalsPiasters;
+  // Cashier service sales are commissions, not goods (their amount is the customer's money
+  // passing through the machine).
+  const cashierCommissions =
+    f.serviceKnownRevenuePiasters - f.serviceKnownCostPiasters;
+  const productSales = f.revenuePiasters - f.serviceSalesPiasters + discovered;
+  const invoiceRevenue =
+    f.revenuePiasters - f.dailyTotalsPiasters - f.serviceSalesPiasters;
+  const goodsKnownCost = f.knownCostPiasters - f.serviceKnownCostPiasters;
   const invoiceCostKnown = f.unknownCostCount === 0;
   const discoveredCostKnown = !i.counts.discoveredSalesUnknownCost;
   const knownCogs =
-    f.knownCostPiasters +
+    goodsKnownCost +
     i.dailyItemsCostPiasters +
     i.counts.discoveredSalesCostPiasters;
 
@@ -444,7 +474,7 @@ export function buildProfit(
   const gross = allCostKnown
     ? invoiceRevenue +
       discovered -
-      f.knownCostPiasters -
+      goodsKnownCost -
       i.counts.discoveredSalesCostPiasters
     : null;
 
@@ -463,13 +493,13 @@ export function buildProfit(
     const knownPart =
       invoiceRevenue +
       discovered -
-      f.knownCostPiasters -
+      goodsKnownCost -
       i.counts.discoveredSalesCostPiasters;
     estimatedGross = Math.round(knownPart + f.dailyTotalsPiasters * margin);
   }
 
   const losses = i.wasteLossPiasters + i.counts.unknownShortageCostPiasters;
-  const commissions = i.services.commissionPiasters;
+  const commissions = i.services.commissionPiasters + cashierCommissions;
   const net =
     gross === null
       ? null
@@ -502,6 +532,16 @@ export function buildProfit(
       "فيه مبيعات أكدتها في الجرد (اتباعت ومتسجلتش): محسوبة بسعر البيع.",
     );
   }
+  if (i.counts.reconciledSoldCostPiasters > 0) {
+    notes.push(
+      "بضاعة قلت في الجرد إنها اتباعت: فلوسها في إجمالي المبيعات اليومي، فمش محسوبة مبيعات تاني ولا خسارة.",
+    );
+  }
+  if (cashierCommissions !== 0) {
+    notes.push(
+      "عمولات الخدمات من الكاشير = اللي الزبون دفعه ناقص اللي اتخصم من الماكينة (مبلغ العملية مش مبيعات).",
+    );
+  }
   if (i.counts.unknownShortageCostPiasters > 0) {
     notes.push("فيه عجز في الجرد سببه مش معروف: محسوب كخسارة، مش كمبيعات.");
   }
@@ -531,7 +571,8 @@ export function buildProfit(
     estimateMarginPercent:
       margin === null ? null : Math.round(margin * 1000) / 10,
     serviceCommissionsPiasters: commissions,
-    serviceOperationsPiasters: i.services.amountPiasters,
+    serviceOperationsPiasters:
+      i.services.amountPiasters + f.serviceKnownCostPiasters,
     operatingExpensesPiasters: i.operatingExpensesPiasters,
     inventoryLossesPiasters: losses,
     netProfitPiasters: net,

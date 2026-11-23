@@ -22,17 +22,30 @@ CREATE TABLE IF NOT EXISTS "inventory_counts" (
   "confirm_op_id" UUID,
   "confirmed_at" TIMESTAMPTZ(6),
   "abandoned_at" TIMESTAMPTZ(6),
+  -- Audit trail: who closed the count (the starter is created_by).
+  "confirmed_by" UUID,
+  "abandoned_by" UUID,
+  -- The shop's operating mode when the count was confirmed. In إدارة المحل the day's sales
+  -- total already holds the money of every sale, so a shortage the owner calls «sold» is
+  -- stock reconciliation, never a second sale; in الكاشير الذكي it is a sale nobody rang up.
+  "operating_mode" TEXT,
   CONSTRAINT "inventory_counts_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "inventory_counts_mode_check" CHECK ("operating_mode" IS NULL OR "operating_mode" IN ('simple', 'pos')),
   CONSTRAINT "inventory_counts_scope_check" CHECK ("scope" IN ('full', 'category', 'selected')),
   CONSTRAINT "inventory_counts_status_check" CHECK ("status" IN ('open', 'confirmed', 'abandoned')),
   CONSTRAINT "inventory_counts_state_check" CHECK (
     ("status" = 'open' AND "confirmed_at" IS NULL AND "abandoned_at" IS NULL)
-    OR ("status" = 'confirmed' AND "confirmed_at" IS NOT NULL AND "confirm_op_id" IS NOT NULL)
+    OR ("status" = 'confirmed' AND "confirmed_at" IS NOT NULL AND "confirm_op_id" IS NOT NULL
+        AND "operating_mode" IS NOT NULL)
     OR ("status" = 'abandoned' AND "abandoned_at" IS NOT NULL)),
   CONSTRAINT "inventory_counts_note_check" CHECK ("note" IS NULL OR length("note") <= 300),
   CONSTRAINT "inventory_counts_store_id_fkey" FOREIGN KEY ("store_id")
     REFERENCES "stores"("id") ON DELETE CASCADE ON UPDATE CASCADE,
   CONSTRAINT "inventory_counts_created_by_fkey" FOREIGN KEY ("created_by")
+    REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT "inventory_counts_confirmed_by_fkey" FOREIGN KEY ("confirmed_by")
+    REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE,
+  CONSTRAINT "inventory_counts_abandoned_by_fkey" FOREIGN KEY ("abandoned_by")
     REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE CASCADE
 );
 CREATE UNIQUE INDEX IF NOT EXISTS "uq_inventory_counts_store_op" ON "inventory_counts" ("store_id", "op_id");
@@ -119,8 +132,10 @@ CREATE TABLE IF NOT EXISTS "money_movements" (
     ("kind" = 'owner_withdrawal'
        AND ("from_cash" OR "from_machine_id" IS NOT NULL)
        AND NOT "to_cash" AND "to_machine_id" IS NULL)
+    -- The drawer is never charged by hand: its money comes from the shop's cash operations
+    -- (or a transfer). An owner deposit goes into a machine / wallet only.
     OR ("kind" = 'owner_deposit'
-       AND ("to_cash" OR "to_machine_id" IS NOT NULL)
+       AND NOT "to_cash" AND "to_machine_id" IS NOT NULL
        AND NOT "from_cash" AND "from_machine_id" IS NULL)
     OR ("kind" = 'transfer'
        AND ("from_cash" OR "from_machine_id" IS NOT NULL)
@@ -280,7 +295,8 @@ BEGIN
     -- Sessions: only the status columns change; the history is kept.
     GRANT SELECT, INSERT ON "inventory_counts" TO hesba_app;
     REVOKE UPDATE, DELETE ON "inventory_counts" FROM hesba_app;
-    GRANT UPDATE ("status", "confirm_op_id", "confirmed_at", "abandoned_at") ON "inventory_counts" TO hesba_app;
+    GRANT UPDATE ("status", "confirm_op_id", "confirmed_at", "abandoned_at", "confirmed_by", "abandoned_by",
+                  "operating_mode") ON "inventory_counts" TO hesba_app;
     -- Lines: counted / explained while the session is open, then frozen (trigger below).
     GRANT SELECT, INSERT, DELETE ON "inventory_count_lines" TO hesba_app;
     REVOKE UPDATE ON "inventory_count_lines" FROM hesba_app;
@@ -321,11 +337,12 @@ CREATE TRIGGER "hesba_inventory_count_lines_frozen"
   BEFORE INSERT OR UPDATE OR DELETE ON "inventory_count_lines"
   FOR EACH ROW EXECUTE FUNCTION hesba_inventory_count_lines_frozen();
 
--- A closed session never reopens, and a confirmed one never becomes abandoned.
+-- A closed session is history: it never reopens, a confirmed one never becomes abandoned, and
+-- none of its columns (who, when, the confirm op, the mode) can be rewritten afterwards.
 CREATE OR REPLACE FUNCTION hesba_inventory_counts_closed() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
-  IF OLD.status <> 'open' AND NEW.status IS DISTINCT FROM OLD.status THEN
+  IF OLD.status <> 'open' THEN
     RAISE EXCEPTION 'inventory count % is already %', OLD.id, OLD.status
       USING ERRCODE = 'check_violation';
   END IF;

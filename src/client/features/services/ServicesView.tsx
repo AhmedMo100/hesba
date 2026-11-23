@@ -7,6 +7,10 @@
  * provider connection, so the screen never says the provider confirmed anything. The commission
  * comes from the shop's rule (same math as the server: `slabFor`), can be typed when it differs,
  * and is the only income — the operation's amount is never sales.
+ *
+ * It is also where the shop's machines / wallets and its cashier services are managed (tab
+ * «المحافظ والماكينات»: add, top up, rename, delete; the services sold at the cashier with
+ * their commission rules) — the same component the old stand-alone page used, unchanged.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { formatMoney, normDigits } from "@/client/shared/i18n";
@@ -32,6 +36,7 @@ import {
 import { failureMessage } from "@/client/shared/quantity";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "../expenses/ExpensesView.module.css";
+import { AlertsView } from "../alerts/AlertsView";
 
 interface ServiceRow {
   id: string;
@@ -68,7 +73,12 @@ async function errorText(res: Response, fallback: string) {
   return b?.error?.message || fallback;
 }
 
-export function ServicesView() {
+type Tab = "record" | "machines";
+
+export function ServicesView({
+  initialTab = "record",
+}: { initialTab?: Tab } = {}) {
+  const [tab, setTab] = useState<Tab>(initialTab);
   const today = useMemo(() => toCairoDateString(new Date()), []);
   const [data, setData] = useState<ServicesAnswer | null>(null);
   const [machines, setMachines] = useState<PosMachine[]>([]);
@@ -101,13 +111,18 @@ export function ServicesView() {
       .catch((e: unknown) => setError(failureMessage(e, "مفيش نت")));
   }, [today]);
   useEffect(load, [load]);
+  // Re-read the machines whenever the record tab shows (a machine may have been added or
+  // topped up in the other tab).
   useEffect(() => {
+    if (tab !== "record") return;
     void fetchStoreMachines().then((l) => {
       const active = l.filter((m) => m.status !== "inactive");
       setMachines(active);
-      setFloatId((cur) => cur || active[0]?.id || "");
+      setFloatId((cur) =>
+        cur && active.some((m) => m.id === cur) ? cur : active[0]?.id || "",
+      );
     });
-  }, []);
+  }, [tab]);
 
   const def = SERVICE_BY_KEY.get(key)!;
   const rule = data?.rules[key];
@@ -220,9 +235,46 @@ export function ServicesView() {
     load();
   };
 
+  const tabs = (
+    <div
+      role="tablist"
+      style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}
+    >
+      {(
+        [
+          ["record", "📲 سجّل عملية"],
+          ["machines", "💳 المحافظ والماكينات"],
+        ] as const
+      ).map(([k, label]) => (
+        <button
+          key={k}
+          type="button"
+          role="tab"
+          aria-selected={tab === k}
+          className={styles.undoBtn}
+          style={tab === k ? { outline: "2px solid currentColor" } : undefined}
+          onClick={() => setTab(k)}
+          data-testid={`services-tab-${k}`}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (tab === "machines") {
+    return (
+      <div className={viewStyles.view} data-testid="page-services">
+        <div className={styles.container}>{tabs}</div>
+        <AlertsView mode="machines" />
+      </div>
+    );
+  }
+
   return (
     <div className={viewStyles.view} data-testid="page-services">
       <div className={styles.container}>
+        {tabs}
         <h2 className={styles.askTitle}>عملت خدمة لزبون؟</h2>
         <p
           className={styles.historyNote}
@@ -328,7 +380,7 @@ export function ServicesView() {
           >
             {machines.length === 0 && (
               <option value="">
-                ضيف محفظة أو ماكينة من «المحافظ والماكينات»
+                ضيف محفظة أو ماكينة من تبويب «المحافظ والماكينات»
               </option>
             )}
             {machines.map((m) => (

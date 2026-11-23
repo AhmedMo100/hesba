@@ -263,22 +263,28 @@ model DailySalesEntryPart {
 
 /// A physical stocktake (الجرد): the owner counts, explains each difference, then confirms.
 model InventoryCount {
-  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  storeId     String    @map("store_id") @db.Uuid
-  opId        String    @map("op_id") @db.Uuid
-  scope       String    @db.Text
-  category    String?   @db.Text
-  status      String    @default("open") @db.Text
-  note        String?   @db.Text
-  createdBy   String?   @map("created_by") @db.Uuid
-  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
-  confirmOpId String?   @map("confirm_op_id") @db.Uuid
-  confirmedAt DateTime? @map("confirmed_at") @db.Timestamptz(6)
-  abandonedAt DateTime? @map("abandoned_at") @db.Timestamptz(6)
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId       String    @map("store_id") @db.Uuid
+  opId          String    @map("op_id") @db.Uuid
+  scope         String    @db.Text
+  category      String?   @db.Text
+  status        String    @default("open") @db.Text
+  note          String?   @db.Text
+  createdBy     String?   @map("created_by") @db.Uuid
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  confirmOpId   String?   @map("confirm_op_id") @db.Uuid
+  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  abandonedAt   DateTime? @map("abandoned_at") @db.Timestamptz(6)
+  confirmedBy   String?   @map("confirmed_by") @db.Uuid
+  abandonedBy   String?   @map("abandoned_by") @db.Uuid
+  /// The shop's mode at confirmation ('simple' | 'pos'): how a «sold» shortage is reported.
+  operatingMode String?   @map("operating_mode") @db.Text
 
-  store Store                @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "inventory_counts_store_id_fkey")
-  user  User?                @relation("InventoryCountCreator", fields: [createdBy], references: [id], onDelete: SetNull, map: "inventory_counts_created_by_fkey")
-  lines InventoryCountLine[]
+  store     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "inventory_counts_store_id_fkey")
+  user      User?                @relation("InventoryCountCreator", fields: [createdBy], references: [id], onDelete: SetNull, map: "inventory_counts_created_by_fkey")
+  confirmer User?                @relation("InventoryCountConfirmer", fields: [confirmedBy], references: [id], onDelete: SetNull, map: "inventory_counts_confirmed_by_fkey")
+  abandoner User?                @relation("InventoryCountAbandoner", fields: [abandonedBy], references: [id], onDelete: SetNull, map: "inventory_counts_abandoned_by_fkey")
+  lines     InventoryCountLine[]
 
   @@unique([storeId, opId], map: "uq_inventory_counts_store_op")
   @@unique([storeId, confirmOpId], map: "uq_inventory_counts_store_confirm_op")
@@ -409,26 +415,28 @@ model User {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  createdStores           Store[]                  @relation("StoreCreator")
-  dailySalesEntries       DailySalesEntry[]        @relation("DailySalesCreator")
-  members                 StoreMember[]
-  devices                 Device[]
-  passkeys                UserPasskey[]
-  passkeyChallenges       PasskeyChallenge[]
-  emailVerificationTokens EmailVerificationToken[]
-  accountRecoveryTokens   AccountRecoveryToken[]
-  passwordResetCodes      PasswordResetCode[]
-  magicLinkTokens         MagicLinkToken[]
-  sessions                Session[]
-  saleVoids               SaleVoid[]
-  purchaseVoids           PurchaseVoid[]
-  platformAdmin           PlatformAdmin?
-  aiAdminAudits           AiAdminAudit[]
-  saleReturns             SaleReturn[]
-  cashDrawerCounts        CashDrawerCount[]
-  inventoryCounts         InventoryCount[]         @relation("InventoryCountCreator")
-  moneyMovements          MoneyMovement[]          @relation("MoneyMovementCreator")
-  serviceTransactions     ServiceTransaction[]     @relation("ServiceCreator")
+  createdStores            Store[]                  @relation("StoreCreator")
+  dailySalesEntries        DailySalesEntry[]        @relation("DailySalesCreator")
+  members                  StoreMember[]
+  devices                  Device[]
+  passkeys                 UserPasskey[]
+  passkeyChallenges        PasskeyChallenge[]
+  emailVerificationTokens  EmailVerificationToken[]
+  accountRecoveryTokens    AccountRecoveryToken[]
+  passwordResetCodes       PasswordResetCode[]
+  magicLinkTokens          MagicLinkToken[]
+  sessions                 Session[]
+  saleVoids                SaleVoid[]
+  purchaseVoids            PurchaseVoid[]
+  platformAdmin            PlatformAdmin?
+  aiAdminAudits            AiAdminAudit[]
+  saleReturns              SaleReturn[]
+  cashDrawerCounts         CashDrawerCount[]
+  inventoryCounts          InventoryCount[]         @relation("InventoryCountCreator")
+  inventoryCountsClosed    InventoryCount[]         @relation("InventoryCountConfirmer")
+  inventoryCountsAbandoned InventoryCount[]         @relation("InventoryCountAbandoner")
+  moneyMovements           MoneyMovement[]          @relation("MoneyMovementCreator")
+  serviceTransactions      ServiceTransaction[]     @relation("ServiceCreator")
 
   @@map("users")
 }

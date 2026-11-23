@@ -4,23 +4,31 @@
  * @file MoneyView.tsx
  * @description «فلوس حِسبة»: «فلوسي فين؟». The drawer (what should be in it, from the last
  * count) and every machine / wallet with its balance, the total, and the latest movements.
- * The owner records here what no other screen records: taking money for himself, putting money
- * in, and moving money between the drawer and the wallets. Money is never sales: a sale is
- * revenue, this is where the money sits now.
+ * The owner records here what no other screen records: taking money for himself and moving
+ * money between the drawer and the wallets. A machine / wallet gets balance through its
+ * existing top-up form («حط رصيد»); the drawer is never charged by hand — its money comes from
+ * the shop's cash operations. Money is never sales: a sale is revenue, this is where the money
+ * sits now.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { formatMoney, normDigits } from "@/client/shared/i18n";
 import { parseEgpStrict } from "@/domain/money";
 import type { MoneyOverview } from "@/schemas/money";
 import { failureMessage } from "@/client/shared/quantity";
+import { useAuth } from "@/client/shared/auth";
+import {
+  fetchStoreMachines,
+  type PosMachine,
+} from "@/client/shared/api/machines";
+import { useToast } from "@/client/shared/ui";
+import { MachineTopupModal } from "../stock/MachineTopupModal";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "../expenses/ExpensesView.module.css";
 
-type Kind = "owner_withdrawal" | "owner_deposit" | "transfer";
+type Kind = "owner_withdrawal" | "transfer";
 
 const KIND_LABEL: Record<Kind, string> = {
   owner_withdrawal: "💸 سحبت لنفسي",
-  owner_deposit: "📥 حطيت فلوس في المحل",
   transfer: "🔁 حوّلت بين حساباتي",
 };
 
@@ -53,6 +61,16 @@ export function MoneyView() {
   const [busy, setBusy] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [opId, setOpId] = useState(() => crypto.randomUUID());
+  const { session } = useAuth();
+  const toast = useToast();
+  // The shop's machines (full rows) for the existing top-up form.
+  const [machines, setMachines] = useState<PosMachine[]>([]);
+  const [topup, setTopup] = useState<PosMachine | null>(null);
+  useEffect(() => {
+    void fetchStoreMachines()
+      .then(setMachines)
+      .catch(() => undefined);
+  }, []);
 
   const load = useCallback(() => {
     fetch("/api/money", { credentials: "same-origin" })
@@ -79,8 +97,8 @@ export function MoneyView() {
       amountPiasters: piasters,
       note: note.trim() || null,
     };
-    if (kind !== "owner_deposit") body["from"] = accountRef(from);
-    if (kind !== "owner_withdrawal") {
+    body["from"] = accountRef(from);
+    if (kind === "transfer") {
       if (!to) return setFormError("اختار الفلوس رايحة فين");
       body["to"] = accountRef(to);
     }
@@ -139,11 +157,26 @@ export function MoneyView() {
                       </span>
                     )}
                   </div>
-                  <b>
-                    {a.balancePiasters === null
-                      ? "عدّه أول مرة"
-                      : formatMoney(a.balancePiasters)}
-                  </b>
+                  <div className={styles.itemActions}>
+                    <b>
+                      {a.balancePiasters === null
+                        ? "عدّه أول مرة"
+                        : formatMoney(a.balancePiasters)}
+                    </b>
+                    {a.kind !== "cash" &&
+                      machines.some((m) => m.id === a.id) && (
+                        <button
+                          type="button"
+                          className={styles.undoBtn}
+                          onClick={() =>
+                            setTopup(machines.find((m) => m.id === a.id)!)
+                          }
+                          data-testid="money-topup"
+                        >
+                          ➕ حط رصيد
+                        </button>
+                      )}
+                  </div>
                 </div>
               ))}
             </div>
@@ -177,31 +210,25 @@ export function MoneyView() {
           >
             {kind === "owner_withdrawal"
               ? "فلوس خدتها لنفسك من المحل: مش مصروف على المحل ومش بتقلل المكسب."
-              : kind === "owner_deposit"
-                ? "فلوس حطيتها من جيبك في المحل: مش مبيعات."
-                : "نقل فلوس من حساب لحساب (مثلاً من الدرج لفودافون كاش): لا مكسب ولا مصروف."}
+              : "نقل فلوس من حساب لحساب (مثلاً من الدرج لفودافون كاش): لا مكسب ولا مصروف."}
           </p>
-          {kind !== "owner_deposit" && (
-            <>
-              <label className={styles.lbl} htmlFor="mv-from">
-                منين؟
-              </label>
-              <select
-                id="mv-from"
-                className={styles.input}
-                value={from}
-                onChange={(e) => setFrom(e.target.value)}
-                data-testid="money-from"
-              >
-                {accounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </>
-          )}
-          {kind !== "owner_withdrawal" && (
+          <label className={styles.lbl} htmlFor="mv-from">
+            منين؟
+          </label>
+          <select
+            id="mv-from"
+            className={styles.input}
+            value={from}
+            onChange={(e) => setFrom(e.target.value)}
+            data-testid="money-from"
+          >
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+          {kind === "transfer" && (
             <>
               <label className={styles.lbl} htmlFor="mv-to">
                 لفين؟
@@ -317,8 +344,29 @@ export function MoneyView() {
         )}
         <p className={styles.historyNote}>
           الفلوس هنا هي اللي معاك فعلاً، مش المبيعات: البيع الآجل بيبان في «ليك»
-          لحد ما يتحصّل، والبضاعة ليها قيمة في التقارير.
+          لحد ما يتحصّل، والبضاعة ليها قيمة في التقارير. الدرج مبيتشحنش بإيدك:
+          فلوسه بتتغير لوحدها مع البيع والمصاريف والعمليات الكاش.
         </p>
+        {topup && (
+          <MachineTopupModal
+            machine={topup}
+            initialMode="topup"
+            topupOnly
+            storeId={session?.store?.id}
+            onClose={() => setTopup(null)}
+            onSuccess={(updated) => {
+              setTopup(null);
+              setMachines((prev) =>
+                prev.map((m) => (m.id === updated.id ? updated : m)),
+              );
+              toast.show({
+                msg: `تم شحن رصيد «${updated.name}» ✓`,
+                kind: "ok",
+              });
+              load();
+            }}
+          />
+        )}
       </div>
     </div>
   );

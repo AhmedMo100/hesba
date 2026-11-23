@@ -48,6 +48,12 @@ export const moneyMovementSchema = z
     } else if (v.kind === "owner_deposit") {
       need(!!v.to, "to", "اختار الفلوس هتدخل فين");
       need(!v.from, "from", "الإيداع مالوش حساب يطلع منه");
+      // The drawer is never charged by hand (its money comes from cash operations).
+      need(
+        v.to !== "cash",
+        "to",
+        "الدرج مبيتشحنش بإيدك: فلوسه بتيجي من البيع والعمليات الكاش. حط الفلوس في ماكينة أو محفظة.",
+      );
     } else {
       need(!!v.from, "from", "اختار التحويل من فين");
       need(!!v.to, "to", "اختار التحويل لفين");

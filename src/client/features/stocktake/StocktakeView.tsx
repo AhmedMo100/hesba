@@ -49,6 +49,8 @@ interface Count {
   status: "open" | "confirmed" | "abandoned";
   startedAt: string;
   confirmedAt: string | null;
+  /** simple: «اتباع» = its money is in the daily totals; pos: a sale nobody rang up. */
+  salesMode?: "simple" | "pos";
   totals: {
     lines: number;
     counted: number;
@@ -326,9 +328,18 @@ export function StocktakeView() {
                   className={styles.historyNote}
                   style={{ textAlign: "start", margin: 0 }}
                 >
-                  • قلت إنه اتباع ومتسجلش: هيتحسب مبيعات بـ{" "}
-                  {formatMoney(t.unrecordedSaleSellPiasters)} (من غير فلوس جديدة
-                  في الدرج)
+                  {count.salesMode === "simple" ? (
+                    <>
+                      • قلت إنه اتباع: فلوسه داخلة في إجمالي المبيعات اليومي،
+                      فمش هيتحسب مبيعات تاني ولا خسارة — المخزون بس هيتظبط
+                    </>
+                  ) : (
+                    <>
+                      • قلت إنه اتباع ومتسجلش: هيتحسب مبيعات بـ{" "}
+                      {formatMoney(t.unrecordedSaleSellPiasters)} (من غير فلوس
+                      جديدة في الدرج)
+                    </>
+                  )}
                 </p>
               )}
               {(t.damagedBase > 0 || t.lostBase > 0) && (
@@ -443,7 +454,10 @@ export function StocktakeView() {
                           >
                             {SHORTAGE_REASONS.map(([k, label]) => (
                               <option key={k} value={k}>
-                                {label}
+                                {k === "unrecorded_sale" &&
+                                count.salesMode === "simple"
+                                  ? "اتباع (فلوسه في إجمالي اليوم)"
+                                  : label}
                               </option>
                             ))}
                           </select>

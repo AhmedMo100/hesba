@@ -333,7 +333,7 @@ function AppShellInner() {
             onNavigate={navigate}
             operatingMode={mode}
             alertCount={alertCount}
-            onOpenAlerts={() => navigate("alerts")}
+            onOpenAlerts={() => navigate("notifications")}
             onLogout={async () => {
               await logout();
               await forgetShopIdentities(db).catch(() => {});
@@ -361,7 +361,9 @@ function AppShellInner() {
       case "people":
         return <PeopleView />;
       case "alerts":
-        return <AlertsView mode="machines" />;
+        // The stand-alone «المحافظ والماكينات» page is gone: its machines and services live in
+        // «الخدمات والعمولات» (old links land on that tab).
+        return <ServicesView initialTab="machines" />;
       case "notifications":
         return <AlertsView mode="alerts" onNavigate={navigate} />;
       case "reports":
@@ -378,7 +380,7 @@ function AppShellInner() {
             onNavigate={navigate}
             operatingMode={mode}
             alertCount={alertCount}
-            onOpenAlerts={() => navigate("alerts")}
+            onOpenAlerts={() => navigate("notifications")}
             onLogout={async () => {
               await logout();
               await forgetShopIdentities(db).catch(() => {});

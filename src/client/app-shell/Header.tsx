@@ -19,7 +19,7 @@ const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
   "daily-sales": "pageTitle.dailySales",
   expenses: "pageTitle.expenses",
   people: "pageTitle.people",
-  alerts: "pageTitle.alerts",
+  alerts: "pageTitle.services",
   products: "pageTitle.products",
   ai: "pageTitle.ai",
   inventory: "pageTitle.inventory",

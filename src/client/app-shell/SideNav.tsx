@@ -30,7 +30,6 @@ const NAV_ITEMS: NavItem[] = [
   { route: "money", labelKey: "nav.money", icon: "wallet" },
   { route: "services", labelKey: "nav.services", icon: "phone" },
   { route: "stocktake", labelKey: "nav.stocktake", icon: "layers" },
-  { route: "alerts", labelKey: "nav.alerts", icon: "bell" },
   { route: "ai", labelKey: "nav.ai", icon: "sparkle" },
 ];
 

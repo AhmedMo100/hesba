@@ -10,9 +10,12 @@ import "server-only";
  *   the line is counted, so sales made while counting do not become fake differences. At
  *   confirmation the difference is applied relative to the current stock.
  * - A shortage is NEVER a sale by itself. Its reason is the owner's choice:
- *   - `unrecorded_sale` («اتباع ومتسجلش»): stock out with its FEFO cost; its value at the
- *     selling price is a sale DISCOVERED by the count — no payment method, no customer, no
- *     money movement (the money is wherever the drawer count says).
+ *   - `unrecorded_sale` («اتباع»): stock out with its FEFO cost. What it means depends on the
+ *     shop's mode AT CONFIRMATION (stored on the count):
+ *     - الكاشير الذكي (pos): a sale nobody rang up — its value at the selling price is a sale
+ *       DISCOVERED by the count (no payment method, no customer, no money movement).
+ *     - إدارة المحل (simple): the day's sales totals already hold the money of every sale, so it
+ *       is stock reconciliation only — no second sale, no loss (`applied_sale_minor` NULL).
  *   - `damaged` («تالف») / `lost` («ضايع / مسروق»): a loss, recorded in `waste_records` (the
  *     existing loss ledger, so the reports count it once).
  *   - `unknown` («مش عارف»), the default: stock out, reported as an unexplained difference.
@@ -20,6 +23,9 @@ import "server-only";
  *   and moves no money.
  * - Confirmation is atomic and idempotent (`confirm_op_id`); an abandoned count changes nothing.
  *   A closed count is frozen by the database (trigger).
+ * - Audit trail: who started (`created_by`), confirmed (`confirmed_by`) or abandoned
+ *   (`abandoned_by`) it and when; every stock movement it made carries the count's
+ *   `confirm_op_id` as its `op_id`, and every loss notes the count.
  */
 
 import { Prisma } from "@prisma/client";
@@ -78,6 +84,13 @@ export interface InventoryCountView {
   startedAt: string;
   confirmedAt: string | null;
   abandonedAt: string | null;
+  /**
+   * How a «sold» shortage counts: the mode stored at confirmation, else the shop's mode now.
+   * simple → reconciliation of the daily totals (no sale value); pos → a discovered sale.
+   */
+  salesMode: "simple" | "pos";
+  startedBy: string | null;
+  closedBy: string | null;
   totals: InventoryCountTotals;
   lines: InventoryCountLineView[];
 }
@@ -173,7 +186,10 @@ function lineView(l: LineRow): InventoryCountLineView {
   };
 }
 
-function totalsOf(lines: InventoryCountLineView[]): InventoryCountTotals {
+function totalsOf(
+  lines: InventoryCountLineView[],
+  salesMode: "simple" | "pos",
+): InventoryCountTotals {
   const t: InventoryCountTotals = {
     lines: lines.length,
     counted: 0,
@@ -213,7 +229,9 @@ function totalsOf(lines: InventoryCountLineView[]): InventoryCountTotals {
     else if (reason === "lost") t.lostBase += q;
     else if (reason === "unrecorded_sale") {
       t.unrecordedSaleBase += q;
-      t.unrecordedSaleSellPiasters += l.differenceSellPiasters ?? 0;
+      // إدارة المحل: the money is already in the daily totals — no sale value is added.
+      if (salesMode === "pos")
+        t.unrecordedSaleSellPiasters += l.differenceSellPiasters ?? 0;
     } else t.unknownBase += q;
   }
   return t;
@@ -226,8 +244,16 @@ async function viewInTx(
 ): Promise<InventoryCountView> {
   const s = await tx.inventoryCount.findFirst({
     where: { storeId, id: sessionId },
+    include: {
+      user: { select: { name: true } },
+      confirmer: { select: { name: true } },
+      abandoner: { select: { name: true } },
+      store: { select: { operatingMode: true } },
+    },
   });
   if (!s) throw AppError.notFound("الجرد ده مش موجود");
+  const salesMode =
+    (s.operatingMode ?? s.store.operatingMode) === "pos" ? "pos" : "simple";
   const lines = (await linesOf(tx, storeId, s.id)).map(lineView);
   return {
     id: s.id,
@@ -238,7 +264,10 @@ async function viewInTx(
     startedAt: s.startedAt.toISOString(),
     confirmedAt: s.confirmedAt?.toISOString() ?? null,
     abandonedAt: s.abandonedAt?.toISOString() ?? null,
-    totals: totalsOf(lines),
+    salesMode,
+    startedBy: s.user?.name ?? null,
+    closedBy: s.confirmer?.name ?? s.abandoner?.name ?? null,
+    totals: totalsOf(lines, salesMode),
     lines,
   };
 }
@@ -532,7 +561,11 @@ export async function abandonInventoryCount(
     }
     await tx.inventoryCount.update({
       where: { id },
-      data: { status: "abandoned", abandonedAt: new Date() },
+      data: {
+        status: "abandoned",
+        abandonedAt: new Date(),
+        abandonedBy: userId,
+      },
     });
     return viewInTx(tx, storeId, id);
   });
@@ -547,6 +580,7 @@ async function addSurplusInTx(
   unitCost: bigint | null,
   unit: string,
   now: Date,
+  opId: string,
 ): Promise<bigint | null> {
   const variant = await tx.storeVariant.findFirst({
     where: { storeId, id: variantId },
@@ -582,6 +616,7 @@ async function addSurplusInTx(
       costPriceMinor: unitCost,
       balanceAfterBase: after,
       negative: after < ZERO,
+      opId,
       createdAt: now,
     },
   });
@@ -618,6 +653,14 @@ export async function confirmInventoryCount(
       throw AppError.badRequest("اجرد صنف واحد على الأقل قبل التأكيد");
     }
     const now = new Date();
+    // The mode decides what «اتباع» means for the reports; stored so a later switch of the
+    // shop's mode never rewrites this count's history.
+    const store = await tx.store.findFirst({
+      where: { id: storeId },
+      select: { operatingMode: true },
+    });
+    const mode = store?.operatingMode === "pos" ? "pos" : "simple";
+    const countRef = `جرد ${now.toISOString().slice(0, 10)} (${id.slice(0, 8)})`;
     for (const l of counted) {
       const diff = l.countedBase! - l.expectedBase;
       if (diff === ZERO) continue;
@@ -633,6 +676,7 @@ export async function confirmInventoryCount(
           l.unitCostMinor,
           unit,
           now,
+          opId,
         );
       } else {
         const qty = -diff;
@@ -651,7 +695,7 @@ export async function confirmInventoryCount(
             storeVariantId: variantId,
             quantityBase: qty,
             reason: reason === "damaged" ? "damaged" : "missing",
-            note: `جرد ${now.toISOString().slice(0, 10)}`,
+            note: countRef,
           });
           const rec = await tx.wasteRecord.findFirst({
             where: { storeId, id: w.wasteId },
@@ -668,13 +712,15 @@ export async function confirmInventoryCount(
             storeProductId: product?.storeProductId ?? null,
             quantityBase: qty,
             type: "count_adjustment",
+            opId,
             now,
           });
           appliedCost = taken.costPiasters;
         }
       }
+      // Only a cashier shop discovers a sale; in إدارة المحل its money is in the daily totals.
       const saleValue =
-        diff < ZERO && l.reason === "unrecorded_sale"
+        diff < ZERO && l.reason === "unrecorded_sale" && mode === "pos"
           ? valueOf(l.unitPriceMinor, -diff, unit)
           : null;
       await tx.inventoryCountLine.update({
@@ -689,7 +735,13 @@ export async function confirmInventoryCount(
     }
     await tx.inventoryCount.update({
       where: { id },
-      data: { status: "confirmed", confirmOpId: opId, confirmedAt: now },
+      data: {
+        status: "confirmed",
+        confirmOpId: opId,
+        confirmedAt: now,
+        confirmedBy: userId,
+        operatingMode: mode,
+      },
     });
     return viewInTx(tx, storeId, id);
   });
@@ -707,14 +759,29 @@ export async function countEffectsInRange(
   to: Date,
 ): Promise<CountEffects> {
   const rows = await tx.$queryRaw<CountEffectsRow[]>`
-    SELECT ${COUNT_EFFECTS_SELECT}
+    WITH l AS (${confirmedCountLines(storeId, from, to)})
+    SELECT ${COUNT_EFFECTS_SELECT} FROM l`;
+  return countEffectsFromRow(rows[0]);
+}
+
+/**
+ * The applied lines of the counts confirmed in [from, to), each with `count_mode` (the shop's
+ * mode at confirmation). The source `l` of {@link COUNT_EFFECTS_SELECT}, shared with the
+ * report's single profit query.
+ */
+export function confirmedCountLines(
+  storeId: string,
+  from: Date | null,
+  to: Date,
+): Prisma.Sql {
+  return Prisma.sql`
+    SELECT l.*, s.operating_mode AS count_mode
       FROM inventory_count_lines l
       JOIN inventory_counts s ON s.id = l.session_id
      WHERE l.store_id = ${storeId}::uuid AND s.status = 'confirmed'
        AND s.confirmed_at < ${to}
        AND (${from}::timestamptz IS NULL OR s.confirmed_at >= ${from}::timestamptz)
        AND l.applied_delta_base <> 0`;
-  return countEffectsFromRow(rows[0]);
 }
 
 export interface CountEffects {
@@ -722,6 +789,11 @@ export interface CountEffects {
   discoveredSalesCostPiasters: number;
   discoveredSalesUnknownCost: boolean;
   unknownShortageCostPiasters: number;
+  /**
+   * إدارة المحل: cost of the goods the owner said were sold — their money is already in the
+   * daily totals, so this is neither a sale nor a loss (shown for information only).
+   */
+  reconciledSoldCostPiasters: number;
   surplusCostPiasters: number;
   counts: number;
 }
@@ -731,20 +803,26 @@ export interface CountEffectsRow {
   discovered_cost: bigint | null;
   discovered_unknown: boolean | null;
   unknown_shortage: bigint | null;
+  reconciled_sold: bigint | null;
   surplus_cost: bigint | null;
   counts: bigint | null;
 }
 
 /**
- * The aggregate over confirmed lines `l` (alias required), shared with the report's single
- * profit query so both read the same rules: «اتباع ومتسجلش» = sale (value fixed at
- * confirmation, FEFO cost); 'unknown' shortage = loss at cost; damaged / lost are NOT here
- * (they are in waste_records, counted there once).
+ * The aggregate over {@link confirmedCountLines} `l` (alias required), shared with the report's
+ * single profit query so both read the same rules:
+ * - «اتباع» in a cashier shop (count_mode 'pos') = a discovered sale (value fixed at
+ *   confirmation, FEFO cost in COGS);
+ * - «اتباع» in إدارة المحل ('simple') = reconciliation of the daily totals: no revenue (the
+ *   money is in the totals) and no loss;
+ * - 'unknown' shortage = loss at cost; damaged / lost are NOT here (they are in waste_records,
+ *   counted there once).
  */
 export const COUNT_EFFECTS_SELECT = Prisma.sql`
-  COALESCE(SUM(l.applied_sale_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.applied_delta_base < 0), 0)::bigint AS discovered_sales,
-  COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.applied_delta_base < 0), 0)::bigint AS discovered_cost,
-  COALESCE(BOOL_OR(l.applied_cost_minor IS NULL) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.applied_delta_base < 0), false) AS discovered_unknown,
+  COALESCE(SUM(l.applied_sale_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.count_mode = 'pos' AND l.applied_delta_base < 0), 0)::bigint AS discovered_sales,
+  COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.count_mode = 'pos' AND l.applied_delta_base < 0), 0)::bigint AS discovered_cost,
+  COALESCE(BOOL_OR(l.applied_cost_minor IS NULL OR l.applied_sale_minor IS NULL) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.count_mode = 'pos' AND l.applied_delta_base < 0), false) AS discovered_unknown,
+  COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE l.reason = 'unrecorded_sale' AND l.count_mode = 'simple' AND l.applied_delta_base < 0), 0)::bigint AS reconciled_sold,
   COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE (l.reason = 'unknown' OR l.reason IS NULL) AND l.applied_delta_base < 0), 0)::bigint AS unknown_shortage,
   COALESCE(SUM(l.applied_cost_minor) FILTER (WHERE l.applied_delta_base > 0), 0)::bigint AS surplus_cost,
   COUNT(DISTINCT l.session_id)::bigint AS counts`;
@@ -757,6 +835,7 @@ export function countEffectsFromRow(
     discoveredSalesCostPiasters: Number(r?.discovered_cost ?? 0),
     discoveredSalesUnknownCost: Boolean(r?.discovered_unknown),
     unknownShortageCostPiasters: Number(r?.unknown_shortage ?? 0),
+    reconciledSoldCostPiasters: Number(r?.reconciled_sold ?? 0),
     surplusCostPiasters: Number(r?.surplus_cost ?? 0),
     counts: Number(r?.counts ?? 0),
   };

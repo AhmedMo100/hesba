@@ -114,12 +114,16 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
   await signup(page.request, "محل التنقل");
   await open(page, "/app", "page-home");
   await expect(page.locator('[data-testid^="bnav-"]')).toHaveCount(0);
+  await expect(page.getByTestId("home-tile-alerts")).toHaveCount(0);
   for (const [route, screen] of [
     ["stock", "page-stock"],
     ["expenses", "page-expenses"],
     ["sales", "page-sales"],
     ["people", "page-people"],
-    ["alerts", "page-alerts"],
+    // The stand-alone machines page is gone: machines live in «الخدمات والعمولات».
+    ["services", "page-services"],
+    ["money", "page-money"],
+    ["stocktake", "page-stocktake"],
     ["products", "page-products"],
     ["inventory", "page-inventory"],
     ["ai", "page-ai"],

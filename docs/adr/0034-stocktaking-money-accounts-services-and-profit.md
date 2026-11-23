@@ -143,3 +143,46 @@ once. When the device is offline, the screen says the operation was not recorded
   commission rules.
 - Tests: `tests/integration/simple-mode-financials.spec.ts` covers stocktaking, money, services,
   daily credit and profit.
+
+## Revision — stabilization (2026-11-23)
+
+- **The 500s on `/api/reports/home`, `/api/money` and `/api/drawer`** came from a database
+  without this ADR's migration: the code read `money_movements`, `service_transactions` and
+  `inventory_counts`, which did not exist there. The fix is applying the migration
+  (`prisma migrate deploy`), not a fallback. The error handler now logs a missing table or
+  column (P2021 / P2022 / 42P01 / 42703) as `Database schema is behind the code`. The response
+  stays a 500 with a `request_id`. `tests/integration/stabilization-regressions.spec.ts` calls
+  these routes and checks that their numbers match the database.
+- **«اتباع» depends on the mode, fixed at confirmation** (`inventory_counts.operating_mode`):
+  - In الكاشير الذكي, it is a sale nobody rang up: a discovered sale, as above.
+  - In إدارة المحل, the day's sales total already holds the money of every sale. The shortage
+    only reconciles the stock (`applied_sale_minor` NULL): it is not a second sale and not a
+    loss. Before this revision the same money was counted twice.
+  - Switching the shop's mode later does not rewrite a confirmed count.
+- **Stocktake audit trail:**
+  - `confirmed_by` and `abandoned_by` sit beside `created_by`.
+  - The stock movements of a count carry its `confirm_op_id` as `op_id`.
+  - Its loss records name the count.
+  - A closed count cannot be updated at all (the trigger refuses any change, not only a status
+    change).
+- **The drawer is never charged by hand.** An owner deposit goes into a machine or wallet only
+  (API 400 and database CHECK). The money screen tops a machine up through the existing top-up
+  form («حط رصيد»). Transfers between the drawer and wallets stay.
+- **Cashier service sales are commissions.** A service sold at the cashier (500 paid, machine
+  −490) leaves goods sales and goods profit. Its margin (10) is added to
+  `serviceCommissionsPiasters` and its machine charge to `serviceOperationsPiasters`. Net profit
+  is unchanged: it is counted once, in the right place.
+- **Quantities recorded with a daily total** are costed on the total's business day, not on the
+  day they were typed in.
+- **The stand-alone «المحافظ والماكينات» page was removed from the navigation.** Its component
+  is now the «المحافظ والماكينات» tab of «الخدمات والعمولات», unchanged: add, top up, rename,
+  delete, and the cashier services with their commission rules. `/app/alerts` opens that tab.
+  No table and no logic was removed.
+- **Home:** the summary row (net profit, all money, goods value) and the stocktake reminder
+  were taken off the Home until its redesign. The report keeps `profit` and `inventoryValue`;
+  the reports screen shows them.
+- **Open question:** a cashier service's commission rule lives in
+  `salesConfig.serviceCommissions` (per service product). A services-page operation's rule
+  lives in `settings.serviceRules` (per catalog service). Both are stored at the time of the
+  operation and neither rewrites history. Merging them into one rule per service is a product
+  decision.
