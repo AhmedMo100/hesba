@@ -44,6 +44,9 @@ const loadReportsView = () => import("../features/home/ReportsView");
 const loadDrawerView = () => import("../features/home/DrawerView");
 const loadDailySalesView = () =>
   import("../features/daily-sales/DailySalesView");
+const loadMoneyView = () => import("../features/money/MoneyView");
+const loadServicesView = () => import("../features/services/ServicesView");
+const loadStocktakeView = () => import("../features/stocktake/StocktakeView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -56,6 +59,9 @@ const InventoryView = lazy(loadInventoryView);
 const ReportsView = lazy(loadReportsView);
 const DrawerView = lazy(loadDrawerView);
 const DailySalesView = lazy(loadDailySalesView);
+const MoneyView = lazy(loadMoneyView);
+const ServicesView = lazy(loadServicesView);
+const StocktakeView = lazy(loadStocktakeView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -71,6 +77,9 @@ const VALID_ROUTES: NavRoute[] = [
   "reports",
   "drawer",
   "notifications",
+  "money",
+  "services",
+  "stocktake",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -276,6 +285,9 @@ function AppShellInner() {
     loadReportsView();
     loadDrawerView();
     loadDailySalesView();
+    loadMoneyView();
+    loadServicesView();
+    loadStocktakeView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -336,6 +348,12 @@ function AppShellInner() {
         return <SalesView onNavigate={navigate} />;
       case "daily-sales":
         return <DailySalesView />;
+      case "money":
+        return <MoneyView />;
+      case "services":
+        return <ServicesView />;
+      case "stocktake":
+        return <StocktakeView />;
       case "stock":
         return <StockView />;
       case "expenses":

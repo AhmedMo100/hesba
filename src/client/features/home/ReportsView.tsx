@@ -270,6 +270,99 @@ export function ReportsView() {
             </div>
           </section>
 
+          {/* 2b. The full account of the period: actual vs estimated, said in plain words */}
+          {report?.profit && (
+            <section className={styles.qcard} data-testid="report-net">
+              <h3 className={styles.qtitle}>
+                🧾 الحساب الكامل للفترة{" "}
+                <small data-testid="report-net-status">
+                  {report.profit.status === "actual"
+                    ? "(أرقام فعلية)"
+                    : report.profit.status === "estimated"
+                      ? "(ربح تقديري)"
+                      : "(بيانات غير مكتملة)"}
+                </small>
+              </h3>
+              <b className={styles.qbig} data-testid="report-net-profit">
+                {money(
+                  report.profit.netProfitPiasters ??
+                    report.profit.estimatedNetProfitPiasters,
+                )}
+              </b>
+              <small className={styles.qsub}>
+                صافي المكسب = مكسب البضاعة + عمولات الخدمات − مصاريف المحل −
+                التالف والعجز
+              </small>
+              <div className={styles.qlines}>
+                <div className={styles.line}>
+                  <span>مبيعات البضاعة</span>
+                  <b>{money(report.profit.productSalesPiasters)}</b>
+                </div>
+                {report.profit.discoveredSalesPiasters > 0 && (
+                  <div className={styles.line}>
+                    <span>منها اتباع ومتسجلش (من الجرد)</span>
+                    <b>{money(report.profit.discoveredSalesPiasters)}</b>
+                  </div>
+                )}
+                <div className={styles.line}>
+                  <span>
+                    مكسب البضاعة{" "}
+                    {report.profit.grossProfitPiasters === null &&
+                    report.profit.estimateMarginPercent !== null
+                      ? `(تقديري بهامش ${report.profit.estimateMarginPercent}%)`
+                      : ""}
+                  </span>
+                  <b>
+                    {money(
+                      report.profit.grossProfitPiasters ??
+                        report.profit.estimatedGrossProfitPiasters,
+                    )}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>📲 عمولات الخدمات</span>
+                  <b data-testid="report-commissions">
+                    {money(report.profit.serviceCommissionsPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>💸 مصاريف المحل</span>
+                  <b>
+                    {report.profit.operatingExpensesPiasters > 0 ? "−" : ""}
+                    {money(report.profit.operatingExpensesPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>🗑️ تالف وعجز جرد</span>
+                  <b>
+                    {report.profit.inventoryLossesPiasters > 0 ? "−" : ""}
+                    {money(report.profit.inventoryLossesPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>👤 سحبت لنفسك (مش من المصاريف)</span>
+                  <b>{money(report.profit.ownerWithdrawalsPiasters)}</b>
+                </div>
+                {report.inventoryValue && (
+                  <div className={styles.line}>
+                    <span>📦 قيمة البضاعة عندك دلوقتي (بالتكلفة / بالبيع)</span>
+                    <b data-testid="report-stock-value">
+                      {money(report.inventoryValue.costPiasters)} /{" "}
+                      {money(report.inventoryValue.sellPiasters)}
+                    </b>
+                  </div>
+                )}
+              </div>
+              {report.profit.notes.length > 0 && (
+                <ul className={styles.qsub} data-testid="report-net-notes">
+                  {report.profit.notes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+
           {/* 3. صرفت كام؟ */}
           <section className={styles.qcard}>
             <h3 className={styles.qtitle}>💸 صرفت كام؟</h3>
