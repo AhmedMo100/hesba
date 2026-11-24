@@ -89,7 +89,7 @@ test.describe("Home report", () => {
       content: "nextjs-portal { display: none !important; }",
     });
     // «ربحك الشهر ده» opens the reports page (this month: today's operations are in it).
-    await page.getByTestId("home-profit-month").click(PAGE_LOAD);
+    await page.getByTestId("home-profit").click(PAGE_LOAD);
     await expect(page.getByTestId("report-sales")).toHaveText("30 ج.م", SERVER);
     await expect(page.getByTestId("report-expenses")).toHaveText("123.45 ج.م");
     await expect(page.getByTestId("report-cogs")).toHaveText("20 ج.م");

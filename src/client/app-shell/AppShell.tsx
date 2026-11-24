@@ -46,6 +46,7 @@ const loadDailySalesView = () =>
 const loadMoneyView = () => import("../features/money/MoneyView");
 const loadServicesView = () => import("../features/services/ServicesView");
 const loadStocktakeView = () => import("../features/stocktake/StocktakeView");
+const loadServiceOpsView = () => import("../features/services/ServiceOpsView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -61,6 +62,7 @@ const DailySalesView = lazy(loadDailySalesView);
 const MoneyView = lazy(loadMoneyView);
 const ServicesView = lazy(loadServicesView);
 const StocktakeView = lazy(loadStocktakeView);
+const ServiceOpsView = lazy(loadServiceOpsView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -79,6 +81,7 @@ const VALID_ROUTES: NavRoute[] = [
   "money",
   "services",
   "stocktake",
+  "service-ops",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -134,6 +137,7 @@ import {
   SubscriptionScreen,
   SubscriptionSheet,
 } from "../features/subscription/SubscriptionScreen";
+import { ModeSwitchSheet } from "../features/subscription/ModeSwitchSheet";
 import {
   isAccessBlocked,
   modeOf,
@@ -169,6 +173,7 @@ function AppShellInner() {
   // session request failed, the server did not answer) the last shop on this device keeps its
   // queue and its offline copies; signed out, nothing protected is requested at all.
   const confirmedStore = session?.store?.id ?? null;
+  const [showMode, setShowMode] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
@@ -285,6 +290,7 @@ function AppShellInner() {
     loadMoneyView();
     loadServicesView();
     loadStocktakeView();
+    loadServiceOpsView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -348,7 +354,9 @@ function AppShellInner() {
       case "money":
         return <MoneyView onNavigate={navigate} />;
       case "services":
-        return <ServicesView onNavigate={navigate} />;
+        return <ServicesView onNavigate={navigate} operatingMode={mode} />;
+      case "service-ops":
+        return <ServiceOpsView onNavigate={navigate} />;
       case "stocktake":
         return <StocktakeView onNavigate={navigate} />;
       case "stock":
@@ -358,9 +366,9 @@ function AppShellInner() {
       case "people":
         return <PeopleView />;
       case "alerts":
-        // The stand-alone «المحافظ والماكينات» page is gone: its machines and services live in
-        // «الخدمات والعمولات» (old links land on that tab).
-        return <ServicesView initialTab="machines" onNavigate={navigate} />;
+        // The stand-alone «المحافظ والماكينات» page is gone: machines and wallets live in
+        // «فلوس حِسبة» (old links land there).
+        return <MoneyView onNavigate={navigate} />;
       case "notifications":
         return <AlertsView mode="alerts" onNavigate={navigate} />;
       case "reports":
@@ -550,6 +558,7 @@ function AppShellInner() {
             router.push("/");
           }}
           signedIn={Boolean(session)}
+          onOpenMode={session ? () => setShowMode(true) : undefined}
           onOpenSubscription={
             session ? () => setShowSubscription(true) : undefined
           }
@@ -578,6 +587,16 @@ function AppShellInner() {
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
+      {showMode && (
+        <ModeSwitchSheet
+          current={session?.store?.operatingMode}
+          onClose={() => setShowMode(false)}
+          onChanged={async () => {
+            await refreshSession();
+            await clearReadCache();
+          }}
+        />
+      )}
       {showSubscription && (
         <SubscriptionSheet onClose={() => setShowSubscription(false)} />
       )}

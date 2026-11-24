@@ -21,4 +21,5 @@ export type NavRoute =
   | "notifications"
   | "money"
   | "services"
-  | "stocktake";
+  | "stocktake"
+  | "service-ops";

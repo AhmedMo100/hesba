@@ -19,7 +19,7 @@ const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
   "daily-sales": "pageTitle.dailySales",
   expenses: "pageTitle.expenses",
   people: "pageTitle.people",
-  alerts: "pageTitle.services",
+  alerts: "pageTitle.money",
   products: "pageTitle.products",
   ai: "pageTitle.ai",
   inventory: "pageTitle.inventory",
@@ -29,6 +29,7 @@ const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
   money: "pageTitle.money",
   services: "pageTitle.services",
   stocktake: "pageTitle.stocktake",
+  "service-ops": "pageTitle.serviceOps",
 };
 
 export interface HeaderProps extends StoreMenuProps {

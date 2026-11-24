@@ -2,17 +2,20 @@
 
 /**
  * @file HomeView.tsx
- * @description Home — the hub of Hesba (owner's design, 2026-11-23). No sidebar, no bottom bar,
- * no dashboard: a greeting with logout, two small numbers, the main actions, and a floating
- * «اعمل جرد» button.
+ * @description Home — the hub of Hesba (owner's design, ADR-0036). No sidebar, no bottom bar:
+ * a greeting with the logout button, two numbers, one line of alerts, and the eight actions.
  *
  * - «فلوس المحل»: every account's real balance together (`GET /api/money`: the drawer from its
- *   last count + every machine / wallet). Never a made-up number: while it loads it shows a
- *   skeleton, and on failure it says so with «جرّب تاني».
- * - «ربحك الشهر ده»: the month's net profit from the report's profit account
- *   (`GET /api/reports/home?period=month` → `profit`): goods profit + service commissions −
- *   operating expenses − losses. Labelled «تقريبي» when estimated; «—» with the reason when the
- *   data is not enough. Never sales − expenses.
+ *   last count + every machine / wallet). A tap opens «فلوس حِسبة». Never a made-up number:
+ *   while it loads it shows a skeleton, and on failure it says so with «جرّب تاني».
+ * - The profit card follows the package: «ربحك الشهر ده» (إدارة المحل: this month from the 1st)
+ *   or «ربحك النهارده» (الكاشير الذكي: today) — the net profit of the report's profit account
+ *   (goods profit + service commissions − operating expenses − losses), labelled «تقريبي» when
+ *   estimated; «—» when the data is not enough. Never sales − expenses.
+ * - Alerts: one short line (out of stock / running low / near expiry, or the alert count) that
+ *   opens the existing alerts screen.
+ * - Actions: ١ دخلت بضاعة · ٢ صرفت فلوس · ٣ بيع حاجة (gold) · حسابات الناس · بضاعتي ·
+ *   الخدمات والعمولات · اسأل حسبة · الجرد (gold, like «بيع حاجة»).
  */
 
 import React, { useCallback, useEffect, useState } from "react";
@@ -21,6 +24,8 @@ import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
+import { toCairoDateString } from "@/domain/time";
+import { monthQuery } from "@/domain/report-periods";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import styles from "./HomeView.module.css";
 
@@ -56,7 +61,7 @@ export interface HomeViewProps {
   alertCount?: number;
   onOpenAlerts?: () => void;
   onLogout?: () => void;
-  /** Kept for older callers; Hesba has one package (الكاشير الذكي). */
+  /** إدارة المحل (simple) or الكاشير الذكي (pos): the profit card's period and «بيع حاجة». */
   operatingMode?: "simple" | "pos";
 }
 
@@ -66,7 +71,13 @@ type Load<T> =
 const money = (piasters: number) =>
   `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
 
-export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
+export function HomeView({
+  onNavigate,
+  onLogout,
+  alertCount = 0,
+  operatingMode = "pos",
+}: HomeViewProps) {
+  const pos = operatingMode === "pos";
   // ─── «فلوس المحل» ───
   const [cash, setCash] = useState<
     Load<{ totalPiasters: number; cashKnown: boolean }>
@@ -84,15 +95,26 @@ export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
       .catch(() => setCash({ state: "error" }));
   }, []);
 
-  // ─── «ربحك الشهر ده» ───
+  // ─── «ربحك الشهر ده» (إدارة المحل) / «ربحك النهارده» (الكاشير الذكي) ───
   const [month, setMonth] = useState<Load<HomeReport>>({ state: "loading" });
-  const loadMonth = useCallback((signal?: AbortSignal) => {
-    fetchHomeReport("month", signal)
-      .then((r) => setMonth({ state: "ok", data: r }))
-      .catch(() => {
-        if (!signal?.aborted) setMonth({ state: "error" });
-      });
-  }, []);
+  const loadMonth = useCallback(
+    (signal?: AbortSignal) => {
+      const today = toCairoDateString(new Date());
+      const req = pos
+        ? fetchHomeReport("today", signal)
+        : fetchHomeReport(
+            "custom",
+            signal,
+            monthQuery(today.slice(0, 7), today),
+          );
+      req
+        .then((r) => setMonth({ state: "ok", data: r }))
+        .catch(() => {
+          if (!signal?.aborted) setMonth({ state: "error" });
+        });
+    },
+    [pos],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -111,22 +133,50 @@ export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
     };
   }, [loadMoney, loadMonth]);
 
-  // First run: a shop with no products yet sees how to add them (null = not known yet).
+  // Stock alerts (out / low / near expiry) and the first-run hint, from the stock levels.
+  const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0, exp: 0 });
   const [productCount, setProductCount] = useState<number | null>(null);
   const [onboardDismissed, setOnboardDismissed] = useState(false);
   useEffect(() => {
     let ignore = false;
-    apiGet("/api/stock")
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (!ignore && Array.isArray(data?.inventory))
-          setProductCount(data.inventory.length);
-      })
-      .catch(() => {});
+    const load = () => {
+      apiGet("/api/stock")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (ignore || !Array.isArray(data?.inventory)) return;
+          const inv = data.inventory as Array<{
+            status?: string;
+            hasNearExpiry?: boolean;
+          }>;
+          setStockAlerts({
+            out: inv.filter((i) => i.status === "out").length,
+            low: inv.filter((i) => i.status === "low").length,
+            exp: inv.filter((i) => i.hasNearExpiry).length,
+          });
+          setProductCount(inv.length);
+        })
+        .catch(() => {});
+    };
+    load();
+    window.addEventListener("hesba_stock_updated", load);
     return () => {
       ignore = true;
+      window.removeEventListener("hesba_stock_updated", load);
     };
   }, []);
+  const { out, low, exp } = stockAlerts;
+  const alertText =
+    out + low + exp > 0
+      ? [
+          out > 0 && t("home.alertOut", { count: out }),
+          low > 0 && t("home.alertLow", { count: low }),
+          exp > 0 && t("home.alertExpiry", { count: exp }),
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : alertCount > 0
+        ? t("home.alertGeneric", { count: alertCount })
+        : "";
 
   const startWithBarcode = () => {
     try {
@@ -142,20 +192,22 @@ export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
     profit?.netProfitPiasters ?? profit?.estimatedNetProfitPiasters ?? null;
   const commissions = profit?.serviceCommissionsPiasters ?? 0;
 
-  const action = (
+  const tile = (
     route: NavRoute,
     icon: string,
     label: string,
-    extra?: string,
+    tone?: string,
+    num?: string,
   ) => (
     <button
       type="button"
-      className={`${styles.act} ${extra ?? ""}`}
+      className={`${styles.tile} ${tone ?? ""}`}
       onClick={() => onNavigate(route)}
       data-testid={`home-tile-${route}`}
     >
+      {num && <span className={styles.tn}>{num}</span>}
       <i aria-hidden="true">{icon}</i>
-      <span>{label}</span>
+      {label}
     </button>
   );
 
@@ -214,9 +266,9 @@ export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
             setMonth({ state: "loading" });
             loadMonth();
           }}
-          data-testid="home-profit-month"
+          data-testid="home-profit"
         >
-          <small>📈 ربحك الشهر ده</small>
+          <small>{pos ? "📈 ربحك النهارده" : "📈 ربحك الشهر ده"}</small>
           {month.state === "loading" ? (
             <Skeleton width={90} height={26} />
           ) : month.state === "error" ? (
@@ -228,7 +280,7 @@ export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
             </>
           ) : (
             <>
-              <b data-testid="home-profit-month-value">{money(net)}</b>
+              <b data-testid="home-profit-value">{money(net)}</b>
               <em>
                 {profit?.status === "estimated" ? "تقريبي · " : ""}
                 {commissions > 0
@@ -264,27 +316,34 @@ export function HomeView({ onNavigate, onLogout }: HomeViewProps) {
         </div>
       )}
 
-      <div className={styles.actions}>
-        {action("stock", "📦", t("home.addStock"))}
-        {action("expenses", "💸", t("home.expenses"))}
-        {action("sales", "🛒", t("home.sell"), styles.actSell)}
-        {action("people", "👥", t("home.people"))}
-        {action("products", "🧃", t("home.myProducts"))}
-        {action("services", "📲", "الخدمات والعمولات")}
-        {action("ai", "💬", t("home.askHesba"), styles.actWide)}
-      </div>
-
-      {/* «اعمل جرد»: one floating button (not another card) */}
+      {/* One line of alerts: opens the alerts screen as it is. */}
       <button
         type="button"
-        className={styles.fab}
-        onClick={() => onNavigate("stocktake")}
-        aria-label="اعمل جرد"
-        data-testid="home-stocktake-fab"
+        className={`${styles.alertLine} ${alertText ? "" : styles.alertLineCalm}`}
+        onClick={() => onNavigate("notifications")}
+        data-testid="home-alerts"
       >
-        <span aria-hidden="true">🧮</span>
-        <b>اعمل جرد</b>
+        <span aria-hidden="true">{alertText ? "⚠️" : "🔔"}</span>
+        <span>{alertText || "مفيش تنبيهات دلوقتي"}</span>
+        <span className={styles.alertGo} aria-hidden="true">
+          ←
+        </span>
       </button>
+
+      {/* The eight actions, two per row: the day's three steps numbered, «بيع حاجة» and
+          «الجرد» in gold. */}
+      <div className={styles.tiles17}>
+        {tile("stock", "📦", t("home.addStock"), styles.tileNum, "١")}
+        {tile("expenses", "💰", t("home.expenses"), styles.tileNum, "٢")}
+        {pos
+          ? tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")
+          : tile("daily-sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
+        {tile("people", "👥", t("home.people"))}
+        {tile("products", "🧃", t("home.myProducts"))}
+        {tile("services", "📲", "الخدمات والعمولات")}
+        {tile("ai", "💬", t("home.askHesba"))}
+        {tile("stocktake", "📋", "الجرد", styles.tileSell)}
+      </div>
     </div>
   );
 }

@@ -115,22 +115,22 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
   await open(page, "/app", "page-home");
   await expect(page.locator('[data-testid^="bnav-"]')).toHaveCount(0);
   await expect(page.getByTestId("home-tile-alerts")).toHaveCount(0);
-  // No sidebar either; Home has exactly the main actions (owner's design, 2026-11-23).
+  // No sidebar either; Home has exactly the eight actions in the owner's order (ADR-0036).
   await expect(page.locator('[data-testid^="snav-"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(7);
+  await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(8);
   for (const [testId, screen] of [
     ["home-tile-stock", "page-stock"],
     ["home-tile-expenses", "page-expenses"],
     ["home-tile-sales", "page-sales"],
     ["home-tile-people", "page-people"],
     ["home-tile-products", "page-products"],
-    // The stand-alone machines page is gone: machines live in «الخدمات والعمولات».
     ["home-tile-services", "page-services"],
     ["home-tile-ai", "page-ai"],
-    // «اعمل جرد» is the floating button; the two numbers open their screens.
-    ["home-stocktake-fab", "page-stocktake"],
+    ["home-tile-stocktake", "page-stocktake"],
+    // The two numbers and the alerts line open their screens.
     ["home-money", "page-money"],
-    ["home-profit-month", "page-reports"],
+    ["home-profit", "page-reports"],
+    ["home-alerts", "page-notifications"],
   ] as const) {
     await page.getByTestId(testId).click();
     await expect(page.getByTestId(screen)).toBeVisible(PAGE_LOAD);
@@ -203,11 +203,14 @@ test("stock form: the quantity follows the product's unit; reports have the six 
   await page.keyboard.press("Escape");
 
   await open(page, "/app/reports", "page-reports");
-  for (const p of ["today", "yesterday", "week", "month", "year", "custom"]) {
+  // الكاشير الذكي reads days only (ADR-0036): today, yesterday, or a chosen day.
+  for (const p of ["today", "yesterday", "day"]) {
     await expect(page.getByTestId(`report-period-${p}`)).toBeVisible();
   }
-  await page.getByTestId("report-period-custom").click();
-  await expect(page.getByTestId("report-from")).toBeVisible();
+  await expect(page.getByTestId("report-period-month")).toHaveCount(0);
+  await page.getByTestId("report-period-day").click();
+  await expect(page.getByTestId("report-day")).toBeVisible();
+  await page.getByTestId("report-period-today").click();
   await expect(page.getByTestId("report-additions")).toContainText(
     `مكرونة ${run}`,
     SERVER,
@@ -235,8 +238,10 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   await open(page, "/app/people", "page-people");
   await page.getByTestId(`person-row-${customerId}`).click();
   await page.getByTestId(`customer-debt-${customerId}`).last().click();
+  // الكاشير الذكي: the manual debt sheet offers the credit invoice (stock taken) — ADR-0036.
+  await page.getByRole("dialog").getByTestId("debt-open-invoice").click();
   const sheet = page.getByRole("dialog").getByTestId("customer-debt-sheet");
-  await sheet.getByTestId("debt-with-products").click();
+  await expect(sheet.getByTestId("lines-search")).toBeVisible();
   await sheet.getByTestId("lines-search").fill(`شاي ليك ${run}`);
   await sheet.getByTestId(`lines-option-${tea}`).click();
   const row = sheet.getByTestId(`lines-row-${tea}`);
@@ -244,6 +249,9 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   await row.getByTestId("lines-units").fill("1");
   await expect(sheet.getByTestId("debt-estimate")).toContainText("210");
   await page.getByRole("dialog").getByTestId("debt-submit").click();
+  // One sheet at a time: the person's sheet is opened again to read the balance.
+  await expect(page.getByTestId("customer-debt-sheet")).toHaveCount(0, SERVER);
+  await page.getByTestId(`person-row-${customerId}`).click();
   await expect(
     page.getByTestId(`person-balance-${customerId}`).last(),
   ).toContainText("210", SERVER);

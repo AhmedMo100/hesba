@@ -45,7 +45,6 @@ test.describe("App Shell Offline Navigation", () => {
       ["stock", "page-stock"],
       ["expenses", "page-expenses"],
       ["people", "page-people"],
-      // The stand-alone machines page is gone: machines live in «الخدمات والعمولات».
       ["services", "page-services"],
       ["ai", "page-ai"],
     ] as const) {
@@ -54,11 +53,10 @@ test.describe("App Shell Offline Navigation", () => {
       await back.click();
       await expect(page.getByTestId("page-home")).toBeVisible();
     }
-    // The stocktake (floating button) and reports pages load offline too (their data needs
-    // the network).
+    // The stocktake and reports pages load offline too (their data needs the network).
     for (const [testId, screen] of [
-      ["home-stocktake-fab", "page-stocktake"],
-      ["home-profit-month", "page-reports"],
+      ["home-tile-stocktake", "page-stocktake"],
+      ["home-profit", "page-reports"],
     ] as const) {
       // A real shop's home settles as its offline copy loads: a normal click waits until the
       // tile is stable and really on top (a forced click can land on a neighbour mid-layout).

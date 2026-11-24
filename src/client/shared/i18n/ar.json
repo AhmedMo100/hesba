@@ -45,24 +45,26 @@
     "more": "المزيد",
     "money": "فلوس حِسبة",
     "services": "الخدمات",
-    "stocktake": "اعمل جرد"
+    "stocktake": "الجرد",
+    "serviceOps": "سجّل عملية خدمة"
   },
   "pageTitle": {
     "stock": "دخلت بضاعة",
     "sales": "بيع حاجة",
     "expenses": "صرفت فلوس",
     "people": "حسابات الناس",
-    "alerts": "المحافظ والماكينات",
+    "alerts": "فلوس حِسبة",
     "products": "بضاعتي",
     "ai": "اسأل حسبة",
-    "inventory": "الجرد",
+    "inventory": "حساب المحل كله",
     "reports": "التقارير",
     "drawer": "الدرج",
     "notifications": "التنبيهات",
     "dailySales": "مبيعات اليوم",
     "money": "فلوس حِسبة",
     "services": "الخدمات والعمولات",
-    "stocktake": "اعمل جرد"
+    "stocktake": "الجرد",
+    "serviceOps": "سجّل عملية خدمة"
   },
   "storeMenu": {
     "online": "متصل",
@@ -634,7 +636,7 @@
     "myProducts": "بضاعتي",
     "walletsMachines": "المحافظ والماكينات",
     "askHesba": "اسأل حسبة",
-    "inventory": "الجرد",
+    "inventory": "حساب المحل كله",
     "logout": "خروج",
     "drawerLabel": "🧮 الدرج — بيعات النهارده",
     "drawerCount": "{count} عملية",

@@ -2,13 +2,19 @@
 
 /**
  * @file StocktakeView.tsx
- * @description «اعمل جرد» — a very simple, step-by-step stocktake (owner's design, 2026-11-23).
+ * @description «الجرد» — a very simple, step-by-step stocktake (owner's design, ADR-0036).
  *
- * 1. An unfinished count? «تكمل من حيث وقفت؟» → أكمل الجرد / ابدأ جرد جديد.
- * 2. New: كل المحل / قسم / منتجات معينة.
- * 3. One product at a time: name, المتوقع, الفعلي, then «التالي» (progress and what is left).
- * 4. A difference: المتوقع / الموجود / الفرق, then «ليه حصل الفرق؟» (تالف · مفقود ·
- *    اتباع ومتسجلش · خطأ في العد → count again · سبب آخر). The owner decides; nothing guesses.
+ * 1. «الجرد»: an unfinished count's summary (أكمل / ابدأ جديد), one big «اعمل جرد جديد», and the
+ *    past counts (a small filter: الكل · اتطبّق · اتلغى) — each opens its report.
+ * 2. New, one choice per screen: كل المنتجات / قسم / منتجات معينة.
+ * 3. One product at a time: «العدد في حِسبة: 20», «عدّ الموجود عندك: [ 17 ]», «التالي», with the
+ *    progress. (Hesba has no product photos: a placeholder stands in for one.)
+ * 4. A shortage asks «الـ 3 قطع دول حصل فيهم إيه؟»: اتباع ومتسجلش · تالف · منتهي الصلاحية · مفقود ·
+ *    سبب آخر (a note for تالف / منتهي / سبب آخر). A surplus asks where it came from (kept as a
+ *    stock adjustment with its note — never a purchase). The owner decides; nothing guesses, and
+ *    a difference is never turned into a sale by itself: «اتباع ومتسجلش» follows the package's
+ *    rule (الكاشير الذكي: a sale the count discovered, no money; إدارة المحل: its money is already
+ *    in the daily total), shown before confirming.
  * 5. Summary → «راجع الجرد» → «تطبيق الجرد» → an explicit confirmation. Only then does the
  *    server change the stock, atomically and once (the confirm `opId`); «إلغاء» changes nothing.
  * 6. The report: date, who, scope, expected / actual / differences / reasons / values / what was
@@ -69,12 +75,14 @@ interface Overview {
     startedAt: string;
     confirmedAt: string | null;
     lines: number;
+    counted: number;
     discrepancies: number;
   }>;
 }
 
 type Step =
   | "home"
+  | "scope"
   | "pickCategory"
   | "pickProducts"
   | "count"
@@ -83,14 +91,29 @@ type Step =
   | "confirm"
   | "report";
 
-/** The answers to «ليه حصل الفرق؟» («خطأ في العد» is not a reason: the owner counts again). */
-const SHORTAGE_CHOICES: Array<[CountReason | "recount", string, string]> = [
-  ["damaged", "🗑️", "تالف"],
-  ["lost", "❓", "مفقود"],
+/** The answers to «حصل فيهم إيه؟» (a counting mistake is not a reason: «عدّ تاني»). */
+const SHORTAGE_CHOICES: Array<[CountReason, string, string]> = [
   ["unrecorded_sale", "🛒", "اتباع ومتسجلش"],
-  ["recount", "🔁", "خطأ في العد"],
-  ["unknown", "…", "سبب آخر"],
+  ["damaged", "🗑️", "تالف"],
+  ["expired", "⏰", "منتهي الصلاحية"],
+  ["lost", "❓", "مفقود"],
+  ["unknown", "✍️", "سبب آخر"],
 ];
+/** Reasons that take a note. */
+const NOTE_REASONS: ReadonlySet<CountReason> = new Set([
+  "damaged",
+  "expired",
+  "unknown",
+]);
+/** Where a surplus came from (kept as the line's note; the stock adjustment is the same). */
+const SURPLUS_CHOICES = [
+  "بضاعة دخلت ومتسجلتش",
+  "مرتجع من زبون",
+  "كانت متسجلة أقل من الحقيقة",
+] as const;
+const SURPLUS_OTHER = "سبب آخر";
+
+type HistoryFilter = "all" | "confirmed" | "abandoned";
 
 /** «−3» / «+1 ك» kept left-to-right inside the Arabic text (else it reads «3−»). */
 const signed = (unit: string, d: number) => (
@@ -130,6 +153,10 @@ export function StocktakeView({
   const [index, setIndex] = useState(0);
   const [typed, setTyped] = useState("");
   const [reason, setReason] = useState<CountReason | null>(null);
+  // The owner's note on the shown product's difference (a surplus: where it came from).
+  const [note, setNote] = useState("");
+  const [surplusWhy, setSurplusWhy] = useState<string | null>(null);
+  const [historyFilter, setHistoryFilter] = useState<HistoryFilter>("all");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const loadOverview = useCallback(() => {
@@ -178,6 +205,15 @@ export function StocktakeView({
         : "",
     );
     setReason(l && l.reason && l.reason !== "surplus" ? l.reason : null);
+    const saved = l?.note ?? "";
+    if (l?.reason === "surplus" && saved) {
+      const preset = (SURPLUS_CHOICES as readonly string[]).includes(saved);
+      setSurplusWhy(preset ? saved : SURPLUS_OTHER);
+      setNote(preset ? "" : saved);
+    } else {
+      setSurplusWhy(null);
+      setNote(saved);
+    }
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
@@ -271,11 +307,34 @@ export function StocktakeView({
       return setError(`اكتب الكمية صح (${qtyUnitWord(line.unit)})`);
     }
     if (diff !== null && diff < 0 && !reason) {
-      return setError("اختار ليه حصل الفرق");
+      return setError("اختار حصل إيه في الفرق ده");
+    }
+    if (diff !== null && diff > 0 && !surplusWhy) {
+      return setError("اختار الزيادة جت منين");
+    }
+    // The note sent with the line: a surplus' origin, or the owner's words on a shortage.
+    const lineNote =
+      diff === null || diff === 0
+        ? null
+        : diff > 0
+          ? surplusWhy === SURPLUS_OTHER
+            ? note.trim() || null
+            : surplusWhy
+          : reason && NOTE_REASONS.has(reason)
+            ? note.trim() || null
+            : null;
+    if (
+      diff !== null &&
+      diff > 0 &&
+      surplusWhy === SURPLUS_OTHER &&
+      !lineNote
+    ) {
+      return setError("اكتب الزيادة جت منين");
     }
     const changed =
       typedBase !== line.countedBase ||
-      (diff !== null && diff < 0 && reason !== line.reason);
+      (diff !== null && diff < 0 && reason !== line.reason) ||
+      (diff !== null && diff !== 0 && lineNote !== (line.note ?? null));
     let c: Count = count;
     if (changed) {
       setBusy(true);
@@ -289,6 +348,7 @@ export function StocktakeView({
                 variantId: line.variantId,
                 countedBase: typedBase,
                 reason: diff !== null && diff < 0 ? reason : null,
+                note: lineNote,
               },
             ],
           }),
@@ -372,11 +432,21 @@ export function StocktakeView({
     </p>
   );
 
-  // ── 1. Start: resume an unfinished count, or a new one ──
+  // ── 1. «الجرد»: the unfinished count, «اعمل جرد جديد», and the past counts ──
   if (step === "home") {
+    const openRow = overview?.open
+      ? overview.history.find((h) => h.id === overview.open!.id)
+      : undefined;
+    const past = (overview?.history ?? []).filter(
+      (h) =>
+        h.status !== "open" &&
+        (historyFilter === "all" || h.status === historyFilter),
+    );
+    const hasPast = (overview?.history ?? []).some((h) => h.status !== "open");
     return (
       <div className={viewStyles.view} data-testid="page-stocktake">
         <div className={styles.wrap}>
+          <h2 className={styles.h2}>الجرد</h2>
           {errorBox}
           {error && !overview && (
             <button
@@ -388,10 +458,14 @@ export function StocktakeView({
             </button>
           )}
           {!overview && !error && <p className={styles.muted}>بنحمّل…</p>}
-          {overview?.open ? (
+          {overview?.open && (
             <div className={styles.card} data-testid="stocktake-resume">
-              <h2 className={styles.h2}>عندك جرد لسه مخلصش</h2>
-              <p className={styles.muted}>تكمل من حيث وقفت؟</p>
+              <b>عندك جرد لسه مخلصش</b>
+              <p className={styles.muted}>
+                {openRow
+                  ? `${scopeText(openRow)} · اتعدّ ${openRow.counted} من ${openRow.lines} · بدأ ${day(openRow.startedAt)}`
+                  : "تكمل من حيث وقفت؟"}
+              </p>
               <button
                 type="button"
                 className={styles.primary}
@@ -409,45 +483,17 @@ export function StocktakeView({
                 ابدأ جرد جديد
               </button>
             </div>
-          ) : (
-            overview && (
-              <>
-                <h2 className={styles.h2}>هتجرد إيه؟</h2>
-                <button
-                  type="button"
-                  className={styles.choice}
-                  disabled={busy}
-                  onClick={() => void start("full")}
-                  data-testid="stocktake-start-full"
-                >
-                  <span aria-hidden="true">🏪</span>
-                  <b>كل المحل</b>
-                  <small>كل المنتجات</small>
-                </button>
-                <button
-                  type="button"
-                  className={styles.choice}
-                  disabled={busy || categories.length === 0}
-                  onClick={() => setStep("pickCategory")}
-                  data-testid="stocktake-start-category"
-                >
-                  <span aria-hidden="true">🗂️</span>
-                  <b>قسم</b>
-                  <small>مثلاً البقالة بس</small>
-                </button>
-                <button
-                  type="button"
-                  className={styles.choice}
-                  disabled={busy || variants.length === 0}
-                  onClick={() => setStep("pickProducts")}
-                  data-testid="stocktake-start-selected"
-                >
-                  <span aria-hidden="true">✅</span>
-                  <b>منتجات معينة</b>
-                  <small>تختارها بنفسك</small>
-                </button>
-              </>
-            )
+          )}
+          {overview && !overview.open && (
+            <button
+              type="button"
+              className={styles.bigStart}
+              onClick={() => setStep("scope")}
+              data-testid="stocktake-new"
+            >
+              <span aria-hidden="true">📋</span>
+              اعمل جرد جديد
+            </button>
           )}
 
           <button
@@ -463,38 +509,109 @@ export function StocktakeView({
             💬 مش عارف أعمل الجرد؟ اسأل حسبة
           </button>
 
-          {overview && overview.history.some((h) => h.status !== "open") && (
+          {hasPast && (
             <>
               <h3 className={styles.h3}>الجرد اللي فات</h3>
+              <div className={styles.filter} role="tablist">
+                {(
+                  [
+                    ["all", "الكل"],
+                    ["confirmed", "اتطبّق"],
+                    ["abandoned", "اتلغى"],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button
+                    key={k}
+                    type="button"
+                    role="tab"
+                    aria-selected={historyFilter === k}
+                    className={`${styles.filterChip} ${historyFilter === k ? styles.filterOn : ""}`}
+                    onClick={() => setHistoryFilter(k)}
+                    data-testid={`stocktake-filter-${k}`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className={styles.list}>
-                {overview.history
-                  .filter((h) => h.status !== "open")
-                  .slice(0, 10)
-                  .map((h) => (
-                    <button
-                      key={h.id}
-                      type="button"
-                      className={styles.row}
-                      onClick={() => void openCount(h.id, "report")}
-                      data-testid="stocktake-history-row"
-                    >
-                      <span>
-                        <b>{scopeText(h)}</b>
-                        <small>
-                          {day(h.confirmedAt ?? h.startedAt)} ·{" "}
-                          {h.status === "confirmed" ? "اتطبّق" : "اتلغى"}
-                        </small>
-                      </span>
+                {past.length === 0 && (
+                  <p className={styles.muted}>مفيش جرد بالحالة دي.</p>
+                )}
+                {past.slice(0, 15).map((h) => (
+                  <button
+                    key={h.id}
+                    type="button"
+                    className={styles.row}
+                    onClick={() => void openCount(h.id, "report")}
+                    data-testid="stocktake-history-row"
+                  >
+                    <span>
+                      <b>{scopeText(h)}</b>
                       <small>
-                        {h.discrepancies > 0
-                          ? `${h.discrepancies} فرق`
-                          : "مظبوط"}
+                        {day(h.confirmedAt ?? h.startedAt)} ·{" "}
+                        {h.status === "confirmed" ? "اتطبّق ✅" : "اتلغى"}
                       </small>
-                    </button>
-                  ))}
+                    </span>
+                    <small>
+                      {h.discrepancies > 0 ? `${h.discrepancies} فرق` : "مظبوط"}
+                    </small>
+                  </button>
+                ))}
               </div>
             </>
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── 2. A new count: what to count (one choice per screen) ──
+  if (step === "scope") {
+    return (
+      <div className={viewStyles.view} data-testid="page-stocktake">
+        <div className={styles.wrap}>
+          <h2 className={styles.h2}>هتجرد إيه؟</h2>
+          {errorBox}
+          <button
+            type="button"
+            className={styles.choice}
+            disabled={busy}
+            onClick={() => void start("full")}
+            data-testid="stocktake-start-full"
+          >
+            <span aria-hidden="true">🏪</span>
+            <b>كل المنتجات</b>
+            <small>كل اللي في المحل</small>
+          </button>
+          <button
+            type="button"
+            className={styles.choice}
+            disabled={busy || categories.length === 0}
+            onClick={() => setStep("pickCategory")}
+            data-testid="stocktake-start-category"
+          >
+            <span aria-hidden="true">🗂️</span>
+            <b>قسم معيّن</b>
+            <small>مثلاً البقالة بس</small>
+          </button>
+          <button
+            type="button"
+            className={styles.choice}
+            disabled={busy || variants.length === 0}
+            onClick={() => setStep("pickProducts")}
+            data-testid="stocktake-start-selected"
+          >
+            <span aria-hidden="true">✅</span>
+            <b>منتجات محددة</b>
+            <small>تختارها بنفسك</small>
+          </button>
+          <button
+            type="button"
+            className={styles.ghost}
+            onClick={() => setStep("home")}
+          >
+            → رجوع
+          </button>
         </div>
       </div>
     );
@@ -525,7 +642,7 @@ export function StocktakeView({
           <button
             type="button"
             className={styles.ghost}
-            onClick={() => setStep("home")}
+            onClick={() => setStep("scope")}
           >
             رجوع
           </button>
@@ -593,7 +710,7 @@ export function StocktakeView({
             <button
               type="button"
               className={styles.ghost}
-              onClick={() => setStep("home")}
+              onClick={() => setStep("scope")}
             >
               رجوع
             </button>
@@ -627,20 +744,32 @@ export function StocktakeView({
           </div>
 
           <div className={styles.card} data-testid="stocktake-line">
-            <h2 className={styles.product}>{line.productName}</h2>
-            <p className={styles.expected}>
-              المتوقع: <b>{formatBaseQty(line.unit, line.expectedBase)}</b>{" "}
+            <div className={styles.productHead}>
+              {/* No product photos in Hesba yet: the first letter stands in for one. */}
+              <span className={styles.photo} aria-hidden="true">
+                {line.productName.trim().charAt(0) || "📦"}
+              </span>
+              <span>
+                <h2 className={styles.product}>{line.productName}</h2>
+                {line.category && (
+                  <small className={styles.muted}>{line.category}</small>
+                )}
+              </span>
+            </div>
+            <p className={styles.expected} data-testid="stocktake-expected">
+              العدد في حِسبة:{" "}
+              <b>{formatBaseQty(line.unit, line.expectedBase)}</b>{" "}
               {qtyUnitWord(line.unit)}
             </p>
             <label className={styles.lbl} htmlFor="st-actual">
-              الفعلي ({qtyUnitWord(line.unit)})
+              عدّ الموجود عندك ({qtyUnitWord(line.unit)})
             </label>
             <input
               id="st-actual"
               ref={inputRef}
               className={styles.bigInput}
               inputMode="decimal"
-              placeholder="عدّ واكتب هنا"
+              placeholder="اكتب العدد"
               value={typed}
               onChange={(e) => {
                 setTyped(e.target.value);
@@ -667,7 +796,10 @@ export function StocktakeView({
                 </div>
                 {diff < 0 ? (
                   <>
-                    <p className={styles.why}>ليه حصل الفرق؟</p>
+                    <p className={styles.why} data-testid="stocktake-why">
+                      الـ {formatBaseQty(line.unit, -diff)}{" "}
+                      {qtyUnitWord(line.unit)} دول حصل فيهم إيه؟
+                    </p>
                     <div className={styles.reasons}>
                       {SHORTAGE_CHOICES.map(([k, icon, label]) => (
                         <button
@@ -675,12 +807,6 @@ export function StocktakeView({
                           type="button"
                           className={`${styles.reason} ${reason === k ? styles.reasonOn : ""}`}
                           onClick={() => {
-                            if (k === "recount") {
-                              setTyped("");
-                              setReason(null);
-                              inputRef.current?.focus();
-                              return;
-                            }
                             setReason(k);
                             setError(null);
                           }}
@@ -691,11 +817,84 @@ export function StocktakeView({
                         </button>
                       ))}
                     </div>
+                    {reason && NOTE_REASONS.has(reason) && (
+                      <input
+                        className={styles.noteInput}
+                        dir="auto"
+                        maxLength={300}
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder={
+                          reason === "unknown"
+                            ? "اكتب السبب"
+                            : "ملاحظة (اختياري): مثلاً اتكسر في النقل"
+                        }
+                        aria-label="ملاحظة"
+                        data-testid="stocktake-note"
+                      />
+                    )}
+                    {reason === "unrecorded_sale" && (
+                      <p
+                        className={styles.muted}
+                        data-testid="stocktake-sold-effect"
+                      >
+                        {(count.salesMode ?? "pos") === "simple"
+                          ? "فلوسه في إجمالي المبيعات اليومي: هيتخصم من المخزون بس، ومش هيتحسب بيع تاني."
+                          : "هيتحسب بيع اكتشفه الجرد بسعر البيع، من غير فلوس جديدة في الدرج."}
+                      </p>
+                    )}
+                    <button
+                      type="button"
+                      className={styles.linkBtn}
+                      onClick={() => {
+                        setTyped("");
+                        setReason(null);
+                        setNote("");
+                        inputRef.current?.focus();
+                      }}
+                      data-testid="stocktake-recount"
+                    >
+                      🔁 غلطت في العد؟ عدّ تاني
+                    </button>
                   </>
                 ) : (
-                  <p className={styles.muted}>
-                    زيادة عن المتسجل: هترجع للمخزون بسعر الشراء (مش مشتريات).
-                  </p>
+                  <>
+                    <p className={styles.why} data-testid="stocktake-why">
+                      الزيادة دي ({formatBaseQty(line.unit, diff)}{" "}
+                      {qtyUnitWord(line.unit)}) جت منين؟
+                    </p>
+                    <div className={styles.reasons}>
+                      {[...SURPLUS_CHOICES, SURPLUS_OTHER].map((k, i) => (
+                        <button
+                          key={k}
+                          type="button"
+                          className={`${styles.reason} ${surplusWhy === k ? styles.reasonOn : ""}`}
+                          onClick={() => {
+                            setSurplusWhy(k);
+                            setError(null);
+                          }}
+                          data-testid={`stocktake-surplus-${i}`}
+                        >
+                          {k}
+                        </button>
+                      ))}
+                    </div>
+                    {surplusWhy === SURPLUS_OTHER && (
+                      <input
+                        className={styles.noteInput}
+                        dir="auto"
+                        maxLength={300}
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="اكتب السبب"
+                        aria-label="السبب"
+                        data-testid="stocktake-note"
+                      />
+                    )}
+                    <p className={styles.muted}>
+                      هترجع للمخزون كتعديل جرد بسعر الشراء: مش مشتريات ومش فلوس.
+                    </p>
+                  </>
                 )}
               </div>
             )}
@@ -752,46 +951,59 @@ export function StocktakeView({
               </b>
             </div>
             <div>
-              <small>ناقص</small>
-              <b>{diffs.filter((l) => l.differenceBase! < 0).length}</b>
+              <small>منتجات ناقصة</small>
+              <b>
+                {t.shortageLines ??
+                  diffs.filter((l) => l.differenceBase! < 0).length}
+              </b>
             </div>
             <div>
-              <small>زيادة</small>
-              <b>{diffs.filter((l) => l.differenceBase! > 0).length}</b>
+              <small>منتجات زيادة</small>
+              <b>
+                {t.surplusLines ??
+                  diffs.filter((l) => l.differenceBase! > 0).length}
+              </b>
             </div>
             <div>
-              <small>قيمة الناقص</small>
-              <b>{formatMoney(t.shortageCostPiasters)}</b>
+              <small>قيمة الفروق</small>
+              <b data-testid="stocktake-diff-value">
+                {formatMoney(t.shortageCostPiasters + t.surplusCostPiasters)}
+              </b>
             </div>
           </div>
-          {t.surplusCostPiasters > 0 && (
+          <div className={styles.card} data-testid="stocktake-reasons">
+            {(
+              [
+                ["damaged", "🗑️ تالف"],
+                ["expired", "⏰ منتهي الصلاحية"],
+                ["unrecorded_sale", "🛒 اتباع ومتسجلش"],
+                ["lost", "❓ مفقود"],
+                ["unknown", "✍️ سبب آخر"],
+              ] as const
+            ).map(([k, label]) => (
+              <p key={k} className={styles.reasonLine}>
+                <span>{label}</span>
+                <b>{diffs.filter((l) => l.reason === k).length} منتج</b>
+              </p>
+            ))}
             <p className={styles.muted}>
-              قيمة الزيادة: {formatMoney(t.surplusCostPiasters)} (بسعر الشراء)
+              الناقص بسعر الشراء: {formatMoney(t.shortageCostPiasters)}
+              {t.surplusCostPiasters > 0
+                ? ` · الزيادة: ${formatMoney(t.surplusCostPiasters)}`
+                : ""}
             </p>
-          )}
-          {diffs.some((l) => l.differenceBase! < 0) && (
-            <div className={styles.card}>
-              <b>الأسباب</b>
-              {(["damaged", "lost", "unrecorded_sale", "unknown"] as const)
-                .map(
-                  (k) =>
-                    [k, diffs.filter((l) => l.reason === k).length] as const,
-                )
-                .filter(([, n]) => n > 0)
-                .map(([k, n]) => (
-                  <p key={k} className={styles.reasonLine}>
-                    {REASON_LABEL[k]}: {n} منتج
-                  </p>
-                ))}
-              {t.unrecordedSaleBase > 0 && (
-                <p className={styles.muted}>
-                  {count.salesMode === "simple"
-                    ? "«اتباع»: فلوسه في إجمالي المبيعات اليومي، فمش هيتحسب مبيعات تاني."
-                    : "«اتباع ومتسجلش» هيتحسب مبيعات اكتشفها الجرد (من غير فلوس جديدة في الدرج)."}
-                </p>
-              )}
-            </div>
-          )}
+            {t.unrecordedSaleBase > 0 && (
+              <p className={styles.muted} data-testid="stocktake-money-effect">
+                {count.salesMode === "simple"
+                  ? "«اتباع ومتسجلش»: فلوسه في إجمالي المبيعات اليومي، فمش هيتحسب مبيعات تاني."
+                  : `«اتباع ومتسجلش» هيتحسب مبيعات اكتشفها الجرد بـ ${formatMoney(t.unrecordedSaleSellPiasters ?? 0)} (من غير فلوس جديدة في الدرج).`}
+              </p>
+            )}
+            <p className={styles.muted}>
+              التالف والمنتهي والمفقود بيتحسبوا خسارة بسعر الشراء. الجرد مش
+              بيعمل مبيعات ولا بيحرّك فلوس لوحده.
+            </p>
+          </div>
           {t.counted < t.lines && (
             <p className={styles.muted}>
               {t.lines - t.counted} منتج ما اتعدّش: مش هيتغير.
@@ -822,6 +1034,7 @@ export function StocktakeView({
                       المتوقع {formatBaseQty(l.unit, l.expectedBase)} · الموجود{" "}
                       {formatBaseQty(l.unit, l.countedBase ?? 0)}
                       {l.reason ? ` · ${REASON_LABEL[l.reason]}` : ""}
+                      {l.note ? ` · ${l.note}` : ""}
                     </small>
                   </span>
                   <b

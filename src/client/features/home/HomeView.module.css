@@ -1216,3 +1216,86 @@
     inset-inline-end: calc(50% - 360px);
   }
 }
+
+/* ─── Home: one line of alerts (ADR-0036) ─── */
+.alertLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  margin: 10px 0 4px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--redBg);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* Nothing to warn about: a calm line, not the red of a real alert. */
+.alertLineCalm {
+  background: var(--chip);
+  font-weight: 600;
+}
+
+.alertLine > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.alertGo {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+/* ─── Reports: the title with the export / share icons ─── */
+.reportHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reportIcons {
+  display: flex;
+  gap: 8px;
+}
+
+.iconBtn {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.iconBtn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.iconBtn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.iconBtn:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}

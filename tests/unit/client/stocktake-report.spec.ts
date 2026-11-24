@@ -81,7 +81,7 @@ describe("stocktake report (download / share)", () => {
     const rows = csv.trim().split("\r\n");
     expect(rows).toHaveLength(4);
     expect(rows[0]).toContain("المنتج,القسم,المتوقع,الموجود,الفرق,السبب");
-    expect(rows[1]).toBe("سكر,بقالة,20,17,-3,تالف,18.00,18.00");
+    expect(rows[1]).toBe("سكر,بقالة,20,17,-3,تالف,,18.00,18.00");
     expect(rows[2]!.startsWith('"رز, سايب"')).toBe(true);
     expect(reportFileName(count, "csv")).toBe("جرد-2026-11-24.csv");
   });

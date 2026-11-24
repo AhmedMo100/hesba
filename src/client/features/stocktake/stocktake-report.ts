@@ -6,7 +6,7 @@
  */
 
 export type CountReason =
-  "unrecorded_sale" | "damaged" | "lost" | "unknown" | "surplus";
+  "unrecorded_sale" | "damaged" | "expired" | "lost" | "unknown" | "surplus";
 
 export interface ReportLine {
   productName: string;
@@ -16,6 +16,8 @@ export interface ReportLine {
   countedBase: number | null;
   differenceBase: number | null;
   reason: CountReason | null;
+  /** The owner's note on the difference. */
+  note?: string | null;
   differenceCostPiasters: number | null;
   appliedCostPiasters?: number | null;
 }
@@ -39,15 +41,20 @@ export interface ReportCount {
     shortageCostPiasters: number;
     surplusCostPiasters: number;
     damagedBase: number;
+    expiredBase?: number;
     lostBase: number;
+    shortageLines?: number;
+    surplusLines?: number;
     unrecordedSaleBase: number;
     unknownBase: number;
+    unrecordedSaleSellPiasters?: number;
   };
   lines: ReportLine[];
 }
 
 export const REASON_LABEL: Record<CountReason, string> = {
   damaged: "تالف",
+  expired: "منتهي الصلاحية",
   lost: "مفقود",
   unrecorded_sale: "اتباع ومتسجلش",
   unknown: "سبب آخر",
@@ -114,7 +121,9 @@ export function buildReportText(c: ReportCount): string {
     out.push("الفروق:");
     for (const l of diffs) {
       const d = l.differenceBase!;
-      const reason = l.reason ? REASON_LABEL[l.reason] : "من غير سبب";
+      const reason =
+        (l.reason ? REASON_LABEL[l.reason] : "من غير سبب") +
+        (l.note ? ` — ${l.note}` : "");
       out.push(
         `• ${l.productName}: المتوقع ${qty(l.unit, l.expectedBase)} · الموجود ${qty(l.unit, l.countedBase ?? 0)} · الفرق ${d > 0 ? "+" : "−"}${qty(l.unit, Math.abs(d))} (${reason})`,
       );
@@ -146,6 +155,7 @@ export function buildReportCsv(c: ReportCount): string {
     "الموجود",
     "الفرق",
     "السبب",
+    "ملاحظة",
     "قيمة الفرق (ج)",
     "اتطبق بقيمة (ج)",
   ];
@@ -158,6 +168,7 @@ export function buildReportCsv(c: ReportCount): string {
       ? ""
       : `${l.differenceBase > 0 ? "+" : ""}${l.unit === "kg" ? Number((l.differenceBase / 1000).toFixed(3)) : l.differenceBase}`,
     l.reason ? REASON_LABEL[l.reason] : "",
+    l.note ?? "",
     l.differenceCostPiasters === null
       ? ""
       : (l.differenceCostPiasters / 100).toFixed(2),

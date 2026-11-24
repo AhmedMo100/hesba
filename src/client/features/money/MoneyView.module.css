@@ -1,0 +1,209 @@
+/* «فلوس حِسبة» (ADR-0036): small cards in the spirit of Home's cards. */
+.page {
+  padding: 4px 16px 24px;
+}
+
+.title {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--ink);
+  margin: 4px 0 8px;
+}
+
+.total {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+  border-radius: 16px;
+  background: var(--card);
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.total b {
+  color: var(--ink);
+  font-size: 24px;
+  font-weight: 800;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: 10px;
+}
+
+.card {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The cash: its own colour (the drawer of the demo's gold border). */
+.cash {
+  grid-column: 1 / -1;
+  background: var(--sage, #d9e4d0);
+  border: 2px solid var(--gold);
+}
+
+.cardTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.name {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.bal {
+  font-size: 22px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+.sub {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.more {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  margin: -6px -6px 0 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.cardBtn {
+  margin-top: auto;
+  min-height: 44px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.addRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.addBtn,
+.actBtn {
+  min-height: 52px;
+  border-radius: 16px;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.addBtn {
+  border: 2px dashed var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.actBtn {
+  border: 0;
+  background: var(--chip);
+  color: var(--ink);
+}
+
+.history {
+  margin-top: 14px;
+  background: var(--card);
+  border-radius: 16px;
+  padding: 10px 14px;
+}
+
+.history summary {
+  cursor: pointer;
+  font-weight: 800;
+  min-height: 32px;
+  color: var(--ink);
+}
+
+.histRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+
+.histRow span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.histRow small {
+  color: var(--muted);
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.menuBtn {
+  min-height: 52px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 800;
+  text-align: start;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+.danger {
+  color: var(--red, #c0504a);
+}
+
+.note {
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+  margin: 14px 0 0;
+}
+
+.link {
+  background: none;
+  border: 0;
+  text-decoration: underline;
+  color: inherit;
+  font-family: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
