@@ -2,7 +2,9 @@ import "server-only";
 import { NextResponse } from "next/server";
 import { requireSession } from "@/server/modules/auth";
 import { getHomeReport } from "@/server/modules/reports";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import { reportPeriodRefusal } from "@/domain/report-periods";
+import { toCairoDateString } from "@/domain/time";
 import {
   REPORT_PERIODS,
   homeReportSchema,
@@ -13,7 +15,7 @@ import { z } from "zod";
 export const dynamic = "force-dynamic";
 
 /**
- * GET /api/reports/home?period=today|yesterday|week|month|all
+ * GET /api/reports/home?period=…&from=…&to=…
  * The Home report of the signed-in store, from recorded data only (ADR-0021). The response
  * is validated against the shared `homeReportSchema` before it is sent.
  */
@@ -30,6 +32,18 @@ export async function GET(req: Request) {
       from: url.searchParams.get("from") || undefined,
       to: url.searchParams.get("to") || undefined,
     });
+    // Each package reads its own periods only (ADR-0036): months for إدارة المحل, days for
+    // الكاشير الذكي. Another period is refused, never silently changed.
+    const refusal = reportPeriodRefusal(
+      context.store.operatingMode,
+      period,
+      customFrom,
+      customTo,
+      toCairoDateString(new Date()),
+    );
+    if (refusal) {
+      throw AppError.modeForbidden(refusal, context.store.operatingMode);
+    }
     const report = await getHomeReport(
       context.store.id,
       context.user.id,

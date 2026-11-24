@@ -10,6 +10,7 @@ const baseQty = z
 export const COUNT_REASONS = [
   "unrecorded_sale",
   "damaged",
+  "expired",
   "lost",
   "unknown",
   "surplus",
@@ -51,6 +52,13 @@ export const updateInventoryCountSchema = z
             /** null = clear the count (the line is left out at confirmation). */
             countedBase: baseQty.nullable(),
             reason: z.enum(COUNT_REASONS).optional().nullable(),
+            /** The owner's note on the difference («اتكسر في النقل»); undefined = keep it. */
+            note: z
+              .string()
+              .trim()
+              .max(300, "الملاحظة طويلة قوي")
+              .optional()
+              .nullable(),
           })
           .strict(),
       )

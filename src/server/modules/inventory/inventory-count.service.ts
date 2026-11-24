@@ -16,7 +16,8 @@ import "server-only";
  *       DISCOVERED by the count (no payment method, no customer, no money movement).
  *     - إدارة المحل (simple): the day's sales totals already hold the money of every sale, so it
  *       is stock reconciliation only — no second sale, no loss (`applied_sale_minor` NULL).
- *   - `damaged` («تالف») / `lost` («ضايع / مسروق»): a loss, recorded in `waste_records` (the
+ *   - `damaged` («تالف») / `expired` («منتهي الصلاحية») / `lost` («ضايع / مسروق»): a loss,
+ *     recorded in `waste_records` as damaged / expired / missing (the
  *     existing loss ledger, so the reports count it once).
  *   - `unknown` («مش عارف»), the default: stock out, reported as an unexplained difference.
  * - A surplus (`surplus`) goes back into stock as a batch at the known cost; it is not a purchase
@@ -53,6 +54,7 @@ export const COUNT_BATCH_PREFIX = "CNT-";
 export const COUNT_REASON_LABELS: Record<CountReason, string> = {
   unrecorded_sale: "اتباع ومتسجلش",
   damaged: "تالف",
+  expired: "منتهي الصلاحية",
   lost: "ضايع / مسروق",
   unknown: "فرق مش معروف سببه",
   surplus: "زيادة عن المتسجل",
@@ -68,6 +70,8 @@ export interface InventoryCountLineView {
   countedBase: number | null;
   differenceBase: number | null;
   reason: CountReason | null;
+  /** The owner's note on the difference. */
+  note: string | null;
   /** The difference's value at cost (null when the cost is unknown or not counted). */
   differenceCostPiasters: number | null;
   /** The difference's value at the selling price. */
@@ -106,7 +110,11 @@ export interface InventoryCountTotals {
   shortageCostPiasters: number;
   surplusCostPiasters: number;
   damagedBase: number;
+  expiredBase: number;
   lostBase: number;
+  /** Products (lines) short / over. */
+  shortageLines: number;
+  surplusLines: number;
   unrecordedSaleBase: number;
   /** Value at the selling price of the quantities the owner said were sold unrecorded. */
   unrecordedSaleSellPiasters: number;
@@ -171,6 +179,7 @@ function lineView(l: LineRow): InventoryCountLineView {
     countedBase: l.countedBase === null ? null : Number(l.countedBase),
     differenceBase: diff === null ? null : Number(diff),
     reason: (l.reason as CountReason | null) ?? null,
+    note: l.note ?? null,
     differenceCostPiasters:
       abs === null || abs === ZERO
         ? abs === ZERO
@@ -202,7 +211,10 @@ function totalsOf(
     shortageCostPiasters: 0,
     surplusCostPiasters: 0,
     damagedBase: 0,
+    expiredBase: 0,
     lostBase: 0,
+    shortageLines: 0,
+    surplusLines: 0,
     unrecordedSaleBase: 0,
     unrecordedSaleSellPiasters: 0,
     unknownBase: 0,
@@ -219,15 +231,18 @@ function totalsOf(
     if (l.differenceCostPiasters === null) t.unknownCostLines += 1;
     const cost = l.differenceCostPiasters ?? 0;
     if (l.differenceBase > 0) {
+      t.surplusLines += 1;
       t.surplusBase += l.differenceBase;
       t.surplusCostPiasters += cost;
       continue;
     }
     const q = -l.differenceBase;
+    t.shortageLines += 1;
     t.shortageBase += q;
     t.shortageCostPiasters += cost;
     const reason = l.reason ?? "unknown";
     if (reason === "damaged") t.damagedBase += q;
+    else if (reason === "expired") t.expiredBase += q;
     else if (reason === "lost") t.lostBase += q;
     else if (reason === "unrecorded_sale") {
       t.unrecordedSaleBase += q;
@@ -525,7 +540,7 @@ export async function updateInventoryCount(
       if (l.countedBase === null) {
         await tx.inventoryCountLine.update({
           where: { id: line.id },
-          data: { countedBase: null, reason: null, updatedAt: now },
+          data: { countedBase: null, reason: null, note: null, updatedAt: now },
         });
         continue;
       }
@@ -542,6 +557,12 @@ export async function updateInventoryCount(
           expectedBase: expected,
           countedBase: counted,
           reason,
+          // No difference, no note; otherwise the note sent (undefined keeps the saved one).
+          ...(diff === ZERO
+            ? { note: null }
+            : l.note !== undefined
+              ? { note: l.note?.trim() || null }
+              : {}),
           updatedAt: now,
         },
       });
@@ -692,12 +713,17 @@ export async function confirmInventoryCount(
           );
         }
         const reason = (l.reason as CountReason | null) ?? "unknown";
-        if (reason === "damaged" || reason === "lost") {
+        if (reason === "damaged" || reason === "expired" || reason === "lost") {
           const w = await recordWasteInTx(tx, storeId, {
             storeVariantId: variantId,
             quantityBase: qty,
-            reason: reason === "damaged" ? "damaged" : "missing",
-            note: countRef,
+            reason:
+              reason === "damaged"
+                ? "damaged"
+                : reason === "expired"
+                  ? "expired"
+                  : "missing",
+            note: l.note ? `${countRef} · ${l.note}`.slice(0, 500) : countRef,
           });
           const rec = await tx.wasteRecord.findFirst({
             where: { storeId, id: w.wasteId },

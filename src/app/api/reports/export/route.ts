@@ -2,7 +2,9 @@ import "server-only";
 import { z } from "zod";
 import { requireSession } from "@/server/modules/auth";
 import { reportExportTables } from "@/server/modules/reports";
-import { toSafeErrorResponse } from "@/server/platform/error";
+import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import { reportPeriodRefusal } from "@/domain/report-periods";
+import { toCairoDateString } from "@/domain/time";
 import {
   CSV_TYPE,
   XLSX_TYPE,
@@ -37,6 +39,17 @@ export async function GET(req: Request) {
       format: url.searchParams.get("format") ?? undefined,
     });
     reportRangeQuerySchema.parse({ from: q.from, to: q.to });
+    // The same periods as the reports screen (ADR-0036).
+    const refusal = reportPeriodRefusal(
+      context.store.operatingMode,
+      q.period,
+      q.from,
+      q.to,
+      toCairoDateString(new Date()),
+    );
+    if (refusal) {
+      throw AppError.modeForbidden(refusal, context.store.operatingMode);
+    }
     const { tables, label, summary } = await reportExportTables(
       context.store.id,
       context.user.id,

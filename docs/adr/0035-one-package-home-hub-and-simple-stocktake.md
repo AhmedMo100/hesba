@@ -1,6 +1,7 @@
 # ADR-0035: One package, Home as the hub, one commission rule per service, a step-by-step stocktake
 
-- **Status:** Accepted
+- **Status:** Accepted, partly superseded by ADR-0036 (§1 one package and §3 the services page
+  with money are reversed; §2, §4–§6 stay as amended there)
 - **Date:** 2026-11-24
 - **Decision-maker:** Ahmed Tarek / Team Hesba (owner's decisions of 2026-11-23)
 - **Amends:** ADR-0033 (operating modes), ADR-0032 / ADR-0034 (service commission rules),

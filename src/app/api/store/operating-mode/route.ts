@@ -4,22 +4,22 @@ import { z } from "zod";
 import { requireSession } from "@/server/modules/auth";
 import { setOperatingMode } from "@/server/modules/tenancy";
 import { readJsonBody, toSafeErrorResponse } from "@/server/platform/error";
+import { OPERATING_MODES } from "@/domain/operating-mode";
+
 export const dynamic = "force-dynamic";
 
 const bodySchema = z
   .object({
-    // One package (ADR-0035): الكاشير الذكي only. A shop can no longer be switched to
-    // إدارة المحل; 'pos' stays accepted (idempotent) for an older app.
-    operatingMode: z.literal("pos", {
-      message: "حِسبة بقت باقة واحدة: الكاشير الذكي",
+    operatingMode: z.enum(OPERATING_MODES, {
+      message: "اختار إدارة المحل أو الكاشير الذكي",
     }),
   })
   .strict();
 
 /**
- * PATCH /api/store/operating-mode — puts the signed-in shop on الكاشير الذكي (ADR-0033 /
- * ADR-0035). The shop comes from the session only; no other field can be sent (strict), and
- * the subscription is never touched.
+ * PATCH /api/store/operating-mode — the owner switches the signed-in shop between إدارة المحل
+ * and الكاشير الذكي (ADR-0033). The shop comes from the session only; no other field can be
+ * sent (strict), and the subscription is never touched.
  */
 export async function PATCH(req: Request) {
   try {

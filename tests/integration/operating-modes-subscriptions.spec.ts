@@ -36,6 +36,8 @@ import * as dailySales from "@/app/api/daily-sales/route";
 import { DELETE as dailyCancelRoute } from "@/app/api/daily-sales/[id]/route";
 import { BusinessToolsService } from "@/server/modules/ai/tools/business-tools";
 import { SaleFixtures, type Json, type Shop } from "./helpers/sale-fixtures";
+import { toCairoDateString } from "@/domain/time";
+import { monthQuery } from "@/domain/report-periods";
 
 const f = new SaleFixtures();
 const A = f.shopA;
@@ -144,18 +146,16 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
   });
 
   // ─── Sign-up and the trial ────────────────────────────────────────────────
-  // One package (ADR-0035): whatever an older client sends, the shop is الكاشير الذكي.
-  it.each(["simple", "pos", ""])(
-    "sign-up sending «%s» creates الكاشير الذكي and starts a 72-hour trial from the database clock",
-    async (sent) => {
-      const mode = "pos";
+  it.each(["simple", "pos"])(
+    "sign-up in «%s» stores the mode and starts a 72-hour trial from the database clock",
+    async (mode) => {
       const before = Date.now();
       const r = await call(
         signupRoute as Handler,
         null,
         "POST",
         "/api/auth/signup",
-        signupBody(sent || "none", sent || undefined),
+        signupBody(mode, mode),
       );
       expect(r.status).toBe(200);
       const data = r.json.data as {
@@ -187,18 +187,15 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     },
   );
 
-  it("sign-up needs no package choice; an invalid mode value is still refused", async () => {
+  it("sign-up without choosing a mode is refused (never picked silently)", async () => {
     const r = await call(
       signupRoute as Handler,
       null,
       "POST",
       "/api/auth/signup",
-      signupBody("nochoice"),
+      signupBody("none"),
     );
-    expect(r.status).toBe(200);
-    const created = (r.json.data as { store: { id: string } }).store.id;
-    signedUp.push(created);
-    expect((await storeRow(created)).operating_mode).toBe("pos");
+    expect(r.status).toBe(400);
     const r2 = await call(
       signupRoute as Handler,
       null,
@@ -317,7 +314,7 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     expect((r.json.error as { code: string }).code).toBe("MODE_FORBIDDEN");
   });
 
-  it("one package: switching to إدارة المحل is refused and changes nothing; «pos» is a no-op", async () => {
+  it("switching modes back and forth changes only the mode: no data, no trial restart, no invented sales", async () => {
     await setMode(A.storeId, "pos");
     const snapshot = async () =>
       f.as(A, async (tx) => ({
@@ -358,16 +355,17 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
       }));
     const subBefore = await storeRow(A.storeId);
     const before = await snapshot();
-    for (let i = 0; i < 3; i++) {
+    for (const mode of ["simple", "pos", "simple", "pos", "simple", "pos"]) {
       const r = await call(
         modeRoute as Handler,
         A,
         "PATCH",
         "/api/store/operating-mode",
-        { operatingMode: "simple" },
+        { operatingMode: mode },
       );
-      expect(r.status).toBe(400);
-      expect((await storeRow(A.storeId)).operating_mode).toBe("pos");
+      expect(r.status).toBe(200);
+      expect(r.json.operatingMode).toBe(mode);
+      expect((await storeRow(A.storeId)).operating_mode).toBe(mode);
     }
     expect(await snapshot()).toEqual(before);
     const subAfter = await storeRow(A.storeId);
@@ -782,12 +780,16 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     );
 
     // The report counts it as revenue, by payment, with profit unknown (no cost per item).
+    // إدارة المحل reads whole months (ADR-0036): this month, up to today.
+    const day = toCairoDateString(new Date());
+    const q = monthQuery(day.slice(0, 7), day);
     const rep = await call(
       reportRoute as Handler,
       A,
       "GET",
-      "/api/reports/home?period=today",
+      `/api/reports/home?period=custom&from=${q.from}&to=${q.to}`,
     );
+    expect(rep.status).toBe(200);
     const s = rep.json.sales as {
       revenuePiasters: number;
       grossProfitPiasters: number | null;

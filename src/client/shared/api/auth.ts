@@ -1,3 +1,4 @@
+import type { OperatingMode } from "@/domain/operating-mode";
 import type { StoreAccessView } from "@/domain/subscription";
 
 export interface SignupInput {
@@ -14,6 +15,8 @@ export interface SignupInput {
   withDemoData?: boolean;
   /** Optional influencer/referral code (checked on the server). */
   referralCode?: string;
+  /** إدارة المحل or الكاشير الذكي — chosen by the owner, never by default (ADR-0033). */
+  operatingMode?: OperatingMode;
 }
 
 export interface LoginInput {
