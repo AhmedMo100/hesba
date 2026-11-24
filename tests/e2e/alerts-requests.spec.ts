@@ -43,11 +43,13 @@ test("Alerts screen: loads once, then makes no repeated requests while idle", as
     if (path === "/api/alerts") counts.alerts += 1;
   });
 
+  // The old stand-alone machines page now opens «فلوس حِسبة» (ADR-0036).
   await page.goto("/app/alerts");
   await page.addStyleTag({
     content: "nextjs-portal { display: none !important; }",
   });
-  await expect(page.getByTestId("page-alerts")).toBeVisible(PAGE_LOAD);
+  await expect(page.getByTestId("page-money")).toBeVisible(PAGE_LOAD);
+  await expect(page.getByTestId("money-accounts")).toBeVisible(PAGE_LOAD);
   await page.waitForLoadState("networkidle");
 
   counting = true;

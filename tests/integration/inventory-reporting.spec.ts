@@ -466,8 +466,9 @@ describe("QA-06 / QA-07 — the Home report", () => {
   });
 
   it("each store sees only its own report", async () => {
-    const a = await report(f.shopA, "all");
-    const b = await report(f.shopB, "all");
+    // الكاشير الذكي reads days (ADR-0036): today holds this run's activity.
+    const a = await report(f.shopA, "today");
+    const b = await report(f.shopB, "today");
     const aIds = new Set(a.activity.map((x) => x.id));
     expect(b.activity.some((x) => aIds.has(x.id))).toBe(false);
   });

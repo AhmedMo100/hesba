@@ -188,6 +188,12 @@ model Store {
   subscriptionEvents   StoreSubscriptionEvent[]
   dailySalesEntries    DailySalesEntry[]
   dailySalesEntryParts DailySalesEntryPart[]
+  inventoryCounts      InventoryCount[]
+  inventoryCountLines  InventoryCountLine[]
+  debtEntryItems       DebtEntryItem[]
+  moneyMovements       MoneyMovement[]
+  serviceTransactions  ServiceTransaction[]
+  dailySalesItems      DailySalesEntryItem[]
 
   @@map("stores")
 }
@@ -217,20 +223,24 @@ model StoreSubscriptionEvent {
 /// إدارة المحل's daily sales total (ADR-0033): the cash part counts in the drawer, each machine /
 /// wallet part raised that machine's balance. Cancelled entries stay on record.
 model DailySalesEntry {
-  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  storeId       String    @map("store_id") @db.Uuid
-  opId          String    @map("op_id") @db.Uuid
-  businessDay   DateTime  @map("business_day") @db.Date
-  totalPiasters BigInt    @map("total_piasters")
-  cashPiasters  BigInt    @default(0) @map("cash_piasters")
-  note          String?   @db.Text
-  createdBy     String?   @map("created_by") @db.Uuid
-  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
-  cancelledAt   DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String    @map("store_id") @db.Uuid
+  opId           String    @map("op_id") @db.Uuid
+  businessDay    DateTime  @map("business_day") @db.Date
+  totalPiasters  BigInt    @map("total_piasters")
+  cashPiasters   BigInt    @default(0) @map("cash_piasters")
+  /// The part sold on credit (آجل) to named customers: revenue and a receivable, never cash.
+  creditPiasters BigInt    @default(0) @map("credit_piasters")
+  note           String?   @db.Text
+  createdBy      String?   @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledAt    DateTime? @map("cancelled_at") @db.Timestamptz(6)
 
   store Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
   user  User?                 @relation("DailySalesCreator", fields: [createdBy], references: [id], onDelete: SetNull)
   parts DailySalesEntryPart[]
+  items DailySalesEntryItem[]
+  debts DebtEntry[]
 
   @@unique([storeId, opId], map: "uq_daily_sales_entries_store_op")
   @@index([storeId, businessDay(sort: Desc)], map: "idx_daily_sales_entries_store_day")
@@ -252,6 +262,145 @@ model DailySalesEntryPart {
   @@map("daily_sales_entry_parts")
 }
 
+/// A physical stocktake (الجرد): the owner counts, explains each difference, then confirms.
+model InventoryCount {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId       String    @map("store_id") @db.Uuid
+  opId          String    @map("op_id") @db.Uuid
+  scope         String    @db.Text
+  category      String?   @db.Text
+  status        String    @default("open") @db.Text
+  note          String?   @db.Text
+  createdBy     String?   @map("created_by") @db.Uuid
+  startedAt     DateTime  @default(now()) @map("started_at") @db.Timestamptz(6)
+  confirmOpId   String?   @map("confirm_op_id") @db.Uuid
+  confirmedAt   DateTime? @map("confirmed_at") @db.Timestamptz(6)
+  abandonedAt   DateTime? @map("abandoned_at") @db.Timestamptz(6)
+  confirmedBy   String?   @map("confirmed_by") @db.Uuid
+  abandonedBy   String?   @map("abandoned_by") @db.Uuid
+  /// The shop's mode at confirmation ('simple' | 'pos'): how a «sold» shortage is reported.
+  operatingMode String?   @map("operating_mode") @db.Text
+
+  store     Store                @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "inventory_counts_store_id_fkey")
+  user      User?                @relation("InventoryCountCreator", fields: [createdBy], references: [id], onDelete: SetNull, map: "inventory_counts_created_by_fkey")
+  confirmer User?                @relation("InventoryCountConfirmer", fields: [confirmedBy], references: [id], onDelete: SetNull, map: "inventory_counts_confirmed_by_fkey")
+  abandoner User?                @relation("InventoryCountAbandoner", fields: [abandonedBy], references: [id], onDelete: SetNull, map: "inventory_counts_abandoned_by_fkey")
+  lines     InventoryCountLine[]
+
+  @@unique([storeId, opId], map: "uq_inventory_counts_store_op")
+  @@unique([storeId, confirmOpId], map: "uq_inventory_counts_store_confirm_op")
+  @@unique([storeId, id], map: "uq_inventory_counts_store_id")
+  @@index([storeId, startedAt(sort: Desc)], map: "idx_inventory_counts_store_started")
+  @@map("inventory_counts")
+}
+
+model InventoryCountLine {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId          String   @map("store_id") @db.Uuid
+  sessionId        String   @map("session_id") @db.Uuid
+  storeVariantId   String   @map("store_variant_id") @db.Uuid
+  expectedBase     BigInt   @map("expected_base")
+  countedBase      BigInt?  @map("counted_base")
+  reason           String?  @db.Text
+  unitCostMinor    BigInt?  @map("unit_cost_minor")
+  unitPriceMinor   BigInt   @default(0) @map("unit_price_minor")
+  appliedDeltaBase BigInt?  @map("applied_delta_base")
+  appliedCostMinor BigInt?  @map("applied_cost_minor")
+  /// «اتباع ومتسجلش»: the discovered sale's value at the selling price, fixed at confirmation.
+  appliedSaleMinor BigInt?  @map("applied_sale_minor")
+  /// The owner's note on the difference («اتكسر في النقل»), ≤ 300 characters.
+  note             String?  @db.Text
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  store        Store          @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "inventory_count_lines_store_id_fkey")
+  session      InventoryCount @relation(fields: [storeId, sessionId], references: [storeId, id], onDelete: Cascade, map: "inventory_count_lines_session_fkey")
+  storeVariant StoreVariant   @relation(fields: [storeVariantId], references: [id], onDelete: Cascade, map: "inventory_count_lines_store_variant_id_fkey")
+
+  @@unique([sessionId, storeVariantId], map: "uq_inventory_count_lines_session_variant")
+  @@index([storeId, sessionId], map: "idx_inventory_count_lines_store_session")
+  @@map("inventory_count_lines")
+}
+
+/// «فلوس حِسبة»: owner withdrawals / deposits and transfers between the drawer and wallets.
+model MoneyMovement {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @map("store_id") @db.Uuid
+  opId           String   @map("op_id") @db.Uuid
+  kind           String   @db.Text
+  amountPiasters BigInt   @map("amount_piasters")
+  fromCash       Boolean  @default(false) @map("from_cash")
+  fromMachineId  String?  @map("from_machine_id") @db.Uuid
+  toCash         Boolean  @default(false) @map("to_cash")
+  toMachineId    String?  @map("to_machine_id") @db.Uuid
+  note           String?  @db.Text
+  createdBy      String?  @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store       Store       @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "money_movements_store_id_fkey")
+  fromMachine PosMachine? @relation("MoneyMovementFrom", fields: [fromMachineId], references: [id], onDelete: NoAction, map: "money_movements_from_machine_fkey")
+  toMachine   PosMachine? @relation("MoneyMovementTo", fields: [toMachineId], references: [id], onDelete: NoAction, map: "money_movements_to_machine_fkey")
+  user        User?       @relation("MoneyMovementCreator", fields: [createdBy], references: [id], onDelete: SetNull, map: "money_movements_created_by_fkey")
+
+  @@unique([storeId, opId], map: "uq_money_movements_store_op")
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_money_movements_store_created")
+  @@map("money_movements")
+}
+
+/// A service performed by hand on a provider's app / machine; the commission is the income.
+model ServiceTransaction {
+  id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId            String    @map("store_id") @db.Uuid
+  opId               String    @map("op_id") @db.Uuid
+  serviceKey         String    @map("service_key") @db.Text
+  category           String    @db.Text
+  provider           String    @db.Text
+  serviceType        String    @map("service_type") @db.Text
+  direction          String    @db.Text
+  amountPiasters     BigInt    @map("amount_piasters")
+  commissionPiasters BigInt    @map("commission_piasters")
+  commissionMode     String    @map("commission_mode") @db.Text
+  customerPiasters   BigInt    @map("customer_piasters")
+  floatDeltaPiasters BigInt    @map("float_delta_piasters")
+  floatMachineId     String    @map("float_machine_id") @db.Uuid
+  paymentCash        Boolean   @default(true) @map("payment_cash")
+  paymentMachineId   String?   @map("payment_machine_id") @db.Uuid
+  status             String    @default("completed") @db.Text
+  reference          String?   @db.Text
+  note               String?   @db.Text
+  createdBy          String?   @map("created_by") @db.Uuid
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledAt        DateTime? @map("cancelled_at") @db.Timestamptz(6)
+
+  store          Store       @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "service_transactions_store_id_fkey")
+  floatMachine   PosMachine  @relation("ServiceFloat", fields: [floatMachineId], references: [id], onDelete: NoAction, map: "service_transactions_float_machine_fkey")
+  paymentMachine PosMachine? @relation("ServicePayment", fields: [paymentMachineId], references: [id], onDelete: NoAction, map: "service_transactions_payment_machine_fkey")
+  user           User?       @relation("ServiceCreator", fields: [createdBy], references: [id], onDelete: SetNull, map: "service_transactions_created_by_fkey")
+
+  @@unique([storeId, opId], map: "uq_service_transactions_store_op")
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_service_transactions_store_created")
+  @@map("service_transactions")
+}
+
+/// Quantities sold recorded with a daily total: stock out with its cost, no extra revenue.
+model DailySalesEntryItem {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @map("store_id") @db.Uuid
+  entryId        String   @map("entry_id") @db.Uuid
+  storeVariantId String   @map("store_variant_id") @db.Uuid
+  quantityBase   BigInt   @map("quantity_base")
+  costMinor      BigInt?  @map("cost_minor")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store           @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "daily_sales_entry_items_store_id_fkey")
+  entry        DailySalesEntry @relation(fields: [entryId], references: [id], onDelete: Cascade, map: "daily_sales_entry_items_entry_id_fkey")
+  storeVariant StoreVariant    @relation(fields: [storeVariantId], references: [id], onDelete: Cascade, map: "daily_sales_entry_items_variant_fkey")
+
+  @@unique([entryId, storeVariantId], map: "uq_daily_sales_entry_items_entry_variant")
+  @@index([storeId, createdAt(sort: Desc)], map: "idx_daily_sales_entry_items_store")
+  @@map("daily_sales_entry_items")
+}
+
 model User {
   id                    String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   name                  String    @db.Text
@@ -269,23 +418,28 @@ model User {
   createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  createdStores           Store[]                  @relation("StoreCreator")
-  dailySalesEntries       DailySalesEntry[]        @relation("DailySalesCreator")
-  members                 StoreMember[]
-  devices                 Device[]
-  passkeys                UserPasskey[]
-  passkeyChallenges       PasskeyChallenge[]
-  emailVerificationTokens EmailVerificationToken[]
-  accountRecoveryTokens   AccountRecoveryToken[]
-  passwordResetCodes      PasswordResetCode[]
-  magicLinkTokens         MagicLinkToken[]
-  sessions                Session[]
-  saleVoids               SaleVoid[]
-  purchaseVoids           PurchaseVoid[]
-  platformAdmin           PlatformAdmin?
-  aiAdminAudits           AiAdminAudit[]
-  saleReturns             SaleReturn[]
-  cashDrawerCounts        CashDrawerCount[]
+  createdStores            Store[]                  @relation("StoreCreator")
+  dailySalesEntries        DailySalesEntry[]        @relation("DailySalesCreator")
+  members                  StoreMember[]
+  devices                  Device[]
+  passkeys                 UserPasskey[]
+  passkeyChallenges        PasskeyChallenge[]
+  emailVerificationTokens  EmailVerificationToken[]
+  accountRecoveryTokens    AccountRecoveryToken[]
+  passwordResetCodes       PasswordResetCode[]
+  magicLinkTokens          MagicLinkToken[]
+  sessions                 Session[]
+  saleVoids                SaleVoid[]
+  purchaseVoids            PurchaseVoid[]
+  platformAdmin            PlatformAdmin?
+  aiAdminAudits            AiAdminAudit[]
+  saleReturns              SaleReturn[]
+  cashDrawerCounts         CashDrawerCount[]
+  inventoryCounts          InventoryCount[]         @relation("InventoryCountCreator")
+  inventoryCountsClosed    InventoryCount[]         @relation("InventoryCountConfirmer")
+  inventoryCountsAbandoned InventoryCount[]         @relation("InventoryCountAbandoner")
+  moneyMovements           MoneyMovement[]          @relation("MoneyMovementCreator")
+  serviceTransactions      ServiceTransaction[]     @relation("ServiceCreator")
 
   @@map("users")
 }
@@ -533,17 +687,20 @@ model StoreVariant {
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store             Store                @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  storeProduct      StoreProduct?        @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
-  globalProduct     GlobalProduct?       @relation(fields: [productId], references: [id], onDelete: Cascade)
-  globalVariant     GlobalVariant?       @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
-  purchaseLines     PurchaseLine[]
-  saleLines         SaleLine[]
-  storeStockBatches StoreStockBatch[]
-  stockMovements    StockMovement[]
-  stockLevels       StockLevel[]
-  wasteRecords      WasteRecord[]
-  usedInSandwiches  SandwichIngredient[]
+  store               Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  storeProduct        StoreProduct?         @relation(fields: [storeProductId], references: [id], onDelete: Cascade)
+  globalProduct       GlobalProduct?        @relation(fields: [productId], references: [id], onDelete: Cascade)
+  globalVariant       GlobalVariant?        @relation(fields: [globalVariantId], references: [id], onDelete: SetNull)
+  purchaseLines       PurchaseLine[]
+  saleLines           SaleLine[]
+  storeStockBatches   StoreStockBatch[]
+  stockMovements      StockMovement[]
+  stockLevels         StockLevel[]
+  wasteRecords        WasteRecord[]
+  usedInSandwiches    SandwichIngredient[]
+  inventoryCountLines InventoryCountLine[]
+  debtEntryItems      DebtEntryItem[]
+  dailySalesItems     DailySalesEntryItem[]
 
   @@index([storeProductId], map: "idx_store_variants_product")
   @@index([storeId], map: "idx_store_variants_store")
@@ -786,44 +943,70 @@ model SupplierProduct {
 }
 
 model DebtEntry {
-  id             String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  storeId        String        @map("store_id") @db.Uuid
-  contactId      String?       @map("contact_id") @db.Uuid
-  customerId     String?       @map("customer_id") @db.Uuid
-  payableId      String?       @map("payable_id") @db.Uuid
-  supplierId     String?       @map("supplier_id") @db.Uuid
-  direction      DebtDirection
-  amountPiasters BigInt        @map("amount_piasters")
-  noteAr         String?       @map("note_ar") @db.Text
-  settlesEntryId String?       @map("settles_entry_id") @db.Uuid
-  opId           String        @map("op_id") @db.Uuid
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId           String        @map("store_id") @db.Uuid
+  contactId         String?       @map("contact_id") @db.Uuid
+  customerId        String?       @map("customer_id") @db.Uuid
+  payableId         String?       @map("payable_id") @db.Uuid
+  supplierId        String?       @map("supplier_id") @db.Uuid
+  direction         DebtDirection
+  amountPiasters    BigInt        @map("amount_piasters")
+  noteAr            String?       @map("note_ar") @db.Text
+  settlesEntryId    String?       @map("settles_entry_id") @db.Uuid
+  opId              String        @map("op_id") @db.Uuid
   /// opening | transaction | adjustment (ADR-0023): an owner adjustment is never a debt/payment.
-  entryKind      String        @default("transaction") @map("entry_kind") @db.Text
+  entryKind         String        @default("transaction") @map("entry_kind") @db.Text
   /// The supplier invoice this entry belongs to (its debt, a payment, or its reversal).
-  purchaseId     String?       @map("purchase_id") @db.Uuid
+  purchaseId        String?       @map("purchase_id") @db.Uuid
   /// The credit-sale invoice this entry belongs to (its debt, a payment, or a return).
-  saleId         String?       @map("sale_id") @db.Uuid
+  saleId            String?       @map("sale_id") @db.Uuid
   /// A payment's money: 'cash' (the drawer) | 'wallet'; null = not recorded (ADR-0031).
-  paidFrom       String?       @map("paid_from") @db.Text
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  paidFrom          String?       @map("paid_from") @db.Text
+  /// The daily total whose credit part created this customer debt (إدارة المحل).
+  dailySalesEntryId String?       @map("daily_sales_entry_id") @db.Uuid
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  store        Store       @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  contact      Contact?    @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  customer     Customer?   @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  payable      Payable?    @relation(fields: [payableId], references: [id], onDelete: Cascade)
-  supplier     Supplier?   @relation(fields: [supplierId], references: [id], onDelete: Cascade)
-  settlesEntry DebtEntry?  @relation("DebtSettlement", fields: [settlesEntryId], references: [id], onDelete: SetNull)
-  settlements  DebtEntry[] @relation("DebtSettlement")
-  purchase     Purchase?   @relation(fields: [storeId, purchaseId], references: [storeId, id], onDelete: Cascade, map: "debt_entries_purchase_fkey")
-  sale         Sale?       @relation(fields: [storeId, saleId], references: [storeId, id], onDelete: Cascade, map: "debt_entries_sale_fkey")
+  store           Store            @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  contact         Contact?         @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  customer        Customer?        @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  payable         Payable?         @relation(fields: [payableId], references: [id], onDelete: Cascade)
+  supplier        Supplier?        @relation(fields: [supplierId], references: [id], onDelete: Cascade)
+  settlesEntry    DebtEntry?       @relation("DebtSettlement", fields: [settlesEntryId], references: [id], onDelete: SetNull)
+  settlements     DebtEntry[]      @relation("DebtSettlement")
+  purchase        Purchase?        @relation(fields: [storeId, purchaseId], references: [storeId, id], onDelete: Cascade, map: "debt_entries_purchase_fkey")
+  sale            Sale?            @relation(fields: [storeId, saleId], references: [storeId, id], onDelete: Cascade, map: "debt_entries_sale_fkey")
+  dailySalesEntry DailySalesEntry? @relation(fields: [dailySalesEntryId], references: [id], onDelete: SetNull, map: "debt_entries_daily_sales_entry_fkey")
+  items           DebtEntryItem[]
 
   @@unique([storeId, opId])
   @@index([storeId, purchaseId], map: "idx_debt_entries_store_purchase")
   @@index([storeId, saleId], map: "idx_debt_entries_store_sale")
+  @@index([dailySalesEntryId], map: "idx_debt_entries_daily_sales_entry")
   @@index([storeId, customerId], map: "idx_debt_entries_store_customer")
   @@index([storeId, payableId], map: "idx_debt_entries_store_payable")
   @@index([storeId, supplierId], map: "idx_debt_entries_store_supplier")
   @@map("debt_entries")
+}
+
+/// The products of a MANUAL debt (ADR-0036): display and audit only — no stock, no revenue.
+model DebtEntryItem {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  storeId        String   @map("store_id") @db.Uuid
+  debtEntryId    String   @map("debt_entry_id") @db.Uuid
+  storeVariantId String?  @map("store_variant_id") @db.Uuid
+  name           String   @db.Text
+  unit           String   @default("piece") @db.Text
+  quantityBase   BigInt   @map("quantity_base")
+  unitPriceMinor BigInt   @map("unit_price_minor")
+  totalMinor     BigInt   @map("total_minor")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  store        Store         @relation(fields: [storeId], references: [id], onDelete: Cascade, map: "debt_entry_items_store_id_fkey")
+  debtEntry    DebtEntry     @relation(fields: [debtEntryId], references: [id], onDelete: Cascade, map: "debt_entry_items_entry_fkey")
+  storeVariant StoreVariant? @relation(fields: [storeVariantId], references: [id], onDelete: SetNull, map: "debt_entry_items_variant_fkey")
+
+  @@index([storeId, debtEntryId], map: "idx_debt_entry_items_store_entry")
+  @@map("debt_entry_items")
 }
 
 model Purchase {
@@ -1263,9 +1446,13 @@ model PosMachine {
   createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  store           Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
-  topups          PosMachineTopup[]
-  dailySalesParts DailySalesEntryPart[]
+  store              Store                 @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  topups             PosMachineTopup[]
+  dailySalesParts    DailySalesEntryPart[]
+  moneyMovementsFrom MoneyMovement[]       @relation("MoneyMovementFrom")
+  moneyMovementsTo   MoneyMovement[]       @relation("MoneyMovementTo")
+  serviceFloats      ServiceTransaction[]  @relation("ServiceFloat")
+  servicePayments    ServiceTransaction[]  @relation("ServicePayment")
 
   @@index([storeId, deletedAt], map: "idx_pos_machines_store_deleted")
   @@map("pos_machines")

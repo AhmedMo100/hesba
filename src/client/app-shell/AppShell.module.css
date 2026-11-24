@@ -32,14 +32,10 @@
   height: 0;
 }
 
+/* Desktop is the same phone UX, wider: no sidebar, no bottom bar — Home is the hub. */
 @media (min-width: 900px) {
-  .app {
-    display: grid;
-    grid-template-columns: 240px 1fr;
-  }
-
   .content {
-    max-width: 1180px;
+    max-width: 760px;
     padding: 24px 32px 60px;
   }
 
