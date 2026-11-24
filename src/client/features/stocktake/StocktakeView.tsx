@@ -92,6 +92,14 @@ const SHORTAGE_CHOICES: Array<[CountReason | "recount", string, string]> = [
   ["unknown", "…", "سبب آخر"],
 ];
 
+/** «−3» / «+1 ك» kept left-to-right inside the Arabic text (else it reads «3−»). */
+const signed = (unit: string, d: number) => (
+  <bdi dir="ltr">
+    {d > 0 ? "+" : "−"}
+    {formatBaseQty(unit, Math.abs(d))}
+  </bdi>
+);
+
 const day = (iso: string) =>
   new Date(iso).toLocaleDateString("ar-EG", {
     timeZone: "Africa/Cairo",
@@ -654,11 +662,7 @@ export function StocktakeView({
                     الموجود <b>{formatBaseQty(line.unit, typedBase!)}</b>
                   </span>
                   <span className={diff < 0 ? styles.neg : styles.pos}>
-                    الفرق{" "}
-                    <b>
-                      {diff > 0 ? "+" : "−"}
-                      {formatBaseQty(line.unit, Math.abs(diff))}
-                    </b>
+                    الفرق <b>{signed(line.unit, diff)}</b>
                   </span>
                 </div>
                 {diff < 0 ? (
@@ -678,6 +682,7 @@ export function StocktakeView({
                               return;
                             }
                             setReason(k);
+                            setError(null);
                           }}
                           data-testid={`stocktake-reason-${k}`}
                         >
@@ -822,8 +827,7 @@ export function StocktakeView({
                   <b
                     className={l.differenceBase! < 0 ? styles.neg : styles.pos}
                   >
-                    {l.differenceBase! > 0 ? "+" : "−"}
-                    {formatBaseQty(l.unit, Math.abs(l.differenceBase!))}
+                    {signed(l.unit, l.differenceBase!)}
                   </b>
                 </button>
               ))}
@@ -989,8 +993,7 @@ export function StocktakeView({
                 </small>
               </span>
               <b className={l.differenceBase! < 0 ? styles.neg : styles.pos}>
-                {l.differenceBase! > 0 ? "+" : "−"}
-                {formatBaseQty(l.unit, Math.abs(l.differenceBase!))}
+                {signed(l.unit, l.differenceBase!)}
               </b>
             </div>
           ))}

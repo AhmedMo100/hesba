@@ -120,7 +120,9 @@ type LineRow = Awaited<ReturnType<typeof linesOf>>[number];
 async function linesOf(tx: TenantTx, storeId: string, sessionId: string) {
   return tx.inventoryCountLine.findMany({
     where: { storeId, sessionId },
-    orderBy: { createdAt: "asc" },
+    // All lines of a count are inserted together (same created_at): the id breaks the tie so
+    // the order never changes between answers (the screen walks the lines one by one).
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     include: {
       storeVariant: {
         select: {

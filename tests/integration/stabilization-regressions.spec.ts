@@ -310,6 +310,31 @@ describe("stocktake: «sold» by operating mode, and the audit trail", () => {
     ).rejects.toThrow(/closed|already|check/i);
   });
 
+  it("a count's lines keep one order across reads and updates (the screen walks them one by one)", async () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 6; i++) {
+      const v = (await f.product(A, { name: `ترتيب ${i}`, sell: 100 }))
+        .variantId;
+      await f.addStock(A, v, 3);
+      ids.push(v);
+    }
+    const c = await startInventoryCount(A.storeId, A.userId, {
+      opId: op(),
+      scope: "selected",
+      variantIds: ids,
+    });
+    const order = c.lines.map((l) => l.variantId);
+    const after = await updateInventoryCount(A.storeId, A.userId, c.id, {
+      lines: [{ variantId: order[0]!, countedBase: 3 }],
+    });
+    expect(after.lines.map((l) => l.variantId)).toEqual(order);
+    const again = await updateInventoryCount(A.storeId, A.userId, c.id, {
+      lines: [{ variantId: order[3]!, countedBase: 2, reason: "damaged" }],
+    });
+    expect(again.lines.map((l) => l.variantId)).toEqual(order);
+    await abandonInventoryCount(A.storeId, A.userId, c.id);
+  });
+
   it("an abandoned count records who abandoned it and changes no stock", async () => {
     const v = (await f.product(A, { name: "ملغي مراجعة", sell: 500 }))
       .variantId;
