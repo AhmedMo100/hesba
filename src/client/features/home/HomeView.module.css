@@ -1044,3 +1044,175 @@
 .nowrap {
   white-space: nowrap;
 }
+
+/* ─── Home hub (2026-11-23): greeting + logout, two numbers, the actions, the jard button ─── */
+.homePage {
+  padding-bottom: 96px; /* room for the floating «اعمل جرد» */
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.topRow .hello {
+  margin: 0;
+}
+
+.logoutTop {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 22px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.twoCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.numCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  min-height: 104px;
+  background: var(--card);
+  border: 0;
+  border-radius: 18px;
+  padding: 14px;
+  text-align: start;
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.numCard small {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.numCard b {
+  font-size: 24px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.numCard em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.numGood b {
+  color: var(--green);
+}
+
+.numCard .numErr {
+  color: var(--red);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 112px;
+  padding: 14px 8px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.act i {
+  font-style: normal;
+  font-size: 36px;
+  line-height: 1;
+}
+
+.act:active,
+.numCard:active,
+.fab:active {
+  transform: scale(0.97);
+}
+
+.actSell {
+  background: var(--gold);
+  color: #1f3326;
+}
+
+.actWide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  min-height: 72px;
+  background: #e9dcc0;
+  color: #1f3326;
+}
+
+:root[data-theme="dark"] .actWide {
+  background: #3a3424;
+  color: #eee6d2;
+}
+
+.fab {
+  position: fixed;
+  inset-inline-end: 16px;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 60px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 30px;
+  background: #1f3326;
+  color: #f7f4ec;
+  font-family: inherit;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.fab span {
+  font-size: 26px;
+  line-height: 1;
+}
+
+@media (min-width: 900px) {
+  .actions {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .fab {
+    inset-inline-end: calc(50% - 360px);
+  }
+}

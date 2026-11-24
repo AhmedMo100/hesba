@@ -105,8 +105,11 @@ const BUDGET: Record<string, number> = {
   // findMany customers, findMany debtEntries relation query to calculate ledger balances, COMMIT).
   people: 11,
   expenses: 10,
-  home: 23, // +1: the losses of the period (P4, waste_records); +1: the daily sales totals
-  // of إدارة المحل (ADR-0033) — part of revenue even for a shop that switched to the cashier
+  home: 25, // +1: the losses of the period (P4, waste_records); +1: the daily sales totals
+  // of إدارة المحل (ADR-0033) — part of revenue even for a shop that switched to the cashier;
+  // +2: «أنا كسبت كام؟» — every profit input (service commissions, owner withdrawals /
+  // deposits, quantities' cost, stocktake effects, last count) in ONE query, and the inventory
+  // value in one more (report.service.ts profitInputsInTx / inventoryValueInTx).
 };
 
 beforeAll(async () => {

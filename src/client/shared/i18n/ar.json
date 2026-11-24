@@ -42,7 +42,10 @@
     "people": "الناس",
     "alerts": "التنبيهات",
     "ai": "المساعد",
-    "more": "المزيد"
+    "more": "المزيد",
+    "money": "فلوس حِسبة",
+    "services": "الخدمات",
+    "stocktake": "اعمل جرد"
   },
   "pageTitle": {
     "stock": "دخلت بضاعة",
@@ -56,7 +59,10 @@
     "reports": "التقارير",
     "drawer": "الدرج",
     "notifications": "التنبيهات",
-    "dailySales": "مبيعات اليوم"
+    "dailySales": "مبيعات اليوم",
+    "money": "فلوس حِسبة",
+    "services": "الخدمات والعمولات",
+    "stocktake": "اعمل جرد"
   },
   "storeMenu": {
     "online": "متصل",

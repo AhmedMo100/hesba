@@ -22,7 +22,6 @@ import { useRouter } from "next/navigation";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import type { NavRoute } from "./BottomNav";
-import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ListSkeleton, ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
@@ -44,6 +43,9 @@ const loadReportsView = () => import("../features/home/ReportsView");
 const loadDrawerView = () => import("../features/home/DrawerView");
 const loadDailySalesView = () =>
   import("../features/daily-sales/DailySalesView");
+const loadMoneyView = () => import("../features/money/MoneyView");
+const loadServicesView = () => import("../features/services/ServicesView");
+const loadStocktakeView = () => import("../features/stocktake/StocktakeView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -56,6 +58,9 @@ const InventoryView = lazy(loadInventoryView);
 const ReportsView = lazy(loadReportsView);
 const DrawerView = lazy(loadDrawerView);
 const DailySalesView = lazy(loadDailySalesView);
+const MoneyView = lazy(loadMoneyView);
+const ServicesView = lazy(loadServicesView);
+const StocktakeView = lazy(loadStocktakeView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -71,6 +76,9 @@ const VALID_ROUTES: NavRoute[] = [
   "reports",
   "drawer",
   "notifications",
+  "money",
+  "services",
+  "stocktake",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -126,7 +134,6 @@ import {
   SubscriptionScreen,
   SubscriptionSheet,
 } from "../features/subscription/SubscriptionScreen";
-import { ModeSwitchSheet } from "../features/subscription/ModeSwitchSheet";
 import {
   isAccessBlocked,
   modeOf,
@@ -162,7 +169,6 @@ function AppShellInner() {
   // session request failed, the server did not answer) the last shop on this device keeps its
   // queue and its offline copies; signed out, nothing protected is requested at all.
   const confirmedStore = session?.store?.id ?? null;
-  const [showMode, setShowMode] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
@@ -276,6 +282,9 @@ function AppShellInner() {
     loadReportsView();
     loadDrawerView();
     loadDailySalesView();
+    loadMoneyView();
+    loadServicesView();
+    loadStocktakeView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -321,7 +330,7 @@ function AppShellInner() {
             onNavigate={navigate}
             operatingMode={mode}
             alertCount={alertCount}
-            onOpenAlerts={() => navigate("alerts")}
+            onOpenAlerts={() => navigate("notifications")}
             onLogout={async () => {
               await logout();
               await forgetShopIdentities(db).catch(() => {});
@@ -336,6 +345,12 @@ function AppShellInner() {
         return <SalesView onNavigate={navigate} />;
       case "daily-sales":
         return <DailySalesView />;
+      case "money":
+        return <MoneyView onNavigate={navigate} />;
+      case "services":
+        return <ServicesView onNavigate={navigate} />;
+      case "stocktake":
+        return <StocktakeView onNavigate={navigate} />;
       case "stock":
         return <StockView />;
       case "expenses":
@@ -343,15 +358,17 @@ function AppShellInner() {
       case "people":
         return <PeopleView />;
       case "alerts":
-        return <AlertsView mode="machines" />;
+        // The stand-alone «المحافظ والماكينات» page is gone: its machines and services live in
+        // «الخدمات والعمولات» (old links land on that tab).
+        return <ServicesView initialTab="machines" onNavigate={navigate} />;
       case "notifications":
         return <AlertsView mode="alerts" onNavigate={navigate} />;
       case "reports":
-        return <ReportsView />;
+        return <ReportsView onNavigate={navigate} />;
       case "drawer":
         return <DrawerView />;
       case "ai":
-        return <AiView />;
+        return <AiView onNavigate={navigate} />;
       case "inventory":
         return <InventoryView />;
       default:
@@ -360,7 +377,7 @@ function AppShellInner() {
             onNavigate={navigate}
             operatingMode={mode}
             alertCount={alertCount}
-            onOpenAlerts={() => navigate("alerts")}
+            onOpenAlerts={() => navigate("notifications")}
             onLogout={async () => {
               await logout();
               await forgetShopIdentities(db).catch(() => {});
@@ -517,7 +534,6 @@ function AppShellInner() {
 
   return (
     <div className={styles.app} dir="rtl">
-      <SideNav activeRoute={route} onNavigate={navigate} operatingMode={mode} />
       <div className={styles.main}>
         <Header
           storeName={storeName}
@@ -534,7 +550,6 @@ function AppShellInner() {
             router.push("/");
           }}
           signedIn={Boolean(session)}
-          onOpenMode={session ? () => setShowMode(true) : undefined}
           onOpenSubscription={
             session ? () => setShowSubscription(true) : undefined
           }
@@ -563,16 +578,6 @@ function AppShellInner() {
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
-      {showMode && (
-        <ModeSwitchSheet
-          current={session?.store?.operatingMode}
-          onClose={() => setShowMode(false)}
-          onChanged={async () => {
-            await refreshSession();
-            await clearReadCache();
-          }}
-        />
-      )}
       {showSubscription && (
         <SubscriptionSheet onClose={() => setShowSubscription(false)} />
       )}

@@ -114,17 +114,25 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
   await signup(page.request, "محل التنقل");
   await open(page, "/app", "page-home");
   await expect(page.locator('[data-testid^="bnav-"]')).toHaveCount(0);
-  for (const [route, screen] of [
-    ["stock", "page-stock"],
-    ["expenses", "page-expenses"],
-    ["sales", "page-sales"],
-    ["people", "page-people"],
-    ["alerts", "page-alerts"],
-    ["products", "page-products"],
-    ["inventory", "page-inventory"],
-    ["ai", "page-ai"],
+  await expect(page.getByTestId("home-tile-alerts")).toHaveCount(0);
+  // No sidebar either; Home has exactly the main actions (owner's design, 2026-11-23).
+  await expect(page.locator('[data-testid^="snav-"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(7);
+  for (const [testId, screen] of [
+    ["home-tile-stock", "page-stock"],
+    ["home-tile-expenses", "page-expenses"],
+    ["home-tile-sales", "page-sales"],
+    ["home-tile-people", "page-people"],
+    ["home-tile-products", "page-products"],
+    // The stand-alone machines page is gone: machines live in «الخدمات والعمولات».
+    ["home-tile-services", "page-services"],
+    ["home-tile-ai", "page-ai"],
+    // «اعمل جرد» is the floating button; the two numbers open their screens.
+    ["home-stocktake-fab", "page-stocktake"],
+    ["home-money", "page-money"],
+    ["home-profit-month", "page-reports"],
   ] as const) {
-    await page.getByTestId(`home-tile-${route}`).click();
+    await page.getByTestId(testId).click();
     await expect(page.getByTestId(screen)).toBeVisible(PAGE_LOAD);
     await page.getByRole("button", { name: "رجوع للرئيسية" }).click();
     await expect(page.getByTestId("page-home")).toBeVisible(PAGE_LOAD);

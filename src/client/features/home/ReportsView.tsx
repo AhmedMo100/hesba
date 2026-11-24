@@ -61,9 +61,15 @@ const dayLabel = (iso: string) =>
     timeZone: "Africa/Cairo",
   }).format(new Date(iso));
 
-export function ReportsView() {
+export function ReportsView({
+  onNavigate,
+}: {
+  /** Opens «لو صفّيت دلوقتي» (the shop's full position). */
+  onNavigate?: (route: "inventory") => void;
+} = {}) {
   const [today] = useState(() => toCairoDateString(new Date()));
-  const [period, setPeriod] = useState<ReportPeriod>("today");
+  // One package: the month first (the same number as Home's «ربحك الشهر ده»), any period on tap.
+  const [period, setPeriod] = useState<ReportPeriod>("month");
   const [from, setFrom] = useState(today);
   const [to, setTo] = useState(today);
   const [report, setReport] = useState<HomeReport | null>(null);
@@ -203,6 +209,16 @@ export function ReportsView() {
       >
         📤 تصدير التقرير ومشاركته
       </button>
+      {onNavigate && (
+        <button
+          type="button"
+          className={styles.exportBtn}
+          onClick={() => onNavigate("inventory")}
+          data-testid="report-position"
+        >
+          🧮 حساب المحل كله لو صفّيت دلوقتي
+        </button>
+      )}
       {exporting && (
         <ExportSheet
           title="تصدير التقرير"
@@ -240,6 +256,12 @@ export function ReportsView() {
             <small className={styles.qsub}>
               {sales?.count ?? 0} عملية بيع · بعد المرتجعات
             </small>
+            {(sales?.serviceSalesPiasters ?? 0) > 0 && (
+              <small className={styles.qsub} data-testid="report-service-sales">
+                منها خدمات بـ {money(sales?.serviceSalesPiasters)}: مكسبك منها
+                العمولة بس
+              </small>
+            )}
           </section>
 
           {/* 2. كسبت كام؟ */}
@@ -269,6 +291,99 @@ export function ReportsView() {
               </div>
             </div>
           </section>
+
+          {/* 2b. The full account of the period: actual vs estimated, said in plain words */}
+          {report?.profit && (
+            <section className={styles.qcard} data-testid="report-net">
+              <h3 className={styles.qtitle}>
+                🧾 الحساب الكامل للفترة{" "}
+                <small data-testid="report-net-status">
+                  {report.profit.status === "actual"
+                    ? "(أرقام فعلية)"
+                    : report.profit.status === "estimated"
+                      ? "(ربح تقديري)"
+                      : "(بيانات غير مكتملة)"}
+                </small>
+              </h3>
+              <b className={styles.qbig} data-testid="report-net-profit">
+                {money(
+                  report.profit.netProfitPiasters ??
+                    report.profit.estimatedNetProfitPiasters,
+                )}
+              </b>
+              <small className={styles.qsub}>
+                صافي المكسب = مكسب البضاعة + عمولات الخدمات − مصاريف المحل −
+                التالف والعجز
+              </small>
+              <div className={styles.qlines}>
+                <div className={styles.line}>
+                  <span>مبيعات البضاعة</span>
+                  <b>{money(report.profit.productSalesPiasters)}</b>
+                </div>
+                {report.profit.discoveredSalesPiasters > 0 && (
+                  <div className={styles.line}>
+                    <span>منها اتباع ومتسجلش (من الجرد)</span>
+                    <b>{money(report.profit.discoveredSalesPiasters)}</b>
+                  </div>
+                )}
+                <div className={styles.line}>
+                  <span>
+                    مكسب البضاعة{" "}
+                    {report.profit.grossProfitPiasters === null &&
+                    report.profit.estimateMarginPercent !== null
+                      ? `(تقديري بهامش ${report.profit.estimateMarginPercent}%)`
+                      : ""}
+                  </span>
+                  <b>
+                    {money(
+                      report.profit.grossProfitPiasters ??
+                        report.profit.estimatedGrossProfitPiasters,
+                    )}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>📲 عمولات الخدمات</span>
+                  <b data-testid="report-commissions">
+                    {money(report.profit.serviceCommissionsPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>💸 مصاريف المحل</span>
+                  <b>
+                    {report.profit.operatingExpensesPiasters > 0 ? "−" : ""}
+                    {money(report.profit.operatingExpensesPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>🗑️ تالف وعجز جرد</span>
+                  <b>
+                    {report.profit.inventoryLossesPiasters > 0 ? "−" : ""}
+                    {money(report.profit.inventoryLossesPiasters)}
+                  </b>
+                </div>
+                <div className={styles.line}>
+                  <span>👤 سحبت لنفسك (مش من المصاريف)</span>
+                  <b>{money(report.profit.ownerWithdrawalsPiasters)}</b>
+                </div>
+                {report.inventoryValue && (
+                  <div className={styles.line}>
+                    <span>📦 قيمة البضاعة عندك دلوقتي (بالتكلفة / بالبيع)</span>
+                    <b data-testid="report-stock-value">
+                      {money(report.inventoryValue.costPiasters)} /{" "}
+                      {money(report.inventoryValue.sellPiasters)}
+                    </b>
+                  </div>
+                )}
+              </div>
+              {report.profit.notes.length > 0 && (
+                <ul className={styles.qsub} data-testid="report-net-notes">
+                  {report.profit.notes.map((n) => (
+                    <li key={n}>{n}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
 
           {/* 3. صرفت كام؟ */}
           <section className={styles.qcard}>

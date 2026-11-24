@@ -62,6 +62,7 @@ export const ConversationDetailSchema = ConversationSummarySchema.extend({
  */
 export const AI_SUGGESTED_QUESTIONS = [
   "بعت كام النهارده؟",
+  "اعملي تقرير كامل عن المحل",
   "إيه أكتر المنتجات اللي بتتباع عندي؟",
   "عندي منتجات قربت تخلص؟",
   "مين أكتر عميل عليه فلوس؟",
@@ -69,4 +70,5 @@ export const AI_SUGGESTED_QUESTIONS = [
   "مصروفاتي الشهر ده كام؟",
   "كسبت كام الشهر ده؟",
   "قارن مبيعات الأسبوع ده بالأسبوع اللي فات.",
+  "عايز أعمل جرد",
 ] as const;

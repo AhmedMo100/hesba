@@ -143,7 +143,8 @@ describe("sign-up with the e-mail left empty", () => {
       cookie: l.cookie,
     });
     expect(s.json.data.user.id).toBe(a.json.data.user.id);
-    expect(s.json.data.store.operatingMode).toBe("simple");
+    // One package (ADR-0035): the shop is الكاشير الذكي whatever the client sent.
+    expect(s.json.data.store.operatingMode).toBe("pos");
     // The account always has its store, and the trial was started by the database.
     expect(s.json.data.store.subscription.status).toBe("trialing");
   });

@@ -34,7 +34,6 @@ export interface StoreMenuProps {
   /** When set, the trigger shows this page title instead of the app name. */
   pageTitle?: string;
   /** «طريقة التشغيل» and «الاشتراك» (ADR-0033), shown when signed in. */
-  onOpenMode?: () => void;
   onOpenSubscription?: () => void;
 }
 
@@ -59,7 +58,6 @@ export function StoreMenu({
   onLogout,
   signedIn,
   pageTitle,
-  onOpenMode,
   onOpenSubscription,
 }: StoreMenuProps) {
   const [open, setOpen] = useState(false);
@@ -130,21 +128,6 @@ export function StoreMenu({
               >
                 <Icon n="store" s={18} />
                 {t("storeMenu.profile")}
-              </button>
-            )}
-            {signedIn && onOpenMode && (
-              <button
-                type="button"
-                className={styles.item}
-                role="menuitem"
-                data-testid="store-menu-mode"
-                onClick={() => {
-                  setOpen(false);
-                  onOpenMode();
-                }}
-              >
-                <Icon n="layers" s={18} />
-                {t("storeMenu.mode")}
               </button>
             )}
             {signedIn && onOpenSubscription && (
