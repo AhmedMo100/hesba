@@ -203,13 +203,14 @@ test("stock form: the quantity follows the product's unit; reports have the six 
   await page.keyboard.press("Escape");
 
   await open(page, "/app/reports", "page-reports");
-  // الكاشير الذكي reads days only (ADR-0036): today, yesterday, or a chosen day.
-  for (const p of ["today", "yesterday", "day"]) {
+  // الكاشير الذكي reads days (ADR-0036): today, yesterday, a year, or a range of days.
+  for (const p of ["today", "yesterday", "year", "range"]) {
     await expect(page.getByTestId(`report-period-${p}`)).toBeVisible();
   }
-  await expect(page.getByTestId("report-period-month")).toHaveCount(0);
-  await page.getByTestId("report-period-day").click();
-  await expect(page.getByTestId("report-day")).toBeVisible();
+  await expect(page.getByTestId("report-period-thisMonth")).toHaveCount(0);
+  await page.getByTestId("report-period-range").click();
+  await expect(page.getByTestId("report-from")).toHaveAttribute("type", "date");
+  await expect(page.getByTestId("report-to")).toHaveAttribute("type", "date");
   await page.getByTestId("report-period-today").click();
   await expect(page.getByTestId("report-additions")).toContainText(
     `مكرونة ${run}`,

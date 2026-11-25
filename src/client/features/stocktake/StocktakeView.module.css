@@ -491,3 +491,32 @@
   font-weight: 700;
   cursor: pointer;
 }
+
+/* A step's title with its back arrow (no «رجوع» word; aria-label carries it). */
+.stepHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.stepHead .h2 {
+  margin: 0;
+}
+
+.stepBack {
+  flex: none;
+  width: 48px;
+  height: 48px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 24px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.stepBack:active {
+  transform: scale(0.94);
+}

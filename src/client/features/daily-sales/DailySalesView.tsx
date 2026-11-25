@@ -29,6 +29,9 @@ import {
   failureMessage,
 } from "@/client/shared/quantity";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
+import { Seg } from "@/client/shared/ui";
+import type { NavRoute } from "@/client/app-shell/BottomNav";
+import { ServiceOpsView } from "../services/ServiceOpsView";
 import styles from "../expenses/ExpensesView.module.css";
 
 interface DayList {
@@ -57,8 +60,14 @@ async function errorText(res: Response, fallback: string) {
   return b?.error?.message || fallback;
 }
 
-export function DailySalesView() {
+export function DailySalesView({
+  onNavigate,
+}: {
+  onNavigate?: (route: NavRoute) => void;
+} = {}) {
   const today = useMemo(() => toCairoDateString(new Date()), []);
+  // «بيع حاجة» in إدارة المحل: the day's total, or a service done for a customer.
+  const [tab, setTab] = useState<"day" | "service">("day");
   const [day, setDay] = useState(today);
   const [cash, setCash] = useState("");
   const [parts, setParts] = useState<Record<string, string>>({});
@@ -213,9 +222,33 @@ export function DailySalesView() {
     load();
   };
 
+  const tabs = (
+    <Seg<"day" | "service">
+      value={tab}
+      onChange={setTab}
+      options={[
+        ["day", "🛒 بيع اليوم"],
+        ["service", "📲 خدمة"],
+      ]}
+      ariaLabel="نوع البيع"
+      className={styles.sellTabs}
+    />
+  );
+  if (tab === "service")
+    return (
+      <div className={viewStyles.view} data-testid="page-daily-sales">
+        <div className={styles.container}>
+          {tabs}
+          <h2 className={styles.askTitle}>سجّل عملية خدمة</h2>
+          <ServiceOpsView embedded onNavigate={onNavigate} />
+        </div>
+      </div>
+    );
+
   return (
     <div className={viewStyles.view} data-testid="page-daily-sales">
       <div className={styles.container}>
+        {tabs}
         <h2 className={styles.askTitle}>بعت بكام النهارده؟</h2>
         <p
           className={styles.historyNote}

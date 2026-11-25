@@ -649,7 +649,7 @@ export function AiView({
           aria-label={t("pages.ai.historyBtn")}
           data-testid="ai-history"
         >
-          📚 المحادثات السابقة
+          المحادثات السابقة
         </button>
       </div>
 
@@ -671,9 +671,6 @@ export function AiView({
                     setShowHistoryModal(false);
                   }}
                 >
-                  <span className={c.em} aria-hidden="true">
-                    💬
-                  </span>
                   <span className={c.t}>
                     <b>{conv.title}</b>
                     <span>

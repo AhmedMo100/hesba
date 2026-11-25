@@ -3,7 +3,7 @@
 /**
  * @file HomeView.tsx
  * @description Home — the hub of Hesba (owner's design, ADR-0036). No sidebar, no bottom bar:
- * a greeting with the logout button, two numbers, one line of alerts, and the eight actions.
+ * a greeting, two numbers, one line of alerts, the eight actions, and the logout at the end.
  *
  * - «فلوس المحل»: every account's real balance together (`GET /api/money`: the drawer from its
  *   last count + every machine / wallet). A tap opens «فلوس حِسبة». Never a made-up number:
@@ -15,11 +15,11 @@
  * - Alerts: one short line (out of stock / running low / near expiry, or the alert count) that
  *   opens the existing alerts screen.
  * - Actions: ١ دخلت بضاعة · ٢ صرفت فلوس · ٣ بيع حاجة (gold) · حسابات الناس · بضاعتي ·
- *   الخدمات والعمولات · اسأل حسبة · الجرد (gold, like «بيع حاجة»).
+ *   الخدمات · اسأل حسبة · الجرد (gold, like «بيع حاجة»).
  */
 
 import React, { useCallback, useEffect, useState } from "react";
-import { Skeleton } from "@/client/shared/ui";
+import { Icon, Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
@@ -217,16 +217,6 @@ export function HomeView({
         <h2 className={styles.hello} data-testid="home-hello">
           أهلاً بيك 👋
         </h2>
-        {onLogout && (
-          <button
-            type="button"
-            className={styles.logoutTop}
-            onClick={onLogout}
-            data-testid="home-logout"
-          >
-            {t("home.logout")}
-          </button>
-        )}
       </div>
 
       <div className={styles.twoCards}>
@@ -340,10 +330,23 @@ export function HomeView({
           : tile("daily-sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
         {tile("people", "👥", t("home.people"))}
         {tile("products", "🧃", t("home.myProducts"))}
-        {tile("services", "📲", "الخدمات والعمولات")}
+        {tile("services", "📲", "الخدمات")}
         {tile("ai", "💬", t("home.askHesba"))}
         {tile("stocktake", "📋", "الجرد", styles.tileSell)}
       </div>
+
+      {/* The only logout: at the very end of the page, as wide as the cards. */}
+      {onLogout && (
+        <button
+          type="button"
+          className={styles.logoutBottom}
+          onClick={onLogout}
+          data-testid="home-logout"
+        >
+          <Icon n="logout" s={22} sw={2.4} />
+          {t("profile.logout")}
+        </button>
+      )}
     </div>
   );
 }

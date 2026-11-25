@@ -31,6 +31,7 @@ import React, {
   useState,
 } from "react";
 import { apiGet } from "@/client/shared/api/read-cache";
+import { Icon } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import { isServiceProduct } from "@/domain/sale-pricing";
 import {
@@ -271,9 +272,10 @@ export function StocktakeView({
     }
   };
 
-  /** «ابدأ جرد جديد» while one is open: the open one is cancelled first (no stock change). */
-  const startOver = async () => {
-    if (!overview?.open) return setStep("home");
+  /** «اعمل جرد جديد»: straight to «هتجرد إيه؟». While a count is still open, that one is
+   *  cancelled first (after a confirm; no stock change). */
+  const startNew = async () => {
+    if (!overview?.open) return setStep("scope");
     if (
       !window.confirm(
         "الجرد اللي مخلصش هيتلغي (المخزون مش هيتغير) وتبدأ جرد جديد. موافق؟",
@@ -291,8 +293,21 @@ export function StocktakeView({
     if (!res.ok) return setError(await errorText(res, "مقدرناش نلغي"));
     setCount(null);
     loadOverview();
-    setStep("home");
+    setStep("scope");
   };
+
+  /** Back one step inside the stocktake: an arrow only (the page header has its own). */
+  const stepBack = (to: Step) => (
+    <button
+      type="button"
+      className={styles.stepBack}
+      onClick={() => setStep(to)}
+      aria-label="رجوع"
+      data-testid="stocktake-step-back"
+    >
+      <Icon n="back" s={24} sw={2.6} />
+    </button>
+  );
 
   const line = count?.lines[index];
   const typedBase = line ? toBaseQty(line.unit, typed) : null;
@@ -447,6 +462,15 @@ export function StocktakeView({
       <div className={viewStyles.view} data-testid="page-stocktake">
         <div className={styles.wrap}>
           <h2 className={styles.h2}>الجرد</h2>
+          <button
+            type="button"
+            className={styles.bigStart}
+            onClick={() => void startNew()}
+            data-testid="stocktake-new"
+          >
+            <span aria-hidden="true">📋</span>
+            اعمل جرد جديد
+          </button>
           {errorBox}
           {error && !overview && (
             <button
@@ -474,26 +498,7 @@ export function StocktakeView({
               >
                 أكمل الجرد
               </button>
-              <button
-                type="button"
-                className={styles.ghost}
-                onClick={() => void startOver()}
-                data-testid="stocktake-start-over"
-              >
-                ابدأ جرد جديد
-              </button>
             </div>
-          )}
-          {overview && !overview.open && (
-            <button
-              type="button"
-              className={styles.bigStart}
-              onClick={() => setStep("scope")}
-              data-testid="stocktake-new"
-            >
-              <span aria-hidden="true">📋</span>
-              اعمل جرد جديد
-            </button>
           )}
 
           <button
@@ -570,7 +575,10 @@ export function StocktakeView({
     return (
       <div className={viewStyles.view} data-testid="page-stocktake">
         <div className={styles.wrap}>
-          <h2 className={styles.h2}>هتجرد إيه؟</h2>
+          <div className={styles.stepHead}>
+            {stepBack("home")}
+            <h2 className={styles.h2}>هتجرد إيه؟</h2>
+          </div>
           {errorBox}
           <button
             type="button"
@@ -605,13 +613,6 @@ export function StocktakeView({
             <b>منتجات محددة</b>
             <small>تختارها بنفسك</small>
           </button>
-          <button
-            type="button"
-            className={styles.ghost}
-            onClick={() => setStep("home")}
-          >
-            → رجوع
-          </button>
         </div>
       </div>
     );
@@ -622,7 +623,10 @@ export function StocktakeView({
     return (
       <div className={viewStyles.view} data-testid="page-stocktake">
         <div className={styles.wrap}>
-          <h2 className={styles.h2}>اختار القسم</h2>
+          <div className={styles.stepHead}>
+            {stepBack("scope")}
+            <h2 className={styles.h2}>اختار القسم</h2>
+          </div>
           {errorBox}
           {categories.map((cat) => (
             <button
@@ -639,13 +643,6 @@ export function StocktakeView({
               </small>
             </button>
           ))}
-          <button
-            type="button"
-            className={styles.ghost}
-            onClick={() => setStep("scope")}
-          >
-            رجوع
-          </button>
         </div>
       </div>
     );
@@ -659,7 +656,10 @@ export function StocktakeView({
     return (
       <div className={viewStyles.view} data-testid="page-stocktake">
         <div className={styles.wrap}>
-          <h2 className={styles.h2}>اختار المنتجات</h2>
+          <div className={styles.stepHead}>
+            {stepBack("scope")}
+            <h2 className={styles.h2}>اختار المنتجات</h2>
+          </div>
           <input
             className={styles.input}
             placeholder="دوّر على منتج…"
@@ -706,13 +706,6 @@ export function StocktakeView({
               data-testid="stocktake-start-picked"
             >
               ابدأ الجرد ({picked.length})
-            </button>
-            <button
-              type="button"
-              className={styles.ghost}
-              onClick={() => setStep("scope")}
-            >
-              رجوع
             </button>
           </div>
         </div>

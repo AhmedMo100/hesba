@@ -32,43 +32,67 @@ import { modeOf } from "../subscription/access";
 import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
 import type { ReportPeriod } from "@/schemas/report";
 import { toCairoDateString } from "@/domain/time";
-import { monthQuery, previousMonth } from "@/domain/report-periods";
+import {
+  monthQuery,
+  monthsQuery,
+  previousMonth,
+  reportPeriodProblem,
+  yearQuery,
+} from "@/domain/report-periods";
 import styles from "./HomeView.module.css";
 
-/** The period chips of each package (no other period is offered or accepted). */
+/**
+ * The period chips of each package (ADR-0036, ranges since 2026-11-25). Each package keeps its
+ * unit — days for الكاشير الذكي, whole months for إدارة المحل — and the owner picks a year or
+ * any range («فترة») of that unit, up to one year. The server checks the same rule.
+ */
 type PeriodKey =
-  "today" | "yesterday" | "day" | "thisMonth" | "lastMonth" | "month";
+  "today" | "yesterday" | "thisMonth" | "lastMonth" | "year" | "range";
 const POS_PERIODS: Array<[PeriodKey, string]> = [
   ["today", "النهارده"],
   ["yesterday", "امبارح"],
-  ["day", "يوم معين"],
+  ["year", "السنة"],
+  ["range", "فترة"],
 ];
 const SIMPLE_PERIODS: Array<[PeriodKey, string]> = [
   ["thisMonth", "الشهر ده"],
   ["lastMonth", "الشهر اللي فات"],
-  ["month", "شهر معين"],
+  ["year", "السنة"],
+  ["range", "فترة"],
 ];
+
+interface PeriodInputs {
+  year: number;
+  /** الكاشير الذكي: days «YYYY-MM-DD». */
+  dayFrom: string;
+  dayTo: string;
+  /** إدارة المحل: months «YYYY-MM». */
+  monthFrom: string;
+  monthTo: string;
+}
 
 /** The report request of a chosen period. */
 function periodQuery(
   key: PeriodKey,
+  pos: boolean,
   today: string,
-  day: string,
-  month: string,
+  inputs: PeriodInputs,
 ): { period: ReportPeriod; from?: string; to?: string } {
   const thisMonth = today.slice(0, 7);
   switch (key) {
     case "today":
     case "yesterday":
       return { period: key };
-    case "day":
-      return { period: "custom", from: day, to: day };
     case "thisMonth":
       return monthQuery(thisMonth, today);
     case "lastMonth":
       return monthQuery(previousMonth(thisMonth), today);
-    case "month":
-      return monthQuery(month, today);
+    case "year":
+      return yearQuery(inputs.year, today);
+    case "range":
+      return pos
+        ? { period: "custom", from: inputs.dayFrom, to: inputs.dayTo }
+        : monthsQuery(inputs.monthFrom, inputs.monthTo, today);
   }
 }
 
@@ -121,12 +145,23 @@ export function ReportsView({
   );
   // A shop whose package was just switched: its first period of the new package.
   if (!periods.some(([k]) => k === key)) setKey(periods[0]![0]);
-  const [day, setDay] = useState(today);
-  const [month, setMonth] = useState(() => today.slice(0, 7));
-  const q = periodQuery(key, today, day, month);
+  const thisYear = Number(today.slice(0, 4));
+  const [inputs, setInputs] = useState<PeriodInputs>(() => ({
+    year: thisYear,
+    dayFrom: today,
+    dayTo: today,
+    monthFrom: today.slice(0, 7),
+    monthTo: today.slice(0, 7),
+  }));
+  const setInput = <K extends keyof PeriodInputs>(k: K, v: PeriodInputs[K]) =>
+    setInputs((prev) => ({ ...prev, [k]: v }));
+  const q = periodQuery(key, mode === "pos", today, inputs);
   const period = q.period;
   const from = q.from ?? today;
   const to = q.to ?? today;
+  // The same rule as the server: a range that is not valid is explained here, not requested.
+  const rangeProblem =
+    reportPeriodProblem(mode, period, q.from, q.to, today)?.message ?? null;
   const [report, setReport] = useState<HomeReport | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -203,7 +238,14 @@ export function ReportsView({
 
   useEffect(() => {
     const controller = new AbortController();
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- a new period starts a new load
+    if (rangeProblem) {
+      // Nothing is requested for an invalid range, and no old numbers stay on screen.
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- the range changed
+      setReport(null);
+      setFailed(false);
+      setLoading(false);
+      return () => controller.abort();
+    }
     setLoading(true);
     fetchHomeReport(period, controller.signal, { from, to })
       .then((r) => {
@@ -211,13 +253,16 @@ export function ReportsView({
         setFailed(false);
       })
       .catch(() => {
-        if (!controller.signal.aborted) setFailed(true);
+        if (controller.signal.aborted) return;
+        // A failed load never leaves the previous period's numbers under the new chip.
+        setReport(null);
+        setFailed(true);
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [period, from, to]);
+  }, [period, from, to, rangeProblem]);
 
   // The expenses of the report's own range (Cairo days).
   const rangeFrom = report?.from
@@ -268,7 +313,7 @@ export function ReportsView({
             className={styles.iconBtn}
             onPointerDown={() => void prepareFile()}
             onClick={() => void exportReport("download")}
-            disabled={fileBusy !== null}
+            disabled={fileBusy !== null || rangeProblem !== null}
             aria-label="نزّل التقرير (Excel)"
             title="نزّل التقرير"
             data-testid="report-export"
@@ -282,7 +327,7 @@ export function ReportsView({
             className={styles.iconBtn}
             onPointerDown={() => void prepareFile()}
             onClick={() => void exportReport("share")}
-            disabled={fileBusy !== null}
+            disabled={fileBusy !== null || rangeProblem !== null}
             aria-label="شارك التقرير (واتساب وغيره)"
             title="شارك التقرير"
             data-testid="report-share"
@@ -311,31 +356,83 @@ export function ReportsView({
           </button>
         ))}
       </div>
-      {key === "day" && (
+      {key === "year" && (
         <label>
-          <span className={styles.lbl}>اليوم</span>
-          <input
-            type="date"
+          <span className={styles.lbl}>السنة</span>
+          <select
             className={styles.input}
-            value={day}
-            max={today}
-            onChange={(e) => setDay(e.target.value || today)}
-            data-testid="report-day"
-          />
+            value={inputs.year}
+            onChange={(e) => setInput("year", Number(e.target.value))}
+            data-testid="report-year"
+          >
+            {Array.from({ length: 5 }, (_, i) => thisYear - i).map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
         </label>
       )}
-      {key === "month" && (
-        <label>
-          <span className={styles.lbl}>الشهر</span>
-          <input
-            type="month"
-            className={styles.input}
-            value={month}
-            max={today.slice(0, 7)}
-            onChange={(e) => setMonth(e.target.value || today.slice(0, 7))}
-            data-testid="report-month"
-          />
-        </label>
+      {key === "range" && (
+        <div className={styles.rangeRow} data-testid="report-range-pick">
+          <label>
+            <span className={styles.lbl}>من</span>
+            {mode === "pos" ? (
+              <input
+                type="date"
+                className={styles.input}
+                value={inputs.dayFrom}
+                max={today}
+                onChange={(e) => setInput("dayFrom", e.target.value || today)}
+                data-testid="report-from"
+              />
+            ) : (
+              <input
+                type="month"
+                className={styles.input}
+                value={inputs.monthFrom}
+                max={today.slice(0, 7)}
+                onChange={(e) =>
+                  setInput("monthFrom", e.target.value || today.slice(0, 7))
+                }
+                data-testid="report-from"
+              />
+            )}
+          </label>
+          <label>
+            <span className={styles.lbl}>لحد</span>
+            {mode === "pos" ? (
+              <input
+                type="date"
+                className={styles.input}
+                value={inputs.dayTo}
+                max={today}
+                onChange={(e) => setInput("dayTo", e.target.value || today)}
+                data-testid="report-to"
+              />
+            ) : (
+              <input
+                type="month"
+                className={styles.input}
+                value={inputs.monthTo}
+                max={today.slice(0, 7)}
+                onChange={(e) =>
+                  setInput("monthTo", e.target.value || today.slice(0, 7))
+                }
+                data-testid="report-to"
+              />
+            )}
+          </label>
+        </div>
+      )}
+      {rangeProblem && (
+        <div
+          className={styles.warn}
+          role="alert"
+          data-testid="report-range-error"
+        >
+          {rangeProblem}
+        </div>
       )}
       {onNavigate && (
         <button
@@ -354,8 +451,8 @@ export function ReportsView({
         </div>
       )}
 
-      {failed && !report ? (
-        <div className={styles.warn} role="alert">
+      {rangeProblem ? null : failed && !report ? (
+        <div className={styles.warn} role="alert" data-testid="report-failed">
           {t("home.reportFailed")}
         </div>
       ) : (

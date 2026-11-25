@@ -30,12 +30,12 @@
   flex: none;
 }
 
-/* «→ رجوع»: a big, labelled target (the only way back — no sidebar, no bottom bar). */
+/* Back: an arrow only (aria-label «رجوع للرئيسية»), a 48px round target — the only way back
+   (no sidebar, no bottom bar). */
 .backBtn {
-  min-width: 96px;
+  width: 48px;
   height: 48px;
-  padding: 0 16px;
-  gap: 6px;
+  padding: 0;
   border-radius: 24px;
   display: inline-flex;
   align-items: center;

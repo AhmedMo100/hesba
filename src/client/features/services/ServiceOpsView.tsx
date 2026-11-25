@@ -2,8 +2,8 @@
 
 /**
  * @file ServiceOpsView.tsx
- * @description «سجّل عملية خدمة» (ADR-0036) — its own inner page, opened from the bottom of
- * «الخدمات والعمولات» (that page only manages the services). A service the owner already did on
+ * @description «سجّل عملية خدمة» (ADR-0036) — in إدارة المحل, the «📲 خدمة» tab of «بيع حاجة»
+ * (services are sold where everything is sold; «الخدمات» only manages them). A service the owner already did on
  * the provider's app / machine (Hesba has no provider connection and never claims one). The
  * commission comes from the service's ONE rule (the same rule the cashier uses) or is typed
  * when it differs, and is stored on the operation (a later rule change never rewrites it). It
@@ -71,8 +71,11 @@ async function errorText(res: Response, fallback: string) {
 
 export function ServiceOpsView({
   onNavigate,
+  embedded = false,
 }: {
   onNavigate?: (route: NavRoute) => void;
+  /** Inside «بيع حاجة»: no page frame and no title of its own. */
+  embedded?: boolean;
 } = {}) {
   const today = useMemo(() => toCairoDateString(new Date()), []);
   const [data, setData] = useState<ServicesAnswer | null>(null);
@@ -197,240 +200,243 @@ export function ServiceOpsView({
     load();
   };
 
+  const body = (
+    <>
+      {loadError && (
+        <div className={styles.formError} role="alert">
+          {loadError}{" "}
+          <button type="button" className={styles.undoBtn} onClick={load}>
+            جرّب تاني
+          </button>
+        </div>
+      )}
+      {!data && !loadError && <p className={styles.historyNote}>بنحمّل…</p>}
+
+      {data && (
+        <>
+          <div className={styles.totalBanner}>
+            <span className={styles.totalLabel}>
+              عمولات النهارده ({data.summary.count} عملية)
+            </span>
+            <span
+              className={styles.totalAmount}
+              data-testid="services-commission-today"
+            >
+              {formatMoney(data.summary.commissionPiasters)}
+            </span>
+          </div>
+          {data.services.length === 0 ? (
+            <div className={styles.v19Form}>
+              <p className={styles.historyNote}>
+                لسه مفيش خدمات. ضيف أول خدمة (فوري، شحن، فودافون كاش…) وعمولتها.
+              </p>
+              <button
+                type="button"
+                className={styles.saveBtn}
+                onClick={() => onNavigate?.("services")}
+                data-testid="services-add-first"
+              >
+                + ضيف خدمة
+              </button>
+            </div>
+          ) : (
+            <div className={styles.v19Form}>
+              <label className={styles.lbl} htmlFor="sv-service">
+                الخدمة
+              </label>
+              <select
+                id="sv-service"
+                className={styles.input}
+                value={serviceId}
+                onChange={(e) => {
+                  setServiceId(e.target.value);
+                  setCommission("");
+                }}
+                data-testid="services-service"
+              >
+                {data.services.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} · عمولة {s.ruleText}
+                  </option>
+                ))}
+              </select>
+              <div className={styles.bigTabs}>
+                <button
+                  type="button"
+                  className={`${styles.bigTab} ${direction === "send" ? styles.bigTabOn : ""}`}
+                  onClick={() => setDirection("send")}
+                  data-testid="services-dir-send"
+                >
+                  الزبون بيدفع
+                  <small>دفع فاتورة / شحن / إيداع</small>
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.bigTab} ${direction === "receive" ? styles.bigTabOn : ""}`}
+                  onClick={() => setDirection("receive")}
+                  data-testid="services-dir-receive"
+                >
+                  الزبون بياخد فلوس
+                  <small>سحب من محفظة</small>
+                </button>
+              </div>
+              <label className={styles.lbl} htmlFor="sv-amount">
+                مبلغ العملية
+              </label>
+              <input
+                id="sv-amount"
+                className={styles.input}
+                inputMode="decimal"
+                placeholder="0"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                data-testid="services-amount"
+              />
+              <label className={styles.lbl} htmlFor="sv-float">
+                {direction === "send" ? "اتعملت من رصيد" : "الفلوس وصلت على"}
+              </label>
+              <select
+                id="sv-float"
+                className={styles.input}
+                value={floatId}
+                onChange={(e) => setFloatId(e.target.value)}
+                data-testid="services-float"
+              >
+                {machines.length === 0 && (
+                  <option value="">ضيف ماكينة أو محفظة من «فلوس حِسبة»</option>
+                )}
+                {machines.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name} · {formatMoney(m.currentBalancePiasters)}
+                  </option>
+                ))}
+              </select>
+              <label className={styles.lbl} htmlFor="sv-pay">
+                {direction === "send" ? "الزبون دفع" : "الزبون خد فلوسه"}
+              </label>
+              <select
+                id="sv-pay"
+                className={styles.input}
+                value={payment}
+                onChange={(e) => setPayment(e.target.value)}
+                data-testid="services-payment"
+              >
+                <option value="cash">كاش (الدرج)</option>
+                {machines
+                  .filter((m) => m.id !== floatId)
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name}
+                    </option>
+                  ))}
+              </select>
+              <label className={styles.lbl} htmlFor="sv-commission">
+                عمولتك{" "}
+                {fromRule === undefined && amountP
+                  ? "(المبلغ برة الشرائح: اكتبها)"
+                  : "(لو مختلفة اكتبها)"}
+              </label>
+              <input
+                id="sv-commission"
+                className={styles.input}
+                inputMode="decimal"
+                placeholder={
+                  fromRule !== undefined ? String(fromRule / 100) : "0"
+                }
+                value={commission}
+                onChange={(e) => setCommission(e.target.value)}
+                data-testid="services-commission"
+              />
+              {money && (
+                <div
+                  className={styles.totalBanner}
+                  data-testid="services-preview"
+                >
+                  <span className={styles.totalLabel}>
+                    {direction === "send"
+                      ? `الزبون يدفع ${formatMoney(money.customerPiasters)} · يتخصم من الرصيد ${formatMoney(-money.floatDeltaPiasters)}`
+                      : `يتحط على الرصيد ${formatMoney(money.floatDeltaPiasters)} · الزبون ياخد ${formatMoney(money.customerPiasters)}`}
+                  </span>
+                  <span className={styles.totalAmount}>
+                    مكسبك {formatMoney(commissionP ?? 0)}
+                  </span>
+                </div>
+              )}
+              {error && (
+                <p
+                  className={styles.formError}
+                  role="alert"
+                  data-testid="services-error"
+                >
+                  {error}
+                </p>
+              )}
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={busy}
+                onClick={() => void save()}
+                data-testid="services-save"
+              >
+                {busy ? "بيتسجّل…" : "سجّل العملية"}
+              </button>
+              <p
+                className={styles.historyNote}
+                style={{ textAlign: "start", margin: 0 }}
+              >
+                سجّلها بعد ما تخلص على تطبيق أو ماكينة الشركة. مكسبك هو العمولة
+                بس، مش مبلغ العملية.
+              </p>
+            </div>
+          )}
+
+          {data.items.length === 0 ? (
+            <p className={styles.historyNote}>لسه مفيش عمليات النهارده.</p>
+          ) : (
+            <div className={styles.listCard}>
+              {data.items.map((r) => (
+                <div
+                  key={r.id}
+                  className={`${styles.expenseRow} ${r.status === "cancelled" ? styles.cancelledRow : ""}`}
+                  data-testid="services-row"
+                >
+                  <div className={styles.itemInfo}>
+                    <b className={styles.itemCategory}>{r.label}</b>
+                    <span className={styles.itemMeta}>
+                      {formatMoney(r.amountPiasters)} · من {r.floatMachine} ·{" "}
+                      {r.payment}
+                    </span>
+                  </div>
+                  <div className={styles.itemActions}>
+                    <b>+{formatMoney(r.commissionPiasters)}</b>
+                    {r.status === "cancelled" ? (
+                      <span className={styles.cancelledTag}>اتلغت</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className={styles.undoBtn}
+                        onClick={() => void cancel(r)}
+                        data-testid="services-cancel"
+                        aria-label="إلغاء العملية"
+                      >
+                        ↩️
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </>
+  );
+  if (embedded) return <div data-testid="page-service-ops">{body}</div>;
   return (
     <div className={viewStyles.view} data-testid="page-service-ops">
       <div className={styles.container}>
         <h2 className={styles.askTitle}>سجّل عملية خدمة</h2>
-        {loadError && (
-          <div className={styles.formError} role="alert">
-            {loadError}{" "}
-            <button type="button" className={styles.undoBtn} onClick={load}>
-              جرّب تاني
-            </button>
-          </div>
-        )}
-        {!data && !loadError && <p className={styles.historyNote}>بنحمّل…</p>}
-
-        {data && (
-          <>
-            <div className={styles.totalBanner}>
-              <span className={styles.totalLabel}>
-                عمولات النهارده ({data.summary.count} عملية)
-              </span>
-              <span
-                className={styles.totalAmount}
-                data-testid="services-commission-today"
-              >
-                {formatMoney(data.summary.commissionPiasters)}
-              </span>
-            </div>
-            {data.services.length === 0 ? (
-              <div className={styles.v19Form}>
-                <p className={styles.historyNote}>
-                  لسه مفيش خدمات. ضيف أول خدمة (فوري، شحن، فودافون كاش…)
-                  وعمولتها.
-                </p>
-                <button
-                  type="button"
-                  className={styles.saveBtn}
-                  onClick={() => onNavigate?.("services")}
-                  data-testid="services-add-first"
-                >
-                  + ضيف خدمة
-                </button>
-              </div>
-            ) : (
-              <div className={styles.v19Form}>
-                <label className={styles.lbl} htmlFor="sv-service">
-                  الخدمة
-                </label>
-                <select
-                  id="sv-service"
-                  className={styles.input}
-                  value={serviceId}
-                  onChange={(e) => {
-                    setServiceId(e.target.value);
-                    setCommission("");
-                  }}
-                  data-testid="services-service"
-                >
-                  {data.services.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} · عمولة {s.ruleText}
-                    </option>
-                  ))}
-                </select>
-                <div className={styles.bigTabs}>
-                  <button
-                    type="button"
-                    className={`${styles.bigTab} ${direction === "send" ? styles.bigTabOn : ""}`}
-                    onClick={() => setDirection("send")}
-                    data-testid="services-dir-send"
-                  >
-                    الزبون بيدفع
-                    <small>دفع فاتورة / شحن / إيداع</small>
-                  </button>
-                  <button
-                    type="button"
-                    className={`${styles.bigTab} ${direction === "receive" ? styles.bigTabOn : ""}`}
-                    onClick={() => setDirection("receive")}
-                    data-testid="services-dir-receive"
-                  >
-                    الزبون بياخد فلوس
-                    <small>سحب من محفظة</small>
-                  </button>
-                </div>
-                <label className={styles.lbl} htmlFor="sv-amount">
-                  مبلغ العملية
-                </label>
-                <input
-                  id="sv-amount"
-                  className={styles.input}
-                  inputMode="decimal"
-                  placeholder="0"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  data-testid="services-amount"
-                />
-                <label className={styles.lbl} htmlFor="sv-float">
-                  {direction === "send" ? "اتعملت من رصيد" : "الفلوس وصلت على"}
-                </label>
-                <select
-                  id="sv-float"
-                  className={styles.input}
-                  value={floatId}
-                  onChange={(e) => setFloatId(e.target.value)}
-                  data-testid="services-float"
-                >
-                  {machines.length === 0 && (
-                    <option value="">
-                      ضيف ماكينة أو محفظة من «فلوس حِسبة»
-                    </option>
-                  )}
-                  {machines.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name} · {formatMoney(m.currentBalancePiasters)}
-                    </option>
-                  ))}
-                </select>
-                <label className={styles.lbl} htmlFor="sv-pay">
-                  {direction === "send" ? "الزبون دفع" : "الزبون خد فلوسه"}
-                </label>
-                <select
-                  id="sv-pay"
-                  className={styles.input}
-                  value={payment}
-                  onChange={(e) => setPayment(e.target.value)}
-                  data-testid="services-payment"
-                >
-                  <option value="cash">كاش (الدرج)</option>
-                  {machines
-                    .filter((m) => m.id !== floatId)
-                    .map((m) => (
-                      <option key={m.id} value={m.id}>
-                        {m.name}
-                      </option>
-                    ))}
-                </select>
-                <label className={styles.lbl} htmlFor="sv-commission">
-                  عمولتك{" "}
-                  {fromRule === undefined && amountP
-                    ? "(المبلغ برة الشرائح: اكتبها)"
-                    : "(لو مختلفة اكتبها)"}
-                </label>
-                <input
-                  id="sv-commission"
-                  className={styles.input}
-                  inputMode="decimal"
-                  placeholder={
-                    fromRule !== undefined ? String(fromRule / 100) : "0"
-                  }
-                  value={commission}
-                  onChange={(e) => setCommission(e.target.value)}
-                  data-testid="services-commission"
-                />
-                {money && (
-                  <div
-                    className={styles.totalBanner}
-                    data-testid="services-preview"
-                  >
-                    <span className={styles.totalLabel}>
-                      {direction === "send"
-                        ? `الزبون يدفع ${formatMoney(money.customerPiasters)} · يتخصم من الرصيد ${formatMoney(-money.floatDeltaPiasters)}`
-                        : `يتحط على الرصيد ${formatMoney(money.floatDeltaPiasters)} · الزبون ياخد ${formatMoney(money.customerPiasters)}`}
-                    </span>
-                    <span className={styles.totalAmount}>
-                      مكسبك {formatMoney(commissionP ?? 0)}
-                    </span>
-                  </div>
-                )}
-                {error && (
-                  <p
-                    className={styles.formError}
-                    role="alert"
-                    data-testid="services-error"
-                  >
-                    {error}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  className={styles.saveBtn}
-                  disabled={busy}
-                  onClick={() => void save()}
-                  data-testid="services-save"
-                >
-                  {busy ? "بيتسجّل…" : "سجّل العملية"}
-                </button>
-                <p
-                  className={styles.historyNote}
-                  style={{ textAlign: "start", margin: 0 }}
-                >
-                  سجّلها بعد ما تخلص على تطبيق أو ماكينة الشركة. مكسبك هو
-                  العمولة بس، مش مبلغ العملية.
-                </p>
-              </div>
-            )}
-
-            {data.items.length === 0 ? (
-              <p className={styles.historyNote}>لسه مفيش عمليات النهارده.</p>
-            ) : (
-              <div className={styles.listCard}>
-                {data.items.map((r) => (
-                  <div
-                    key={r.id}
-                    className={`${styles.expenseRow} ${r.status === "cancelled" ? styles.cancelledRow : ""}`}
-                    data-testid="services-row"
-                  >
-                    <div className={styles.itemInfo}>
-                      <b className={styles.itemCategory}>{r.label}</b>
-                      <span className={styles.itemMeta}>
-                        {formatMoney(r.amountPiasters)} · من {r.floatMachine} ·{" "}
-                        {r.payment}
-                      </span>
-                    </div>
-                    <div className={styles.itemActions}>
-                      <b>+{formatMoney(r.commissionPiasters)}</b>
-                      {r.status === "cancelled" ? (
-                        <span className={styles.cancelledTag}>اتلغت</span>
-                      ) : (
-                        <button
-                          type="button"
-                          className={styles.undoBtn}
-                          onClick={() => void cancel(r)}
-                          data-testid="services-cancel"
-                          aria-label="إلغاء العملية"
-                        >
-                          ↩️
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </>
-        )}
+        {body}
       </div>
     </div>
   );

@@ -1047,7 +1047,7 @@
 
 /* ─── Home hub (2026-11-23): greeting + logout, two numbers, the actions, the jard button ─── */
 .homePage {
-  padding-bottom: 96px; /* room for the floating «اعمل جرد» */
+  padding-bottom: 24px;
 }
 
 .topRow {
@@ -1062,17 +1062,28 @@
   margin: 0;
 }
 
-.logoutTop {
-  min-height: 44px;
+/* The only logout: below every card, the cards' full width, a big thumb target. */
+.logoutBottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  margin-top: 18px;
   padding: 0 18px;
-  border-radius: 22px;
+  border-radius: 18px;
   border: 1.5px solid var(--line);
   background: var(--card);
-  color: var(--ink);
+  color: var(--red, #b3261e);
   font-family: inherit;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 800;
   cursor: pointer;
+}
+
+.logoutBottom:active {
+  transform: scale(0.98);
 }
 
 .twoCards {
@@ -1298,4 +1309,15 @@
 .iconBtn:focus-visible {
   outline: 3px solid var(--gold);
   outline-offset: 2px;
+}
+
+/* «فترة»: «من» and «لحد» side by side (days or months, by package). */
+.rangeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.rangeRow label {
+  min-width: 0;
 }

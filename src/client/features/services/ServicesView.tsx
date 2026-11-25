@@ -2,16 +2,16 @@
 
 /**
  * @file ServicesView.tsx
- * @description «الخدمات والعمولات» (ADR-0036) — managing the shop's services only: add, edit,
- * delete, and filter them by category. Each service is a small card with its name, category and
- * commission (a fixed amount, a percentage, or tiers by amount).
+ * @description «الخدمات» (ADR-0036, 2026-11-25) — defining and managing the shop's services only:
+ * add, edit, delete, and filter them by category. Each service is a small card with its name,
+ * category and commission (a fixed amount, a percentage, or tiers by amount). Nothing is sold or
+ * recorded here: a service is sold from «بيع حاجة» (the cashier in الكاشير الذكي, the «📲 خدمة»
+ * tab in إدارة المحل), and machine / wallet money lives in «فلوس حِسبة».
  *
  * - One commission rule per service, saved by the service form in the shop's sales settings:
  *   the cashier («بيع حاجة») and «سجّل عملية خدمة» both read it. Every operation stores the
  *   commission it was charged, so editing a service never changes past operations.
  * - Deleting a service hides it from new operations; its past operations stay as they were.
- * - The money of machines and wallets is managed in «فلوس حِسبة», not here. In إدارة المحل (no
- *   cashier) a link at the bottom opens «سجّل عملية خدمة», its own page.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { isServiceProduct } from "@/domain/sale-pricing";
@@ -20,7 +20,6 @@ import { apiGet } from "@/client/shared/api/read-cache";
 import type { StoreProductItem } from "@/client/shared/store-items";
 import { failureMessage } from "@/client/shared/quantity";
 import { useToast } from "@/client/shared/ui";
-import type { NavRoute } from "@/client/app-shell/BottomNav";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import { ServiceFormModal } from "../products/ServiceFormModal";
 import styles from "./ServicesView.module.css";
@@ -48,14 +47,7 @@ function commissionText(s: ShopService): string {
     : `${Number((s.rule.value / 100).toFixed(2))} ج على العملية`;
 }
 
-export function ServicesView({
-  onNavigate,
-  operatingMode = "pos",
-}: {
-  onNavigate?: (route: NavRoute) => void;
-  /** إدارة المحل has no cashier: its service operations are recorded on their own page. */
-  operatingMode?: "simple" | "pos";
-} = {}) {
+export function ServicesView() {
   const toast = useToast();
   const [services, setServices] = useState<ShopService[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -135,7 +127,7 @@ export function ServicesView({
   return (
     <div className={viewStyles.view} data-testid="page-services">
       <div className={styles.page}>
-        <h2 className={styles.title}>الخدمات والعمولات</h2>
+        <h2 className={styles.title}>الخدمات</h2>
         <button
           type="button"
           className={styles.addBtn}
@@ -222,23 +214,6 @@ export function ServicesView({
             </div>
           ))}
         </div>
-
-        {operatingMode === "simple" && onNavigate && (
-          <button
-            type="button"
-            className={styles.opsLink}
-            onClick={() => onNavigate("service-ops")}
-            data-testid="services-open-ops"
-          >
-            <span aria-hidden="true">📲</span>
-            <span>عملت خدمة لزبون؟ سجّلها هنا</span>
-            <span aria-hidden="true">←</span>
-          </button>
-        )}
-        <p className={styles.note}>
-          فلوس الماكينات والمحافظ في «فلوس حِسبة». مكسبك من الخدمة هو العمولة
-          بس.
-        </p>
       </div>
       {form && (
         <ServiceFormModal

@@ -794,3 +794,8 @@
   text-align: start;
   cursor: pointer;
 }
+
+/* «بيع حاجة» (إدارة المحل): the day's total or a service — two tabs above the form. */
+.sellTabs {
+  margin: 0 0 12px;
+}
