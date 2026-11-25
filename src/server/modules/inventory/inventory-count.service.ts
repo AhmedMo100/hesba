@@ -724,6 +724,8 @@ export async function confirmInventoryCount(
                   ? "expired"
                   : "missing",
             note: l.note ? `${countRef} · ${l.note}`.slice(0, 500) : countRef,
+            source: "stocktake",
+            createdBy: userId,
           });
           const rec = await tx.wasteRecord.findFirst({
             where: { storeId, id: w.wasteId },

@@ -440,6 +440,7 @@ model User {
   inventoryCountsAbandoned InventoryCount[]         @relation("InventoryCountAbandoner")
   moneyMovements           MoneyMovement[]          @relation("MoneyMovementCreator")
   serviceTransactions      ServiceTransaction[]     @relation("ServiceCreator")
+  wasteRecordsCreated      WasteRecord[]            @relation("WasteRecordCreator")
 
   @@map("users")
 }
@@ -1392,15 +1393,24 @@ model WasteRecord {
   batchId        String?  @map("batch_id") @db.Uuid
   quantityBase   BigInt   @map("quantity_base")
   costMinor      BigInt   @map("cost_minor")
-  /// expired | damaged | missing | damaged_return | other (CHECK, P4).
+  /// expired | damaged | missing | damaged_return | other | near_expiry | storage_damage |
+  /// broken_leak | poor_storage | supplier_damage (CHECK).
   reason         String   @default("expired") @db.Text
   note           String?  @db.Text
   /// Goods returned damaged: the return they came back in.
   saleReturnId   String?  @map("sale_return_id") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Who recorded it (2026-11-26); NULL on older rows.
+  createdBy      String?  @map("created_by") @db.Uuid
+  /// alerts | products | stock | stocktake | return (CHECK); NULL on older rows.
+  source         String?  @db.Text
+  /// Snapshots at record time, so the log reads the same after a rename / archive.
+  productName    String?  @map("product_name") @db.Text
+  quantityText   String?  @map("quantity_text") @db.Text
 
   store        Store        @relation(fields: [storeId], references: [id], onDelete: Cascade)
   storeVariant StoreVariant @relation(fields: [storeVariantId], references: [id], onDelete: Cascade)
+  creator      User?        @relation("WasteRecordCreator", fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: NoAction)
 
   @@index([storeId, createdAt(sort: Desc)], map: "idx_waste_records_store_created")
   // NOT expressible in Prisma, kept in SQL (migrations): waste_records_sale_return_fkey =

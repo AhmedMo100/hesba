@@ -98,13 +98,8 @@ let supplierA = "";
 
 beforeAll(async () => {
   await f.setup();
-  // B is an إدارة المحل shop (an owner's switch, as PATCH /api/store/operating-mode does).
-  await f.as(B, (tx) =>
-    tx.store.update({
-      where: { id: B.storeId },
-      data: { operatingMode: "simple" },
-    }),
-  );
+  // B is an إدارة المحل shop (set by Hesba's administration, ADR-0037).
+  await f.sql`SELECT * FROM hesba_set_operating_mode(${B.storeId}::uuid, 'simple')`;
   customerA = (
     await f.as(A, (tx) =>
       tx.customer.create({

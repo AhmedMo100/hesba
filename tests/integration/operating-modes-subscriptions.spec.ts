@@ -18,7 +18,8 @@ import { POST as signupRoute } from "@/app/api/auth/signup/route";
 import { GET as sessionRoute } from "@/app/api/auth/session/route";
 import { POST as logoutRoute } from "@/app/api/auth/logout/route";
 import { GET as subscriptionRoute } from "@/app/api/subscription/route";
-import { PATCH as modeRoute } from "@/app/api/store/operating-mode/route";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import * as products from "@/app/api/products/route";
 import * as stock from "@/app/api/stock/route";
 import * as sales from "@/app/api/sales/route";
@@ -314,7 +315,7 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     expect((r.json.error as { code: string }).code).toBe("MODE_FORBIDDEN");
   });
 
-  it("switching modes back and forth changes only the mode: no data, no trial restart, no invented sales", async () => {
+  it("Hesba switching a package back and forth changes only the mode: no data, no trial restart, no invented sales", async () => {
     await setMode(A.storeId, "pos");
     const snapshot = async () =>
       f.as(A, async (tx) => ({
@@ -355,16 +356,12 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
       }));
     const subBefore = await storeRow(A.storeId);
     const before = await snapshot();
+    // The administration's function (ADR-0037), as Hesba runs it — never the shop.
     for (const mode of ["simple", "pos", "simple", "pos", "simple", "pos"]) {
-      const r = await call(
-        modeRoute as Handler,
-        A,
-        "PATCH",
-        "/api/store/operating-mode",
-        { operatingMode: mode },
-      );
-      expect(r.status).toBe(200);
-      expect(r.json.operatingMode).toBe(mode);
+      const [r] = await f.sql<
+        Array<{ operating_mode: string }>
+      >`SELECT * FROM hesba_set_operating_mode(${A.storeId}::uuid, ${mode})`;
+      expect(r!.operating_mode).toBe(mode);
       expect((await storeRow(A.storeId)).operating_mode).toBe(mode);
     }
     expect(await snapshot()).toEqual(before);
@@ -372,53 +369,61 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     expect(subAfter.trial_started_at).toEqual(subBefore.trial_started_at);
     expect(subAfter.trial_ends_at).toEqual(subBefore.trial_ends_at);
     expect(subAfter.subscription_status).toBe(subBefore.subscription_status);
-    // The same mode again is a no-op.
-    const same = await call(
-      modeRoute as Handler,
-      A,
-      "PATCH",
-      "/api/store/operating-mode",
-      { operatingMode: "pos" },
+    // The same mode again keeps its change date.
+    const [first] = await f.sql<
+      Array<{ operating_mode_changed_at: Date }>
+    >`SELECT * FROM hesba_set_operating_mode(${A.storeId}::uuid, 'pos')`;
+    const [again] = await f.sql<
+      Array<{ operating_mode_changed_at: Date }>
+    >`SELECT * FROM hesba_set_operating_mode(${A.storeId}::uuid, 'pos')`;
+    expect(again!.operating_mode_changed_at).toEqual(
+      first!.operating_mode_changed_at,
     );
-    expect(same.json.changed).toBe(false);
   });
 
-  it("the mode route takes the mode only, for the session's own shop", async () => {
-    const bStore = await storeRow(B.storeId);
-    const sneaky = await call(
-      modeRoute as Handler,
-      A,
-      "PATCH",
-      "/api/store/operating-mode",
-      {
-        operatingMode: "simple",
-        storeId: B.storeId,
-      },
-    );
-    expect(sneaky.status).toBe(400);
-    const extend = await call(
-      modeRoute as Handler,
-      A,
-      "PATCH",
-      "/api/store/operating-mode",
-      {
-        operatingMode: "simple",
-        subscriptionEndsAt: "2099-01-01T00:00:00Z",
-      },
-    );
-    expect(extend.status).toBe(400);
-    expect((await storeRow(B.storeId)).operating_mode).toBe(
-      bStore.operating_mode,
-    );
+  it("the shop can never change its package: no route, the app role refused by the database", async () => {
+    // No API: the route is gone (a manual PATCH reaches nothing).
     expect(
-      await call(
-        modeRoute as Handler,
-        null,
-        "PATCH",
-        "/api/store/operating-mode",
-        { operatingMode: "simple" },
+      existsSync(
+        path.resolve(
+          import.meta.dirname,
+          "../../src/app/api/store/operating-mode/route.ts",
+        ),
       ),
-    ).toMatchObject({ status: 401 });
+    ).toBe(false);
+    const before = (await storeRow(A.storeId)).operating_mode;
+    const other = before === "pos" ? "simple" : "pos";
+    // The app role (whatever code runs) cannot write it: a trigger refuses.
+    await expect(
+      withTenant(A.storeId, A.userId, (tx) =>
+        tx.store.update({
+          where: { id: A.storeId },
+          data: { operatingMode: other },
+        }),
+      ),
+    ).rejects.toThrow();
+    // …nor call the administration's function.
+    await expect(
+      withTenant(
+        A.storeId,
+        A.userId,
+        (tx) =>
+          tx.$queryRaw`SELECT * FROM hesba_set_operating_mode(${A.storeId}::uuid, ${other})`,
+      ),
+    ).rejects.toThrow(/permission denied/);
+    expect((await storeRow(A.storeId)).operating_mode).toBe(before);
+    // Other store fields still save (the trigger guards the package only).
+    await withTenant(A.storeId, A.userId, async (tx) => {
+      const { name } = await tx.store.findFirstOrThrow({
+        where: { id: A.storeId },
+        select: { name: true },
+      });
+      await tx.store.update({
+        where: { id: A.storeId },
+        data: { name },
+        select: { id: true },
+      });
+    });
   });
 
   it("the app role can never write a subscription field, nor run the renewal function", async () => {
@@ -498,10 +503,6 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
         message: "مبيعات النهارده",
       }),
     () => call(catalogSyncRoute as Handler, shop, "GET", "/api/sync/catalog"),
-    () =>
-      call(modeRoute as Handler, shop, "PATCH", "/api/store/operating-mode", {
-        operatingMode: "simple",
-      }),
     () => call(dailySales.GET as Handler, shop, "GET", "/api/daily-sales"),
   ];
 
