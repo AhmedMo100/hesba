@@ -14,7 +14,7 @@ const screens: Array<[string, string]> = [
   ["/app/sales", "page-sales"],
   ["/app/products", "page-products"],
   ["/app/people", "page-people"],
-  ["/app/alerts", "page-alerts"],
+  ["/app/services", "page-services"],
   ["/app/stock", "page-stock"],
 ];
 

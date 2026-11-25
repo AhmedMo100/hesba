@@ -344,7 +344,174 @@ async function movementsSince(
       at: x.createdAt.toISOString(),
     })),
   ];
+  all.push(...(await extraCashMovementsSince(tx, storeId, since, take)));
   return all.sort((a, b) => b.at.localeCompare(a.at)).slice(0, limit);
+}
+
+/**
+ * The drawer side of «فلوس حِسبة» movements and of services paid in cash (both modes), since the
+ * last count — totals in ONE query (exact, no row cap):
+ * - money_movements: into the drawer (to_cash) / out of it (from_cash);
+ * - service_transactions paid in cash: a 'send' brings the customer's money in, a 'receive'
+ *   pays the customer out; one cancelled after the count but made before it is reversed.
+ */
+async function extraCashTotalsSince(
+  tx: TenantTx,
+  storeId: string,
+  since: Date,
+): Promise<DrawerFlow[]> {
+  const rows = await tx.$queryRaw<
+    Array<{
+      money_in: bigint;
+      money_in_n: bigint;
+      money_out: bigint;
+      money_out_n: bigint;
+      svc_in: bigint;
+      svc_in_n: bigint;
+      svc_out: bigint;
+      svc_out_n: bigint;
+    }>
+  >`
+    WITH m AS (
+      SELECT amount_piasters, from_cash, to_cash FROM money_movements
+       WHERE store_id = ${storeId}::uuid AND created_at > ${since}
+         AND (from_cash OR to_cash)
+    ), s AS (
+      SELECT direction, customer_piasters,
+             (created_at > ${since} AND cancelled_at IS NULL) AS live,
+             (created_at <= ${since} AND cancelled_at > ${since}) AS undone
+        FROM service_transactions
+       WHERE store_id = ${storeId}::uuid AND payment_cash
+         AND ((created_at > ${since} AND cancelled_at IS NULL)
+           OR (created_at <= ${since} AND cancelled_at > ${since}))
+    )
+    SELECT
+      (SELECT COALESCE(SUM(amount_piasters), 0) FROM m WHERE to_cash)::bigint AS money_in,
+      (SELECT COUNT(*) FROM m WHERE to_cash)::bigint AS money_in_n,
+      (SELECT COALESCE(SUM(amount_piasters), 0) FROM m WHERE from_cash)::bigint AS money_out,
+      (SELECT COUNT(*) FROM m WHERE from_cash)::bigint AS money_out_n,
+      (SELECT COALESCE(SUM(customer_piasters), 0) FROM s
+        WHERE (direction = 'send' AND live) OR (direction = 'receive' AND undone))::bigint AS svc_in,
+      (SELECT COUNT(*) FROM s
+        WHERE (direction = 'send' AND live) OR (direction = 'receive' AND undone))::bigint AS svc_in_n,
+      (SELECT COALESCE(SUM(customer_piasters), 0) FROM s
+        WHERE (direction = 'receive' AND live) OR (direction = 'send' AND undone))::bigint AS svc_out,
+      (SELECT COUNT(*) FROM s
+        WHERE (direction = 'receive' AND live) OR (direction = 'send' AND undone))::bigint AS svc_out_n`;
+  const r = rows[0]!;
+  return [
+    {
+      key: "moneyIn",
+      direction: "in",
+      count: Number(r.money_in_n),
+      amountPiasters: Number(r.money_in),
+    },
+    {
+      key: "moneyOut",
+      direction: "out",
+      count: Number(r.money_out_n),
+      amountPiasters: Number(r.money_out),
+    },
+    {
+      key: "serviceCashIn",
+      direction: "in",
+      count: Number(r.svc_in_n),
+      amountPiasters: Number(r.svc_in),
+    },
+    {
+      key: "serviceCashOut",
+      direction: "out",
+      count: Number(r.svc_out_n),
+      amountPiasters: Number(r.svc_out),
+    },
+  ];
+}
+
+const MONEY_KIND_TITLE: Record<string, string> = {
+  owner_withdrawal: "سحب شخصي",
+  owner_deposit: "إيداع من صاحب المحل",
+  transfer: "تحويل",
+};
+
+/** The latest «فلوس حِسبة» and cash-service movements since `since`, one line each. */
+async function extraCashMovementsSince(
+  tx: TenantTx,
+  storeId: string,
+  since: Date,
+  take: number,
+): Promise<DrawerMovement[]> {
+  const after = { gt: since };
+  const [money, services] = await Promise.all([
+    tx.moneyMovement.findMany({
+      where: {
+        storeId,
+        createdAt: after,
+        OR: [{ fromCash: true }, { toCash: true }],
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      select: {
+        id: true,
+        kind: true,
+        amountPiasters: true,
+        toCash: true,
+        createdAt: true,
+        fromMachine: { select: { name: true } },
+        toMachine: { select: { name: true } },
+      },
+    }),
+    tx.serviceTransaction.findMany({
+      where: {
+        storeId,
+        paymentCash: true,
+        OR: [
+          { createdAt: after, cancelledAt: null },
+          { createdAt: { lte: since }, cancelledAt: after },
+        ],
+      },
+      orderBy: { createdAt: "desc" },
+      take,
+      select: {
+        id: true,
+        direction: true,
+        provider: true,
+        customerPiasters: true,
+        createdAt: true,
+        cancelledAt: true,
+      },
+    }),
+  ]);
+  return [
+    ...money.map((m) => {
+      const other = m.toCash ? m.fromMachine?.name : m.toMachine?.name;
+      const base = MONEY_KIND_TITLE[m.kind] ?? "حركة فلوس";
+      return {
+        id: `money:${m.id}`,
+        kind: (m.toCash ? "moneyIn" : "moneyOut") as DrawerFlow["key"],
+        direction: (m.toCash ? "in" : "out") as "in" | "out",
+        title:
+          m.kind === "transfer" && other
+            ? `${base} ${m.toCash ? "من" : "لـ"} ${other}`
+            : base,
+        amountPiasters: Number(m.amountPiasters),
+        at: m.createdAt.toISOString(),
+      };
+    }),
+    ...services.map((x) => {
+      const undone = x.cancelledAt !== null;
+      const cashIn = (x.direction === "send") !== undone;
+      return {
+        id: `svc:${x.id}`,
+        kind: (cashIn
+          ? "serviceCashIn"
+          : "serviceCashOut") as DrawerFlow["key"],
+        direction: (cashIn ? "in" : "out") as "in" | "out",
+        title: `${undone ? "إلغاء خدمة" : "خدمة"}: ${x.provider}`,
+        amountPiasters: Number(x.customerPiasters),
+        at: (undone ? x.cancelledAt! : x.createdAt).toISOString(),
+      };
+    }),
+  ];
 }
 
 async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
@@ -488,6 +655,7 @@ async function flowsSince(tx: TenantTx, storeId: string, since: Date) {
       count: topups._count,
       amountPiasters: Number(sum(topups._sum.amountPiasters)),
     },
+    ...(await extraCashTotalsSince(tx, storeId, since)),
   ];
   return flows;
 }
@@ -525,6 +693,18 @@ async function unknownSince(tx: TenantTx, storeId: string, since: Date) {
         costTotalMinor: { gt: ZERO },
         createdAt: after,
         purchaseLines: { none: {} },
+        // A manual correction (ADJ-), a stocktake surplus (CNT-) or stock put back by a cancelled
+        // daily total (DSR-) bought nothing.
+        OR: [
+          { batchCode: null },
+          {
+            AND: [
+              { NOT: { batchCode: { startsWith: "ADJ-" } } },
+              { NOT: { batchCode: { startsWith: "CNT-" } } },
+              { NOT: { batchCode: { startsWith: "DSR-" } } },
+            ],
+          },
+        ],
       },
       _sum: { costTotalMinor: true },
       _count: true,
@@ -552,6 +732,34 @@ async function unknownSince(tx: TenantTx, storeId: string, since: Date) {
         sum(creditRefunds._sum.refundedPiasters),
     ),
   };
+}
+
+/**
+ * The cash the drawer should hold now: the last count + money in − money out since it, from the
+ * same flows as the drawer screen ({@link flowsSince}). `null` when the drawer was never counted.
+ * For «فلوس حِسبة» and the assistant, which need only this number: it skips the screen's lists
+ * (each movement since the count, the unrecorded ones, the last five counts) — about 19 database
+ * round trips fewer per request, the same amount to the piaster (pinned by a test).
+ */
+async function expectedInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<number | null> {
+  const last = await tx.cashDrawerCount.findFirst({
+    where: { storeId },
+    orderBy: { countedAt: "desc" },
+    select: { countedPiasters: true, countedAt: true },
+  });
+  if (!last) return null;
+  const flows = await flowsSince(tx, storeId, last.countedAt);
+  return (
+    Number(last.countedPiasters) +
+    flows.reduce(
+      (n, f) =>
+        n + (f.direction === "in" ? f.amountPiasters : -f.amountPiasters),
+      0,
+    )
+  );
 }
 
 async function viewInTx(tx: TenantTx, storeId: string): Promise<DrawerView> {
@@ -664,4 +872,20 @@ export async function recordDrawerCount(
     },
     db,
   );
+}
+
+/** Only the drawer's expected cash, inside a caller's tenant transaction (see `expectedInTx`). */
+export async function drawerExpectedInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<number | null> {
+  return expectedInTx(tx, storeId);
+}
+
+/** The drawer view inside a caller's tenant transaction. */
+export async function drawerViewInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<DrawerView> {
+  return viewInTx(tx, storeId);
 }

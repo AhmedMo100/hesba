@@ -158,6 +158,32 @@ export const updatePersonInputSchema = z
     note: data.note ?? null,
   }));
 
+/**
+ * One product of a MANUAL debt (ADR-0036): what the customer took, or what the supplier
+ * delivered, written on the person's account. The price is the one the owner agreed (per piece,
+ * or per kilogram for weighed goods); the server computes the line total. Display and audit
+ * only: a manual debt moves no stock and is not a sale or a purchase.
+ */
+export const debtItemInputSchema = z
+  .object({
+    /** The shop's product, when picked from «بضاعتي» (its name and unit come from it). */
+    variantId: z.string().uuid("المنتج غير صحيح").optional().nullable(),
+    /** Free text when the product is not in the shop's list. */
+    name: z.string().trim().min(1, "اكتب اسم المنتج").max(120).optional(),
+    /** Pieces, or grams for weighed goods. */
+    quantityBase: z
+      .number({ message: "الكمية غير صحيحة" })
+      .int("الكمية لازم تكون رقم صحيح")
+      .min(1, "الكمية لازم تكون أكبر من صفر")
+      .max(1_000_000_000, "الكمية كبيرة قوي"),
+    unitPricePiasters: piastersField(0),
+  })
+  .strict()
+  .refine((i) => !!i.variantId || !!i.name, {
+    message: "اختار المنتج أو اكتب اسمه",
+  });
+export type DebtItemInput = z.infer<typeof debtItemInputSchema>;
+
 export const recordDebtTransactionInputSchema = z
   .object({
     type: z.enum(["debt", "payment"], {
@@ -185,9 +211,36 @@ export const recordDebtTransactionInputSchema = z
      * payment to a supplier): its balance moves with the entry, in the same transaction.
      */
     paidFromMachineId: z.string().uuid("اختار المحفظة أو الماكينة").optional(),
+    /** A manual debt's products (debt only). The amount is then their total, from the server. */
+    items: z.array(debtItemInputSchema).max(50, "المنتجات كتير قوي").optional(),
   })
   .transform((data, ctx) => {
-    const amount = pickAmount(data, ctx);
+    const items = data.items && data.items.length > 0 ? data.items : null;
+    if (items && data.type !== "debt") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "المنتجات بتتسجل مع الدين بس",
+      });
+      return z.NEVER;
+    }
+    // With products, the amount may be left out: the server sums the lines (and refuses a
+    // typed amount that does not match them).
+    const amount = items
+      ? (pickAmount(data, ctx) ?? -1)
+      : pickAmount(data, ctx);
+    if (items && amount === -1) {
+      const rawDate = data.date || data.createdAt || data.created_at;
+      return {
+        type: data.type,
+        amountPiasters: 0,
+        note: data.note ?? null,
+        date: rawDate ? (parseStrictDate(rawDate) ?? undefined) : undefined,
+        opId: data.op_id || data.opId,
+        paidFrom: null,
+        paidFromMachineId: null,
+        items,
+      };
+    }
     if (amount === undefined || amount <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -221,11 +274,14 @@ export const recordDebtTransactionInputSchema = z
           : null,
       paidFromMachineId:
         data.type === "payment" ? (data.paidFromMachineId ?? null) : null,
+      items,
     };
   });
 
 export type CreatePersonInput = z.infer<typeof createPersonInputSchema>;
 export type UpdatePersonInput = z.infer<typeof updatePersonInputSchema>;
-export type RecordDebtTransactionInput = z.infer<
-  typeof recordDebtTransactionInputSchema
->;
+/** `items` is optional for callers that build the input themselves (tests, other modules). */
+export type RecordDebtTransactionInput = Omit<
+  z.infer<typeof recordDebtTransactionInputSchema>,
+  "items"
+> & { items?: DebtItemInput[] | null };

@@ -25,7 +25,11 @@ import {
   type LedgerEntryKind,
   type LedgerSide,
 } from "@/domain/ledger";
-import type { RecordDebtTransactionInput } from "@/schemas/people";
+import type {
+  DebtItemInput,
+  RecordDebtTransactionInput,
+} from "@/schemas/people";
+import { saleLineTotalPiasters } from "@/domain/sale-pricing";
 import type { DebtTransactionItem, FormattedPerson } from "./types";
 
 /** Which person a ledger belongs to: the table and the `debt_entries` column that links it. */
@@ -216,6 +220,66 @@ export function historyOf(
     .reverse();
 }
 
+/** A manual debt's product, resolved against the shop's own list (name and unit snapshotted). */
+interface ResolvedDebtItem {
+  storeVariantId: string | null;
+  name: string;
+  unit: string;
+  quantityBase: number;
+  unitPriceMinor: number;
+  totalMinor: number;
+}
+
+/**
+ * The products of a manual debt (ADR-0036): each picked product must be this shop's (another
+ * shop's id is a 404, never a link), its name and unit are copied from it, and the line total is
+ * computed here (per piece, or per kilogram for weighed goods).
+ */
+async function resolveDebtItemsInTx(
+  tx: TenantTx,
+  storeId: string,
+  items: readonly DebtItemInput[],
+): Promise<ResolvedDebtItem[]> {
+  const ids = [
+    ...new Set(items.map((i) => i.variantId).filter((v): v is string => !!v)),
+  ];
+  const variants = ids.length
+    ? await tx.storeVariant.findMany({
+        where: { storeId, id: { in: ids } },
+        select: {
+          id: true,
+          flavor: true,
+          storeProduct: { select: { nameAr: true, unit: true } },
+        },
+      })
+    : [];
+  const byId = new Map(variants.map((v) => [v.id, v]));
+  return items.map((i) => {
+    let name = i.name?.trim() ?? "";
+    let unit = "piece";
+    if (i.variantId) {
+      const v = byId.get(i.variantId);
+      if (!v) throw AppError.notFound("المنتج ده مش في محلك");
+      name =
+        [v.storeProduct?.nameAr, v.flavor].filter(Boolean).join(" ") || name;
+      unit = v.storeProduct?.unit ?? "piece";
+    }
+    if (!name) throw AppError.badRequest("اكتب اسم المنتج");
+    return {
+      storeVariantId: i.variantId ?? null,
+      name: name.slice(0, 120),
+      unit,
+      quantityBase: i.quantityBase,
+      unitPriceMinor: i.unitPricePiasters,
+      totalMinor: saleLineTotalPiasters(
+        unit,
+        i.unitPricePiasters,
+        i.quantityBase,
+      ),
+    };
+  });
+}
+
 /**
  * Records a debt or a payment (ADR-0023). Atomic and idempotent:
  * - the person's row is locked first, so concurrent writes to one ledger are serialized;
@@ -237,6 +301,20 @@ export async function recordLedgerEntryInTx(
     throw AppError.notFound("الشخص ده مش موجود أو اتحذف");
   }
   const opId = input.opId || crypto.randomUUID();
+  // A manual debt with products: its amount is their total (a typed amount must match it).
+  const items =
+    input.type === "debt" && input.items && input.items.length > 0
+      ? await resolveDebtItemsInTx(tx, storeId, input.items)
+      : null;
+  if (items) {
+    const sum = items.reduce((n, i) => n + i.totalMinor, 0);
+    if (sum <= 0)
+      throw AppError.badRequest("إجمالي المنتجات لازم يكون أكبر من صفر");
+    if (input.amountPiasters > 0 && input.amountPiasters !== sum) {
+      throw AppError.badRequest("المبلغ مش مساوي لإجمالي المنتجات");
+    }
+    input = { ...input, amountPiasters: sum };
+  }
   const direction =
     input.type === "debt"
       ? debtDirection(side)
@@ -280,6 +358,20 @@ export async function recordLedgerEntryInTx(
       createdAt: input.date ?? new Date(),
     },
   });
+  if (items) {
+    await tx.debtEntryItem.createMany({
+      data: items.map((i) => ({
+        storeId,
+        debtEntryId: created.id,
+        storeVariantId: i.storeVariantId,
+        name: i.name,
+        unit: i.unit,
+        quantityBase: BigInt(i.quantityBase),
+        unitPriceMinor: BigInt(i.unitPriceMinor),
+        totalMinor: BigInt(i.totalMinor),
+      })),
+    });
+  }
   // Through one of the shop's machines / wallets: a collection puts the money in it, a payment
   // takes it out (no overdraft) — with the entry, or not at all.
   if (input.type === "payment" && input.paidFromMachineId) {

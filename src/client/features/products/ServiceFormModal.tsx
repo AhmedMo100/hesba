@@ -2,12 +2,14 @@
 
 /**
  * @file ServiceFormModal.tsx
- * @description V19 serviceForm — the same form to add and to edit a service: its name, the
- * shop's commission as slabs of the operation's amount (each slab a fixed amount or a
- * percentage; no separate commission field), and the machines / wallets it is charged from.
- * The rule is kept in the shop's sales settings and validated there too (no overlapping or
- * repeated slabs, no negative commission, a top above the bottom, a percentage up to 100%).
- * A saved service is offered in the sale at once.
+ * @description V19 serviceForm — the same form to add and to edit a service: its name, its
+ * category, the shop's commission, and the machines / wallets it is charged from. The
+ * commission (ADR-0036) is «مبلغ ثابت» (e.g. 5 ج on every operation), «نسبة %» (e.g. 2% of the
+ * operation), or — for a service that needs it — tiers by the operation's amount. It is ONE
+ * rule, kept in the shop's sales settings and validated there too (no overlapping slabs, no
+ * negative commission, a percentage up to 100%); the cashier and «سجّل عملية» read the same
+ * rule, and every operation stores the commission it was charged, so editing the rule never
+ * changes past operations. A saved service is offered in the sale at once.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -81,12 +83,39 @@ const emptySlab = (from = ""): TierRow => ({
   value: "",
 });
 
-/** The slabs-only rule the form describes (amounts in piasters), or why it cannot be read. */
-function ruleFromForm(tiers: TierRow[]): {
+/** How the commission is set: one value for every operation, or tiers by amount. */
+type CommissionKind = "fixed" | "percent" | "slabs";
+
+/** The rule the form describes (amounts in piasters), or why it cannot be read. */
+function ruleFromForm(
+  kind: CommissionKind,
+  flat: string,
+  tiers: TierRow[],
+): {
   rule: ServiceCommissionRule | null;
   errors: string[];
 } {
   const errors: string[] = [];
+  if (kind !== "slabs") {
+    const v = flat.trim();
+    if (v === "") return { rule: null, errors: ["اكتب العمولة"] };
+    let value: number;
+    if (kind === "percent") {
+      value = Number(v);
+      if (!Number.isFinite(value) || value < 0 || value > 100)
+        return { rule: null, errors: ["النسبة لازم تكون من 0 لحد 100%"] };
+    } else {
+      const p = parseEgpStrict(v);
+      if (p === null)
+        return { rule: null, errors: ["العمولة لازم تكون مبلغ بالجنيه"] };
+      value = p;
+    }
+    const rule: ServiceCommissionRule = { type: kind, value, tiers: [] };
+    const ruleErrors = commissionRuleErrors(rule);
+    return ruleErrors.length
+      ? { rule: null, errors: ruleErrors }
+      : { rule, errors: [] };
+  }
   const readValue = (t: CommissionType, v: string, where: string) => {
     if (v.trim() === "") {
       errors.push(`${where}: اكتب العمولة`);
@@ -145,18 +174,15 @@ export function ServiceFormModal({
 
   const [name, setName] = useState(product?.name_ar || "");
   const [category, setCategory] = useState(product?.category || presetCategory);
-  // A new service starts with one slab to fill; an older service (one fixed commission, no
-  // slabs) starts with that commission in a slab whose range the owner sets.
-  const [tiers, setTiers] = useState<TierRow[]>(() =>
-    product
-      ? [
-          {
-            ...emptySlab("1"),
-            value: egp(Math.max(0, product.sell_price_piasters ?? 0)),
-          },
-        ]
-      : [emptySlab()],
+  // A category the owner types («تصنيف جديد»), when none of the list fits.
+  const [newCategory, setNewCategory] = useState(false);
+  // A new service starts with a fixed commission to fill; an older service (one fixed
+  // commission, no rule saved) starts with that commission.
+  const [kind, setKind] = useState<CommissionKind>("fixed");
+  const [flat, setFlat] = useState(() =>
+    product ? egp(Math.max(0, product.sell_price_piasters ?? 0)) : "",
   );
+  const [tiers, setTiers] = useState<TierRow[]>(() => [emptySlab()]);
   const [machines, setMachines] = useState<PosMachine[]>([]);
   const [linked, setLinked] = useState<string[]>(() =>
     product ? getServiceLinkedMachineIds(product.id, storeId) : [],
@@ -186,25 +212,22 @@ export function ServiceFormModal({
           ) => {
             const rule = d?.config?.serviceCommissions?.[product.id];
             if (!alive || !rule) return;
-            setTiers(
-              rule.tiers.length > 0
-                ? rule.tiers.map((t) => ({
-                    from: egp(t.fromPiasters),
-                    to: egp(t.toPiasters),
-                    type: t.type,
-                    value: t.type === "fixed" ? egp(t.value) : String(t.value),
-                  }))
-                : [
-                    {
-                      ...emptySlab("1"),
-                      type: rule.type,
-                      value:
-                        rule.type === "fixed"
-                          ? egp(rule.value)
-                          : String(rule.value),
-                    },
-                  ],
-            );
+            if (rule.tiers.length > 0) {
+              setKind("slabs");
+              setTiers(
+                rule.tiers.map((t) => ({
+                  from: egp(t.fromPiasters),
+                  to: egp(t.toPiasters),
+                  type: t.type,
+                  value: t.type === "fixed" ? egp(t.value) : String(t.value),
+                })),
+              );
+            } else {
+              setKind(rule.type);
+              setFlat(
+                rule.type === "fixed" ? egp(rule.value) : String(rule.value),
+              );
+            }
           },
         )
         .catch(() => undefined);
@@ -214,14 +237,17 @@ export function ServiceFormModal({
     };
   }, [product, storeId]);
 
-  const { rule, errors } = useMemo(() => ruleFromForm(tiers), [tiers]);
-  // The example: an operation in the first slab's range.
+  const { rule, errors } = useMemo(
+    () => ruleFromForm(kind, flat, tiers),
+    [kind, flat, tiers],
+  );
+  // The example: a 100 ج operation, or one in the first slab's range.
   const example = rule?.tiers[0]
     ? Math.max(
         rule.tiers[0].fromPiasters,
         Math.min(50000, rule.tiers[0].toPiasters),
       )
-    : 50000;
+    : 10000;
   const exampleSlab = rule ? slabFor(rule, example) : undefined;
 
   const setTier = (i: number, patch: Partial<TierRow>) =>
@@ -244,23 +270,27 @@ export function ServiceFormModal({
       return;
     }
     setNameError(null);
+    const finalCategory = category.trim();
+    if (!finalCategory) {
+      setSubmitError("اكتب التصنيف");
+      return;
+    }
     if (!rule) {
-      setSubmitError(errors[0] ?? "راجع الشرائح");
+      setSubmitError(errors[0] ?? "راجع العمولة");
       return;
     }
     setBusy(true);
     try {
-      // The product's price: the first slab's fixed commission (older screens read it).
-      const first = rule.tiers[0];
-      const sellPricePiasters =
-        first && first.type === "fixed" ? first.value : 0;
+      // The product's price: the fixed commission (older screens read it), else 0.
+      const first = rule.tiers[0] ?? rule;
+      const sellPricePiasters = first.type === "fixed" ? first.value : 0;
       const res = await fetch("/api/products", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           id: product?.id,
           nameAr: trimmed,
-          category,
+          category: finalCategory,
           unit: "service",
           sellPricePiasters,
           buyCostPiasters: null,
@@ -369,114 +399,185 @@ export function ServiceFormModal({
         {nameError && <div className={f.err}>{nameError}</div>}
 
         <label className={f.lbl} htmlFor="sv-cat">
-          نوعها
+          التصنيف
         </label>
-        <select
-          id="sv-cat"
-          className={f.select}
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-        >
-          {SERVICE_CATEGORIES.some((c) => c.value === category) ? null : (
-            <option value={category}>{category}</option>
+        {newCategory ? (
+          <input
+            id="sv-cat"
+            className={f.input}
+            dir="auto"
+            maxLength={60}
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            placeholder="مثلاً: تذاكر"
+            data-testid="service-category-new"
+          />
+        ) : (
+          <select
+            id="sv-cat"
+            className={f.select}
+            value={category}
+            onChange={(e) => {
+              if (e.target.value === "__new__") {
+                setNewCategory(true);
+                setCategory("");
+              } else setCategory(e.target.value);
+            }}
+            data-testid="service-category"
+          >
+            {SERVICE_CATEGORIES.some((c) => c.value === category) ? null : (
+              <option value={category}>{category}</option>
+            )}
+            {SERVICE_CATEGORIES.map((c) => (
+              <option key={c.value} value={c.value}>
+                {c.label}
+              </option>
+            ))}
+            <option value="__new__">➕ تصنيف جديد…</option>
+          </select>
+        )}
+
+        {/* ─── عمولتك: مبلغ ثابت، نسبة، أو شرائح حسب قيمة العملية ─── */}
+        <div className={f.lbl}>عمولتك</div>
+        <div className={f.chips}>
+          {chip(
+            kind === "fixed",
+            "مبلغ ثابت",
+            () => setKind("fixed"),
+            "service-kind-fixed",
           )}
-          {SERVICE_CATEGORIES.map((c) => (
-            <option key={c.value} value={c.value}>
-              {c.label}
-            </option>
-          ))}
-        </select>
-
-        {/* ─── عمولتك: شرائح حسب قيمة العملية (كل شريحة مبلغ ثابت أو نسبة) ─── */}
-        <div className={f.lbl}>عمولتك حسب قيمة العملية</div>
-        <div className={f.note}>
-          مثلاً: من 100 لحد 1000 → 5 جنيه، ومن 1000 لحد 10000 → 10 جنيه.
+          {chip(
+            kind === "percent",
+            "نسبة %",
+            () => setKind("percent"),
+            "service-kind-percent",
+          )}
+          {chip(
+            kind === "slabs",
+            "حسب المبلغ (شرائح)",
+            () => setKind("slabs"),
+            "service-kind-slabs",
+          )}
         </div>
-        {tiers.map((t, i) => (
-          <div key={i} className={f.packBox} data-testid="service-tier">
-            <div className={f.two}>
-              <div>
-                <label className={f.lbl}>من (جنيه)</label>
-                <input
-                  className={f.input}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  value={t.from}
-                  onChange={(e) => setTier(i, { from: e.target.value })}
-                  data-testid="service-tier-from"
-                />
+        {kind !== "slabs" ? (
+          <>
+            <input
+              className={f.input}
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={flat}
+              onChange={(e) => setFlat(e.target.value)}
+              placeholder={
+                kind === "fixed"
+                  ? "العمولة بالجنيه (مثلاً 5)"
+                  : "النسبة % (مثلاً 2)"
+              }
+              aria-label={kind === "fixed" ? "العمولة بالجنيه" : "النسبة"}
+              data-testid="service-commission-value"
+            />
+            <div className={f.note}>
+              {kind === "fixed"
+                ? "نفس المبلغ على كل عملية: شحن بـ 100 جنيه → عمولتك 5 جنيه."
+                : "نسبة من قيمة العملية: 2% من عملية بـ 100 جنيه = 2 جنيه."}
+            </div>
+          </>
+        ) : (
+          <>
+            <div className={f.note}>
+              مثلاً: من 100 لحد 1000 → 5 جنيه، ومن 1000 لحد 10000 → 10 جنيه.
+            </div>
+            {tiers.map((t, i) => (
+              <div key={i} className={f.packBox} data-testid="service-tier">
+                <div className={f.two}>
+                  <div>
+                    <label className={f.lbl}>من (جنيه)</label>
+                    <input
+                      className={f.input}
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      value={t.from}
+                      onChange={(e) => setTier(i, { from: e.target.value })}
+                      data-testid="service-tier-from"
+                    />
+                  </div>
+                  <div>
+                    <label className={f.lbl}>لحد أقل من (جنيه)</label>
+                    <input
+                      className={f.input}
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      value={t.to}
+                      onChange={(e) => setTier(i, { to: e.target.value })}
+                      data-testid="service-tier-to"
+                    />
+                  </div>
+                </div>
+                <div className={f.chips}>
+                  {chip(
+                    t.type === "fixed",
+                    "مبلغ ثابت",
+                    () => setTier(i, { type: "fixed" }),
+                    "service-tier-fixed",
+                  )}
+                  {chip(
+                    t.type === "percent",
+                    "نسبة %",
+                    () => setTier(i, { type: "percent" }),
+                    "service-tier-percent",
+                  )}
+                </div>
+                <div className={f.barRow}>
+                  <input
+                    className={f.input}
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="any"
+                    value={t.value}
+                    onChange={(e) => setTier(i, { value: e.target.value })}
+                    placeholder={
+                      t.type === "fixed" ? "العمولة بالجنيه" : "النسبة %"
+                    }
+                    data-testid="service-tier-value"
+                  />
+                  {tiers.length > 1 && (
+                    <button
+                      type="button"
+                      className={f.scanBtn}
+                      onClick={() =>
+                        setTiers((prev) => prev.filter((_, k) => k !== i))
+                      }
+                      aria-label={`امسح الشريحة ${i + 1}`}
+                      data-testid="service-tier-remove"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
-              <div>
-                <label className={f.lbl}>لحد أقل من (جنيه)</label>
-                <input
-                  className={f.input}
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  value={t.to}
-                  onChange={(e) => setTier(i, { to: e.target.value })}
-                  data-testid="service-tier-to"
-                />
-              </div>
-            </div>
-            <div className={f.chips}>
-              {chip(
-                t.type === "fixed",
-                "مبلغ ثابت",
-                () => setTier(i, { type: "fixed" }),
-                "service-tier-fixed",
-              )}
-              {chip(
-                t.type === "percent",
-                "نسبة %",
-                () => setTier(i, { type: "percent" }),
-                "service-tier-percent",
-              )}
-            </div>
-            <div className={f.barRow}>
-              <input
-                className={f.input}
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="any"
-                value={t.value}
-                onChange={(e) => setTier(i, { value: e.target.value })}
-                placeholder={
-                  t.type === "fixed" ? "العمولة بالجنيه" : "النسبة %"
-                }
-                data-testid="service-tier-value"
-              />
-              {tiers.length > 1 && (
-                <button
-                  type="button"
-                  className={f.scanBtn}
-                  onClick={() =>
-                    setTiers((prev) => prev.filter((_, k) => k !== i))
-                  }
-                  aria-label={`امسح الشريحة ${i + 1}`}
-                  data-testid="service-tier-remove"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          </div>
-        ))}
-        <button
-          type="button"
-          className={`${f.btn} ${f.ghost}`}
-          onClick={() => {
-            const last = tiers[tiers.length - 1];
-            setTiers((prev) => [...prev, emptySlab(last?.to ?? "")]);
-          }}
-          data-testid="service-tier-add"
-        >
-          + شريحة
-        </button>
+            ))}
+            <button
+              type="button"
+              className={`${f.btn} ${f.ghost}`}
+              onClick={() => {
+                const last = tiers[tiers.length - 1];
+                setTiers((prev) => [...prev, emptySlab(last?.to ?? "")]);
+              }}
+              data-testid="service-tier-add"
+            >
+              + شريحة
+            </button>
+          </>
+        )}
 
-        {(touched || tiers.some((t) => t.to.trim() && t.value.trim())) &&
+        {(touched ||
+          (kind === "slabs"
+            ? tiers.some((t) => t.to.trim() && t.value.trim())
+            : flat.trim() !== "")) &&
           errors.length > 0 && (
             <div className={f.errBox} role="alert" data-testid="service-errors">
               {errors.map((e) => (

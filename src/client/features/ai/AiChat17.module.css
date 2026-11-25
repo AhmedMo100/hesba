@@ -269,3 +269,8 @@
   border-color: var(--red);
   color: var(--red);
 }
+
+/* The page heading above the chat (2026-11-26): no extra height on short screens. */
+.pageTitle {
+  flex: none;
+}

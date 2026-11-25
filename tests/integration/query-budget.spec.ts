@@ -24,6 +24,8 @@ import { GET as sales } from "@/app/api/sales/route";
 import { GET as people } from "@/app/api/people/route";
 import { GET as expenses } from "@/app/api/expenses/route";
 import { GET as home } from "@/app/api/reports/home/route";
+import { GET as money } from "@/app/api/money/route";
+import { recordDrawerCount } from "@/server/modules/drawer";
 import { SaleFixtures } from "./helpers/sale-fixtures";
 
 const f = new SaleFixtures();
@@ -79,6 +81,7 @@ const endpoints: Array<[string, (req: Request) => Promise<Response>, string]> =
     ["people", people as never, "/api/people?section=owedToMe"],
     ["expenses", expenses as never, "/api/expenses?period=month"],
     ["home", home as never, "/api/reports/home?period=today"],
+    ["money", money as never, "/api/money"],
   ];
 
 /** Round trips measured for each endpoint (see the test below). */
@@ -105,8 +108,16 @@ const BUDGET: Record<string, number> = {
   // findMany customers, findMany debtEntries relation query to calculate ledger balances, COMMIT).
   people: 11,
   expenses: 10,
-  home: 23, // +1: the losses of the period (P4, waste_records); +1: the daily sales totals
-  // of إدارة المحل (ADR-0033) — part of revenue even for a shop that switched to the cashier
+  // «فلوس المحل» / «فلوس حِسبة» with a counted drawer (2026-11-26): 6 session + BEGIN, set_config,
+  // the last count, the drawer's 12 cash totals, machines, movements, machine activity, COMMIT.
+  // It was 44 before: it built the whole drawer screen (each movement since the count, the
+  // unrecorded ones) to read one number.
+  money: 25,
+  home: 25, // +1: the losses of the period (P4, waste_records); +1: the daily sales totals
+  // of إدارة المحل (ADR-0033) — part of revenue even for a shop that switched to the cashier;
+  // +2: «أنا كسبت كام؟» — every profit input (service commissions, owner withdrawals /
+  // deposits, quantities' cost, stocktake effects, last count) in ONE query, and the inventory
+  // value in one more (report.service.ts profitInputsInTx / inventoryValueInTx).
 };
 
 beforeAll(async () => {
@@ -145,6 +156,14 @@ beforeAll(async () => {
   });
 }, 120_000);
 afterAll(() => f.teardown());
+
+beforeAll(async () => {
+  // A counted drawer, so «فلوس حِسبة» computes the expected cash (its full path).
+  await recordDrawerCount(f.shopA.storeId, f.shopA.userId, {
+    opId: crypto.randomUUID(),
+    countedPiasters: 50000,
+  });
+});
 
 describe("QA-32 — database round trips per request", () => {
   it("each main endpoint stays within its round-trip budget", async () => {

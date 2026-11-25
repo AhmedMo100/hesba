@@ -69,19 +69,32 @@ const addStockSchema = z.object({
     .optional(),
 });
 
-const wasteStockSchema = z.object({
-  action: z.literal("waste"),
-  storeVariantId: z.string().uuid(),
-  quantityBase: z
-    .number()
-    .int()
-    .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
-    .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
-  batchId: z.string().uuid().optional().nullable(),
-  reason: wasteReasonSchema.default("expired"),
-  note: z.string().trim().max(500, "الملاحظة طويلة جداً").optional().nullable(),
-  opId: z.string().uuid().optional(),
-});
+const wasteStockSchema = z
+  .object({
+    action: z.literal("waste"),
+    storeVariantId: z.string().uuid(),
+    quantityBase: z
+      .number()
+      .int()
+      .positive("الكمية يجب أن تكون رقماً صحيحاً موجباً")
+      .max(MAX_QUANTITY_BASE, "الكمية كبيرة قوي"),
+    batchId: z.string().uuid().optional().nullable(),
+    reason: wasteReasonSchema.default("expired"),
+    note: z
+      .string()
+      .trim()
+      .max(500, "الملاحظة طويلة جداً")
+      .optional()
+      .nullable(),
+    /** The screen it is recorded from: «التنبيهات» or «بضاعتي» (the log shows it). */
+    source: z.enum(["alerts", "products", "stock"]).optional(),
+    opId: z.string().uuid().optional(),
+  })
+  // «سبب آخر» says what happened.
+  .refine((w) => w.reason !== "other" || (w.note ?? "").trim().length >= 2, {
+    message: "اكتب سبب التلف",
+    path: ["note"],
+  });
 
 const voidStockSchema = z.object({
   action: z.literal("void"),
@@ -182,6 +195,15 @@ export async function GET(req: Request) {
       return NextResponse.json({ movements });
     }
 
+    // «سجل التالف»: what was recorded as damaged / lost, newest first (ADR-0037).
+    if (view === "waste") {
+      const waste = await inventoryService.listWaste(
+        context.store.id,
+        context.user.id,
+      );
+      return NextResponse.json({ waste });
+    }
+
     if (view === "movements") {
       const movements = await inventoryService.getStockMovements(
         context.store.id,
@@ -249,6 +271,7 @@ export async function POST(req: Request) {
           reason: input.reason,
           note: input.note ?? null,
           opId: input.opId,
+          source: input.source ?? "stock",
         },
       );
       return NextResponse.json({ success: true, data: result });

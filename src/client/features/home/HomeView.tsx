@@ -2,16 +2,26 @@
 
 /**
  * @file HomeView.tsx
- * @description Home dashboard (V19 reference): today's KPIs, the drawer, the stock alerts
- * strip and the shortcut tiles to every screen.
+ * @description Home — the hub of Hesba (owner's layout, ADR-0037). No sidebar, no bottom bar,
+ * in this order:
+ *
+ * 1. «أهلاً بيك».
+ * 2. «فلوس المحل», the row's full width: every account's real balance together
+ *    (`GET /api/money`). A tap opens «فلوس حِسبة». Never a made-up number: a skeleton while it
+ *    loads, «جرّب تاني» on failure. (No profit card on Home: profit lives in the reports.)
+ *    Right under it, one plain line of alerts that opens «التنبيهات» (as before ADR-0037).
+ * 3. The day's four steps, numbered ١–٤, two by two (RTL: ١ ٢ on top, ٣ ٤ below), with three
+ *    small arrows only (owner, 2026-11-26): دخلت بضاعة ↓ بيعت حاجة, بيعت حاجة ← شوف تقاريرك,
+ *    صرفت فلوس ↓ شوف تقاريرك. «شوف تقاريرك» stands out a little, like «اسأل حسبة».
+ * 4. «الجرد», the row's full width.
+ * 5. البضاعة · الخدمات · اسأل حسبة (a slightly different colour) · حسابات الناس — not numbered.
+ * 6. The only logout, at the very end, the row's full width.
  */
 
-import React, { useState, useEffect } from "react";
-import { Skeleton } from "@/client/shared/ui";
+import React, { useCallback, useEffect, useState } from "react";
+import { Icon, Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
-import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
-import { fetchDrawer, type DrawerView } from "@/client/shared/api/drawer";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import styles from "./HomeView.module.css";
@@ -48,77 +58,71 @@ export interface HomeViewProps {
   alertCount?: number;
   onOpenAlerts?: () => void;
   onLogout?: () => void;
-  /** إدارة المحل: «مبيعات اليوم» instead of «بيع حاجة» (ADR-0033). */
+  /** إدارة المحل (simple) or الكاشير الذكي (pos): the profit card's period and «بيع حاجة». */
   operatingMode?: "simple" | "pos";
 }
 
+type Load<T> =
+  { state: "loading" } | { state: "ok"; data: T } | { state: "error" };
+
+const money = (piasters: number) =>
+  `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
+
 export function HomeView({
   onNavigate,
-  alertCount = 0,
   onLogout,
+  alertCount = 0,
   operatingMode = "pos",
 }: HomeViewProps) {
-  // ─── Today's KPIs (from report) ───
-  const [report, setReport] = useState<HomeReport | null>(null);
-  const [reportLoading, setReportLoading] = useState(true);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let retry: ReturnType<typeof setTimeout> | null = null;
-    const load = (retriesLeft: number) => {
-      fetchHomeReport("today", controller.signal)
-        .then((r) => {
-          setReport(r);
-          setReportLoading(false);
-        })
-        .catch(() => {
-          if (controller.signal.aborted) return;
-          if (retriesLeft > 0) {
-            retry = setTimeout(() => load(retriesLeft - 1), 1500);
-          } else {
-            setReportLoading(false);
-          }
-        });
-    };
-    const reload = () => load(1);
-    reload();
-    window.addEventListener("hesba_stock_updated", reload);
-    window.addEventListener("hesba_sales_config_updated", reload);
-    window.addEventListener("online", reload);
-    return () => {
-      controller.abort();
-      if (retry) clearTimeout(retry);
-      window.removeEventListener("hesba_stock_updated", reload);
-      window.removeEventListener("hesba_sales_config_updated", reload);
-      window.removeEventListener("online", reload);
-    };
+  const pos = operatingMode === "pos";
+  // ─── «فلوس المحل» ───
+  const [cash, setCash] = useState<
+    Load<{ totalPiasters: number; cashKnown: boolean }>
+  >({ state: "loading" });
+  const loadMoney = useCallback(() => {
+    apiGet("/api/money")
+      .then(async (r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        const d = (await r.json()) as {
+          totalPiasters: number;
+          cashKnown: boolean;
+        };
+        setCash({ state: "ok", data: d });
+      })
+      .catch(() => setCash({ state: "error" }));
   }, []);
 
-  // ─── Stock alert counts (out / low / near expiry), from the stock levels ───
+  useEffect(() => {
+    loadMoney();
+    window.addEventListener("hesba_stock_updated", loadMoney);
+    window.addEventListener("online", loadMoney);
+    return () => {
+      window.removeEventListener("hesba_stock_updated", loadMoney);
+      window.removeEventListener("online", loadMoney);
+    };
+  }, [loadMoney]);
+
+  // Stock alerts (out / low / near expiry) and the first-run hint, from the stock levels.
   const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0, exp: 0 });
-  // First run: a shop with no products yet sees how to add them (null = not known yet).
   const [productCount, setProductCount] = useState<number | null>(null);
   const [onboardDismissed, setOnboardDismissed] = useState(false);
-
   useEffect(() => {
     let ignore = false;
     const load = () => {
       apiGet("/api/stock")
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
-          if (ignore) return;
-          if (data?.inventory && Array.isArray(data.inventory)) {
-            const inv = data.inventory as Array<{
-              status?: string;
-              hasNearExpiry?: boolean;
-            }>;
-            setStockAlerts({
-              out: inv.filter((i) => i.status === "out").length,
-              low: inv.filter((i) => i.status === "low").length,
-              exp: inv.filter((i) => i.hasNearExpiry).length,
-            });
-            setProductCount(inv.length);
-          }
+          if (ignore || !Array.isArray(data?.inventory)) return;
+          const inv = data.inventory as Array<{
+            status?: string;
+            hasNearExpiry?: boolean;
+          }>;
+          setStockAlerts({
+            out: inv.filter((i) => i.status === "out").length,
+            low: inv.filter((i) => i.status === "low").length,
+            exp: inv.filter((i) => i.hasNearExpiry).length,
+          });
+          setProductCount(inv.length);
         })
         .catch(() => {});
     };
@@ -129,64 +133,19 @@ export function HomeView({
       window.removeEventListener("hesba_stock_updated", load);
     };
   }, []);
-
-  // ─── The drawer's real balance (ADR-0031); never today's sales ───
-  const [drawer, setDrawer] = useState<DrawerView | null>(null);
-  const [drawerFailed, setDrawerFailed] = useState(false);
-  useEffect(() => {
-    let alive = true;
-    const load = () =>
-      fetchDrawer()
-        .then((d) => {
-          if (!alive) return;
-          setDrawer(d);
-          setDrawerFailed(false);
-        })
-        .catch(() => alive && setDrawerFailed(true));
-    void load();
-    window.addEventListener("online", load);
-    return () => {
-      alive = false;
-      window.removeEventListener("online", load);
-    };
-  }, []);
-
-  const todayRevenue = report?.sales.revenuePiasters ?? null;
-  const todayProfit = report?.sales.grossProfitPiasters ?? null;
-
-  const money = (piasters: number) =>
-    `${(piasters / 100).toLocaleString("en-US", { maximumFractionDigits: 2 })} ج`;
-
   const { out, low, exp } = stockAlerts;
-  const hasStockAlerts = out + low + exp > 0;
-  const alertText = hasStockAlerts
-    ? [
-        t("home.alertOut", { count: out }),
-        t("home.alertLow", { count: low }),
-        t("home.alertExpiry", { count: exp }),
-      ].join(" · ")
-    : alertCount > 0
-      ? t("home.alertGeneric", { count: alertCount })
-      : "";
-
-  const tile = (
-    route: NavRoute,
-    icon: string,
-    label: string,
-    tone: string | undefined,
-    num?: string,
-  ) => (
-    <button
-      type="button"
-      className={`${styles.tile} ${tone ?? ""}`}
-      onClick={() => onNavigate(route)}
-      data-testid={`home-tile-${route}`}
-    >
-      {num && <span className={styles.tn}>{num}</span>}
-      <i aria-hidden="true">{icon}</i>
-      {label}
-    </button>
-  );
+  const alertText =
+    out + low + exp > 0
+      ? [
+          out > 0 && t("home.alertOut", { count: out }),
+          low > 0 && t("home.alertLow", { count: low }),
+          exp > 0 && t("home.alertExpiry", { count: exp }),
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : alertCount > 0
+        ? t("home.alertGeneric", { count: alertCount })
+        : "";
 
   const startWithBarcode = () => {
     try {
@@ -197,9 +156,109 @@ export function HomeView({
     onNavigate("stock");
   };
 
-  // ─── Dashboard: V19 summary and drawer, V17 tiles and logout ───
+  const sellRoute: NavRoute = pos ? "sales" : "daily-sales";
+  const step = (
+    route: NavRoute,
+    num: string,
+    icon: string,
+    label: string,
+    tone: string | undefined,
+    area: string,
+  ) => (
+    <button
+      type="button"
+      className={`${styles.step} ${tone ?? ""}`}
+      style={{ gridArea: area }}
+      onClick={() => onNavigate(route)}
+      data-testid={`home-tile-${route}`}
+    >
+      <span className={styles.stepNum} aria-hidden="true">
+        {num}
+      </span>
+      <i aria-hidden="true">{icon}</i>
+      <span className={styles.stepLabel}>{label}</span>
+    </button>
+  );
+  /** A small arrow in a gap between two steps (never on a card). */
+  const arrow = (dir: "down" | "left", area: string) => (
+    <span
+      className={styles.stepArrow}
+      style={{ gridArea: area }}
+      aria-hidden="true"
+      data-testid="home-step-arrow"
+      data-dir={dir}
+    >
+      <Icon n={dir} s={18} sw={2.8} />
+    </span>
+  );
+  const tile = (
+    route: NavRoute,
+    icon: string,
+    label: string,
+    tone?: string,
+  ) => (
+    <button
+      type="button"
+      className={`${styles.tile} ${tone ?? ""}`}
+      onClick={() => onNavigate(route)}
+      data-testid={`home-tile-${route}`}
+    >
+      <i aria-hidden="true">{icon}</i>
+      {label}
+    </button>
+  );
+
   return (
-    <div className={styles.page} data-testid="page-home" dir="rtl">
+    <div className={styles.homePage} data-testid="page-home" dir="rtl">
+      {/* 1. The greeting. */}
+      <h2 className={styles.hello} data-testid="home-hello">
+        أهلاً بيك 👋
+      </h2>
+
+      {/* 2. «فلوس المحل», the row's full width. */}
+      <button
+        type="button"
+        className={`${styles.numCard} ${styles.moneyWide}`}
+        onClick={() => {
+          if (cash.state !== "error") return onNavigate("money");
+          setCash({ state: "loading" });
+          loadMoney();
+        }}
+        data-testid="home-money"
+      >
+        <small>💰 فلوس المحل</small>
+        {cash.state === "loading" ? (
+          <Skeleton width={120} height={30} />
+        ) : cash.state === "error" ? (
+          <em className={styles.numErr}>حصلت مشكلة · جرّب تاني</em>
+        ) : (
+          <>
+            <b data-testid="home-money-total">
+              {money(cash.data.totalPiasters)}
+            </b>
+            <em>
+              {cash.data.cashKnown
+                ? "الدرج والماكينات والمحافظ"
+                : "من غير الدرج (عدّه الأول)"}
+            </em>
+          </>
+        )}
+      </button>
+
+      {/* One line of alerts under «فلوس المحل»: opens the alerts screen as it is. */}
+      <button
+        type="button"
+        className={`${styles.alertLine} ${styles.alertUnderMoney} ${alertText ? "" : styles.alertLineCalm}`}
+        onClick={() => onNavigate("notifications")}
+        data-testid="home-alerts"
+      >
+        <span aria-hidden="true">{alertText ? "⚠️" : "🔔"}</span>
+        <span>{alertText || "مفيش تنبيهات دلوقتي"}</span>
+        <span className={styles.alertGo} aria-hidden="true">
+          ←
+        </span>
+      </button>
+
       {productCount === 0 && !onboardDismissed && (
         <div className={styles.banner} data-testid="home-onboarding">
           <b>⚠️ لسه ماضفتش منتجات محلك</b>
@@ -224,110 +283,47 @@ export function HomeView({
         </div>
       )}
 
-      {/* V17: the greeting above the day's numbers */}
-      <h2 className={styles.hello} data-testid="home-hello">
-        أهلاً بيك 👋
-      </h2>
-
-      <div className={styles.sumrow}>
-        <button
-          type="button"
-          className={styles.stat}
-          onClick={() => onNavigate("reports")}
-          data-testid="home-sold-today"
-        >
-          <small>{t("home.soldToday")}</small>
-          <b>
-            {reportLoading ? (
-              <Skeleton width={70} height={24} />
-            ) : todayRevenue === null ? (
-              "—"
-            ) : (
-              money(todayRevenue)
-            )}
-          </b>
-        </button>
-        <button
-          type="button"
-          className={`${styles.stat} ${styles.good}`}
-          onClick={() => onNavigate("reports")}
-          data-testid="home-profit-today"
-        >
-          <small>{t("home.profitToday")}</small>
-          <b>
-            {reportLoading ? (
-              <Skeleton width={70} height={24} />
-            ) : todayProfit === null ? (
-              "—"
-            ) : (
-              money(todayProfit)
-            )}
-          </b>
-        </button>
+      {/* 3. The day's four steps, two by two (RTL: ١ ٢ on top, ٣ ٤ below), and three small
+          arrows only: ١ ↓ ٣, ٣ ← ٤, ٢ ↓ ٤. */}
+      <div className={styles.steps} data-testid="home-steps">
+        {step("stock", "١", "📦", "دخلت بضاعة", styles.stepGreen, "s1")}
+        {step("expenses", "٢", "💰", "صرفت فلوس", styles.stepGreen, "s2")}
+        {arrow("down", "d1")}
+        {arrow("down", "d2")}
+        {step(sellRoute, "٣", "🛒", "بيعت حاجة", styles.stepGreen, "s3")}
+        {arrow("left", "h3")}
+        {step("reports", "٤", "📊", "شوف تقاريرك", styles.stepReport, "s4")}
       </div>
 
-      {/* The drawer (V19): what should be in it now, from the last count */}
+      {/* 4. «الجرد», the row's full width. */}
       <button
         type="button"
-        className={styles.drw}
-        onClick={() => onNavigate("drawer")}
-        aria-label={t("home.cashDrawer")}
-        data-testid="home-drawer"
+        className={styles.stocktakeWide}
+        onClick={() => onNavigate("stocktake")}
+        data-testid="home-tile-stocktake"
       >
-        <div>
-          <small>
-            {drawer && !drawer.lastCount
-              ? "🧮 الدرج"
-              : "🧮 المفروض في الدرج دلوقتي"}
-          </small>
-          <b>
-            {!drawer && !drawerFailed ? (
-              <Skeleton width={80} height={24} />
-            ) : drawer?.expectedPiasters != null ? (
-              money(drawer.expectedPiasters)
-            ) : drawer && !drawer.lastCount ? (
-              "عدّه أول مرة"
-            ) : (
-              "—"
-            )}
-          </b>
-        </div>
-        <span>عدّ ←</span>
+        <i aria-hidden="true">📋</i>
+        الجرد
       </button>
 
-      {alertText && (
-        <button
-          type="button"
-          className={styles.warn}
-          onClick={() => onNavigate("notifications")}
-          data-testid="home-alerts"
-        >
-          ⚠️ {alertText}
-        </button>
-      )}
-
-      {/* V17 tiles: the three steps of the day numbered, «بيع حاجة» stands out */}
+      {/* 5. Four more, not numbered; «اسأل حسبة» stands out a little. */}
       <div className={styles.tiles17}>
-        {tile("stock", "📦", t("home.addStock"), styles.tileNum, "١")}
-        {tile("expenses", "💰", t("home.expenses"), styles.tileNum, "٢")}
-        {operatingMode === "simple"
-          ? tile("daily-sales", "💵", "مبيعات اليوم", styles.tileSell, "٣")
-          : tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
-        {tile("people", "👥", t("home.people"), undefined)}
-        {tile("alerts", "💳", t("home.walletsMachines"), undefined)}
-        {tile("products", "🧃", t("home.myProducts"), undefined)}
-        {tile("inventory", "📋", t("home.inventory"), styles.tileAlt)}
-        {tile("ai", "💬", t("home.askHesba"), styles.tileAlt)}
+        {tile("products", "🧃", "البضاعة")}
+        {tile("services", "📲", "الخدمات")}
+        {tile("ai", "💬", t("home.askHesba"), styles.tileAsk)}
+        {tile("people", "👥", t("home.people"))}
       </div>
 
+      {/* 6. The only logout: at the very end of the page, the row's full width. */}
       {onLogout && (
         <button
           type="button"
-          className={styles.logout17}
+          className={styles.logoutBottom}
           onClick={onLogout}
           data-testid="home-logout"
         >
-          {t("home.logout")}
+          <Icon n="logout" s={22} sw={2.4} />
+          {t("profile.logout")}
         </button>
       )}
     </div>

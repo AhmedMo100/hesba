@@ -9,7 +9,14 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import { Icon, Empty, Modal, useToast, ListSkeleton } from "@/client/shared/ui";
+import {
+  Icon,
+  Empty,
+  Modal,
+  useToast,
+  ListSkeleton,
+  PageTitle,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
@@ -17,6 +24,9 @@ import { useRetryOpId } from "@/client/shared/hooks/useRetryOpId";
 import { PurchasesSheet } from "./PurchasesSheet";
 import { CustomerDebtSheet } from "./CustomerDebtSheet";
 import { CustomerInvoicesSheet } from "./CustomerInvoicesSheet";
+import { PersonDebtSheet } from "./PersonDebtSheet";
+import { PersonStatementSheet } from "./PersonStatementSheet";
+import { useAuth } from "@/client/shared/auth";
 import {
   fetchStoreMachines,
   type PosMachine,
@@ -143,6 +153,15 @@ export function PeopleView() {
   const toast = useToast();
   // QA-30: the supplier whose purchase invoices are open.
   const [debtTarget, setDebtTarget] = useState<PersonItem | null>(null);
+  // الكاشير الذكي: «تخصمها من المخزون؟» opens the credit invoice (stock taken) for a customer.
+  const [invoiceDebtTarget, setInvoiceDebtTarget] = useState<PersonItem | null>(
+    null,
+  );
+  const [statementTarget, setStatementTarget] = useState<PersonItem | null>(
+    null,
+  );
+  const { session } = useAuth();
+  const isPos = session?.store?.operatingMode === "pos";
   // V19: a row opens the person's sheet with every action on them.
   const [openPersonId, setOpenPersonId] = useState<string | null>(null);
   // «فواتير الزبون»: the credit invoices behind what a customer owes (Prompt 2).
@@ -523,6 +542,7 @@ export function PeopleView() {
 
   return (
     <div className={styles.container} data-testid="page-people">
+      <PageTitle>مين ليك ومين عليك؟</PageTitle>
       {/* Tabs (V19 chips) */}
       <div className={styles.chips} role="tablist">
         {(
@@ -744,35 +764,57 @@ export function PeopleView() {
               </button>
 
               <div className={styles.sheetActions}>
-                {collect && (
-                  <button
-                    type="button"
-                    className={styles.ghostBtn}
-                    data-testid={`customer-debt-${p.id}`}
-                    onClick={() => setDebtTarget(p)}
-                  >
-                    📒 {t("pages.people.recordDebt")}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  data-testid={`customer-debt-${p.id}`}
+                  onClick={() => {
+                    // One sheet at a time: the person's sheet closes first.
+                    setOpenPersonId(null);
+                    setDebtTarget(p);
+                  }}
+                >
+                  📒 {collect ? t("pages.people.recordDebt") : "سجّل مستحق ليه"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.ghostBtn}
+                  data-testid={`person-statement-${p.id}`}
+                  onClick={() => {
+                    // One sheet at a time: the person's sheet closes first.
+                    setOpenPersonId(null);
+                    setStatementTarget(p);
+                  }}
+                >
+                  📜 كشف الحساب
+                </button>
                 {collect ? (
                   <button
                     type="button"
                     className={styles.ghostBtn}
                     data-testid={`customer-invoices-${p.id}`}
-                    onClick={() => setInvoicesTarget(p)}
+                    onClick={() => {
+                      // One sheet at a time: the person's sheet closes first.
+                      setOpenPersonId(null);
+                      setInvoicesTarget(p);
+                    }}
                   >
                     🧾 الفواتير والمدفوعات
                   </button>
-                ) : (
+                ) : section === "suppliers" ? (
                   <button
                     type="button"
                     className={styles.ghostBtn}
                     data-testid={`supplier-purchases-${p.id}`}
-                    onClick={() => setPurchasesTarget(p)}
+                    onClick={() => {
+                      // One sheet at a time: the person's sheet closes first.
+                      setOpenPersonId(null);
+                      setPurchasesTarget(p);
+                    }}
                   >
                     🧾 {t("invoice.purchasesTitle")}
                   </button>
-                )}
+                ) : null}
                 {p.phone && (
                   <a
                     className={styles.ghostBtn}
@@ -1256,14 +1298,56 @@ export function PeopleView() {
       )}
 
       {debtTarget && (
-        <CustomerDebtSheet
-          customer={{ id: debtTarget.id, name: debtTarget.name }}
+        <PersonDebtSheet
+          person={{ id: debtTarget.id, name: debtTarget.name }}
+          side={section === "owedToMe" ? "receivable" : "payable"}
+          canSellOnCredit={isPos && section === "owedToMe"}
+          onOpenCreditInvoice={() => {
+            setInvoiceDebtTarget(debtTarget);
+            setDebtTarget(null);
+          }}
           onClose={() => setDebtTarget(null)}
           onDone={(message) => {
             setDebtTarget(null);
             toast.show({ msg: message, kind: "ok" });
+            void fetchSectionData(section);
+          }}
+        />
+      )}
+
+      {invoiceDebtTarget && (
+        <CustomerDebtSheet
+          customer={{ id: invoiceDebtTarget.id, name: invoiceDebtTarget.name }}
+          startWithProducts
+          onClose={() => setInvoiceDebtTarget(null)}
+          onDone={(message) => {
+            setInvoiceDebtTarget(null);
+            toast.show({ msg: message, kind: "ok" });
             void fetchSectionData("owedToMe");
           }}
+        />
+      )}
+
+      {statementTarget && (
+        <PersonStatementSheet
+          person={{ id: statementTarget.id, name: statementTarget.name }}
+          onClose={() => setStatementTarget(null)}
+          onOpenSale={
+            section === "owedToMe"
+              ? () => {
+                  setInvoicesTarget(statementTarget);
+                  setStatementTarget(null);
+                }
+              : undefined
+          }
+          onOpenPurchase={
+            section === "suppliers"
+              ? () => {
+                  setPurchasesTarget(statementTarget);
+                  setStatementTarget(null);
+                }
+              : undefined
+          }
         />
       )}
 

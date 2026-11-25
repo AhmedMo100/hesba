@@ -25,7 +25,9 @@ describe("Home report — no fabricated money", () => {
   it("does not read the sales or expenses lists to compute money itself", () => {
     expect(source).not.toMatch(/fetch\("\/api\/sales"/);
     expect(source).not.toMatch(/fetch\("\/api\/expenses/);
-    expect(source).toMatch(/fetchHomeReport\(/);
+    // Home has no profit card since 2026-11-26 (ADR-0037): «فلوس المحل» is the server's total.
+    expect(source).not.toMatch(/fetchHomeReport\(|netProfitPiasters|ربحك/);
+    expect(source).toMatch(/apiGet\("\/api\/money"\)/);
   });
 
   it("the client contract rejects a report with renamed or missing money fields", () => {

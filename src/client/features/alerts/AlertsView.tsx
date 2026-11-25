@@ -2,7 +2,7 @@
 
 import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Icon, Modal, useToast } from "@/client/shared/ui";
+import { Icon, Modal, PageTitle, useToast } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import {
   isServiceProduct,
@@ -27,7 +27,38 @@ import {
 import { useAuth } from "@/client/shared/auth";
 import { unitWord as unitWordOf } from "@/client/shared/unit-labels";
 import { MachineTopupModal } from "../stock/MachineTopupModal";
+import { RecordLossModal } from "../stock/RecordLossModal";
+import type { StockInventoryItem } from "@/client/shared/store-items";
+import {
+  WASTE_REASON_LABELS,
+  WASTE_SOURCE_LABELS,
+  type WasteReason,
+  type WasteSource,
+} from "@/schemas/inventory";
 import styles from "./AlertsView.module.css";
+
+/** One row of «سجل التالف» (`GET /api/stock?view=waste`). */
+interface WasteRow {
+  id: string;
+  productName: string;
+  quantityBase: number;
+  quantityText: string;
+  reason: string;
+  note: string | null;
+  costPiasters: number;
+  source: string | null;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+const wasteDay = (iso: string) =>
+  new Date(iso).toLocaleString("ar-EG", {
+    timeZone: "Africa/Cairo",
+    day: "numeric",
+    month: "short",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 
 export function AlertsView({
   mode = "machines",
@@ -40,7 +71,36 @@ export function AlertsView({
   const { session } = useAuth();
   const storeId = session?.store?.id;
 
-  const [tab, setTab] = useState<"stock" | "exp">("stock");
+  const [tab, setTab] = useState<"stock" | "exp" | "waste">("stock");
+  // «التالف» (ADR-0037): the log of what was recorded as damaged, and the form to record more.
+  const [wasteLog, setWasteLog] = useState<WasteRow[] | null>(null);
+  const [wasteError, setWasteError] = useState<string | null>(null);
+  const [stockItems, setStockItems] = useState<StockInventoryItem[]>([]);
+  const [lossOpen, setLossOpen] = useState(false);
+  const loadWaste = useCallback(() => {
+    fetch("/api/stock?view=waste", { credentials: "same-origin" })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (!r.ok)
+          throw new Error(j?.error?.message || "مقدرناش نجيب سجل التالف");
+        setWasteLog((j?.waste ?? []) as WasteRow[]);
+        setWasteError(null);
+      })
+      .catch((e: unknown) =>
+        setWasteError(
+          e instanceof Error ? e.message : "مقدرناش نجيب سجل التالف",
+        ),
+      );
+    apiGet("/api/stock")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (Array.isArray(d?.inventory)) setStockItems(d.inventory);
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (mode === "alerts") loadWaste();
+  }, [mode, loadWaste]);
   const [loading, setLoading] = useState(true);
   const [outOfStock, setOutOfStock] = useState<StockAlertItem[]>([]);
   const [lowStock, setLowStock] = useState<StockAlertItem[]>([]);
@@ -261,6 +321,7 @@ export function AlertsView({
           batchId: wasteTarget.batchId,
           quantityBase: wasteTarget.remainingQtyBase,
           reason: "expired",
+          source: "alerts",
         }),
       });
 
@@ -420,7 +481,7 @@ export function AlertsView({
       {mode === "alerts" && (
         <>
           {/* V17 alerts form, as a page: نفاد / صلاحية */}
-          <h2 className={styles.h2}>التنبيهات</h2>
+          <PageTitle>إيه اللي محتاج تاخد بالك منه؟</PageTitle>
           <div className={styles.tabsFill} role="tablist">
             <button
               type="button"
@@ -442,7 +503,81 @@ export function AlertsView({
             >
               صلاحية ({totalExpiryAlerts})
             </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "waste"}
+              className={`${styles.tab} ${tab === "waste" ? styles.tabOn : ""}`}
+              onClick={() => setTab("waste")}
+              data-testid="alerts-tab-waste"
+            >
+              التالف ({wasteLog?.length ?? 0})
+            </button>
           </div>
+
+          {tab === "waste" && (
+            <>
+              <button
+                type="button"
+                className={styles.wasteAdd}
+                onClick={() => setLossOpen(true)}
+                data-testid="waste-add"
+              >
+                + سجّل منتج تالف
+              </button>
+              {wasteError && (
+                <div className={styles.note} role="alert">
+                  {wasteError}{" "}
+                  <button
+                    type="button"
+                    className={styles.mini}
+                    onClick={loadWaste}
+                  >
+                    جرّب تاني
+                  </button>
+                </div>
+              )}
+              {!wasteLog && !wasteError && (
+                <div className={styles.note}>بنحمّل…</div>
+              )}
+              {wasteLog && wasteLog.length === 0 && (
+                <div className={styles.note} data-testid="waste-empty">
+                  لسه مفيش تالف متسجّل.
+                </div>
+              )}
+              {(wasteLog ?? []).map((w) => (
+                <div
+                  key={w.id}
+                  className={styles.rowItem}
+                  data-testid="waste-row"
+                >
+                  <span className={styles.rowEm} aria-hidden="true">
+                    🗑️
+                  </span>
+                  <span className={styles.rowT} style={{ flex: 1 }}>
+                    <b>{w.productName}</b>
+                    <span>
+                      {w.quantityText} ·{" "}
+                      {WASTE_REASON_LABELS[w.reason as WasteReason] ?? w.reason}
+                      {w.note ? ` · ${w.note}` : ""}
+                    </span>
+                    <small className={styles.wasteMeta}>
+                      {wasteDay(w.createdAt)}
+                      {w.source
+                        ? ` · من ${WASTE_SOURCE_LABELS[w.source as WasteSource] ?? w.source}`
+                        : ""}
+                      {w.createdByName ? ` · ${w.createdByName}` : ""}
+                    </small>
+                  </span>
+                  <b className={styles.wasteCost} data-testid="waste-cost">
+                    {w.costPiasters > 0
+                      ? `−${formatMoney(w.costPiasters)}`
+                      : "التكلفة مش معروفة"}
+                  </b>
+                </div>
+              ))}
+            </>
+          )}
 
           {showStock &&
             !loading &&
@@ -593,6 +728,20 @@ export function AlertsView({
         <div className={styles.note}>
           عايز تعمل عرض على حاجة قربت تخلص صلاحيتها؟ اعمله من «بضاعتي».
         </div>
+      )}
+
+      {lossOpen && (
+        <RecordLossModal
+          items={stockItems}
+          source="alerts"
+          onClose={() => setLossOpen(false)}
+          onSaved={(message) => {
+            setLossOpen(false);
+            toast.show({ msg: message, kind: "ok" });
+            loadWaste();
+            void loadAlerts();
+          }}
+        />
       )}
 
       {/* Restock Modal */}

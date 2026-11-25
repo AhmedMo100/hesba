@@ -39,7 +39,15 @@ export interface DrawerFlow {
     | "expenses"
     | "supplierPayments"
     | "stockPurchases"
-    | "machineTopups";
+    | "machineTopups"
+    /** «فلوس حِسبة»: owner deposits and transfers into the drawer. */
+    | "moneyIn"
+    /** «فلوس حِسبة»: owner withdrawals and transfers out of the drawer. */
+    | "moneyOut"
+    /** Services paid in cash by the customer (and cancelled withdrawals given back). */
+    | "serviceCashIn"
+    /** Cash paid out for services (wallet withdrawals, and cancelled sends given back). */
+    | "serviceCashOut";
   direction: "in" | "out";
   count: number;
   amountPiasters: number;

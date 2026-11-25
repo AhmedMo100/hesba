@@ -22,16 +22,30 @@ export interface MachineFormSheetProps {
   storeId?: string;
   onClose: () => void;
   onSaved: (machines: PosMachine[], message: string) => void;
+  /** A new account: a machine (فوري، أمان…) or a wallet (فودافون كاش، إنستاباي…). */
+  kind?: "machine" | "wallet";
 }
 
 /** The balance a new machine starts with is recorded as its first top-up. */
 export const OPENING_BALANCE_SOURCE = "رصيد أول ما اتسجلت";
+
+/** A wallet's provider mark (machines keep their name as provider, as before). */
+export const WALLET_PROVIDER = "محفظة";
+
+/** Whether an account is a wallet (by its mark, or by a wallet-like name for older rows). */
+export function isWalletAccount(m: { provider?: string | null; name: string }) {
+  return (
+    m.provider === WALLET_PROVIDER ||
+    /محفظ|كاش|wallet|insta|إنستا|انستا/i.test(m.name)
+  );
+}
 
 export function MachineFormSheet({
   machine,
   storeId,
   onClose,
   onSaved,
+  kind = "machine",
 }: MachineFormSheetProps) {
   const [name, setName] = useState(machine?.name ?? "");
   const [balance, setBalance] = useState("");
@@ -71,7 +85,10 @@ export function MachineFormSheet({
                   status: machine.status,
                   notes: machine.notes ?? null,
                 }
-              : { name: trimmed, provider: trimmed },
+              : {
+                  name: trimmed,
+                  provider: kind === "wallet" ? WALLET_PROVIDER : trimmed,
+                },
           ),
         });
         const json = (await res.json().catch(() => null)) as {
@@ -94,7 +111,14 @@ export function MachineFormSheet({
         );
       }
       const list = await fetchStoreMachines(storeId);
-      onSaved(list, machine ? "اتغيّر الاسم ✅" : "اتحفظت الماكينة ✅");
+      onSaved(
+        list,
+        machine
+          ? "اتغيّر الاسم ✅"
+          : kind === "wallet"
+            ? "اتحفظت المحفظة ✅"
+            : "اتحفظت الماكينة ✅",
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "حصلت مشكلة، جرّب تاني");
     } finally {
@@ -104,7 +128,13 @@ export function MachineFormSheet({
 
   return (
     <Modal
-      title={machine ? "تعديل الاسم" : "ماكينة أو محفظة جديدة"}
+      title={
+        machine
+          ? "تعديل الاسم"
+          : kind === "wallet"
+            ? "محفظة جديدة"
+            : "ماكينة جديدة"
+      }
       onClose={onClose}
     >
       <div data-testid="machine-form">
@@ -117,7 +147,11 @@ export function MachineFormSheet({
           dir="auto"
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="مثلاً: فوري، فودافون كاش، إنستاباي"
+          placeholder={
+            kind === "wallet"
+              ? "مثلاً: فودافون كاش، إنستاباي"
+              : "مثلاً: فوري، أمان، ماكينة الفيزا"
+          }
           data-testid="machine-form-name"
         />
         {!machine && (
