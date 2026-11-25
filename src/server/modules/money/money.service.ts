@@ -19,7 +19,7 @@ import "server-only";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
 import { changeMachineBalanceInTx } from "@/server/modules/machines";
-import { drawerViewInTx } from "@/server/modules/drawer";
+import { drawerExpectedInTx } from "@/server/modules/drawer";
 import type {
   MoneyAccountView,
   MoneyMovementInput,
@@ -168,7 +168,8 @@ export async function getMoneyOverview(
   userId: string | null,
 ): Promise<MoneyOverview> {
   return withTenant(storeId, userId, async (tx) => {
-    const drawer = await drawerViewInTx(tx, storeId);
+    // Only the drawer's expected cash: the screen's movement lists are not needed here.
+    const expectedCash = await drawerExpectedInTx(tx, storeId);
     const machines = await tx.posMachine.findMany({
       where: { storeId, deletedAt: null },
       orderBy: { createdAt: "asc" },
@@ -204,7 +205,7 @@ export async function getMoneyOverview(
         kind: "cash",
         name: "الدرج (كاش)",
         provider: null,
-        balancePiasters: drawer.expectedPiasters,
+        balancePiasters: expectedCash,
       },
       ...machines.map((m) => ({
         id: m.id,
@@ -217,7 +218,7 @@ export async function getMoneyOverview(
     return {
       accounts,
       totalPiasters: accounts.reduce((s, a) => s + (a.balancePiasters ?? 0), 0),
-      cashKnown: drawer.expectedPiasters !== null,
+      cashKnown: expectedCash !== null,
       movements: movements.map(view),
       machineActivity: activity.map((a) => ({
         id: a.id,

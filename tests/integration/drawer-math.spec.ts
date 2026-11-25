@@ -12,9 +12,12 @@ import { MachinesService } from "@/server/modules/machines";
 import { ExpenseService } from "@/server/modules/expenses";
 import {
   DRAWER_TOPUP_SOURCE,
+  drawerExpectedInTx,
   getDrawer,
   recordDrawerCount,
 } from "@/server/modules/drawer";
+import { getMoneyOverview } from "@/server/modules/money";
+import { withTenant } from "@/server/infra/db/tenant";
 import { GET as drawerGet, POST as drawerPost } from "@/app/api/drawer/route";
 import { POST as peopleRoute } from "@/app/api/people/route";
 import { POST as transactionsRoute } from "@/app/api/people/[id]/transactions/route";
@@ -293,6 +296,18 @@ describe("the drawer to the piaster", () => {
       "صنف الدرج",
     );
     expect(d.unknown.count).toBe(0);
+    // «فلوس حِسبة» and the assistant read only the expected cash (2026-11-26, fewer round
+    // trips): the same amount to the piaster as the drawer screen.
+    const money = await getMoneyOverview(A.storeId, A.userId);
+    expect(money.accounts.find((a) => a.kind === "cash")?.balancePiasters).toBe(
+      94740,
+    );
+    expect(money.cashKnown).toBe(true);
+    expect(
+      await withTenant(A.storeId, A.userId, (tx) =>
+        drawerExpectedInTx(tx, A.storeId),
+      ),
+    ).toBe(d.expectedPiasters);
   });
 
   it("closing records the server's difference once", async () => {

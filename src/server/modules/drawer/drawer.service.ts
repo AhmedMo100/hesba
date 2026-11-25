@@ -734,6 +734,34 @@ async function unknownSince(tx: TenantTx, storeId: string, since: Date) {
   };
 }
 
+/**
+ * The cash the drawer should hold now: the last count + money in − money out since it, from the
+ * same flows as the drawer screen ({@link flowsSince}). `null` when the drawer was never counted.
+ * For «فلوس حِسبة» and the assistant, which need only this number: it skips the screen's lists
+ * (each movement since the count, the unrecorded ones, the last five counts) — about 19 database
+ * round trips fewer per request, the same amount to the piaster (pinned by a test).
+ */
+async function expectedInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<number | null> {
+  const last = await tx.cashDrawerCount.findFirst({
+    where: { storeId },
+    orderBy: { countedAt: "desc" },
+    select: { countedPiasters: true, countedAt: true },
+  });
+  if (!last) return null;
+  const flows = await flowsSince(tx, storeId, last.countedAt);
+  return (
+    Number(last.countedPiasters) +
+    flows.reduce(
+      (n, f) =>
+        n + (f.direction === "in" ? f.amountPiasters : -f.amountPiasters),
+      0,
+    )
+  );
+}
+
 async function viewInTx(tx: TenantTx, storeId: string): Promise<DrawerView> {
   const counts = await tx.cashDrawerCount.findMany({
     where: { storeId },
@@ -846,7 +874,15 @@ export async function recordDrawerCount(
   );
 }
 
-/** The drawer view inside a caller's tenant transaction («فلوس حِسبة», reports). */
+/** Only the drawer's expected cash, inside a caller's tenant transaction (see `expectedInTx`). */
+export async function drawerExpectedInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<number | null> {
+  return expectedInTx(tx, storeId);
+}
+
+/** The drawer view inside a caller's tenant transaction. */
 export async function drawerViewInTx(
   tx: TenantTx,
   storeId: string,

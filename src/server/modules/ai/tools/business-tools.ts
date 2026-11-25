@@ -20,7 +20,7 @@ import {
   dailyTotalsInRange,
   periodProfitInTx,
 } from "@/server/modules/reports";
-import { drawerViewInTx } from "@/server/modules/drawer";
+import { drawerExpectedInTx } from "@/server/modules/drawer";
 import { serviceSummaryInRange } from "@/server/modules/services";
 import { countEffectsInRange } from "@/server/modules/inventory";
 import {
@@ -412,7 +412,7 @@ export class BusinessToolsService {
     tx: Prisma.TransactionClient,
     storeId: string,
   ) {
-    const drawer = await drawerViewInTx(tx, storeId);
+    const expectedCash = await drawerExpectedInTx(tx, storeId);
     const machines = await tx.posMachine.findMany({
       where: { storeId, deletedAt: null },
       select: { name: true, currentBalancePiasters: true },
@@ -429,11 +429,11 @@ export class BusinessToolsService {
       balance_piasters: Number(m.currentBalancePiasters),
     }));
     return {
-      drawer_expected_piasters: drawer.expectedPiasters,
-      drawer_never_counted: drawer.expectedPiasters === null,
+      drawer_expected_piasters: expectedCash,
+      drawer_never_counted: expectedCash === null,
       wallets,
       total_known_piasters:
-        (drawer.expectedPiasters ?? 0) +
+        (expectedCash ?? 0) +
         wallets.reduce((s, w) => s + w.balance_piasters, 0),
       recent_owner_and_transfer_movements: recent.map((r) => ({
         kind:
