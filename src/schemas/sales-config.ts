@@ -50,10 +50,9 @@ export const serviceCommissionRuleSchema = z
   })
   .strict()
   .superRefine((rule, ctx) => {
-    // The service form is slabs only: a rule without slabs is not saved anymore.
-    for (const message of commissionRuleErrors(rule as ServiceCommissionRule, {
-      slabsRequired: true,
-    })) {
+    // ADR-0036: one fixed amount or one percentage for every operation (tiers empty), or
+    // tiers by the operation's amount — the same rule engine either way.
+    for (const message of commissionRuleErrors(rule as ServiceCommissionRule)) {
       ctx.addIssue({ code: "custom", message });
     }
   });

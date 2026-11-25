@@ -309,16 +309,19 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
     expect(html).toContain("تعديل الخدمة");
     expect(html).toContain("اسم الخدمة");
     expect(html).toContain("دفع فاتورة إنترنت منزلي وي");
-    // Commission: slabs only (no separate commission field), each fixed or a percentage;
-    // an older service's commission (its price, 5 ج) starts in the first slab.
-    expect(html).toContain("عمولتك حسب قيمة العملية");
-    expect(html).toContain('data-testid="service-tier"');
+    // Commission (ADR-0036): a fixed amount, a percentage, or tiers by amount — one rule. An
+    // older service's commission (its price, 5 ج) starts as the fixed amount.
+    expect(html).toContain("عمولتك");
+    expect(html).toContain('data-testid="service-kind-fixed"');
+    expect(html).toContain('data-testid="service-kind-percent"');
+    expect(html).toContain('data-testid="service-kind-slabs"');
     expect(html).toContain("مبلغ ثابت");
     expect(html).toContain("نسبة %");
-    expect(html).toContain('value="5"');
+    expect(html).toMatch(/data-testid="service-commission-value" value="5"/);
+    expect(html).toContain("عملية بـ 100");
     expect(html).not.toContain('data-testid="service-fee"');
-    expect(html).not.toContain("العمولة (جنيه لكل عملية)");
-    expect(html).toContain("+ شريحة");
+    // Tiers only when chosen.
+    expect(html).not.toContain('data-testid="service-tier"');
     expect(html).toContain("بتتشحن من أنهي ماكينات / محافظ؟");
     expect(html).toContain("حفظ الخدمة");
     expect(html).toContain("🗑️ امسح الخدمة");
@@ -332,8 +335,10 @@ describe("ServiceFormModal Component (Bills, Digital Services & Recharge)", () =
     );
     expect(html).toContain("خدمة جديدة");
     expect(html).toContain("مثلاً: تحويل فودافون كاش");
-    // One empty slab to fill, and no single commission field.
-    expect(html.match(/data-testid="service-tier"/g)?.length).toBe(1);
+    // A fixed commission to fill (tiers only when chosen), and a category list.
+    expect(html).toMatch(/data-testid="service-commission-value" value=""/);
+    expect(html).not.toContain('data-testid="service-tier"');
+    expect(html).toContain("تصنيف جديد");
     expect(html).not.toContain('data-testid="service-fee"');
     expect(html).not.toContain("امسح الخدمة");
   });

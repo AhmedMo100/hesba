@@ -375,7 +375,7 @@ describe("PR #40 closing flows", () => {
     ).toBe(true);
   });
 
-  it("a service commission must be slabs: a single value is refused, slabs are saved", async () => {
+  it("a service commission: one fixed / percent value or slabs are saved; overlapping slabs are refused", async () => {
     const id = crypto.randomUUID();
     const single = await call(
       salesConfigRoute as Handler,
@@ -385,7 +385,8 @@ describe("PR #40 closing flows", () => {
         serviceCommissions: { [id]: { type: "fixed", value: 500, tiers: [] } },
       },
     );
-    expect(single.status).toBe(400);
+    // ADR-0036: one fixed amount (or one percentage) for every operation is a valid rule.
+    expect(single.status).toBe(200);
     const overlap = await call(
       salesConfigRoute as Handler,
       A,

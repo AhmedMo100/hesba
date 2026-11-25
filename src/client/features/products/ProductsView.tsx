@@ -2,7 +2,13 @@
 
 import { apiGet } from "@/client/shared/api/read-cache";
 import React, { useState, useEffect, useCallback, useMemo } from "react";
-import { Empty, Button, Modal, ListSkeleton } from "@/client/shared/ui";
+import {
+  Empty,
+  Button,
+  Modal,
+  ListSkeleton,
+  PageTitle,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { normalizeArabic } from "@/domain/normalize";
 import { stockLevel } from "@/domain/alerts";
@@ -473,6 +479,7 @@ export function ProductsView() {
 
   return (
     <div className={styles.view} data-testid="page-products">
+      <PageTitle>إيه اللي عندك في المحل؟</PageTitle>
       {/* V19: «+ جديد» (offer / sandwich / product) */}
       <button
         type="button"
@@ -927,6 +934,7 @@ export function ProductsView() {
       {lossTarget && (
         <RecordLossModal
           item={lossTarget.item}
+          source="products"
           presetReason={lossTarget.reason}
           onClose={() => setLossTarget(null)}
           onSaved={(message) => {

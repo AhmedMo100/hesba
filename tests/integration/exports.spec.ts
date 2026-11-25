@@ -111,7 +111,12 @@ describe("exports", () => {
     expect(home.sales.revenuePiasters).toBe(37035);
     expect(csv).toContain(`بعت بكام,${revenue.toFixed(2)}`);
     expect(csv).toContain("زيت التصدير");
-    const xlsx = await get(reportExport, A, "/api/reports/export?period=month");
+    // الكاشير الذكي reads days only (ADR-0036): the default Excel file of «امبارح».
+    const xlsx = await get(
+      reportExport,
+      A,
+      "/api/reports/export?period=yesterday",
+    );
     expect(xlsx.headers.get("Content-Type")).toContain("spreadsheetml");
     expect(xlsx.headers.get("Content-Disposition")).toContain(".xlsx");
     const bytes = new Uint8Array(await xlsx.arrayBuffer());

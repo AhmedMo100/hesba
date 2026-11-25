@@ -5,7 +5,7 @@
  * @description The shop-name button in the header and its menu, ported from the demo
  * (`docs/demo/src/g_app.jsx` `StoreMenu`): shop and owner name with the connection state,
  * account/shop details, the theme (moved here from the top bar), sync status with
- * "sync now", and logout.
+ * "sync now", and the shop's package (read-only). Logout is at the end of Home.
  *
  * @remarks
  * The demo's "simulate offline" and "reset demo data" items are demo-only and not ported.
@@ -28,13 +28,13 @@ export interface StoreMenuProps {
   pendingCount: number;
   onSyncNow: () => void;
   onOpenProfile: () => void;
-  onLogout: () => void;
   /** Signed in (a session or a saved identity): account items are shown. */
   signedIn: boolean;
   /** When set, the trigger shows this page title instead of the app name. */
   pageTitle?: string;
-  /** «طريقة التشغيل» and «الاشتراك» (ADR-0033), shown when signed in. */
-  onOpenMode?: () => void;
+  /** The shop's package, shown read-only: Hesba's administration changes it (ADR-0037). */
+  packageLabel?: string;
+  /** «الاشتراك» (ADR-0033), shown when signed in. */
   onOpenSubscription?: () => void;
 }
 
@@ -56,10 +56,9 @@ export function StoreMenu({
   pendingCount,
   onSyncNow,
   onOpenProfile,
-  onLogout,
   signedIn,
   pageTitle,
-  onOpenMode,
+  packageLabel,
   onOpenSubscription,
 }: StoreMenuProps) {
   const [open, setOpen] = useState(false);
@@ -132,20 +131,17 @@ export function StoreMenu({
                 {t("storeMenu.profile")}
               </button>
             )}
-            {signedIn && onOpenMode && (
-              <button
-                type="button"
-                className={styles.item}
-                role="menuitem"
-                data-testid="store-menu-mode"
-                onClick={() => {
-                  setOpen(false);
-                  onOpenMode();
-                }}
+            {signedIn && packageLabel && (
+              <div
+                className={styles.packageRow}
+                data-testid="store-menu-package"
               >
                 <Icon n="layers" s={18} />
-                {t("storeMenu.mode")}
-              </button>
+                <span>
+                  <b>الباقة: {packageLabel}</b>
+                  <small>لتغيير الباقة كلّم إدارة حِسبة</small>
+                </span>
+              </div>
             )}
             {signedIn && onOpenSubscription && (
               <button
@@ -199,21 +195,6 @@ export function StoreMenu({
                 </button>
               </div>
             </div>
-
-            {signedIn && (
-              <button
-                type="button"
-                className={`${styles.item} ${styles.danger}`}
-                role="menuitem"
-                onClick={() => {
-                  setOpen(false);
-                  onLogout();
-                }}
-              >
-                <Icon n="logout" s={18} />
-                {t("storeMenu.logout")}
-              </button>
-            )}
           </MenuBox>
         </>
       )}

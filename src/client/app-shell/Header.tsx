@@ -5,6 +5,7 @@ import styles from "./Header.module.css";
 import { StoreMenu, type StoreMenuProps } from "./StoreMenu";
 import { useTheme, type ThemeMode } from "../shared/theme";
 import { t } from "../shared/i18n";
+import { Icon } from "../shared/ui";
 import type { NavRoute } from "./BottomNav";
 
 const THEME_GLYPH: Record<ThemeMode, string> = {
@@ -19,13 +20,16 @@ const PAGE_TITLE: Partial<Record<NavRoute, string>> = {
   "daily-sales": "pageTitle.dailySales",
   expenses: "pageTitle.expenses",
   people: "pageTitle.people",
-  alerts: "pageTitle.alerts",
+  alerts: "pageTitle.money",
   products: "pageTitle.products",
   ai: "pageTitle.ai",
   inventory: "pageTitle.inventory",
   reports: "pageTitle.reports",
   drawer: "pageTitle.drawer",
   notifications: "pageTitle.notifications",
+  money: "pageTitle.money",
+  services: "pageTitle.services",
+  stocktake: "pageTitle.stocktake",
 };
 
 export interface HeaderProps extends StoreMenuProps {
@@ -50,8 +54,9 @@ export function Header({ onBack, route, ...menu }: HeaderProps) {
             className={styles.backBtn}
             onClick={onBack}
             aria-label="رجوع للرئيسية"
+            data-testid="header-back"
           >
-            <span aria-hidden="true">→</span>
+            <Icon n="back" s={26} sw={2.6} />
           </button>
         )}
         <StoreMenu {...menu} pageTitle={pageTitle} />

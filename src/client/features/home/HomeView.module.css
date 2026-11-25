@@ -1044,3 +1044,496 @@
 .nowrap {
   white-space: nowrap;
 }
+
+/* ─── Home hub (2026-11-23): greeting + logout, two numbers, the actions, the jard button ─── */
+.homePage {
+  padding-bottom: 24px;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 4px 0 12px;
+}
+
+.topRow .hello {
+  margin: 0;
+}
+
+/* The only logout: below every card, the cards' full width, a big thumb target. */
+.logoutBottom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 56px;
+  margin-top: 18px;
+  padding: 0 18px;
+  border-radius: 18px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--red, #b3261e);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.logoutBottom:active {
+  transform: scale(0.98);
+}
+
+.twoCards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.numCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  min-height: 104px;
+  background: var(--card);
+  border: 0;
+  border-radius: 18px;
+  padding: 14px;
+  text-align: start;
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.numCard small {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.numCard b {
+  font-size: 24px;
+  font-weight: 900;
+  overflow-wrap: anywhere;
+}
+
+.numCard em {
+  font-style: normal;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.numGood b {
+  color: var(--green);
+}
+
+.numCard .numErr {
+  color: var(--red);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.act {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 112px;
+  padding: 14px 8px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 19px;
+  font-weight: 800;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.act i {
+  font-style: normal;
+  font-size: 36px;
+  line-height: 1;
+}
+
+.act:active,
+.numCard:active,
+.fab:active {
+  transform: scale(0.97);
+}
+
+.actSell {
+  background: var(--gold);
+  color: #1f3326;
+}
+
+.actWide {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  min-height: 72px;
+  background: #e9dcc0;
+  color: #1f3326;
+}
+
+:root[data-theme="dark"] .actWide {
+  background: #3a3424;
+  color: #eee6d2;
+}
+
+.fab {
+  position: fixed;
+  inset-inline-end: 16px;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 60px;
+  padding: 0 22px;
+  border: 0;
+  border-radius: 30px;
+  background: #1f3326;
+  color: #f7f4ec;
+  font-family: inherit;
+  font-size: 18px;
+  cursor: pointer;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+}
+
+.fab span {
+  font-size: 26px;
+  line-height: 1;
+}
+
+@media (min-width: 900px) {
+  .actions {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+  .fab {
+    inset-inline-end: calc(50% - 360px);
+  }
+}
+
+/* ─── Home: one line of alerts (ADR-0036) ─── */
+.alertLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 48px;
+  margin: 10px 0 4px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--redBg);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* Nothing to warn about: a calm line, not the red of a real alert. */
+.alertLineCalm {
+  background: var(--chip);
+  font-weight: 600;
+}
+
+.alertLine > span:nth-child(2) {
+  flex: 1;
+  min-width: 0;
+}
+
+.alertGo {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+/* ─── Reports: the title with the export / share icons ─── */
+.reportHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.reportIcons {
+  display: flex;
+  gap: 8px;
+}
+
+.iconBtn {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+}
+
+.iconBtn svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.iconBtn:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+.iconBtn:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* «فترة»: «من» and «لحد» side by side (days or months, by package). */
+.rangeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.rangeRow label {
+  min-width: 0;
+}
+
+/* «محلك ماشي إزاي؟» beside the export / share icons. */
+.reportTitle {
+  margin: 4px 0 8px;
+  min-width: 0;
+}
+
+/* ─── Home (owner's layout, 2026-11-26): money · four steps · الجرد · four more · logout ─── */
+
+/* The bell beside «أهلاً بيك»: opens «التنبيهات», its count on it. */
+.bell {
+  position: relative;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border-radius: 24px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.bellCount {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 11px;
+  background: var(--red, #b3261e);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 22px;
+  text-align: center;
+}
+
+/* «فلوس المحل»: the row's full width. */
+.moneyWide {
+  width: 100%;
+  min-height: 96px;
+  margin-bottom: 14px;
+}
+
+.moneyWide b {
+  font-size: 30px;
+}
+
+/* The four steps: ١ ← ٢ / elbow / ٣ ← ٤. Columns: step · arrow · step (RTL: ١ on the right). */
+.steps {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
+  align-items: stretch;
+  margin-bottom: 14px;
+}
+
+.step {
+  position: relative;
+  min-height: 104px;
+  padding: 16px 8px 12px;
+  border: 0;
+  border-radius: 20px;
+  font-family: inherit;
+  text-align: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.step i {
+  font-style: normal;
+  font-size: 30px;
+  line-height: 1;
+}
+
+.stepLabel {
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.stepNum {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 26px;
+  height: 26px;
+  border-radius: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  font-weight: 900;
+}
+
+.stepGreen {
+  background: #4a6548;
+  color: #f7f4ec;
+}
+
+.stepGreen .stepNum {
+  background: #efe8d8;
+  color: #1f3326;
+}
+
+.stepGold {
+  background: var(--gold);
+  color: #1f3326;
+}
+
+.stepGold .stepNum {
+  background: #1f3326;
+  color: #f3ecdc;
+}
+
+:root[data-theme="dark"] .stepGreen {
+  background: #2e4a36;
+  color: #eee6d2;
+}
+
+/* «←» between two steps of a row: in the gap, never on a card. */
+.stepArrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+
+/* The turn from ٢ (left, first row) down to ٣ (right, second row): an elbow line. */
+.stepTurn {
+  grid-column: 1 / -1;
+  position: relative;
+  height: 30px;
+  --stepCenter: calc((100% - 30px) / 4);
+}
+
+.stepTurn::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  height: 50%;
+  left: var(--stepCenter);
+  right: calc(var(--stepCenter) + 10px);
+  border-left: 2px solid var(--muted);
+  border-bottom: 2px solid var(--muted);
+  border-bottom-left-radius: 10px;
+}
+
+.stepTurn::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 2px);
+  bottom: 6px;
+  right: var(--stepCenter);
+  width: 10px;
+  border-right: 2px solid var(--muted);
+  border-top: 2px solid var(--muted);
+  border-top-right-radius: 10px;
+}
+
+.stepTurnHead {
+  position: absolute;
+  bottom: 0;
+  right: calc(var(--stepCenter) - 5px);
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 7px solid var(--muted);
+}
+
+/* «الجرد»: the row's full width. */
+.stocktakeWide {
+  width: 100%;
+  min-height: 72px;
+  margin-bottom: 14px;
+  border: 0;
+  border-radius: 20px;
+  background: var(--gold);
+  color: #1f3326;
+  font-family: inherit;
+  font-size: 21px;
+  font-weight: 800;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.stocktakeWide i {
+  font-style: normal;
+  font-size: 28px;
+}
+
+/* «اسأل حسبة»: a little different from the other cards, nothing loud. */
+.tileAsk {
+  background: #e7eee5;
+  color: #1f3326;
+  box-shadow: inset 0 0 0 1.5px #c7d8c4;
+}
+
+:root[data-theme="dark"] .tileAsk {
+  background: #263b2d;
+  color: #eee6d2;
+  box-shadow: inset 0 0 0 1.5px #3c5a44;
+}

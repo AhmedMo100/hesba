@@ -138,6 +138,22 @@ export function legacyCommissionRule(
   return { type: "fixed", value: Math.max(0, sellPricePiasters), tiers: [] };
 }
 
+/**
+ * THE commission rule of a shop's service (one rule per service, ADR-0035): the rule saved for
+ * the service product in `salesConfig.serviceCommissions`, else an older service's price read as
+ * a fixed commission (5.00 when it has no price). The cashier and the services page both use it.
+ */
+export function serviceRuleOf(
+  commissions: Record<string, ServiceCommissionRule> | undefined,
+  productId: string,
+  sellPricePiasters: number,
+): ServiceCommissionRule {
+  return (
+    commissions?.[productId] ??
+    legacyCommissionRule(sellPricePiasters > 0 ? sellPricePiasters : 500)
+  );
+}
+
 /** «5 ج» / «1.5%» / «بالشرائح» — the rule in a few words (EGP from piasters). */
 export function describeCommission(rule: ServiceCommissionRule): string {
   const one = (type: CommissionType, value: number) =>
