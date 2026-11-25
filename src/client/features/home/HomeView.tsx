@@ -5,12 +5,14 @@
  * @description Home — the hub of Hesba (owner's layout, ADR-0037). No sidebar, no bottom bar,
  * in this order:
  *
- * 1. «أهلاً بيك» (with a small bell that opens «التنبيهات», its count on it).
+ * 1. «أهلاً بيك».
  * 2. «فلوس المحل», the row's full width: every account's real balance together
  *    (`GET /api/money`). A tap opens «فلوس حِسبة». Never a made-up number: a skeleton while it
  *    loads, «جرّب تاني» on failure. (No profit card on Home: profit lives in the reports.)
- * 3. The day's four steps, numbered ١–٤ with arrows between them (RTL): دخلت بضاعة → صرفت فلوس
- *    → بيعت حاجة → شوف تقاريرك.
+ *    Right under it, one plain line of alerts that opens «التنبيهات» (as before ADR-0037).
+ * 3. The day's four steps, numbered ١–٤, two by two (RTL: ١ ٢ on top, ٣ ٤ below), with three
+ *    small arrows only (owner, 2026-11-26): دخلت بضاعة ↓ بيعت حاجة, بيعت حاجة ← شوف تقاريرك,
+ *    صرفت فلوس ↓ شوف تقاريرك. «شوف تقاريرك» stands out a little, like «اسأل حسبة».
  * 4. «الجرد», the row's full width.
  * 5. البضاعة · الخدمات · اسأل حسبة (a slightly different colour) · حسابات الناس — not numbered.
  * 6. The only logout, at the very end, the row's full width.
@@ -132,7 +134,6 @@ export function HomeView({
     };
   }, []);
   const { out, low, exp } = stockAlerts;
-  const alertsTotal = out + low + exp > 0 ? out + low + exp : alertCount;
   const alertText =
     out + low + exp > 0
       ? [
@@ -144,7 +145,7 @@ export function HomeView({
           .join(" · ")
       : alertCount > 0
         ? t("home.alertGeneric", { count: alertCount })
-        : "مفيش تنبيهات دلوقتي";
+        : "";
 
   const startWithBarcode = () => {
     try {
@@ -161,11 +162,13 @@ export function HomeView({
     num: string,
     icon: string,
     label: string,
-    tone?: string,
+    tone: string | undefined,
+    area: string,
   ) => (
     <button
       type="button"
       className={`${styles.step} ${tone ?? ""}`}
+      style={{ gridArea: area }}
       onClick={() => onNavigate(route)}
       data-testid={`home-tile-${route}`}
     >
@@ -176,9 +179,16 @@ export function HomeView({
       <span className={styles.stepLabel}>{label}</span>
     </button>
   );
-  const arrow = (
-    <span className={styles.stepArrow} aria-hidden="true">
-      <Icon n="left" s={18} sw={2.8} />
+  /** A small arrow in a gap between two steps (never on a card). */
+  const arrow = (dir: "down" | "left", area: string) => (
+    <span
+      className={styles.stepArrow}
+      style={{ gridArea: area }}
+      aria-hidden="true"
+      data-testid="home-step-arrow"
+      data-dir={dir}
+    >
+      <Icon n={dir} s={18} sw={2.8} />
     </span>
   );
   const tile = (
@@ -200,27 +210,10 @@ export function HomeView({
 
   return (
     <div className={styles.homePage} data-testid="page-home" dir="rtl">
-      {/* 1. The greeting, and a small bell for «التنبيهات». */}
-      <div className={styles.topRow}>
-        <h2 className={styles.hello} data-testid="home-hello">
-          أهلاً بيك 👋
-        </h2>
-        <button
-          type="button"
-          className={styles.bell}
-          onClick={() => onNavigate("notifications")}
-          aria-label={`التنبيهات: ${alertText}`}
-          title={alertText}
-          data-testid="home-alerts"
-        >
-          <Icon n="bell" s={22} sw={2.2} />
-          {alertsTotal > 0 && (
-            <span className={styles.bellCount} data-testid="home-alerts-count">
-              {alertsTotal > 99 ? "99+" : alertsTotal}
-            </span>
-          )}
-        </button>
-      </div>
+      {/* 1. The greeting. */}
+      <h2 className={styles.hello} data-testid="home-hello">
+        أهلاً بيك 👋
+      </h2>
 
       {/* 2. «فلوس المحل», the row's full width. */}
       <button
@@ -252,6 +245,20 @@ export function HomeView({
         )}
       </button>
 
+      {/* One line of alerts under «فلوس المحل»: opens the alerts screen as it is. */}
+      <button
+        type="button"
+        className={`${styles.alertLine} ${styles.alertUnderMoney} ${alertText ? "" : styles.alertLineCalm}`}
+        onClick={() => onNavigate("notifications")}
+        data-testid="home-alerts"
+      >
+        <span aria-hidden="true">{alertText ? "⚠️" : "🔔"}</span>
+        <span>{alertText || "مفيش تنبيهات دلوقتي"}</span>
+        <span className={styles.alertGo} aria-hidden="true">
+          ←
+        </span>
+      </button>
+
       {productCount === 0 && !onboardDismissed && (
         <div className={styles.banner} data-testid="home-onboarding">
           <b>⚠️ لسه ماضفتش منتجات محلك</b>
@@ -276,17 +283,16 @@ export function HomeView({
         </div>
       )}
 
-      {/* 3. The day's four steps: ١ ← ٢, then down to ٣ ← ٤ (RTL). */}
+      {/* 3. The day's four steps, two by two (RTL: ١ ٢ on top, ٣ ٤ below), and three small
+          arrows only: ١ ↓ ٣, ٣ ← ٤, ٢ ↓ ٤. */}
       <div className={styles.steps} data-testid="home-steps">
-        {step("stock", "١", "📦", "دخلت بضاعة", styles.stepGreen)}
-        {arrow}
-        {step("expenses", "٢", "💰", "صرفت فلوس", styles.stepGreen)}
-        <span className={styles.stepTurn} aria-hidden="true">
-          <span className={styles.stepTurnHead} />
-        </span>
-        {step(sellRoute, "٣", "🛒", "بيعت حاجة", styles.stepGold)}
-        {arrow}
-        {step("reports", "٤", "📊", "شوف تقاريرك", styles.stepGreen)}
+        {step("stock", "١", "📦", "دخلت بضاعة", styles.stepGreen, "s1")}
+        {step("expenses", "٢", "💰", "صرفت فلوس", styles.stepGreen, "s2")}
+        {arrow("down", "d1")}
+        {arrow("down", "d2")}
+        {step(sellRoute, "٣", "🛒", "بيعت حاجة", styles.stepGreen, "s3")}
+        {arrow("left", "h3")}
+        {step("reports", "٤", "📊", "شوف تقاريرك", styles.stepReport, "s4")}
       </div>
 
       {/* 4. «الجرد», the row's full width. */}

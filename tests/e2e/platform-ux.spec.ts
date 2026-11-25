@@ -122,6 +122,9 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
   await expect(page.locator('[data-testid^="snav-"]')).toHaveCount(0);
   await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(9);
   await expect(page.getByTestId("home-profit")).toHaveCount(0);
+  // Three small arrows only (owner, 2026-11-26): ١ ↓ ٣, ٢ ↓ ٤, ٣ ← ٤; no bell by «أهلاً بيك».
+  await expect(page.getByTestId("home-step-arrow")).toHaveCount(3);
+  await expect(page.getByTestId("home-alerts-count")).toHaveCount(0);
   for (const [testId, screen] of [
     ["home-tile-stock", "page-stock"],
     ["home-tile-expenses", "page-expenses"],
@@ -132,7 +135,7 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
     ["home-tile-services", "page-services"],
     ["home-tile-ai", "page-ai"],
     ["home-tile-people", "page-people"],
-    // The money card and the bell open their screens.
+    // The money card and the alerts line under it open their screens.
     ["home-money", "page-money"],
     ["home-alerts", "page-notifications"],
   ] as const) {

@@ -1330,53 +1330,32 @@
 
 /* ─── Home (owner's layout, 2026-11-26): money · four steps · الجرد · four more · logout ─── */
 
-/* The bell beside «أهلاً بيك»: opens «التنبيهات», its count on it. */
-.bell {
-  position: relative;
-  flex: none;
-  width: 48px;
-  height: 48px;
-  border-radius: 24px;
-  border: 1.5px solid var(--line);
-  background: var(--card);
-  color: var(--ink);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-}
-
-.bellCount {
-  position: absolute;
-  top: -4px;
-  left: -4px;
-  min-width: 22px;
-  height: 22px;
-  padding: 0 5px;
-  border-radius: 11px;
-  background: var(--red, #b3261e);
-  color: #fff;
-  font-size: 12px;
-  font-weight: 800;
-  line-height: 22px;
-  text-align: center;
-}
-
 /* «فلوس المحل»: the row's full width. */
 .moneyWide {
   width: 100%;
   min-height: 96px;
-  margin-bottom: 14px;
+  margin-bottom: 8px;
+}
+
+/* The alerts line sits right under «فلوس المحل» (a line, not a card). */
+.alertUnderMoney {
+  margin: 0 0 14px;
 }
 
 .moneyWide b {
   font-size: 30px;
 }
 
-/* The four steps: ١ ← ٢ / elbow / ٣ ← ٤. Columns: step · arrow · step (RTL: ١ on the right). */
+/* The four steps, two by two (RTL: ١ ٢ on top, ٣ ٤ below). Three small arrows in the gaps:
+   ١ ↓ ٣ and ٢ ↓ ٤ (the middle row), ٣ ← ٤ (the middle column). Nothing between ١ and ٢. */
 .steps {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 30px minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) 22px minmax(0, 1fr);
+  grid-template-rows: auto 22px auto;
+  grid-template-areas:
+    "s1 . s2"
+    "d1 . d2"
+    "s3 h3 s4";
   align-items: stretch;
   margin-bottom: 14px;
 }
@@ -1434,14 +1413,22 @@
   color: #1f3326;
 }
 
-.stepGold {
-  background: var(--gold);
+/* «شوف تقاريرك»: a little different from the other steps (the idea of «اسأل حسبة»). */
+.stepReport {
+  background: #e7eee5;
   color: #1f3326;
+  box-shadow: inset 0 0 0 1.5px #c7d8c4;
 }
 
-.stepGold .stepNum {
-  background: #1f3326;
-  color: #f3ecdc;
+.stepReport .stepNum {
+  background: #4a6548;
+  color: #f7f4ec;
+}
+
+:root[data-theme="dark"] .stepReport {
+  background: #263b2d;
+  color: #eee6d2;
+  box-shadow: inset 0 0 0 1.5px #3c5a44;
 }
 
 :root[data-theme="dark"] .stepGreen {
@@ -1449,55 +1436,12 @@
   color: #eee6d2;
 }
 
-/* «←» between two steps of a row: in the gap, never on a card. */
+/* A small arrow in a gap between two steps: never on a card, never loud. */
 .stepArrow {
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--muted);
-}
-
-/* The turn from ٢ (left, first row) down to ٣ (right, second row): an elbow line. */
-.stepTurn {
-  grid-column: 1 / -1;
-  position: relative;
-  height: 30px;
-  --stepCenter: calc((100% - 30px) / 4);
-}
-
-.stepTurn::before {
-  content: "";
-  position: absolute;
-  top: 0;
-  height: 50%;
-  left: var(--stepCenter);
-  right: calc(var(--stepCenter) + 10px);
-  border-left: 2px solid var(--muted);
-  border-bottom: 2px solid var(--muted);
-  border-bottom-left-radius: 10px;
-}
-
-.stepTurn::after {
-  content: "";
-  position: absolute;
-  top: calc(50% - 2px);
-  bottom: 6px;
-  right: var(--stepCenter);
-  width: 10px;
-  border-right: 2px solid var(--muted);
-  border-top: 2px solid var(--muted);
-  border-top-right-radius: 10px;
-}
-
-.stepTurnHead {
-  position: absolute;
-  bottom: 0;
-  right: calc(var(--stepCenter) - 5px);
-  width: 0;
-  height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 7px solid var(--muted);
 }
 
 /* «الجرد»: the row's full width. */
