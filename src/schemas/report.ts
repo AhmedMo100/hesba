@@ -6,7 +6,10 @@ import { z } from "zod";
  * instead of silently showing zeros.
  *
  * Money is integer piasters. A cost or profit is `null` when it is not known from recorded
- * data — it is never estimated (no percentage of revenue, no lookup by product name).
+ * data — never guessed (no percentage of revenue, no lookup by product name). The one estimate,
+ * `profit.estimatedGrossProfitPiasters` / `estimatedNetProfitPiasters` (daily totals valued at
+ * the shop's own stock margin), is a separate field and is labelled: `profit.status` is
+ * `actual` | `estimated` | `incomplete`, with the reasons in `profit.notes` (ADR-0034).
  */
 
 export const REPORT_PERIODS = [
@@ -45,6 +48,14 @@ export const homeReportSchema = z.object({
     dailyTotalsCount: z.number().int().min(0).default(0),
     dailyTotalsPiasters: piasters.default(0),
     dailyTotalsCashPiasters: piasters.default(0),
+    /** The part of the daily totals sold on credit (آجل): revenue, not cash. */
+    dailyTotalsCreditPiasters: piasters.default(0),
+    /**
+     * Services sold at the cashier (bills, recharge, wallets), INSIDE the revenue above: what
+     * the customers paid. Only the commission is profit (`profit.serviceCommissionsPiasters`),
+     * so the screens show this part apart from goods sales.
+     */
+    serviceSalesPiasters: piasters.default(0),
   }),
   expenses: z.object({
     count: z.number().int().min(0),
@@ -121,6 +132,60 @@ export const homeReportSchema = z.object({
       wallet: piasters,
       card: piasters,
       debt: piasters,
+    })
+    .optional(),
+  /**
+   * «أنا كسبت كام؟» (additive). Every number is labelled: `actual` = from recorded costs only;
+   * `estimated` = part of it rests on an estimate (named in `notes`); `incomplete` = not enough
+   * data to say. Collections, supplier payments, transfers and owner withdrawals are never
+   * income or expenses here; a service counts only its commission.
+   */
+  profit: z
+    .object({
+      status: z.enum(["actual", "estimated", "incomplete"]),
+      /**
+       * Goods: invoices + daily totals + sales a cashier shop confirmed in a stocktake. Service
+       * sales are NOT here (their margin is a commission below).
+       */
+      productSalesPiasters: piasters,
+      discoveredSalesPiasters: piasters,
+      /** Cost of goods sold where it is recorded (invoices, quantities, stocktake sales). */
+      knownCogsPiasters: piasters,
+      /** Gross profit from recorded costs only; null when part of the sales has no cost. */
+      grossProfitPiasters: maybePiasters,
+      /** Gross profit with the daily totals valued at the shop's own stock margin. */
+      estimatedGrossProfitPiasters: maybePiasters,
+      /** The margin used for that estimate (selling vs cost value of today's stock), %. */
+      estimateMarginPercent: z.number().nullable(),
+      /**
+       * The services page's commissions + the cashier's service sales (paid − machine charge):
+       * the only income from services.
+       */
+      serviceCommissionsPiasters: piasters,
+      /** The operations' own amounts (money passing through the machines): never income. */
+      serviceOperationsPiasters: piasters,
+      /** Operating expenses (owner's personal spending excluded). */
+      operatingExpensesPiasters: piasters,
+      /** Damaged / lost / expired goods + unexplained stocktake shortages, at cost. */
+      inventoryLossesPiasters: piasters,
+      netProfitPiasters: maybePiasters,
+      estimatedNetProfitPiasters: maybePiasters,
+      /** Shown apart, never in profit. */
+      ownerWithdrawalsPiasters: piasters,
+      ownerDepositsPiasters: piasters,
+      lastStocktakeAt: z.string().nullable(),
+      /** Whole days since the last confirmed stocktake (server clock); null = never. */
+      daysSinceLastStocktake: z.number().int().nullable(),
+      notes: z.array(z.string()),
+    })
+    .optional(),
+  /** What today's stock is worth (not cash): at cost (FEFO batches) and at selling prices. */
+  inventoryValue: z
+    .object({
+      costPiasters: piasters,
+      sellPiasters: piasters,
+      /** Products in stock with no recorded cost (left out of `costPiasters`). */
+      unknownCostItems: z.number().int().min(0),
     })
     .optional(),
   activity: z.array(

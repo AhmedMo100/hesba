@@ -30,17 +30,20 @@ import {
 
 export function CustomerDebtSheet({
   customer,
+  startWithProducts = false,
   onClose,
   onDone,
 }: {
   customer: { id: string; name: string };
+  /** Open straight on the products (the credit invoice, الكاشير الذكي). */
+  startWithProducts?: boolean;
   onClose: () => void;
   /** After a recorded debt: the balance and the stock are re-read from the server. */
   onDone: (message: string) => void;
 }) {
   const [inventory, setInventory] = useState<StockInventoryItem[] | null>(null);
   const [lines, setLines] = useState<PickedLine[]>([]);
-  const [withProducts, setWithProducts] = useState(false);
+  const [withProducts, setWithProducts] = useState(startWithProducts);
   const [amount, setAmount] = useState("");
   const [paidNow, setPaidNow] = useState("");
   const [note, setNote] = useState("");

@@ -22,7 +22,6 @@ import { useRouter } from "next/navigation";
 import styles from "./AppShell.module.css";
 import { Header } from "./Header";
 import type { NavRoute } from "./BottomNav";
-import { SideNav } from "./SideNav";
 import { SyncBar, deriveSyncState, type SyncState } from "./SyncBar";
 import { ListSkeleton, ToastProvider } from "../shared/ui";
 import { t } from "../shared/i18n";
@@ -44,6 +43,9 @@ const loadReportsView = () => import("../features/home/ReportsView");
 const loadDrawerView = () => import("../features/home/DrawerView");
 const loadDailySalesView = () =>
   import("../features/daily-sales/DailySalesView");
+const loadMoneyView = () => import("../features/money/MoneyView");
+const loadServicesView = () => import("../features/services/ServicesView");
+const loadStocktakeView = () => import("../features/stocktake/StocktakeView");
 
 const ProductsView = lazy(loadProductsView);
 const SalesView = lazy(loadSalesView);
@@ -56,6 +58,9 @@ const InventoryView = lazy(loadInventoryView);
 const ReportsView = lazy(loadReportsView);
 const DrawerView = lazy(loadDrawerView);
 const DailySalesView = lazy(loadDailySalesView);
+const MoneyView = lazy(loadMoneyView);
+const ServicesView = lazy(loadServicesView);
+const StocktakeView = lazy(loadStocktakeView);
 
 const VALID_ROUTES: NavRoute[] = [
   "home",
@@ -71,6 +76,9 @@ const VALID_ROUTES: NavRoute[] = [
   "reports",
   "drawer",
   "notifications",
+  "money",
+  "services",
+  "stocktake",
 ];
 
 function getRouteFromPathname(pathname: string): NavRoute {
@@ -276,6 +284,9 @@ function AppShellInner() {
     loadReportsView();
     loadDrawerView();
     loadDailySalesView();
+    loadMoneyView();
+    loadServicesView();
+    loadStocktakeView();
 
     const handlePopState = () => {
       setRoute(getRouteFromPathname(window.location.pathname));
@@ -321,7 +332,7 @@ function AppShellInner() {
             onNavigate={navigate}
             operatingMode={mode}
             alertCount={alertCount}
-            onOpenAlerts={() => navigate("alerts")}
+            onOpenAlerts={() => navigate("notifications")}
             onLogout={async () => {
               await logout();
               await forgetShopIdentities(db).catch(() => {});
@@ -335,7 +346,13 @@ function AppShellInner() {
       case "sales":
         return <SalesView onNavigate={navigate} />;
       case "daily-sales":
-        return <DailySalesView />;
+        return <DailySalesView onNavigate={navigate} />;
+      case "money":
+        return <MoneyView onNavigate={navigate} />;
+      case "services":
+        return <ServicesView />;
+      case "stocktake":
+        return <StocktakeView onNavigate={navigate} />;
       case "stock":
         return <StockView />;
       case "expenses":
@@ -343,15 +360,17 @@ function AppShellInner() {
       case "people":
         return <PeopleView />;
       case "alerts":
-        return <AlertsView mode="machines" />;
+        // The stand-alone «المحافظ والماكينات» page is gone: machines and wallets live in
+        // «فلوس حِسبة» (old links land there).
+        return <MoneyView onNavigate={navigate} />;
       case "notifications":
         return <AlertsView mode="alerts" onNavigate={navigate} />;
       case "reports":
-        return <ReportsView />;
+        return <ReportsView onNavigate={navigate} />;
       case "drawer":
         return <DrawerView />;
       case "ai":
-        return <AiView />;
+        return <AiView onNavigate={navigate} />;
       case "inventory":
         return <InventoryView />;
       default:
@@ -360,7 +379,7 @@ function AppShellInner() {
             onNavigate={navigate}
             operatingMode={mode}
             alertCount={alertCount}
-            onOpenAlerts={() => navigate("alerts")}
+            onOpenAlerts={() => navigate("notifications")}
             onLogout={async () => {
               await logout();
               await forgetShopIdentities(db).catch(() => {});
@@ -517,7 +536,6 @@ function AppShellInner() {
 
   return (
     <div className={styles.app} dir="rtl">
-      <SideNav activeRoute={route} onNavigate={navigate} operatingMode={mode} />
       <div className={styles.main}>
         <Header
           storeName={storeName}

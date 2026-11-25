@@ -68,6 +68,8 @@ export const ICONS = {
   tag: "M3 6v5.7a1 1 0 0 0 .3.7l8.5 8.5a1 1 0 0 0 1.4 0l5.6-5.6a1 1 0 0 0 0-1.4L10.3 5.3a1 1 0 0 0-.7-.3H4a1 1 0 0 0-1 1zM7 9v.01",
   /** Stock / inventory: stacked boxes. */
   boxes: "M3 8h8v8H3zM13 12h8v8h-8zM7 3h10v5H7z",
+  /** Back in RTL: an arrow pointing right (the way the page came from). */
+  back: "M5 12h14M13 6l6 6-6 6",
 } as const;
 
 export type IconName = keyof typeof ICONS;

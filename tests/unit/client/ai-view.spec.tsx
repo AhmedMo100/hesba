@@ -12,9 +12,11 @@ describe("AiView Component (Assistant Chat Interface)", () => {
   it("V17 top: a new conversation and the previous ones, side by side", () => {
     const html = renderToStaticMarkup(<AiView />);
     expect(html).toContain("＋ محادثة جديدة");
-    expect(html).toContain("📚 المحادثات السابقة");
+    // The previous conversations card: the words only, no icon (2026-11-25).
+    expect(html).toContain(">المحادثات السابقة</button>");
+    expect(html).not.toContain("📚");
     expect(html.indexOf("＋ محادثة جديدة")).toBeLessThan(
-      html.indexOf("📚 المحادثات السابقة"),
+      html.indexOf("المحادثات السابقة"),
     );
   });
 

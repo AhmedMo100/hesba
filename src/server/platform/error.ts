@@ -261,8 +261,34 @@ export function toSafeErrorResponse(
   // Every unexpected failure gets a short id, logged with the error and returned in the body
   // (`request_id`): what the owner reports to support can be found in the logs.
   const id = requestId ?? newErrorId();
+  if (isSchemaMismatch(prismaCode, rawSqlState, error)) {
+    // The code reads a table / column this database does not have: a migration was not
+    // applied (`prisma migrate status`). Still a 500 — said plainly in the log, not hidden.
+    logger.error(
+      { err: error, requestId: id, schemaMismatch: true },
+      "Database schema is behind the code (pending migration?)",
+    );
+    return AppError.internal().toResponse(id);
+  }
   logger.error({ err: error, requestId: id }, "Internal API error");
   return AppError.internal().toResponse(id);
+}
+
+/**
+ * A missing table or column: Prisma P2021 / P2022, or Postgres 42P01 (undefined_table) /
+ * 42703 (undefined_column) from a raw query.
+ */
+function isSchemaMismatch(
+  prismaCode: string | undefined,
+  rawSqlState: string | undefined,
+  error: unknown,
+): boolean {
+  if (prismaCode === "P2021" || prismaCode === "P2022") return true;
+  if (rawSqlState === "42P01" || rawSqlState === "42703") return true;
+  const message = error instanceof Error ? error.message : "";
+  return /\b(42P01|42703)\b|relation "[^"]+" does not exist|column "[^"]+" does not exist/.test(
+    message,
+  );
 }
 
 /** A short random id for one failed request (not secret, not derived from any data). */

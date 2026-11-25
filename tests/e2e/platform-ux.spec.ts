@@ -114,17 +114,25 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
   await signup(page.request, "محل التنقل");
   await open(page, "/app", "page-home");
   await expect(page.locator('[data-testid^="bnav-"]')).toHaveCount(0);
-  for (const [route, screen] of [
-    ["stock", "page-stock"],
-    ["expenses", "page-expenses"],
-    ["sales", "page-sales"],
-    ["people", "page-people"],
-    ["alerts", "page-alerts"],
-    ["products", "page-products"],
-    ["inventory", "page-inventory"],
-    ["ai", "page-ai"],
+  await expect(page.getByTestId("home-tile-alerts")).toHaveCount(0);
+  // No sidebar either; Home has exactly the eight actions in the owner's order (ADR-0036).
+  await expect(page.locator('[data-testid^="snav-"]')).toHaveCount(0);
+  await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(8);
+  for (const [testId, screen] of [
+    ["home-tile-stock", "page-stock"],
+    ["home-tile-expenses", "page-expenses"],
+    ["home-tile-sales", "page-sales"],
+    ["home-tile-people", "page-people"],
+    ["home-tile-products", "page-products"],
+    ["home-tile-services", "page-services"],
+    ["home-tile-ai", "page-ai"],
+    ["home-tile-stocktake", "page-stocktake"],
+    // The two numbers and the alerts line open their screens.
+    ["home-money", "page-money"],
+    ["home-profit", "page-reports"],
+    ["home-alerts", "page-notifications"],
   ] as const) {
-    await page.getByTestId(`home-tile-${route}`).click();
+    await page.getByTestId(testId).click();
     await expect(page.getByTestId(screen)).toBeVisible(PAGE_LOAD);
     await page.getByRole("button", { name: "رجوع للرئيسية" }).click();
     await expect(page.getByTestId("page-home")).toBeVisible(PAGE_LOAD);
@@ -195,11 +203,15 @@ test("stock form: the quantity follows the product's unit; reports have the six 
   await page.keyboard.press("Escape");
 
   await open(page, "/app/reports", "page-reports");
-  for (const p of ["today", "yesterday", "week", "month", "year", "custom"]) {
+  // الكاشير الذكي reads days (ADR-0036): today, yesterday, a year, or a range of days.
+  for (const p of ["today", "yesterday", "year", "range"]) {
     await expect(page.getByTestId(`report-period-${p}`)).toBeVisible();
   }
-  await page.getByTestId("report-period-custom").click();
-  await expect(page.getByTestId("report-from")).toBeVisible();
+  await expect(page.getByTestId("report-period-thisMonth")).toHaveCount(0);
+  await page.getByTestId("report-period-range").click();
+  await expect(page.getByTestId("report-from")).toHaveAttribute("type", "date");
+  await expect(page.getByTestId("report-to")).toHaveAttribute("type", "date");
+  await page.getByTestId("report-period-today").click();
   await expect(page.getByTestId("report-additions")).toContainText(
     `مكرونة ${run}`,
     SERVER,
@@ -227,8 +239,10 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   await open(page, "/app/people", "page-people");
   await page.getByTestId(`person-row-${customerId}`).click();
   await page.getByTestId(`customer-debt-${customerId}`).last().click();
+  // الكاشير الذكي: the manual debt sheet offers the credit invoice (stock taken) — ADR-0036.
+  await page.getByRole("dialog").getByTestId("debt-open-invoice").click();
   const sheet = page.getByRole("dialog").getByTestId("customer-debt-sheet");
-  await sheet.getByTestId("debt-with-products").click();
+  await expect(sheet.getByTestId("lines-search")).toBeVisible();
   await sheet.getByTestId("lines-search").fill(`شاي ليك ${run}`);
   await sheet.getByTestId(`lines-option-${tea}`).click();
   const row = sheet.getByTestId(`lines-row-${tea}`);
@@ -236,6 +250,9 @@ test("«ليك» with products: stock is taken and the customer owes the invoice
   await row.getByTestId("lines-units").fill("1");
   await expect(sheet.getByTestId("debt-estimate")).toContainText("210");
   await page.getByRole("dialog").getByTestId("debt-submit").click();
+  // One sheet at a time: the person's sheet is opened again to read the balance.
+  await expect(page.getByTestId("customer-debt-sheet")).toHaveCount(0, SERVER);
+  await page.getByTestId(`person-row-${customerId}`).click();
   await expect(
     page.getByTestId(`person-balance-${customerId}`).last(),
   ).toContainText("210", SERVER);

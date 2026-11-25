@@ -45,8 +45,7 @@ test.describe("App Shell Offline Navigation", () => {
       ["stock", "page-stock"],
       ["expenses", "page-expenses"],
       ["people", "page-people"],
-      ["alerts", "page-alerts"],
-      ["inventory", "page-inventory"],
+      ["services", "page-services"],
       ["ai", "page-ai"],
     ] as const) {
       await page.getByTestId(`home-tile-${route}`).click();
@@ -54,10 +53,10 @@ test.describe("App Shell Offline Navigation", () => {
       await back.click();
       await expect(page.getByTestId("page-home")).toBeVisible();
     }
-    // The reports, drawer and alerts pages load offline too (their data needs the network).
+    // The stocktake and reports pages load offline too (their data needs the network).
     for (const [testId, screen] of [
-      ["home-sold-today", "page-reports"],
-      ["home-drawer", "page-drawer"],
+      ["home-tile-stocktake", "page-stocktake"],
+      ["home-profit", "page-reports"],
     ] as const) {
       // A real shop's home settles as its offline copy loads: a normal click waits until the
       // tile is stable and really on top (a forced click can land on a neighbour mid-layout).

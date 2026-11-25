@@ -654,3 +654,148 @@
   text-align: center;
   margin: 12px 0 4px;
 }
+
+/* «فلوس حِسبة»: the drawer and every machine / wallet as a small card */
+.moneyGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 10px 0 16px;
+}
+
+.moneyCard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 14px;
+  border-radius: 18px;
+  border: 0;
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  text-align: start;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.moneyCardCash {
+  grid-column: 1 / -1;
+}
+
+.moneyCardName {
+  font-size: 16px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.moneyCardBal {
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.moneyCardNote {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.moneyBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.moneyBtn,
+.moneyBtnGhost {
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: 14px;
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.moneyBtn {
+  border: 0;
+  background: #1f3326;
+  color: #f7f4ec;
+}
+
+.moneyBtnGhost {
+  border: 1.5px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.moneyAdd {
+  align-items: center;
+  justify-content: center;
+  min-height: 96px;
+  border: 2px dashed var(--line);
+  background: transparent;
+  box-shadow: none;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+.moneyAdd span {
+  font-size: 26px;
+}
+
+/* Big tab / choice buttons (services page, direction choice) */
+.bigTabs {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.bigTab {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 52px;
+  padding: 8px 6px;
+  border-radius: 14px;
+  border: 1.5px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.bigTab small {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.bigTabOn {
+  border-color: #1f3326;
+  background: #1f3326;
+  color: #f7f4ec;
+}
+
+.bigTabOn small {
+  color: #d9d2bf;
+}
+
+.rowButton {
+  width: 100%;
+  border: 0;
+  background: transparent;
+  font-family: inherit;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+/* «بيع حاجة» (إدارة المحل): the day's total or a service — two tabs above the form. */
+.sellTabs {
+  margin: 0 0 12px;
+}

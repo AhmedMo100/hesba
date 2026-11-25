@@ -36,6 +36,8 @@ import * as dailySales from "@/app/api/daily-sales/route";
 import { DELETE as dailyCancelRoute } from "@/app/api/daily-sales/[id]/route";
 import { BusinessToolsService } from "@/server/modules/ai/tools/business-tools";
 import { SaleFixtures, type Json, type Shop } from "./helpers/sale-fixtures";
+import { toCairoDateString } from "@/domain/time";
+import { monthQuery } from "@/domain/report-periods";
 
 const f = new SaleFixtures();
 const A = f.shopA;
@@ -778,12 +780,16 @@ describe("operating modes and subscriptions (ADR-0033)", () => {
     );
 
     // The report counts it as revenue, by payment, with profit unknown (no cost per item).
+    // إدارة المحل reads whole months (ADR-0036): this month, up to today.
+    const day = toCairoDateString(new Date());
+    const q = monthQuery(day.slice(0, 7), day);
     const rep = await call(
       reportRoute as Handler,
       A,
       "GET",
-      "/api/reports/home?period=today",
+      `/api/reports/home?period=custom&from=${q.from}&to=${q.to}`,
     );
+    expect(rep.status).toBe(200);
     const s = rep.json.sales as {
       revenuePiasters: number;
       grossProfitPiasters: number | null;

@@ -1,5 +1,6 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { AppError, toSafeErrorResponse } from "@/server/platform/error";
+import { logger } from "@/server/platform/logger";
 
 describe("AppError model and safe error response", () => {
   it("creates AppError with code, safe message, and status code", () => {
@@ -113,6 +114,39 @@ describe("AppError model and safe error response", () => {
   it("maps a missing record (P2025) to 404 and a unique violation (P2002) to 409", async () => {
     expect(toSafeErrorResponse(prismaError("P2025")).status).toBe(404);
     expect(toSafeErrorResponse(prismaError("P2002")).status).toBe(409);
+  });
+
+  it("a missing table / column (pending migration) is a 500, logged as a schema mismatch", async () => {
+    const spy = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    try {
+      for (const err of [
+        prismaError("P2021"),
+        prismaError("P2022"),
+        prismaError("P2010", { code: "42P01" }),
+        prismaError("P2010", { code: "42703" }),
+        new Error('relation "money_movements" does not exist'),
+      ]) {
+        spy.mockClear();
+        const res = toSafeErrorResponse(err);
+        expect(res.status).toBe(500);
+        const body = await res.json();
+        expect(body.error.code).toBe("INTERNAL_ERROR");
+        expect(JSON.stringify(body)).not.toContain("money_movements");
+        expect(spy).toHaveBeenCalledWith(
+          expect.objectContaining({ schemaMismatch: true }),
+          expect.stringContaining("schema is behind the code"),
+        );
+      }
+      // Any other failure keeps the generic log line.
+      spy.mockClear();
+      toSafeErrorResponse(new Error("boom"));
+      expect(spy).toHaveBeenCalledWith(
+        expect.not.objectContaining({ schemaMismatch: true }),
+        "Internal API error",
+      );
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("the database-unreachable 503 does not claim the work was saved", async () => {

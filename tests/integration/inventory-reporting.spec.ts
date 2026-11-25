@@ -466,14 +466,20 @@ describe("QA-06 / QA-07 — the Home report", () => {
   });
 
   it("each store sees only its own report", async () => {
-    const a = await report(f.shopA, "all");
-    const b = await report(f.shopB, "all");
+    // الكاشير الذكي reads days (ADR-0036): today holds this run's activity.
+    const a = await report(f.shopA, "today");
+    const b = await report(f.shopB, "today");
     const aIds = new Set(a.activity.map((x) => x.id));
     expect(b.activity.some((x) => aIds.has(x.id))).toBe(false);
   });
 
-  it("rejects nothing on an unknown period: it falls back to today", async () => {
-    const r = await report(f.shopA, "bogus");
-    expect(r.period).toBe("today");
+  it("an unknown period is a 400 (never silently read as today)", async () => {
+    const res = await call(
+      reportRoute,
+      f.shopA,
+      "GET",
+      "/api/reports/home?period=bogus",
+    );
+    expect(res.status).toBe(400);
   });
 });
