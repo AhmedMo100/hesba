@@ -16,7 +16,7 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Skeleton, useToast } from "@/client/shared/ui";
+import { PageTitle, Skeleton, useToast } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
@@ -128,12 +128,7 @@ const dayLabel = (iso: string) =>
     timeZone: "Africa/Cairo",
   }).format(new Date(iso));
 
-export function ReportsView({
-  onNavigate,
-}: {
-  /** Opens «لو صفّيت دلوقتي» (the shop's full position). */
-  onNavigate?: (route: "inventory") => void;
-} = {}) {
+export function ReportsView() {
   const { session } = useAuth();
   const mode = modeOf(session ?? null, session?.store?.id ?? null);
   const periods = mode === "pos" ? POS_PERIODS : SIMPLE_PERIODS;
@@ -306,7 +301,7 @@ export function ReportsView({
   return (
     <div className={styles.page} data-testid="page-reports" dir="rtl">
       <div className={styles.reportHead}>
-        <h2 className={styles.h2}>التقارير</h2>
+        <PageTitle className={styles.reportTitle}>محلك ماشي إزاي؟</PageTitle>
         <div className={styles.reportIcons}>
           <button
             type="button"
@@ -433,16 +428,6 @@ export function ReportsView({
         >
           {rangeProblem}
         </div>
-      )}
-      {onNavigate && (
-        <button
-          type="button"
-          className={styles.exportBtn}
-          onClick={() => onNavigate("inventory")}
-          data-testid="report-position"
-        >
-          🧮 حساب المحل كله لو صفّيت دلوقتي
-        </button>
       )}
       {report?.from && (
         <div className={styles.note} data-testid="report-range">

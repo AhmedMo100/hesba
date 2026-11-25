@@ -100,7 +100,10 @@ test("header (V19): title and shop name, theme button, no bell; shop menu keeps 
   await expect(menu).toContainText("أحمد · متصل");
   await expect(menu).toContainText("بيانات الحساب والمحل");
   await expect(menu).toContainText("كل حاجة تمام ✓");
-  await expect(menu).toContainText("تسجيل الخروج");
+  // The package is shown, never switched here; the only logout is at the end of Home (ADR-0037).
+  await expect(menu).toContainText("الباقة: الكاشير الذكي");
+  await expect(menu.getByTestId("store-menu-mode")).toHaveCount(0);
+  await expect(menu).not.toContainText("خروج");
   await menu.getByRole("tab", { name: "غامق" }).click();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
   await menu.getByRole("tab", { name: "فاتح" }).click();
@@ -115,21 +118,22 @@ test("navigation: no bottom bar; the home tiles open every screen and the back a
   await open(page, "/app", "page-home");
   await expect(page.locator('[data-testid^="bnav-"]')).toHaveCount(0);
   await expect(page.getByTestId("home-tile-alerts")).toHaveCount(0);
-  // No sidebar either; Home has exactly the eight actions in the owner's order (ADR-0036).
+  // No sidebar either; Home in the owner's order (ADR-0037): ١–٤ steps, الجرد, four more.
   await expect(page.locator('[data-testid^="snav-"]')).toHaveCount(0);
-  await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(8);
+  await expect(page.locator('[data-testid^="home-tile-"]')).toHaveCount(9);
+  await expect(page.getByTestId("home-profit")).toHaveCount(0);
   for (const [testId, screen] of [
     ["home-tile-stock", "page-stock"],
     ["home-tile-expenses", "page-expenses"],
     ["home-tile-sales", "page-sales"],
-    ["home-tile-people", "page-people"],
+    ["home-tile-reports", "page-reports"],
+    ["home-tile-stocktake", "page-stocktake"],
     ["home-tile-products", "page-products"],
     ["home-tile-services", "page-services"],
     ["home-tile-ai", "page-ai"],
-    ["home-tile-stocktake", "page-stocktake"],
-    // The two numbers and the alerts line open their screens.
+    ["home-tile-people", "page-people"],
+    // The money card and the bell open their screens.
     ["home-money", "page-money"],
-    ["home-profit", "page-reports"],
     ["home-alerts", "page-notifications"],
   ] as const) {
     await page.getByTestId(testId).click();
@@ -289,7 +293,7 @@ test("P4: record a loss from Stock; Home shows it under «التالف / الف�
     .locator('[data-testid^="record-loss-"]')
     .click();
   const form = page.getByRole("dialog").getByTestId("record-loss");
-  await form.getByTestId("loss-reason-damaged").click();
+  await form.getByTestId("loss-reason-storage_damage").click();
   await form.getByTestId("loss-units").fill("2");
   await page.getByRole("dialog").getByTestId("loss-submit").click();
   await expect

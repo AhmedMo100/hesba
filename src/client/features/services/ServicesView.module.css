@@ -3,13 +3,6 @@
   padding: 4px 16px 24px;
 }
 
-.title {
-  font-size: 24px;
-  font-weight: 800;
-  color: var(--ink);
-  margin: 4px 0 8px;
-}
-
 /* The same look as «+ جديد» on «بضاعتي». */
 .addBtn {
   display: block;

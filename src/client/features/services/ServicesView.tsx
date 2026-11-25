@@ -19,7 +19,7 @@ import type { ServiceCommissionRule } from "@/domain/service-commission";
 import { apiGet } from "@/client/shared/api/read-cache";
 import type { StoreProductItem } from "@/client/shared/store-items";
 import { failureMessage } from "@/client/shared/quantity";
-import { useToast } from "@/client/shared/ui";
+import { PageTitle, useToast } from "@/client/shared/ui";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import { ServiceFormModal } from "../products/ServiceFormModal";
 import styles from "./ServicesView.module.css";
@@ -127,7 +127,7 @@ export function ServicesView() {
   return (
     <div className={viewStyles.view} data-testid="page-services">
       <div className={styles.page}>
-        <h2 className={styles.title}>الخدمات</h2>
+        <PageTitle>بتقدّم خدمات إيه وعمولتك كام؟</PageTitle>
         <button
           type="button"
           className={styles.addBtn}

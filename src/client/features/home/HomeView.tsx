@@ -2,30 +2,25 @@
 
 /**
  * @file HomeView.tsx
- * @description Home — the hub of Hesba (owner's design, ADR-0036). No sidebar, no bottom bar:
- * a greeting, two numbers, one line of alerts, the eight actions, and the logout at the end.
+ * @description Home — the hub of Hesba (owner's layout, ADR-0037). No sidebar, no bottom bar,
+ * in this order:
  *
- * - «فلوس المحل»: every account's real balance together (`GET /api/money`: the drawer from its
- *   last count + every machine / wallet). A tap opens «فلوس حِسبة». Never a made-up number:
- *   while it loads it shows a skeleton, and on failure it says so with «جرّب تاني».
- * - The profit card follows the package: «ربحك الشهر ده» (إدارة المحل: this month from the 1st)
- *   or «ربحك النهارده» (الكاشير الذكي: today) — the net profit of the report's profit account
- *   (goods profit + service commissions − operating expenses − losses), labelled «تقريبي» when
- *   estimated; «—» when the data is not enough. Never sales − expenses.
- * - Alerts: one short line (out of stock / running low / near expiry, or the alert count) that
- *   opens the existing alerts screen.
- * - Actions: ١ دخلت بضاعة · ٢ صرفت فلوس · ٣ بيع حاجة (gold) · حسابات الناس · بضاعتي ·
- *   الخدمات · اسأل حسبة · الجرد (gold, like «بيع حاجة»).
+ * 1. «أهلاً بيك» (with a small bell that opens «التنبيهات», its count on it).
+ * 2. «فلوس المحل», the row's full width: every account's real balance together
+ *    (`GET /api/money`). A tap opens «فلوس حِسبة». Never a made-up number: a skeleton while it
+ *    loads, «جرّب تاني» on failure. (No profit card on Home: profit lives in the reports.)
+ * 3. The day's four steps, numbered ١–٤ with arrows between them (RTL): دخلت بضاعة → صرفت فلوس
+ *    → بيعت حاجة → شوف تقاريرك.
+ * 4. «الجرد», the row's full width.
+ * 5. البضاعة · الخدمات · اسأل حسبة (a slightly different colour) · حسابات الناس — not numbered.
+ * 6. The only logout, at the very end, the row's full width.
  */
 
 import React, { useCallback, useEffect, useState } from "react";
 import { Icon, Skeleton } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
-import { fetchHomeReport, type HomeReport } from "@/client/shared/api/reports";
 import { apiGet } from "@/client/shared/api/read-cache";
 import { packWord, unitWord } from "@/client/shared/unit-labels";
-import { toCairoDateString } from "@/domain/time";
-import { monthQuery } from "@/domain/report-periods";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import styles from "./HomeView.module.css";
 
@@ -95,43 +90,15 @@ export function HomeView({
       .catch(() => setCash({ state: "error" }));
   }, []);
 
-  // ─── «ربحك الشهر ده» (إدارة المحل) / «ربحك النهارده» (الكاشير الذكي) ───
-  const [month, setMonth] = useState<Load<HomeReport>>({ state: "loading" });
-  const loadMonth = useCallback(
-    (signal?: AbortSignal) => {
-      const today = toCairoDateString(new Date());
-      const req = pos
-        ? fetchHomeReport("today", signal)
-        : fetchHomeReport(
-            "custom",
-            signal,
-            monthQuery(today.slice(0, 7), today),
-          );
-      req
-        .then((r) => setMonth({ state: "ok", data: r }))
-        .catch(() => {
-          if (!signal?.aborted) setMonth({ state: "error" });
-        });
-    },
-    [pos],
-  );
-
   useEffect(() => {
-    const controller = new AbortController();
     loadMoney();
-    loadMonth(controller.signal);
-    const reload = () => {
-      loadMoney();
-      loadMonth(controller.signal);
-    };
-    window.addEventListener("hesba_stock_updated", reload);
-    window.addEventListener("online", reload);
+    window.addEventListener("hesba_stock_updated", loadMoney);
+    window.addEventListener("online", loadMoney);
     return () => {
-      controller.abort();
-      window.removeEventListener("hesba_stock_updated", reload);
-      window.removeEventListener("online", reload);
+      window.removeEventListener("hesba_stock_updated", loadMoney);
+      window.removeEventListener("online", loadMoney);
     };
-  }, [loadMoney, loadMonth]);
+  }, [loadMoney]);
 
   // Stock alerts (out / low / near expiry) and the first-run hint, from the stock levels.
   const [stockAlerts, setStockAlerts] = useState({ out: 0, low: 0, exp: 0 });
@@ -165,6 +132,7 @@ export function HomeView({
     };
   }, []);
   const { out, low, exp } = stockAlerts;
+  const alertsTotal = out + low + exp > 0 ? out + low + exp : alertCount;
   const alertText =
     out + low + exp > 0
       ? [
@@ -176,7 +144,7 @@ export function HomeView({
           .join(" · ")
       : alertCount > 0
         ? t("home.alertGeneric", { count: alertCount })
-        : "";
+        : "مفيش تنبيهات دلوقتي";
 
   const startWithBarcode = () => {
     try {
@@ -187,17 +155,37 @@ export function HomeView({
     onNavigate("stock");
   };
 
-  const profit = month.state === "ok" ? month.data.profit : undefined;
-  const net =
-    profit?.netProfitPiasters ?? profit?.estimatedNetProfitPiasters ?? null;
-  const commissions = profit?.serviceCommissionsPiasters ?? 0;
-
+  const sellRoute: NavRoute = pos ? "sales" : "daily-sales";
+  const step = (
+    route: NavRoute,
+    num: string,
+    icon: string,
+    label: string,
+    tone?: string,
+  ) => (
+    <button
+      type="button"
+      className={`${styles.step} ${tone ?? ""}`}
+      onClick={() => onNavigate(route)}
+      data-testid={`home-tile-${route}`}
+    >
+      <span className={styles.stepNum} aria-hidden="true">
+        {num}
+      </span>
+      <i aria-hidden="true">{icon}</i>
+      <span className={styles.stepLabel}>{label}</span>
+    </button>
+  );
+  const arrow = (
+    <span className={styles.stepArrow} aria-hidden="true">
+      <Icon n="left" s={18} sw={2.8} />
+    </span>
+  );
   const tile = (
     route: NavRoute,
     icon: string,
     label: string,
     tone?: string,
-    num?: string,
   ) => (
     <button
       type="button"
@@ -205,7 +193,6 @@ export function HomeView({
       onClick={() => onNavigate(route)}
       data-testid={`home-tile-${route}`}
     >
-      {num && <span className={styles.tn}>{num}</span>}
       <i aria-hidden="true">{icon}</i>
       {label}
     </button>
@@ -213,74 +200,57 @@ export function HomeView({
 
   return (
     <div className={styles.homePage} data-testid="page-home" dir="rtl">
+      {/* 1. The greeting, and a small bell for «التنبيهات». */}
       <div className={styles.topRow}>
         <h2 className={styles.hello} data-testid="home-hello">
           أهلاً بيك 👋
         </h2>
+        <button
+          type="button"
+          className={styles.bell}
+          onClick={() => onNavigate("notifications")}
+          aria-label={`التنبيهات: ${alertText}`}
+          title={alertText}
+          data-testid="home-alerts"
+        >
+          <Icon n="bell" s={22} sw={2.2} />
+          {alertsTotal > 0 && (
+            <span className={styles.bellCount} data-testid="home-alerts-count">
+              {alertsTotal > 99 ? "99+" : alertsTotal}
+            </span>
+          )}
+        </button>
       </div>
 
-      <div className={styles.twoCards}>
-        <button
-          type="button"
-          className={styles.numCard}
-          onClick={() => {
-            if (cash.state !== "error") return onNavigate("money");
-            setCash({ state: "loading" });
-            loadMoney();
-          }}
-          data-testid="home-money"
-        >
-          <small>💰 فلوس المحل</small>
-          {cash.state === "loading" ? (
-            <Skeleton width={90} height={26} />
-          ) : cash.state === "error" ? (
-            <em className={styles.numErr}>حصلت مشكلة · جرّب تاني</em>
-          ) : (
-            <>
-              <b data-testid="home-money-total">
-                {money(cash.data.totalPiasters)}
-              </b>
-              <em>
-                {cash.data.cashKnown
-                  ? "الدرج والماكينات"
-                  : "من غير الدرج (عدّه الأول)"}
-              </em>
-            </>
-          )}
-        </button>
-        <button
-          type="button"
-          className={`${styles.numCard} ${styles.numGood}`}
-          onClick={() => {
-            if (month.state !== "error") return onNavigate("reports");
-            setMonth({ state: "loading" });
-            loadMonth();
-          }}
-          data-testid="home-profit"
-        >
-          <small>{pos ? "📈 ربحك النهارده" : "📈 ربحك الشهر ده"}</small>
-          {month.state === "loading" ? (
-            <Skeleton width={90} height={26} />
-          ) : month.state === "error" ? (
-            <em className={styles.numErr}>حصلت مشكلة · جرّب تاني</em>
-          ) : net === null ? (
-            <>
-              <b>—</b>
-              <em>البيانات لسه مش كفاية</em>
-            </>
-          ) : (
-            <>
-              <b data-testid="home-profit-value">{money(net)}</b>
-              <em>
-                {profit?.status === "estimated" ? "تقريبي · " : ""}
-                {commissions > 0
-                  ? `منها عمولات خدمات ${money(commissions)}`
-                  : "بعد المصاريف"}
-              </em>
-            </>
-          )}
-        </button>
-      </div>
+      {/* 2. «فلوس المحل», the row's full width. */}
+      <button
+        type="button"
+        className={`${styles.numCard} ${styles.moneyWide}`}
+        onClick={() => {
+          if (cash.state !== "error") return onNavigate("money");
+          setCash({ state: "loading" });
+          loadMoney();
+        }}
+        data-testid="home-money"
+      >
+        <small>💰 فلوس المحل</small>
+        {cash.state === "loading" ? (
+          <Skeleton width={120} height={30} />
+        ) : cash.state === "error" ? (
+          <em className={styles.numErr}>حصلت مشكلة · جرّب تاني</em>
+        ) : (
+          <>
+            <b data-testid="home-money-total">
+              {money(cash.data.totalPiasters)}
+            </b>
+            <em>
+              {cash.data.cashKnown
+                ? "الدرج والماكينات والمحافظ"
+                : "من غير الدرج (عدّه الأول)"}
+            </em>
+          </>
+        )}
+      </button>
 
       {productCount === 0 && !onboardDismissed && (
         <div className={styles.banner} data-testid="home-onboarding">
@@ -306,36 +276,39 @@ export function HomeView({
         </div>
       )}
 
-      {/* One line of alerts: opens the alerts screen as it is. */}
-      <button
-        type="button"
-        className={`${styles.alertLine} ${alertText ? "" : styles.alertLineCalm}`}
-        onClick={() => onNavigate("notifications")}
-        data-testid="home-alerts"
-      >
-        <span aria-hidden="true">{alertText ? "⚠️" : "🔔"}</span>
-        <span>{alertText || "مفيش تنبيهات دلوقتي"}</span>
-        <span className={styles.alertGo} aria-hidden="true">
-          ←
+      {/* 3. The day's four steps: ١ ← ٢, then down to ٣ ← ٤ (RTL). */}
+      <div className={styles.steps} data-testid="home-steps">
+        {step("stock", "١", "📦", "دخلت بضاعة", styles.stepGreen)}
+        {arrow}
+        {step("expenses", "٢", "💰", "صرفت فلوس", styles.stepGreen)}
+        <span className={styles.stepTurn} aria-hidden="true">
+          <span className={styles.stepTurnHead} />
         </span>
-      </button>
-
-      {/* The eight actions, two per row: the day's three steps numbered, «بيع حاجة» and
-          «الجرد» in gold. */}
-      <div className={styles.tiles17}>
-        {tile("stock", "📦", t("home.addStock"), styles.tileNum, "١")}
-        {tile("expenses", "💰", t("home.expenses"), styles.tileNum, "٢")}
-        {pos
-          ? tile("sales", "🛒", t("home.sell"), styles.tileSell, "٣")
-          : tile("daily-sales", "🛒", t("home.sell"), styles.tileSell, "٣")}
-        {tile("people", "👥", t("home.people"))}
-        {tile("products", "🧃", t("home.myProducts"))}
-        {tile("services", "📲", "الخدمات")}
-        {tile("ai", "💬", t("home.askHesba"))}
-        {tile("stocktake", "📋", "الجرد", styles.tileSell)}
+        {step(sellRoute, "٣", "🛒", "بيعت حاجة", styles.stepGold)}
+        {arrow}
+        {step("reports", "٤", "📊", "شوف تقاريرك", styles.stepGreen)}
       </div>
 
-      {/* The only logout: at the very end of the page, as wide as the cards. */}
+      {/* 4. «الجرد», the row's full width. */}
+      <button
+        type="button"
+        className={styles.stocktakeWide}
+        onClick={() => onNavigate("stocktake")}
+        data-testid="home-tile-stocktake"
+      >
+        <i aria-hidden="true">📋</i>
+        الجرد
+      </button>
+
+      {/* 5. Four more, not numbered; «اسأل حسبة» stands out a little. */}
+      <div className={styles.tiles17}>
+        {tile("products", "🧃", "البضاعة")}
+        {tile("services", "📲", "الخدمات")}
+        {tile("ai", "💬", t("home.askHesba"), styles.tileAsk)}
+        {tile("people", "👥", t("home.people"))}
+      </div>
+
+      {/* 6. The only logout: at the very end of the page, the row's full width. */}
       {onLogout && (
         <button
           type="button"

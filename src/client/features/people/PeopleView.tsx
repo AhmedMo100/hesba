@@ -9,7 +9,14 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
-import { Icon, Empty, Modal, useToast, ListSkeleton } from "@/client/shared/ui";
+import {
+  Icon,
+  Empty,
+  Modal,
+  useToast,
+  ListSkeleton,
+  PageTitle,
+} from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { type PeopleSection } from "@/schemas/people";
 import { parseEgpToPiasters } from "@/domain/money";
@@ -535,6 +542,7 @@ export function PeopleView() {
 
   return (
     <div className={styles.container} data-testid="page-people">
+      <PageTitle>مين ليك ومين عليك؟</PageTitle>
       {/* Tabs (V19 chips) */}
       <div className={styles.chips} role="tablist">
         {(

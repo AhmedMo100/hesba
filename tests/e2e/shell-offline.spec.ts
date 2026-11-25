@@ -56,7 +56,7 @@ test.describe("App Shell Offline Navigation", () => {
     // The stocktake and reports pages load offline too (their data needs the network).
     for (const [testId, screen] of [
       ["home-tile-stocktake", "page-stocktake"],
-      ["home-profit", "page-reports"],
+      ["home-tile-reports", "page-reports"],
     ] as const) {
       // A real shop's home settles as its offline copy loads: a normal click waits until the
       // tile is stable and really on top (a forced click can land on a neighbour mid-layout).

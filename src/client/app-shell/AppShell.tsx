@@ -134,13 +134,13 @@ import {
   SubscriptionScreen,
   SubscriptionSheet,
 } from "../features/subscription/SubscriptionScreen";
-import { ModeSwitchSheet } from "../features/subscription/ModeSwitchSheet";
 import {
   isAccessBlocked,
   modeOf,
   rememberMode,
 } from "../features/subscription/access";
 import { ProfileModal } from "../features/auth/ProfileModal";
+import { MODE_LABELS, isOperatingMode } from "@/domain/operating-mode";
 import {
   apiGet,
   clearReadCache,
@@ -170,7 +170,6 @@ function AppShellInner() {
   // session request failed, the server did not answer) the last shop on this device keeps its
   // queue and its offline copies; signed out, nothing protected is requested at all.
   const confirmedStore = session?.store?.id ?? null;
-  const [showMode, setShowMode] = useState(false);
   const [showSubscription, setShowSubscription] = useState(false);
   const router = useRouter();
   const [showProfile, setShowProfile] = useState(false);
@@ -366,7 +365,7 @@ function AppShellInner() {
       case "notifications":
         return <AlertsView mode="alerts" onNavigate={navigate} />;
       case "reports":
-        return <ReportsView onNavigate={navigate} />;
+        return <ReportsView />;
       case "drawer":
         return <DrawerView />;
       case "ai":
@@ -545,14 +544,12 @@ function AppShellInner() {
           pendingCount={pendingCount}
           onSyncNow={() => scheduleSaleSync(storeId, { now: true })}
           onOpenProfile={() => setShowProfile(true)}
-          onLogout={async () => {
-            await logout();
-            await forgetShopIdentities(db).catch(() => {});
-            await clearReadCache();
-            router.push("/");
-          }}
           signedIn={Boolean(session)}
-          onOpenMode={session ? () => setShowMode(true) : undefined}
+          packageLabel={
+            session && isOperatingMode(session.store?.operatingMode)
+              ? MODE_LABELS[session.store.operatingMode]
+              : undefined
+          }
           onOpenSubscription={
             session ? () => setShowSubscription(true) : undefined
           }
@@ -581,16 +578,6 @@ function AppShellInner() {
       </div>
 
       {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
-      {showMode && (
-        <ModeSwitchSheet
-          current={session?.store?.operatingMode}
-          onClose={() => setShowMode(false)}
-          onChanged={async () => {
-            await refreshSession();
-            await clearReadCache();
-          }}
-        />
-      )}
       {showSubscription && (
         <SubscriptionSheet onClose={() => setShowSubscription(false)} />
       )}

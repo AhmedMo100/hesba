@@ -724,8 +724,9 @@
 
 .tab {
   flex: 1;
+  min-width: 0;
   text-align: center;
-  padding: 12px 16px;
+  padding: 12px 6px;
   border-radius: 14px;
   background: var(--chip);
   border: 0;
@@ -844,4 +845,36 @@
 .btnRed {
   background: var(--red);
   color: #fff;
+}
+
+/* «التالف» (ADR-0037): the add button and the log's rows. */
+.wasteAdd {
+  display: block;
+  width: 100%;
+  min-height: 52px;
+  margin: 0 0 12px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--dark);
+  color: var(--cream);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.wasteMeta {
+  display: block;
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.wasteCost {
+  flex: none;
+  color: var(--red, #b3261e);
+  font-size: 15px;
+  font-weight: 800;
+  max-width: 34%;
+  text-align: end;
 }

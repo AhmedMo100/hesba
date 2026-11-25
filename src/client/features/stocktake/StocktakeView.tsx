@@ -31,7 +31,7 @@ import React, {
   useState,
 } from "react";
 import { apiGet } from "@/client/shared/api/read-cache";
-import { Icon } from "@/client/shared/ui";
+import { Icon, PageTitle } from "@/client/shared/ui";
 import { formatMoney } from "@/client/shared/i18n";
 import { isServiceProduct } from "@/domain/sale-pricing";
 import {
@@ -461,7 +461,7 @@ export function StocktakeView({
     return (
       <div className={viewStyles.view} data-testid="page-stocktake">
         <div className={styles.wrap}>
-          <h2 className={styles.h2}>الجرد</h2>
+          <PageTitle>عدّ بضاعتك واعرف الناقص</PageTitle>
           <button
             type="button"
             className={styles.bigStart}

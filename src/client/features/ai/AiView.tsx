@@ -6,7 +6,7 @@ import type { NavRoute } from "@/client/app-shell/BottomNav";
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import styles from "./AiView.module.css";
 import c from "./AiChat17.module.css";
-import { Icon } from "@/client/shared/ui";
+import { Icon, PageTitle } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { AI_SUGGESTED_QUESTIONS } from "@/schemas/ai";
 
@@ -632,6 +632,7 @@ export function AiView({
 
   return (
     <div className={c.page} data-testid="page-ai" dir="rtl">
+      <PageTitle className={c.pageTitle}>عايز تعرف إيه عن محلك؟</PageTitle>
       {/* V17 .chatTop: a new conversation, the previous ones */}
       <div className={c.chatTop}>
         <button

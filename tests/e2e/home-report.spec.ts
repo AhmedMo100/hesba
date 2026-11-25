@@ -88,8 +88,8 @@ test.describe("Home report", () => {
     await page.addStyleTag({
       content: "nextjs-portal { display: none !important; }",
     });
-    // «ربحك الشهر ده» opens the reports page (this month: today's operations are in it).
-    await page.getByTestId("home-profit").click(PAGE_LOAD);
+    // ٤ «شوف تقاريرك» opens the reports page (today: the package's first period).
+    await page.getByTestId("home-tile-reports").click(PAGE_LOAD);
     await expect(page.getByTestId("report-sales")).toHaveText("30 ج.م", SERVER);
     await expect(page.getByTestId("report-expenses")).toHaveText("123.45 ج.م");
     await expect(page.getByTestId("report-cogs")).toHaveText("20 ج.م");
