@@ -54,7 +54,7 @@ describe("QA-43 — Home shows Arabic unit and pack words, never codes", () => {
 describe("QA-49 — the app is installable", () => {
   const m = manifest();
   it("has a complete manifest", () => {
-    expect(m.name).toBe("حسبة");
+    expect(m.name).toBe("حِسبة");
     expect(m.short_name).toBeTruthy();
     expect(m.start_url).toBe("/app");
     expect(m.display).toBe("standalone");

@@ -118,7 +118,7 @@ test("QA-49: the web app manifest is served and linked, with real icons", async 
   expect(res.headers()["content-type"]).toContain("manifest+json");
   const m = await res.json();
   expect(m).toMatchObject({
-    name: "حسبة",
+    name: "حِسبة",
     start_url: "/app",
     display: "standalone",
   });

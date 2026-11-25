@@ -1,13 +1,9 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { siteMetadata } from "./site-metadata";
 
-export const metadata: Metadata = {
-  title: "حسبة | Hesba",
-  description: "نظام إدارة الحسابات والمخزون للمحلات والسوبر ماركت",
-  // QA-49: installable PWA. `src/app/manifest.ts` adds the manifest link itself.
-  icons: { apple: "/icons/icon-192.png" },
-  appleWebApp: { capable: true, title: "حسبة", statusBarStyle: "default" },
-};
+// The title, description, share preview (Open Graph / X) and icons: `site-metadata.ts`.
+export const metadata: Metadata = siteMetadata();
 
 export const viewport: Viewport = {
   width: "device-width",

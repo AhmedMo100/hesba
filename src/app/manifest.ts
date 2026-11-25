@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { SITE_DESCRIPTION, SITE_NAME } from "./site-metadata";
 
 /**
  * Web app manifest (QA-49), served at `/manifest.webmanifest`. With the service worker
@@ -8,9 +9,9 @@ import type { MetadataRoute } from "next";
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/app",
-    name: "حسبة",
-    short_name: "حسبة",
-    description: "نظام إدارة الحسابات والمخزون للمحلات والسوبر ماركت",
+    name: SITE_NAME,
+    short_name: SITE_NAME,
+    description: SITE_DESCRIPTION,
     lang: "ar",
     dir: "rtl",
     start_url: "/app",
