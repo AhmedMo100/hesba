@@ -1,7 +1,8 @@
 /**
  * ADR-0036 (real Postgres, the app role, the real routes and services):
- * - two packages again: each package reads its own report periods only — months for إدارة
- *   المحل, days for الكاشير الذكي — refused (403) otherwise, on the screen route and the file;
+ * - two packages again: each package reads its own unit — whole months for إدارة المحل, days for
+ *   الكاشير الذكي — as a month / day, a range or a year, at most one year; the other unit is a
+ *   403, a bad range (end before start, the future, > a year, an impossible date) a 400;
  * - a manual debt with products: the server sums the lines, refuses a mismatched amount, another
  *   shop's product, and products on a payment; one entry, no stock, no money, no revenue;
  * - the account statement: a credit invoice is ONE debt with its products, its payment settles
@@ -28,7 +29,14 @@ import {
   startInventoryCount,
   updateInventoryCount,
 } from "@/server/modules/inventory";
-import { reportPeriodRefusal, monthQuery } from "@/domain/report-periods";
+import {
+  monthQuery,
+  monthsQuery,
+  previousMonth,
+  reportPeriodProblem,
+  reportPeriodRefusal,
+  yearQuery,
+} from "@/domain/report-periods";
 import { toCairoDateString, addDaysToDateKey } from "@/domain/time";
 import { SaleFixtures, type Shop } from "./helpers/sale-fixtures";
 
@@ -134,92 +142,185 @@ afterAll(async () => {
 });
 
 describe("report periods by package (pure rule)", () => {
-  it("days for الكاشير الذكي, whole months for إدارة المحل", () => {
-    const t = "2026-11-24";
-    expect(
-      reportPeriodRefusal("pos", "today", undefined, undefined, t),
-    ).toBeNull();
-    expect(
-      reportPeriodRefusal("pos", "yesterday", undefined, undefined, t),
-    ).toBeNull();
-    expect(
-      reportPeriodRefusal("pos", "custom", "2026-11-02", "2026-11-02", t),
-    ).toBeNull();
-    expect(
-      reportPeriodRefusal("pos", "custom", "2026-11-02", "2026-11-03", t),
-    ).toMatch(/يومية/);
-    expect(
-      reportPeriodRefusal("pos", "month", undefined, undefined, t),
-    ).toMatch(/يومية/);
-    expect(
-      reportPeriodRefusal("pos", "custom", "2026-11-25", "2026-11-25", t),
-    ).toMatch(/مجاش/);
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-11-01", "2026-11-24", t),
-    ).toBeNull();
+  const t = "2026-11-24";
+  const pos = (
+    from?: string,
+    to?: string,
+    p: "custom" | "today" | "yesterday" | "month" | "year" = "custom",
+  ) => reportPeriodProblem("pos", p, from, to, t);
+  const simple = (
+    from?: string,
+    to?: string,
+    p: "custom" | "today" | "month" | "year" = "custom",
+  ) => reportPeriodProblem("simple", p, from, to, t);
+
+  it("الكاشير الذكي: days — a day, a range of days, a year; at most 366 days", () => {
+    expect(pos(undefined, undefined, "today")).toBeNull();
+    expect(pos(undefined, undefined, "yesterday")).toBeNull();
+    expect(pos("2026-11-02", "2026-11-02")).toBeNull();
+    expect(pos("2026-11-02", "2026-11-03")).toBeNull();
+    expect(pos("2026-09-01", "2026-10-31")).toBeNull();
+    expect(pos("2026-01-01", "2026-11-24")).toBeNull(); // this year up to today
+    expect(pos("2025-11-24", "2026-11-24")).toBeNull(); // 366 days
+    expect(pos("2025-11-23", "2026-11-24")).toMatchObject({
+      kind: "invalid",
+      message: /366/,
+    });
+    expect(pos("2026-11-03", "2026-11-02")).toMatchObject({
+      kind: "invalid",
+      message: /قبل أولها/,
+    });
+    expect(pos("2026-11-25", "2026-11-25")).toMatchObject({
+      kind: "invalid",
+      message: /مجتش/,
+    });
+    expect(pos("2026-11-20", "2026-11-25")).toMatchObject({
+      kind: "invalid",
+      message: /لسه مجاش/,
+    });
+    // Not a range of days at all: the other package's or an old period name.
+    expect(pos(undefined, undefined, "month")).toMatchObject({
+      kind: "package",
+      message: /بالأيام/,
+    });
+    expect(pos(undefined, undefined, "year")).toMatchObject({
+      kind: "package",
+    });
+  });
+
+  it("إدارة المحل: whole months — a month, a range of months, a year; at most 12 months", () => {
+    expect(simple("2026-11-01", "2026-11-24")).toBeNull();
     // A screen opened just before midnight is not refused just after it.
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-11-01", "2026-11-23", t),
-    ).toBeNull();
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-10-01", "2026-10-31", t),
-    ).toBeNull();
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-10-01", "2026-10-30", t),
-    ).toMatch(/شهرية/);
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-10-02", "2026-10-31", t),
-    ).toMatch(/شهرية/);
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-10-15", "2026-11-14", t),
-    ).toMatch(/شهرية/);
-    expect(
-      reportPeriodRefusal("simple", "today", undefined, undefined, t),
-    ).toMatch(/شهرية/);
+    expect(simple("2026-11-01", "2026-11-23")).toBeNull();
+    expect(simple("2026-10-01", "2026-10-31")).toBeNull();
+    expect(simple("2026-09-01", "2026-10-31")).toBeNull(); // two months
+    expect(simple("2026-01-01", "2026-11-24")).toBeNull(); // this year up to today
+    expect(simple("2025-01-01", "2025-12-31")).toBeNull(); // a whole past year
+    expect(simple("2025-12-01", "2026-11-24")).toBeNull(); // 12 months
+    expect(simple("2025-11-01", "2026-11-24")).toMatchObject({
+      kind: "invalid",
+      message: /12 شهر/,
+    });
+    expect(simple("2026-10-01", "2026-09-30")).toMatchObject({
+      kind: "invalid",
+      message: /قبل أولها/,
+    });
+    expect(simple("2026-12-01", "2026-12-31")).toMatchObject({
+      kind: "invalid",
+      message: /مجاش/,
+    });
+    expect(simple("2026-11-01", "2026-11-30")).toMatchObject({
+      kind: "invalid",
+      message: /مجاش/,
+    });
+    // Not whole months: the other package's unit.
+    expect(simple("2026-10-01", "2026-10-30")).toMatchObject({
+      kind: "package",
+      message: /آخر الشهر/,
+    });
+    expect(simple("2026-10-02", "2026-10-31")).toMatchObject({
+      kind: "package",
+      message: /أول الشهر/,
+    });
+    expect(simple("2026-10-15", "2026-11-14")).toMatchObject({
+      kind: "package",
+    });
+    expect(simple(undefined, undefined, "today")).toMatchObject({
+      kind: "package",
+      message: /بالشهور/,
+    });
+    expect(simple(undefined, undefined, "month")).toMatchObject({
+      kind: "package",
+    });
     expect(
       reportPeriodRefusal("simple", "month", undefined, undefined, t),
-    ).toMatch(/شهرية/);
-    expect(
-      reportPeriodRefusal("simple", "custom", "2026-12-01", "2026-12-31", t),
-    ).toMatch(/مجاش/);
-    expect(monthQuery("2026-02", "2026-11-24")).toEqual({
+    ).toMatch(/بالشهور/);
+  });
+
+  it("the queries the screen sends", () => {
+    expect(monthQuery("2026-02", t)).toEqual({
       period: "custom",
       from: "2026-02-01",
       to: "2026-02-28",
+    });
+    expect(monthsQuery("2026-09", "2026-10", t)).toEqual({
+      period: "custom",
+      from: "2026-09-01",
+      to: "2026-10-31",
+    });
+    expect(monthsQuery("2026-10", "2026-11", t)).toEqual({
+      period: "custom",
+      from: "2026-10-01",
+      to: t,
+    });
+    expect(yearQuery(2026, t)).toEqual({
+      period: "custom",
+      from: "2026-01-01",
+      to: t,
+    });
+    expect(yearQuery(2025, t)).toEqual({
+      period: "custom",
+      from: "2025-01-01",
+      to: "2025-12-31",
     });
   });
 });
 
 describe("report periods by package (routes)", () => {
-  it("الكاشير الذكي: days only, on the screen and the file", async () => {
-    expect(
-      (await get(reportHome, A, "/api/reports/home?period=today")).status,
-    ).toBe(200);
-    expect(
-      (await get(reportHome, A, "/api/reports/home?period=yesterday")).status,
-    ).toBe(200);
-    expect(
-      (
-        await get(
-          reportHome,
-          A,
-          `/api/reports/home?period=custom&from=${today}&to=${today}`,
-        )
-      ).status,
-    ).toBe(200);
+  it("الكاشير الذكي: days and ranges of days, on the screen and the file", async () => {
+    for (const path of [
+      "/api/reports/home?period=today",
+      "/api/reports/home?period=yesterday",
+      `/api/reports/home?period=custom&from=${today}&to=${today}`,
+      `/api/reports/home?period=custom&from=${addDaysToDateKey(today, -60)}&to=${today}`,
+    ])
+      expect((await get(reportHome, A, path)).status, path).toBe(200);
+    const y = yearQuery(Number(today.slice(0, 4)), today);
+    const year = await get(
+      reportHome,
+      A,
+      `/api/reports/home?period=custom&from=${y.from}&to=${y.to}`,
+    );
+    expect(year.status).toBe(200);
+    const yb = await year.json();
+    expect(yb.period).toBe("custom");
     const month = await get(reportHome, A, "/api/reports/home?period=month");
     expect(month.status).toBe(403);
-    expect((await month.json()).error.message).toMatch(/يومية/);
-    const q = monthQuery(today.slice(0, 7), today);
+    expect((await month.json()).error.message).toMatch(/بالأيام/);
+    // A bad range is a 400 with the reason: the end before the start, the future, > a year.
+    const back = await get(
+      reportHome,
+      A,
+      `/api/reports/home?period=custom&from=${today}&to=${addDaysToDateKey(today, -1)}`,
+    );
+    expect(back.status).toBe(400);
+    const future = await get(
+      reportHome,
+      A,
+      `/api/reports/home?period=custom&from=${today}&to=${addDaysToDateKey(today, 1)}`,
+    );
+    expect(future.status).toBe(400);
+    expect((await future.json()).error.message).toMatch(/مجاش/);
+    const long = await get(
+      reportHome,
+      A,
+      `/api/reports/home?period=custom&from=${addDaysToDateKey(today, -400)}&to=${today}`,
+    );
+    expect(long.status).toBe(400);
+    expect((await long.json()).error.message).toMatch(/366/);
+    // An impossible date or an unknown period: 400, never read as «today».
     expect(
       (
         await get(
           reportHome,
           A,
-          `/api/reports/home?period=custom&from=${q.from}&to=${q.to}`,
+          "/api/reports/home?period=custom&from=2026-02-30&to=2026-03-01",
         )
       ).status,
-    ).toBe(q.from === q.to ? 200 : 403);
+    ).toBe(400);
+    expect(
+      (await get(reportHome, A, "/api/reports/home?period=bogus")).status,
+    ).toBe(400);
     expect(
       (await get(reportExport, A, "/api/reports/export?period=week")).status,
     ).toBe(403);
@@ -232,13 +333,22 @@ describe("report periods by package (routes)", () => {
         )
       ).status,
     ).toBe(200);
+    expect(
+      (
+        await get(
+          reportExport,
+          A,
+          `/api/reports/export?period=custom&from=${addDaysToDateKey(today, -30)}&to=${today}&format=csv`,
+        )
+      ).status,
+    ).toBe(200);
     // No session: 401 before anything else.
     expect(
       (await get(reportHome, null, "/api/reports/home?period=month")).status,
     ).toBe(401);
   });
 
-  it("إدارة المحل: whole months only", async () => {
+  it("إدارة المحل: whole months, ranges of months and a year", async () => {
     const q = monthQuery(today.slice(0, 7), today);
     const ok = await get(
       reportHome,
@@ -249,6 +359,28 @@ describe("report periods by package (routes)", () => {
     const body = await ok.json();
     expect(body.period).toBe("custom");
     expect(body.from).toBeTruthy();
+    const thisMonth = today.slice(0, 7);
+    const twoBack = previousMonth(previousMonth(thisMonth));
+    const r = monthsQuery(twoBack, thisMonth, today);
+    expect(
+      (
+        await get(
+          reportHome,
+          B,
+          `/api/reports/home?period=custom&from=${r.from}&to=${r.to}`,
+        )
+      ).status,
+    ).toBe(200);
+    const y = yearQuery(Number(today.slice(0, 4)) - 1, today);
+    expect(
+      (
+        await get(
+          reportHome,
+          B,
+          `/api/reports/home?period=custom&from=${y.from}&to=${y.to}`,
+        )
+      ).status,
+    ).toBe(200);
     expect(
       (await get(reportHome, B, "/api/reports/home?period=today")).status,
     ).toBe(403);
@@ -265,6 +397,19 @@ describe("report periods by package (routes)", () => {
         )
       ).status,
     ).toBe(q.from === yesterday ? 200 : 403);
+    // More than 12 months: 400 with the reason.
+    const tooLong = monthsQuery(
+      previousMonth(y.from.slice(0, 7)),
+      thisMonth,
+      today,
+    );
+    const long = await get(
+      reportHome,
+      B,
+      `/api/reports/home?period=custom&from=${tooLong.from}&to=${tooLong.to}`,
+    );
+    expect(long.status).toBe(400);
+    expect((await long.json()).error.message).toMatch(/12 شهر/);
     expect(
       (
         await get(

@@ -133,3 +133,46 @@ No existing row changes. It is not applied to Neon dev or production by this cha
 - **Pending on Neon dev / production**, in order:
   - `20261123000000_stocktake_money_services`;
   - `20261125000000_debt_items_and_count_notes`.
+
+## Amendment (2026-11-25): report ranges, services only, navigation
+
+The owner asked for the following changes on top of PR #49.
+
+**Report ranges**
+- Each package keeps its unit: whole months for إدارة المحل, days for الكاشير الذكي.
+- Within that unit, the owner picks the range: «الشهر ده» / «الشهر اللي فات» or «النهارده» /
+  «امبارح», a year («السنة», 1 January to today or 31 December), or «فترة» (from–to).
+- إدارة المحل sends a range of whole months: from the 1st of a month to the last day of the
+  same or a later month, or to today for the current month.
+- الكاشير الذكي sends any range of days.
+- The longest report is one year: 12 months or 366 days.
+- `reportPeriodProblem` (`src/domain/report-periods.ts`) is the one rule, for the screen and
+  the server:
+  - a bad range is a **400** with the reason: the end before the start, a date in the future,
+    longer than a year, an impossible date, or an unknown period;
+  - a range in the other package's unit is a **403**.
+- An unknown `period` is no longer silently read as today.
+- The screen explains an invalid range and requests nothing. A failed load clears the previous
+  numbers.
+
+**«الخدمات»**
+- The page is renamed from «الخدمات والعمولات» and only defines and manages services: add, edit,
+  delete, and filter by category.
+- A service is sold from «بيع حاجة»:
+  - الكاشير الذكي: the cashier, as before;
+  - إدارة المحل: the new «📲 خدمة» tab of «بيع حاجة» (the daily-total page). It records the
+    operation with its commission, as `/app/service-ops` did.
+- The separate `service-ops` route is removed.
+- The service form still links a service to the machines it is charged from. That is part of
+  the service's definition and the cashier reads it; no balance is shown or changed there.
+
+**Navigation**
+- The header back button is an arrow icon only, 48 px, with the aria-label «رجوع للرئيسية».
+- The stocktake's in-page step backs are arrow icons too (aria-label «رجوع»).
+- Home has one logout, at the very end of the page and the cards' full width. The profile
+  sheet's duplicate logout is removed. The change-password and subscription screens keep their
+  own logout, because they are shown instead of Home.
+- «الجرد» shows «اعمل جرد جديد» first on its page, always. With a count still open, it cancels
+  that count after a confirmation (no stock change) and starts a new one.
+- «اسأل حسبة»: the «المحادثات السابقة» button and its list have no icons. The behaviour is
+  unchanged.

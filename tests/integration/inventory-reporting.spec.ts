@@ -473,8 +473,13 @@ describe("QA-06 / QA-07 — the Home report", () => {
     expect(b.activity.some((x) => aIds.has(x.id))).toBe(false);
   });
 
-  it("rejects nothing on an unknown period: it falls back to today", async () => {
-    const r = await report(f.shopA, "bogus");
-    expect(r.period).toBe("today");
+  it("an unknown period is a 400 (never silently read as today)", async () => {
+    const res = await call(
+      reportRoute,
+      f.shopA,
+      "GET",
+      "/api/reports/home?period=bogus",
+    );
+    expect(res.status).toBe(400);
   });
 });
