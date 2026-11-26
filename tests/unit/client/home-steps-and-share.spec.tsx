@@ -81,25 +81,18 @@ describe("Home — the four steps and their arrows", () => {
 });
 
 describe("The stocktake — short words", () => {
-  const src = read("src/client/features/stocktake/StocktakeView.tsx");
-  it("three short steps and four plain reasons", () => {
+  // ADR-0039: three short steps on the first screen; the counting words live in the counter.
+  const view = read("src/client/features/stocktake/StocktakeView.tsx");
+  const counter = read("src/client/features/stocktake/StocktakeCounter.tsx");
+  it("three short steps and the counting words", () => {
     for (const s of [
       "عدّ اللي موجود قدامك",
       "قارن الكمية باللي عند حِسبة",
       "راجع الفرق وأكّد الجرد",
-      "الموجود في حِسبة:",
-      "إنت عدّيت",
-      "فيه فرق: ",
-      "السبب؟",
     ])
-      expect(src).toContain(s);
-    const block = src.slice(
-      src.indexOf("const SHORTAGE_CHOICES"),
-      src.indexOf("const EXPIRED_CHOICE"),
-    );
-    expect(
-      [...block.matchAll(/\["(\w+)", "([^"]+)"\]/g)].map((m) => m[2]),
-    ).toEqual(["اتباع ومتسجلش", "تالف", "مفقود", "سبب آخر"]);
+      expect(view).toContain(s);
+    for (const s of ["الموجود في حِسبة:", "إنت عدّيت", "فرق: ", "السبب؟"])
+      expect(counter).toContain(s);
   });
 });
 
