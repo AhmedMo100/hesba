@@ -736,24 +736,24 @@ async function unknownSince(tx: TenantTx, storeId: string, since: Date) {
 
 /**
  * The cash the drawer should hold now: the last count + money in − money out since it, from the
- * same flows as the drawer screen ({@link flowsSince}). `null` when the drawer was never counted.
+ * same flows as the drawer screen ({@link flowsSince}). A shop that never counted its drawer starts
+ * from zero: money in − money out since the shop began (never a balance typed by hand).
  * For «فلوس حِسبة» and the assistant, which need only this number: it skips the screen's lists
  * (each movement since the count, the unrecorded ones, the last five counts) — about 19 database
  * round trips fewer per request, the same amount to the piaster (pinned by a test).
  */
-async function expectedInTx(
-  tx: TenantTx,
-  storeId: string,
-): Promise<number | null> {
+async function expectedInTx(tx: TenantTx, storeId: string): Promise<number> {
   const last = await tx.cashDrawerCount.findFirst({
     where: { storeId },
     orderBy: { countedAt: "desc" },
     select: { countedPiasters: true, countedAt: true },
   });
-  if (!last) return null;
-  const flows = await flowsSince(tx, storeId, last.countedAt);
+  // Never counted (the owner's rule, 2026-11-26: the cash is never typed in by hand): the cash is
+  // what the shop's own cash operations put in and took out, from zero.
+  const base = last ?? { countedPiasters: ZERO, countedAt: new Date(0) };
+  const flows = await flowsSince(tx, storeId, base.countedAt);
   return (
-    Number(last.countedPiasters) +
+    Number(base.countedPiasters) +
     flows.reduce(
       (n, f) =>
         n + (f.direction === "in" ? f.amountPiasters : -f.amountPiasters),
@@ -878,7 +878,7 @@ export async function recordDrawerCount(
 export async function drawerExpectedInTx(
   tx: TenantTx,
   storeId: string,
-): Promise<number | null> {
+): Promise<number> {
   return expectedInTx(tx, storeId);
 }
 

@@ -123,13 +123,14 @@ export interface MoneyAccountView {
   kind: "cash" | "machine";
   name: string;
   provider: string | null;
-  /** null for the drawer before its first count (its amount is not known yet). */
+  /** The drawer's is computed from the shop's cash operations; it may be negative when more cash
+   *  went out than the shop recorded coming in. */
   balancePiasters: number | null;
 }
 
 export interface MoneyOverview {
   accounts: MoneyAccountView[];
-  /** Sum of the known balances; `cashKnown` false = the drawer was never counted. */
+  /** Sum of the balances. `cashKnown` is always true (kept for older clients). */
   totalPiasters: number;
   cashKnown: boolean;
   movements: MoneyMovementView[];

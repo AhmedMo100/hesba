@@ -2,15 +2,16 @@
 
 /**
  * @file MoneyView.tsx
- * @description «فلوس حِسبة» (ADR-0036): cards only. The cash (the drawer, from its last count:
- * its own colour, never charged by hand — its money comes from the shop's cash operations), then
- * every machine and wallet side by side, each with its balance and a small actions menu: «حط
- * رصيد» (the existing top-up form), rename, delete. «+ ماكينة» / «+ محفظة» add one. «حوّلت بين
- * حساباتي» and «سحبت لنفسي» open a small form (a transfer is never income or an expense; a
- * withdrawal is never an operating expense). Every balance is the server's
- * (`GET /api/money`), read each time the screen opens — so a sale, a purchase, an expense, a
- * collection, a supplier payment or a service done on any other screen shows here at once.
- * Money is never sales: a sale is revenue, this is where the money sits now.
+ * @description «فلوس حِسبة» (ADR-0039): cards only.
+ *
+ * - Under the title, once: «+ ماكينة / محفظة», «تحويل», «سحبت لنفسي». No action sits in a card
+ *   except the small «⋯» menu (rename, delete).
+ * - «فلوس الدرج» is never typed in and never counted here (owner, 2026-11-26): it is what the
+ *   shop's cash operations put in and took out (`GET /api/money`). There is no «عدّ الدرج» and
+ *   no «حط رصيد» on this page.
+ * - A transfer is never income or an expense; a withdrawal comes out of the owner's profit and is
+ *   never an operating expense. The history says which is which.
+ * - Every balance is the server's, read each time the screen opens. Money is never sales.
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { formatMoney, normDigits } from "@/client/shared/i18n";
@@ -23,18 +24,26 @@ import {
   type PosMachine,
 } from "@/client/shared/api/machines";
 import { Modal, useToast } from "@/client/shared/ui";
-import { MachineTopupModal } from "../stock/MachineTopupModal";
 import { MachineFormSheet, isWalletAccount } from "../alerts/MachineFormSheet";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import styles from "../expenses/ExpensesView.module.css";
+import c$ from "@/client/shared/styles/Cards.module.css";
 import m$ from "./MoneyView.module.css";
 
 type Kind = "owner_withdrawal" | "transfer";
 
 const KIND_LABEL: Record<Kind, string> = {
   owner_withdrawal: "💸 سحبت لنفسي",
-  transfer: "🔁 حوّلت بين حساباتي",
+  transfer: "🔁 تحويل",
+};
+
+/** How each movement reads in the history: a transfer is never income or an expense; a
+ *  withdrawal comes out of the owner's profit, never the shop's expenses. */
+const MOVE_TAG: Record<string, string> = {
+  transfer: "🔁 تحويل",
+  owner_withdrawal: "💸 سحب شخصي من الأرباح",
+  owner_deposit: "إيداع من صاحب المحل",
 };
 
 const when = (iso: string) =>
@@ -55,12 +64,11 @@ async function errorText(res: Response, fallback: string) {
 
 const accountRef = (id: string) => (id === "cash" ? "cash" : { machineId: id });
 
-export function MoneyView({
-  onNavigate,
-}: {
-  /** Opens the drawer count («عدّ الدرج»). */
-  onNavigate?: (route: NavRoute) => void;
-} = {}) {
+export function MoneyView(
+  // The route callback is kept for the shell; this page has no link out any more.
+  props: { onNavigate?: (route: NavRoute) => void } = {},
+) {
+  void props;
   const [data, setData] = useState<MoneyOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [kind, setKind] = useState<Kind>("owner_withdrawal");
@@ -75,7 +83,7 @@ export function MoneyView({
   const toast = useToast();
   // The shop's machines (full rows) for the existing top-up form.
   const [machines, setMachines] = useState<PosMachine[]>([]);
-  const [topup, setTopup] = useState<PosMachine | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
   const [machineForm, setMachineForm] = useState<{
     machine: PosMachine | null;
     kind?: "machine" | "wallet";
@@ -169,10 +177,44 @@ export function MoneyView({
     setMoveOpen(true);
   };
 
+  const total = data?.totalPiasters ?? 0;
   return (
-    <div className={viewStyles.view} data-testid="page-money">
+    <div
+      className={`${viewStyles.view} ${c$.pageMoney}`}
+      data-testid="page-money"
+    >
       <div className={m$.page}>
         <h2 className={m$.title}>فلوسي فين؟</h2>
+        {/* The page's three actions, once, in one row under the title — none inside the cards. */}
+        <div className={m$.actionRow} data-testid="money-actions">
+          <button
+            type="button"
+            className={`${m$.actionBtn} ${m$.actionMain}`}
+            onClick={() => setAddOpen(true)}
+            data-testid="money-add"
+          >
+            <i aria-hidden="true">➕</i>
+            <span>ماكينة / محفظة</span>
+          </button>
+          <button
+            type="button"
+            className={m$.actionBtn}
+            onClick={() => openMove("transfer")}
+            data-testid="money-open-transfer"
+          >
+            <i aria-hidden="true">🔁</i>
+            <span>تحويل</span>
+          </button>
+          <button
+            type="button"
+            className={m$.actionBtn}
+            onClick={() => openMove("owner_withdrawal")}
+            data-testid="money-open-withdrawal"
+          >
+            <i aria-hidden="true">💸</i>
+            <span>سحبت لنفسي</span>
+          </button>
+        </div>
         {error && (
           <p className={styles.formError} role="alert">
             {error}{" "}
@@ -184,40 +226,28 @@ export function MoneyView({
         {!data && !error && <p className={m$.note}>بنحمّل…</p>}
         {data && (
           <>
-            <div className={m$.total}>
-              <span>
-                كل فلوسك
-                {data.cashKnown ? "" : " (من غير الكاش — عدّ الدرج الأول)"}
-              </span>
-              <b data-testid="money-total">{formatMoney(data.totalPiasters)}</b>
-            </div>
-
-            <div className={m$.grid} data-testid="money-accounts">
+            <div className={c$.grid} data-testid="money-accounts">
+              <div className={`${c$.card} ${c$.lead} ${c$.full}`}>
+                <span className={c$.label}>كل فلوسك</span>
+                <b className={c$.big} data-testid="money-total">
+                  {formatMoney(total)}
+                </b>
+              </div>
               {cashAccount && (
                 <div
-                  className={`${m$.card} ${m$.cash}`}
+                  className={`${c$.card} ${c$.full} ${(cashAccount.balancePiasters ?? 0) < 0 ? c$.toneOut : c$.toneOk}`}
                   data-testid="money-account"
                   data-kind="cash"
                 >
-                  <span className={m$.name}>💵 الكاش</span>
-                  <b className={m$.bal} data-testid="money-cash-balance">
-                    {cashAccount.balancePiasters === null
-                      ? "عدّ الدرج أول مرة"
-                      : formatMoney(cashAccount.balancePiasters)}
+                  <span className={c$.name}>💵 فلوس الدرج</span>
+                  <b className={c$.big} data-testid="money-cash-balance">
+                    {formatMoney(cashAccount.balancePiasters ?? 0)}
                   </b>
-                  <span className={m$.sub}>
-                    بيتغير لوحده مع البيع والمصاريف
+                  <span className={c$.sub}>
+                    {(cashAccount.balancePiasters ?? 0) < 0
+                      ? "طلع منه أكتر من اللي دخله"
+                      : "من البيع والمصاريف"}
                   </span>
-                  {onNavigate && (
-                    <button
-                      type="button"
-                      className={m$.cardBtn}
-                      onClick={() => onNavigate("drawer")}
-                      data-testid="money-drawer-count"
-                    >
-                      🧮 عدّ الدرج
-                    </button>
-                  )}
                 </div>
               )}
               {otherAccounts.map((a) => {
@@ -226,18 +256,18 @@ export function MoneyView({
                 return (
                   <div
                     key={a.id}
-                    className={m$.card}
+                    className={c$.card}
                     data-testid="money-account"
                     data-kind={wallet ? "wallet" : "machine"}
                   >
-                    <div className={m$.cardTop}>
-                      <span className={m$.name}>
+                    <div className={c$.top}>
+                      <span className={c$.name}>
                         {wallet ? "👛" : "💳"} {a.name}
                       </span>
                       {machine && (
                         <button
                           type="button"
-                          className={m$.more}
+                          className={c$.more}
                           onClick={() => setMenuFor(machine)}
                           aria-label={`إجراءات ${a.name}`}
                           data-testid="money-menu"
@@ -246,128 +276,106 @@ export function MoneyView({
                         </button>
                       )}
                     </div>
-                    <b className={m$.bal}>
+                    <b className={c$.big}>
                       {a.balancePiasters === null
                         ? "—"
                         : formatMoney(a.balancePiasters)}
                     </b>
-                    {machine && (
-                      <button
-                        type="button"
-                        className={m$.cardBtn}
-                        onClick={() => setTopup(machine)}
-                        data-testid="money-topup"
-                      >
-                        ➕ حط رصيد
-                      </button>
-                    )}
+                    <span className={c$.sub}>
+                      {wallet ? "محفظة" : "ماكينة"}
+                    </span>
                   </div>
                 );
               })}
             </div>
 
-            <div className={m$.addRow}>
-              <button
-                type="button"
-                className={m$.addBtn}
-                onClick={() =>
-                  setMachineForm({ machine: null, kind: "machine" })
-                }
-                data-testid="money-add-machine"
-              >
-                + ماكينة
-              </button>
-              <button
-                type="button"
-                className={m$.addBtn}
-                onClick={() =>
-                  setMachineForm({ machine: null, kind: "wallet" })
-                }
-                data-testid="money-add-wallet"
-              >
-                + محفظة
-              </button>
-            </div>
-            <div className={m$.addRow}>
-              <button
-                type="button"
-                className={m$.actBtn}
-                onClick={() => openMove("transfer")}
-                data-testid="money-open-transfer"
-              >
-                🔁 حوّلت بين حساباتي
-              </button>
-              <button
-                type="button"
-                className={m$.actBtn}
-                onClick={() => openMove("owner_withdrawal")}
-                data-testid="money-open-withdrawal"
-              >
-                💸 سحبت لنفسي
-              </button>
-            </div>
-
             {(data.movements.length > 0 || data.machineActivity.length > 0) && (
-              <details className={m$.history} data-testid="money-history">
+              <details className={c$.details} data-testid="money-history">
                 <summary>آخر الحركات</summary>
-                {data.movements.slice(0, 10).map((mv) => (
-                  <div
-                    key={mv.id}
-                    className={m$.histRow}
-                    data-testid="money-movement"
-                  >
-                    <span>
-                      <b>{mv.label}</b>
-                      <small>
-                        {[
-                          mv.from && `من ${mv.from}`,
-                          mv.to && `لـ ${mv.to}`,
-                          when(mv.at),
-                          mv.note,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ")}
-                      </small>
-                    </span>
-                    <b>{formatMoney(mv.amountPiasters)}</b>
-                  </div>
-                ))}
-                {data.machineActivity.slice(0, 10).map((x) => (
-                  <div key={x.id} className={m$.histRow}>
-                    <span>
-                      <b>{x.machine}</b>
-                      <small>
-                        {[x.source, when(x.at)].filter(Boolean).join(" · ")}
-                      </small>
-                    </span>
-                    <b>
-                      {x.amountPiasters >= 0 ? "+" : "−"}
-                      {formatMoney(Math.abs(x.amountPiasters))}
-                    </b>
-                  </div>
-                ))}
+                <div className={c$.rows}>
+                  {data.movements.slice(0, 10).map((mv) => (
+                    <div
+                      key={mv.id}
+                      className={c$.row}
+                      data-testid="money-movement"
+                      data-kind={mv.kind}
+                    >
+                      <span>
+                        <span
+                          className={`${c$.chip} ${mv.kind === "transfer" ? c$.toneInfo : c$.toneLow}`}
+                        >
+                          {MOVE_TAG[mv.kind] ?? mv.label}
+                        </span>{" "}
+                        <small>
+                          {[
+                            mv.from && `من ${mv.from}`,
+                            mv.to && `لـ ${mv.to}`,
+                            when(mv.at),
+                            mv.note,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </small>
+                      </span>
+                      <b>{formatMoney(mv.amountPiasters)}</b>
+                    </div>
+                  ))}
+                  {data.machineActivity.slice(0, 10).map((x) => (
+                    <div key={x.id} className={c$.row}>
+                      <span>
+                        <b>{x.machine}</b>{" "}
+                        <small>
+                          {[x.source, when(x.at)].filter(Boolean).join(" · ")}
+                        </small>
+                      </span>
+                      <b>
+                        {x.amountPiasters >= 0 ? "+" : "−"}
+                        {formatMoney(Math.abs(x.amountPiasters))}
+                      </b>
+                    </div>
+                  ))}
+                </div>
               </details>
             )}
           </>
         )}
         <p className={m$.note}>
-          الفلوس هنا هي اللي معاك فعلاً، مش المبيعات. الكاش مبيتشحنش بإيدك:
-          بيتغير لوحده مع البيع والمصاريف والعمليات الكاش.
+          دي الفلوس اللي معاك فعلاً، مش المبيعات. التحويل مش مكسب ولا مصروف،
+          والسحب لنفسك بيطلع من أرباحك مش من مصاريف المحل.
         </p>
 
-        {menuFor && (
-          <Modal title={menuFor.name} onClose={() => setMenuFor(null)}>
-            <div className={m$.menu} data-testid="money-menu-sheet">
+        {addOpen && (
+          <Modal title="تضيف إيه؟" onClose={() => setAddOpen(false)}>
+            <div className={m$.menu} data-testid="money-add-sheet">
               <button
                 type="button"
                 className={m$.menuBtn}
                 onClick={() => {
-                  setTopup(menuFor);
-                  setMenuFor(null);
+                  setAddOpen(false);
+                  setMachineForm({ machine: null, kind: "machine" });
                 }}
+                data-testid="money-add-machine"
               >
-                ➕ حط رصيد
+                💳 ماكينة
               </button>
+              <button
+                type="button"
+                className={m$.menuBtn}
+                onClick={() => {
+                  setAddOpen(false);
+                  setMachineForm({ machine: null, kind: "wallet" });
+                }}
+                data-testid="money-add-wallet"
+              >
+                👛 محفظة
+              </button>
+            </div>
+          </Modal>
+        )}
+
+        {menuFor && (
+          <Modal title={menuFor.name} onClose={() => setMenuFor(null)}>
+            <div className={m$.menu} data-testid="money-menu-sheet">
               <button
                 type="button"
                 className={m$.menuBtn}
@@ -496,26 +504,6 @@ export function MoneyView({
               setMachineForm(null);
               setMachines(list);
               toast.show({ msg: message, kind: "ok" });
-              load();
-            }}
-          />
-        )}
-        {topup && (
-          <MachineTopupModal
-            machine={topup}
-            initialMode="topup"
-            topupOnly
-            storeId={session?.store?.id}
-            onClose={() => setTopup(null)}
-            onSuccess={(updated) => {
-              setTopup(null);
-              setMachines((prev) =>
-                prev.map((x) => (x.id === updated.id ? updated : x)),
-              );
-              toast.show({
-                msg: `تم شحن رصيد «${updated.name}» ✓`,
-                kind: "ok",
-              });
               load();
             }}
           />

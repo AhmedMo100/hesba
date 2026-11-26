@@ -236,11 +236,7 @@ export function HomeView({
             <b data-testid="home-money-total">
               {money(cash.data.totalPiasters)}
             </b>
-            <em>
-              {cash.data.cashKnown
-                ? "الدرج والماكينات والمحافظ"
-                : "من غير الدرج (عدّه الأول)"}
-            </em>
+            <em>الدرج والماكينات والمحافظ</em>
           </>
         )}
       </button>

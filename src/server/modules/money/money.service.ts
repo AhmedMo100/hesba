@@ -203,7 +203,7 @@ export async function getMoneyOverview(
       {
         id: "cash",
         kind: "cash",
-        name: "الدرج (كاش)",
+        name: "فلوس الدرج",
         provider: null,
         balancePiasters: expectedCash,
       },
@@ -218,7 +218,8 @@ export async function getMoneyOverview(
     return {
       accounts,
       totalPiasters: accounts.reduce((s, a) => s + (a.balancePiasters ?? 0), 0),
-      cashKnown: expectedCash !== null,
+      // Always known now: the cash is computed from the shop's operations (kept for old clients).
+      cashKnown: true,
       movements: movements.map(view),
       machineActivity: activity.map((a) => ({
         id: a.id,
