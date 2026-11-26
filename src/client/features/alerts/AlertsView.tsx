@@ -609,7 +609,10 @@ export function AlertsView({
                 >
                   <div className={c$.top}>
                     <span className={c$.name}>
-                      {item.unitMode === "weight" ? "⚖️" : "📦"} {item.name}
+                      <span aria-hidden="true">
+                        {item.unitMode === "weight" ? "⚖️" : "📦"}
+                      </span>{" "}
+                      <span>{item.name}</span>
                     </span>
                     <span className={c$.chip}>
                       {item.lv === "out" ? "خلصان" : "قرب يخلص"}
@@ -664,7 +667,9 @@ export function AlertsView({
                     data-testid="alert-money-row"
                   >
                     <div className={c$.top}>
-                      <span className={c$.name}>💳 {m.name}</span>
+                      <span className={c$.name}>
+                        <span aria-hidden="true">💳</span> <span>{m.name}</span>
+                      </span>
                       <span className={c$.chip}>رصيد قليل</span>
                     </div>
                     <span className={c$.sub}>
@@ -700,7 +705,10 @@ export function AlertsView({
                   >
                     <div className={c$.top}>
                       <span className={c$.name}>
-                        {item.unitMode === "weight" ? "⚖️" : "📦"} {item.name}
+                        <span aria-hidden="true">
+                          {item.unitMode === "weight" ? "⚖️" : "📦"}
+                        </span>{" "}
+                        <span>{item.name}</span>
                       </span>
                       <span className={c$.chip}>
                         {item.isExpired

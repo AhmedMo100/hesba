@@ -682,7 +682,7 @@ export function ProductsView() {
                             ? "⚖️"
                             : "📦"}
                       </span>{" "}
-                      {p.name_ar}
+                      <span>{p.name_ar}</span>
                     </span>
                     <span className={c$.pair}>
                       <span>

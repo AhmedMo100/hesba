@@ -645,7 +645,7 @@ export function PeopleView() {
                   <span aria-hidden="true">
                     {section === "suppliers" ? "🚚" : "👤"}
                   </span>{" "}
-                  {p.name}
+                  <span>{p.name}</span>
                 </span>
                 <span className={c$.pair}>
                   <span>
