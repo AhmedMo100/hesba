@@ -16,6 +16,8 @@ export interface DisplaySaleItem {
   packQty: number;
   currentStockBase: number;
   status: "ok" | "low" | "out";
+  /** A batch of it expires soon or has expired: the tile asks for attention (ADR-0039). */
+  nearExpiry?: boolean;
   isService?: boolean;
   category?: string;
   brandName?: string | null;

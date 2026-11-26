@@ -1623,3 +1623,9 @@ button.prow {
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* ADR-0039: a product card — name, quantity · price, one status chip. A tap opens the one
+   menu with every action (the product sheet). */
+.productCard {
+  gap: 6px;
+}

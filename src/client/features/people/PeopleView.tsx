@@ -9,6 +9,7 @@ import React, {
   useRef,
 } from "react";
 import styles from "./PeopleView.module.css";
+import c$ from "@/client/shared/styles/Cards.module.css";
 import {
   Icon,
   Empty,
@@ -90,6 +91,48 @@ import {
   serializeSupplierNotes,
 } from "./people.logic";
 
+/**
+ * Which side a person's balance is on, from the shop's point of view (ADR-0039): «ليك» (money
+ * owed to the shop, green), «عليك» (the shop owes it, red), or settled (grey). A customer's
+ * negative balance is money he paid ahead (the shop owes it); a supplier's positive balance is
+ * what the shop owes him.
+ */
+function personBalance(
+  section: PeopleSection,
+  p: { amount_piasters: number; credit_piasters?: number | null },
+): {
+  side: "mine" | "theirs" | "even";
+  label: string;
+  amount: number;
+  tone: "toneOk" | "toneOut" | "toneMuted";
+} {
+  const owedToShop =
+    section === "suppliers"
+      ? p.amount_piasters < 0
+        ? p.credit_piasters || -p.amount_piasters
+        : 0
+      : p.amount_piasters > 0
+        ? p.amount_piasters
+        : 0;
+  const shopOwes =
+    section === "suppliers"
+      ? p.amount_piasters > 0
+        ? p.amount_piasters
+        : 0
+      : p.amount_piasters < 0
+        ? p.credit_piasters || -p.amount_piasters
+        : 0;
+  if (owedToShop > 0)
+    return { side: "mine", label: "ليك: ", amount: owedToShop, tone: "toneOk" };
+  if (shopOwes > 0)
+    return {
+      side: "theirs",
+      label: "عليك: ",
+      amount: shopOwes,
+      tone: "toneOut",
+    };
+  return { side: "even", label: "خالصين ✓", amount: 0, tone: "toneMuted" };
+}
 export function PeopleView() {
   const [section, setSection] = useState<PeopleSection>("owedToMe");
 
@@ -541,7 +584,10 @@ export function PeopleView() {
   const error = currentSectionData.error;
 
   return (
-    <div className={styles.container} data-testid="page-people">
+    <div
+      className={`${styles.container} ${c$.pagePeople}`}
+      data-testid="page-people"
+    >
       <PageTitle>مين ليك ومين عليك؟</PageTitle>
       {/* Tabs (V19 chips) */}
       <div className={styles.chips} role="tablist">
@@ -583,57 +629,66 @@ export function PeopleView() {
       ) : people.length === 0 ? (
         <Empty icon="users" title={t("pages.people.empty")} />
       ) : (
-        <div className={styles.rows}>
-          {people.map((p) => (
-            <button
-              type="button"
-              key={p.id}
-              className={styles.row}
-              data-testid={`person-row-${p.id}`}
-              onClick={() => setOpenPersonId(p.id)}
-            >
-              <span className={styles.rowEm} aria-hidden="true">
-                {section === "suppliers" ? "🚚" : "👤"}
-              </span>
-              <span className={styles.rowT}>
-                <b>{p.name}</b>
-                <small>
-                  {p.phone || t("pages.people.noPhone")}
-                  {section === "suppliers" &&
+        <div className={c$.gridWide} data-testid="people-cards">
+          {people.map((p) => {
+            const b = personBalance(section, p);
+            return (
+              <button
+                type="button"
+                key={p.id}
+                className={`${c$.card} ${b.side === "even" ? c$.toneMuted : ""}`}
+                data-testid={`person-row-${p.id}`}
+                data-side={b.side}
+                onClick={() => setOpenPersonId(p.id)}
+              >
+                <span className={c$.name}>
+                  <span aria-hidden="true">
+                    {section === "suppliers" ? "🚚" : "👤"}
+                  </span>{" "}
+                  {p.name}
+                </span>
+                <span className={c$.pair}>
+                  <span>
+                    {b.label}
+                    {b.side !== "even" && (
+                      <b
+                        className={`${styles.personAmt} ${b.side === "mine" ? styles.amtMine : styles.amtTheirs}`}
+                      >
+                        {formatEgp(b.amount)}
+                      </b>
+                    )}
+                  </span>
+                </span>
+                {section === "suppliers" &&
                   p.supplies &&
-                  p.supplies.length > 0
-                    ? ` · ${p.supplies.map((x) => x.name).join("، ")}`
-                    : ""}
-                </small>
-              </span>
-              <b className={styles.rowAmt}>
-                {p.amount_piasters < 0
-                  ? formatEgp(p.credit_piasters ?? 0)
-                  : formatEgp(p.amount_piasters)}
-              </b>
-            </button>
-          ))}
+                  p.supplies.length > 0 && (
+                    <span className={c$.sub}>
+                      {p.supplies.map((x) => x.name).join("، ")}
+                    </span>
+                  )}
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* The total, at the bottom (owed to me / what I owe the suppliers) */}
       {!error && currentSectionData.loaded && (
-        <div className={styles.totalRow} data-testid="people-total">
-          <span>
+        <div
+          className={`${c$.card} ${c$.lead} ${styles.peopleTotal}`}
+          data-testid="people-total"
+        >
+          <span className={c$.label}>
+            {section === "suppliers" ? "عليك للموردين" : "ليك عند الناس"} ·{" "}
             {section === "suppliers"
-              ? "المجموع اللي عليك للموردين"
-              : "المجموع اللي ليك عند الناس"}
-            <small>
-              {" "}
-              ·{" "}
-              {section === "suppliers"
-                ? t("pages.people.suppliersCount", {
-                    count: currentSectionData.count,
-                  })
-                : `${currentSectionData.count} شخص`}
-            </small>
+              ? t("pages.people.suppliersCount", {
+                  count: currentSectionData.count,
+                })
+              : `${currentSectionData.count} شخص`}
           </span>
-          <b>{formatEgp(currentSectionData.totalPiasters)}</b>
+          <b className={c$.big}>
+            {formatEgp(currentSectionData.totalPiasters)}
+          </b>
         </div>
       )}
 

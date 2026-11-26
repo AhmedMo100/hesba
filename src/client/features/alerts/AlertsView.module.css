@@ -878,3 +878,36 @@
   max-width: 34%;
   text-align: end;
 }
+
+/* ADR-0039: the three kinds are summary cards that also switch the list. */
+.kindCard {
+  min-height: 72px;
+  justify-content: center;
+}
+
+/* The chosen kind: Home's dark ring (the others stay as they are). */
+.kindOn {
+  outline: 2.5px solid var(--dark);
+  outline-offset: 0;
+}
+
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.kinds .kindCard {
+  padding: 10px;
+}
+
+.alertsPage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.alertsPage .kinds {
+  margin-bottom: 2px;
+}

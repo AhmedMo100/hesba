@@ -2,9 +2,9 @@
 
 /**
  * @file ServicesView.tsx
- * @description «الخدمات» (ADR-0036, 2026-11-25) — defining and managing the shop's services only:
- * add, edit, delete, and filter them by category. Each service is a small card with its name,
- * category and commission (a fixed amount, a percentage, or tiers by amount). Nothing is sold or
+ * @description «الخدمات» (ADR-0036, cards since ADR-0039) — defining and managing the shop's
+ * services only: add, edit, delete (one «⋯» menu per card), and filter them by category. Each
+ * service is a small card with its name, category and commission (a fixed amount, a percentage, or tiers by amount). Nothing is sold or
  * recorded here: a service is sold from «بيع حاجة» (the cashier in الكاشير الذكي, the «📲 خدمة»
  * tab in إدارة المحل), and machine / wallet money lives in «فلوس حِسبة».
  *
@@ -19,10 +19,11 @@ import type { ServiceCommissionRule } from "@/domain/service-commission";
 import { apiGet } from "@/client/shared/api/read-cache";
 import type { StoreProductItem } from "@/client/shared/store-items";
 import { failureMessage } from "@/client/shared/quantity";
-import { PageTitle, useToast } from "@/client/shared/ui";
+import { Modal, PageTitle, useToast } from "@/client/shared/ui";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import { ServiceFormModal } from "../products/ServiceFormModal";
 import styles from "./ServicesView.module.css";
+import c$ from "@/client/shared/styles/Cards.module.css";
 
 interface ShopService {
   id: string;
@@ -41,10 +42,10 @@ async function errorText(res: Response, fallback: string) {
 
 /** «عمولة 5 ج» / «عمولة 2%» / «عمولة حسب المبلغ». */
 function commissionText(s: ShopService): string {
-  if (s.rule.tiers.length > 0) return `حسب المبلغ: ${s.ruleText}`;
+  if (s.rule.tiers.length > 0) return `حسب المبلغ · ${s.ruleText}`;
   return s.rule.type === "percent"
-    ? `${Number(s.rule.value.toFixed(2))}% من العملية`
-    : `${Number((s.rule.value / 100).toFixed(2))} ج على العملية`;
+    ? `${Number(s.rule.value.toFixed(2))}%`
+    : `${Number((s.rule.value / 100).toFixed(2))} ج`;
 }
 
 export function ServicesView() {
@@ -56,6 +57,8 @@ export function ServicesView() {
   const [form, setForm] = useState<{ product: StoreProductItem | null } | null>(
     null,
   );
+  // One «⋯» menu per card (edit, delete) instead of buttons in every card.
+  const [menuFor, setMenuFor] = useState<ShopService | null>(null);
 
   const load = useCallback(() => {
     fetch("/api/services", { credentials: "same-origin" })
@@ -125,7 +128,10 @@ export function ServicesView() {
   };
 
   return (
-    <div className={viewStyles.view} data-testid="page-services">
+    <div
+      className={`${viewStyles.view} ${c$.pageServices}`}
+      data-testid="page-services"
+    >
       <div className={styles.page}>
         <PageTitle>بتقدّم خدمات إيه وعمولتك كام؟</PageTitle>
         <button
@@ -176,45 +182,63 @@ export function ServicesView() {
           </p>
         )}
 
-        <div className={styles.grid}>
+        <div className={c$.grid}>
           {shown.map((s) => (
-            <div key={s.id} className={styles.card} data-testid="services-card">
-              <div className={styles.cardHead}>
-                <b className={styles.name}>⚡ {s.name}</b>
-                <span className={styles.cat}>{s.category}</span>
-              </div>
-              <div className={styles.rule} data-testid="services-card-rule">
-                عمولتك: {commissionText(s)}
-              </div>
-              <div className={styles.cardBtns}>
+            <div key={s.id} className={c$.card} data-testid="services-card">
+              <div className={c$.top}>
+                <span className={c$.name}>{s.name}</span>
                 <button
                   type="button"
-                  className={styles.cardBtn}
-                  onClick={() =>
-                    setForm({
-                      product: products.find((p) => p.id === s.id) ?? null,
-                    })
-                  }
-                  disabled={!products.some((p) => p.id === s.id)}
-                  data-testid="services-edit"
-                  aria-label={`عدّل ${s.name}`}
+                  className={c$.more}
+                  onClick={() => setMenuFor(s)}
+                  aria-label={`إجراءات ${s.name}`}
+                  data-testid="services-menu"
                 >
-                  ✏️ تعديل
-                </button>
-                <button
-                  type="button"
-                  className={`${styles.cardBtn} ${styles.cardBtnDanger}`}
-                  onClick={() => void remove(s)}
-                  data-testid="services-delete"
-                  aria-label={`امسح ${s.name}`}
-                >
-                  🗑️ حذف
+                  ⋯
                 </button>
               </div>
+              <span className={c$.chip}>{s.category}</span>
+              <span className={c$.label}>العمولة</span>
+              <b className={c$.mid} data-testid="services-card-rule">
+                {commissionText(s)}
+              </b>
             </div>
           ))}
         </div>
       </div>
+      {menuFor && (
+        <Modal title={menuFor.name} onClose={() => setMenuFor(null)}>
+          <div className={styles.menu} data-testid="services-menu-sheet">
+            <button
+              type="button"
+              className={styles.menuBtn}
+              onClick={() => {
+                const target = menuFor;
+                setMenuFor(null);
+                setForm({
+                  product: products.find((p) => p.id === target.id) ?? null,
+                });
+              }}
+              disabled={!products.some((p) => p.id === menuFor.id)}
+              data-testid="services-edit"
+            >
+              ✏️ تعديل
+            </button>
+            <button
+              type="button"
+              className={`${styles.menuBtn} ${styles.menuDanger}`}
+              onClick={() => {
+                const target = menuFor;
+                setMenuFor(null);
+                void remove(target);
+              }}
+              data-testid="services-delete"
+            >
+              🗑️ حذف
+            </button>
+          </div>
+        </Modal>
+      )}
       {form && (
         <ServiceFormModal
           product={form.product}

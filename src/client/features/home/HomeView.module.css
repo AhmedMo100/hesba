@@ -1481,3 +1481,11 @@
   color: #eee6d2;
   box-shadow: inset 0 0 0 1.5px #3c5a44;
 }
+
+/* ADR-0039: «تقاريرك» uses the screen's full width on a computer, so its cards sit side by side
+   (Home keeps its phone width). */
+@media (min-width: 900px) {
+  .reportsWide {
+    max-width: none;
+  }
+}

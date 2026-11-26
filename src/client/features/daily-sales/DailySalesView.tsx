@@ -28,6 +28,7 @@ import {
   type StoreVariantOption,
   failureMessage,
 } from "@/client/shared/quantity";
+import c$ from "@/client/shared/styles/Cards.module.css";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import { Seg } from "@/client/shared/ui";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
@@ -236,7 +237,10 @@ export function DailySalesView({
   );
   if (tab === "service")
     return (
-      <div className={viewStyles.view} data-testid="page-daily-sales">
+      <div
+        className={`${viewStyles.view} ${c$.pageSell}`}
+        data-testid="page-daily-sales"
+      >
         <div className={styles.container}>
           {tabs}
           <h2 className={styles.askTitle}>سجّل عملية خدمة</h2>
@@ -246,7 +250,10 @@ export function DailySalesView({
     );
 
   return (
-    <div className={viewStyles.view} data-testid="page-daily-sales">
+    <div
+      className={`${viewStyles.view} ${c$.pageSell}`}
+      data-testid="page-daily-sales"
+    >
       <div className={styles.container}>
         {tabs}
         <h2 className={styles.askTitle}>بعت بكام النهارده؟</h2>

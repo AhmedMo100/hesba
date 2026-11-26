@@ -36,6 +36,7 @@ import {
   type WasteSource,
 } from "@/schemas/inventory";
 import styles from "./AlertsView.module.css";
+import c$ from "@/client/shared/styles/Cards.module.css";
 
 /** One row of «سجل التالف» (`GET /api/stock?view=waste`). */
 interface WasteRow {
@@ -66,7 +67,7 @@ export function AlertsView({
 }: {
   /** "machines": wallets & machines (V19). "alerts": the stand-alone alerts page (V17). */
   mode?: "machines" | "alerts";
-  onNavigate?: (route: "stock") => void;
+  onNavigate?: (route: "stock" | "money") => void;
 } = {}) {
   const { session } = useAuth();
   const storeId = session?.store?.id;
@@ -479,40 +480,54 @@ export function AlertsView({
       )}
 
       {mode === "alerts" && (
-        <>
-          {/* V17 alerts form, as a page: نفاد / صلاحية */}
+        <div className={`${c$.pageAlerts} ${styles.alertsPage}`}>
+          {/* ADR-0039: cards. Three summary cards (one per kind, each its own soft colour) are
+              the tabs; under them, one card per alert: its name, the one thing to know, and the
+              one action that applies. */}
           <PageTitle>إيه اللي محتاج تاخد بالك منه؟</PageTitle>
-          <div className={styles.tabsFill} role="tablist">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "stock"}
-              className={`${styles.tab} ${tab === "stock" ? styles.tabOn : ""}`}
-              onClick={() => setTab("stock")}
-              data-testid="alerts-tab-stock"
-            >
-              نفاد ({totalStockAlerts})
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "exp"}
-              className={`${styles.tab} ${tab === "exp" ? styles.tabOn : ""}`}
-              onClick={() => setTab("exp")}
-              data-testid="alerts-tab-exp"
-            >
-              صلاحية ({totalExpiryAlerts})
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={tab === "waste"}
-              className={`${styles.tab} ${tab === "waste" ? styles.tabOn : ""}`}
-              onClick={() => setTab("waste")}
-              data-testid="alerts-tab-waste"
-            >
-              التالف ({wasteLog?.length ?? 0})
-            </button>
+          <div
+            className={styles.kinds}
+            role="tablist"
+            data-testid="alerts-kinds"
+          >
+            {(
+              [
+                [
+                  "stock",
+                  "📦 نقص",
+                  totalStockAlerts,
+                  c$.toneOut,
+                  "alerts-tab-stock",
+                ],
+                [
+                  "exp",
+                  "⏳ صلاحية",
+                  totalExpiryAlerts,
+                  c$.toneLow,
+                  "alerts-tab-exp",
+                ],
+                [
+                  "waste",
+                  "🗑️ التالف",
+                  wasteLog?.length ?? 0,
+                  c$.toneMuted,
+                  "alerts-tab-waste",
+                ],
+              ] as const
+            ).map(([k, label, n, tone, id]) => (
+              <button
+                key={k}
+                type="button"
+                role="tab"
+                aria-selected={tab === k}
+                className={`${c$.card} ${tone} ${styles.kindCard} ${tab === k ? styles.kindOn : ""}`}
+                onClick={() => setTab(k)}
+                data-testid={id}
+              >
+                <span className={c$.label}>{label}</span>
+                <b className={c$.big}>{n}</b>
+              </button>
+            ))}
           </div>
 
           {tab === "waste" && (
@@ -541,41 +556,40 @@ export function AlertsView({
                 <div className={styles.note}>بنحمّل…</div>
               )}
               {wasteLog && wasteLog.length === 0 && (
-                <div className={styles.note} data-testid="waste-empty">
+                <div className={c$.empty} data-testid="waste-empty">
                   لسه مفيش تالف متسجّل.
                 </div>
               )}
-              {(wasteLog ?? []).map((w) => (
-                <div
-                  key={w.id}
-                  className={styles.rowItem}
-                  data-testid="waste-row"
-                >
-                  <span className={styles.rowEm} aria-hidden="true">
-                    🗑️
-                  </span>
-                  <span className={styles.rowT} style={{ flex: 1 }}>
-                    <b>{w.productName}</b>
-                    <span>
+              <div className={c$.gridWide}>
+                {(wasteLog ?? []).map((w) => (
+                  <div
+                    key={w.id}
+                    className={`${c$.card} ${c$.toneMuted}`}
+                    data-testid="waste-row"
+                  >
+                    <div className={c$.top}>
+                      <span className={c$.name}>{w.productName}</span>
+                      <b className={c$.mid} data-testid="waste-cost">
+                        {w.costPiasters > 0
+                          ? `−${formatMoney(w.costPiasters)}`
+                          : "التكلفة مش معروفة"}
+                      </b>
+                    </div>
+                    <span className={c$.chip}>
                       {w.quantityText} ·{" "}
                       {WASTE_REASON_LABELS[w.reason as WasteReason] ?? w.reason}
-                      {w.note ? ` · ${w.note}` : ""}
                     </span>
-                    <small className={styles.wasteMeta}>
+                    <span className={c$.sub}>
                       {wasteDay(w.createdAt)}
                       {w.source
                         ? ` · من ${WASTE_SOURCE_LABELS[w.source as WasteSource] ?? w.source}`
                         : ""}
                       {w.createdByName ? ` · ${w.createdByName}` : ""}
-                    </small>
-                  </span>
-                  <b className={styles.wasteCost} data-testid="waste-cost">
-                    {w.costPiasters > 0
-                      ? `−${formatMoney(w.costPiasters)}`
-                      : "التكلفة مش معروفة"}
-                  </b>
-                </div>
-              ))}
+                      {w.note ? ` · ${w.note}` : ""}
+                    </span>
+                  </div>
+                ))}
+              </div>
             </>
           )}
 
@@ -583,23 +597,27 @@ export function AlertsView({
             !loading &&
             stockAlertsList.length === 0 &&
             lowMachines.length === 0 && (
-              <div className={styles.note}>كل حاجة متوفرة ✅</div>
+              <div className={c$.empty}>كل حاجة متوفرة ✅</div>
             )}
-          {showStock &&
-            stockAlertsList.map((item) => (
-              <div
-                key={item.id}
-                className={styles.rowItem}
-                data-testid="alert-stock-row"
-              >
-                <span className={styles.rowEm} aria-hidden="true">
-                  {item.unitMode === "weight" ? "⚖️" : "📦"}
-                </span>
-                <div className={styles.rowT}>
-                  <b>{item.name}</b>
-                  <span>
+          {showStock && (
+            <div className={c$.gridWide}>
+              {stockAlertsList.map((item) => (
+                <div
+                  key={item.id}
+                  className={`${c$.card} ${item.lv === "out" ? c$.toneOut : c$.toneLow}`}
+                  data-testid="alert-stock-row"
+                >
+                  <div className={c$.top}>
+                    <span className={c$.name}>
+                      {item.unitMode === "weight" ? "⚖️" : "📦"} {item.name}
+                    </span>
+                    <span className={c$.chip}>
+                      {item.lv === "out" ? "خلصان" : "قرب يخلص"}
+                    </span>
+                  </div>
+                  <span className={c$.sub}>
                     {item.lv === "out"
-                      ? "خلصان خالص"
+                      ? "مفيش منه خالص"
                       : `المتاح: ${formatQtyText(
                           item.unitMode,
                           item.currentStockBase,
@@ -607,65 +625,116 @@ export function AlertsView({
                           item.unit,
                         )}`}
                   </span>
-                </div>
-                <button
-                  type="button"
-                  className={`${styles.mini} ${styles.miniDark}`}
-                  onClick={() =>
-                    setRestockProductObj({
-                      id: item.productId,
-                      name_ar: item.name,
-                      category: item.category,
-                      unit: item.unit,
-                      sell_price_piasters: item.sellPricePiasters,
-                      buy_cost_piasters: item.buyPricePiasters,
-                      stock_quantity: item.currentStockBase,
-                      is_custom: false,
-                      variants: [
-                        {
-                          id: item.variantId,
-                          pack_qty: item.packQty,
-                          size_unit: item.packName,
-                          sell_price_piasters: item.sellPricePiasters,
-                          buy_cost_piasters: item.buyPricePiasters,
-                          stock_quantity: item.currentStockBase,
-                        },
-                      ],
-                    })
-                  }
-                >
-                  + دخلت
-                </button>
-              </div>
-            ))}
-          {showStock &&
-            lowMachines.map((m) => {
-              const bal = m.currentBalancePiasters || 0;
-              return (
-                <div key={m.id} className={styles.rowItem}>
-                  <span className={styles.rowEm} aria-hidden="true">
-                    💳
-                  </span>
-                  <div className={styles.rowT}>
-                    <b>{m.name}</b>
-                    <span>
-                      {bal <= 0
-                        ? "الرصيد خلص"
-                        : `فاضل ${formatMoney(bal)} بس (أقل من 200 ج)`}
-                    </span>
-                  </div>
                   <button
                     type="button"
-                    className={`${styles.mini} ${styles.miniDark}`}
-                    onClick={() => {
-                      setTopupMachine(m);
-                    }}
+                    className={c$.cardAction}
+                    onClick={() =>
+                      setRestockProductObj({
+                        id: item.productId,
+                        name_ar: item.name,
+                        category: item.category,
+                        unit: item.unit,
+                        sell_price_piasters: item.sellPricePiasters,
+                        buy_cost_piasters: item.buyPricePiasters,
+                        stock_quantity: item.currentStockBase,
+                        is_custom: false,
+                        variants: [
+                          {
+                            id: item.variantId,
+                            pack_qty: item.packQty,
+                            size_unit: item.packName,
+                            sell_price_piasters: item.sellPricePiasters,
+                            buy_cost_piasters: item.buyPricePiasters,
+                            stock_quantity: item.currentStockBase,
+                          },
+                        ],
+                      })
+                    }
                   >
-                    + رصيد
+                    + دخلت
                   </button>
                 </div>
-              );
-            })}
+              ))}
+              {lowMachines.map((m) => {
+                const bal = m.currentBalancePiasters || 0;
+                return (
+                  <div
+                    key={m.id}
+                    className={`${c$.card} ${c$.toneInfo}`}
+                    data-testid="alert-money-row"
+                  >
+                    <div className={c$.top}>
+                      <span className={c$.name}>💳 {m.name}</span>
+                      <span className={c$.chip}>رصيد قليل</span>
+                    </div>
+                    <span className={c$.sub}>
+                      {bal <= 0 ? "الرصيد خلص" : `فاضل ${formatMoney(bal)} بس`}
+                    </span>
+                    {onNavigate && (
+                      <button
+                        type="button"
+                        className={c$.cardAction}
+                        onClick={() => onNavigate("money")}
+                      >
+                        🔁 حوّل له من «فلوس حِسبة»
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {showExp && !loading && expiryAlertsList.length === 0 && (
+            <div className={c$.empty}>مفيش حاجة قربت تخلص صلاحيتها ✅</div>
+          )}
+          {showExp && (
+            <div className={c$.gridWide}>
+              {expiryAlertsList.map((item) => {
+                const d = item.daysUntilExpiry;
+                return (
+                  <div
+                    key={item.id}
+                    className={`${c$.card} ${item.isExpired ? c$.toneOut : c$.toneLow}`}
+                    data-testid="alert-expiry-row"
+                  >
+                    <div className={c$.top}>
+                      <span className={c$.name}>
+                        {item.unitMode === "weight" ? "⚖️" : "📦"} {item.name}
+                      </span>
+                      <span className={c$.chip}>
+                        {item.isExpired
+                          ? "منتهي"
+                          : d === 0
+                            ? "بيخلص النهارده"
+                            : `باقي ${d} يوم`}
+                      </span>
+                    </div>
+                    <span className={c$.sub}>
+                      الكمية:{" "}
+                      {formatQtyText(
+                        item.unitMode,
+                        item.remainingQtyBase,
+                        item.packQty,
+                        item.unit,
+                      )}
+                    </span>
+                    <button
+                      type="button"
+                      className={c$.cardAction}
+                      onClick={() => setWasteTarget(item)}
+                    >
+                      🗑️ سجّل كتالف
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+          {/* Offers are made in «بضاعتي» and show in the sale at once — not here. */}
+          {tab === "exp" && expiryAlertsList.length > 0 && (
+            <p className={c$.sub}>عايز تعمل عليها عرض؟ من «بضاعتي».</p>
+          )}
           {showStock && onNavigate && (
             <button
               type="button"
@@ -675,58 +744,6 @@ export function AlertsView({
               📦 دخلت بضاعة
             </button>
           )}
-
-          {showExp && !loading && expiryAlertsList.length === 0 && (
-            <div className={styles.note}>مفيش دفعات قربت على الصلاحية ✅</div>
-          )}
-          {showExp &&
-            expiryAlertsList.map((item) => {
-              const d = item.daysUntilExpiry;
-              const text = item.isExpired
-                ? "صلاحية الدفعة دي خلصت ⛔"
-                : d === 0
-                  ? "الدفعة دي بتخلص صلاحيتها النهارده ⚠️"
-                  : `باقي ${d} يوم على صلاحية الدفعة دي ⚠️`;
-              return (
-                <div
-                  key={item.id}
-                  className={`${styles.rowItem} ${styles.rowWrap}`}
-                  data-testid="alert-expiry-row"
-                >
-                  <span className={styles.rowEm} aria-hidden="true">
-                    {item.unitMode === "weight" ? "⚖️" : "📦"}
-                  </span>
-                  <div className={styles.rowT}>
-                    <b>
-                      {item.name} ·{" "}
-                      {formatQtyText(
-                        item.unitMode,
-                        item.remainingQtyBase,
-                        item.packQty,
-                        item.unit,
-                      )}
-                    </b>
-                    <span>{text}</span>
-                  </div>
-                  <div className={styles.rowActions}>
-                    <button
-                      type="button"
-                      className={`${styles.mini} ${styles.miniRed}`}
-                      onClick={() => setWasteTarget(item)}
-                    >
-                      🗑️ سجّل كتالف
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
-        </>
-      )}
-
-      {/* Offers are made in «بضاعتي» and show in the sale at once — not here. */}
-      {mode === "alerts" && tab === "exp" && (
-        <div className={styles.note}>
-          عايز تعمل عرض على حاجة قربت تخلص صلاحيتها؟ اعمله من «بضاعتي».
         </div>
       )}
 

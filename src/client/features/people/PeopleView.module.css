@@ -1329,3 +1329,22 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* ADR-0039: the amount on a person's card. */
+.personAmt {
+  margin-inline-start: 4px;
+}
+
+/* Debt direction, in the app's own colours: «ليك» green, «عليك» red. */
+.personAmt.amtMine {
+  color: var(--green);
+}
+
+.personAmt.amtTheirs {
+  color: var(--red);
+}
+
+/* The total, under the cards. */
+.peopleTotal {
+  margin-top: 12px;
+}

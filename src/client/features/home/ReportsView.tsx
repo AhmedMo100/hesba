@@ -40,6 +40,7 @@ import {
   yearQuery,
 } from "@/domain/report-periods";
 import styles from "./HomeView.module.css";
+import c$ from "@/client/shared/styles/Cards.module.css";
 
 /**
  * The period chips of each package (ADR-0036, ranges since 2026-11-25). Each package keeps its
@@ -299,7 +300,11 @@ export function ReportsView() {
   });
 
   return (
-    <div className={styles.page} data-testid="page-reports" dir="rtl">
+    <div
+      className={`${styles.page} ${styles.reportsWide} ${c$.pageReports}`}
+      data-testid="page-reports"
+      dir="rtl"
+    >
       <div className={styles.reportHead}>
         <PageTitle className={styles.reportTitle}>محلك ماشي إزاي؟</PageTitle>
         <div className={styles.reportIcons}>
@@ -442,95 +447,181 @@ export function ReportsView() {
         </div>
       ) : (
         <>
-          {/* 1. عملت كام؟ */}
-          <section className={styles.qcard}>
-            <h3 className={styles.qtitle}>💵 بعت بكام؟</h3>
-            <b className={styles.qbig} data-testid="report-sales">
-              {loading && !report ? (
-                <Skeleton width={110} height={34} />
-              ) : (
-                money(sales?.revenuePiasters)
-              )}
-            </b>
-            <small className={styles.qsub}>
-              {sales?.count ?? 0} عملية بيع · بعد المرتجعات
-            </small>
-            {(sales?.serviceSalesPiasters ?? 0) > 0 && (
-              <small className={styles.qsub} data-testid="report-service-sales">
-                منها خدمات بـ {money(sales?.serviceSalesPiasters)}: مكسبك منها
-                العمولة بس
-              </small>
-            )}
-          </section>
-
-          {/* 2. كسبت كام؟ */}
-          <section className={`${styles.qcard} ${styles.qgood}`}>
-            <h3 className={styles.qtitle}>📈 كسبت كام؟</h3>
-            <b className={styles.qbig} data-testid="report-profit">
-              {money(profit)}
-            </b>
-            <small className={styles.qsub}>
-              {sales && sales.unknownCostCount > 0
-                ? t("home.unknownCost", { count: sales.unknownCostCount })
-                : "الفرق بين البيع وتمن البضاعة اللي اتباعت"}
-            </small>
-            <div className={styles.qlines}>
-              <div className={styles.line}>
-                <span>تمن البضاعة اللي اتباعت</span>
-                <b data-testid="report-cogs">{money(sales?.cogsPiasters)}</b>
-              </div>
-              <div className={styles.line}>
-                <span>💰 اللي فاضل بعد المصروفات والتالف</span>
-                <b
-                  data-testid="report-left"
-                  className={left !== null && left < 0 ? styles.redText : ""}
-                >
-                  {money(left)}
-                </b>
-              </div>
-            </div>
-          </section>
-
-          {/* 2b. The full account of the period: actual vs estimated, said in plain words */}
-          {report?.profit && (
-            <section className={styles.qcard} data-testid="report-net">
-              <h3 className={styles.qtitle}>
-                🧾 الحساب الكامل للفترة{" "}
-                <small data-testid="report-net-status">
-                  {report.profit.status === "actual"
-                    ? "(أرقام فعلية)"
-                    : report.profit.status === "estimated"
-                      ? "(ربح تقديري)"
-                      : "(بيانات غير مكتملة)"}
-                </small>
-              </h3>
-              <b className={styles.qbig} data-testid="report-net-profit">
-                {money(
-                  report.profit.netProfitPiasters ??
-                    report.profit.estimatedNetProfitPiasters,
+          {/* The answers, one question per card (ADR-0039): side by side, one column on a
+              narrow phone. The details stay below, folded. */}
+          <div className={c$.grid} data-testid="report-cards">
+            <section className={`${c$.card} ${c$.lead}`}>
+              <span className={c$.label}>💵 المبيعات</span>
+              <b className={c$.big} data-testid="report-sales">
+                {loading && !report ? (
+                  <Skeleton width={90} height={26} />
+                ) : (
+                  money(sales?.revenuePiasters)
                 )}
               </b>
-              <small className={styles.qsub}>
-                صافي المكسب = مكسب البضاعة + عمولات الخدمات − مصاريف المحل −
-                التالف والعجز
-              </small>
-              <div className={styles.qlines}>
-                <div className={styles.line}>
+              <span className={c$.sub}>بعد المرتجعات</span>
+            </section>
+            <section className={c$.card}>
+              <span className={c$.label}>🧾 عدد العمليات</span>
+              <b className={c$.big} data-testid="report-sales-count">
+                {sales?.count ?? 0}
+              </b>
+            </section>
+            <section className={`${c$.card} ${c$.toneOk}`}>
+              <span className={c$.label}>📈 المكسب</span>
+              <b className={c$.big} data-testid="report-profit">
+                {money(profit)}
+              </b>
+              {sales && sales.unknownCostCount > 0 && (
+                <span className={c$.sub}>
+                  {t("home.unknownCost", { count: sales.unknownCostCount })}
+                </span>
+              )}
+            </section>
+            <section
+              className={`${c$.card} ${left !== null && left < 0 ? c$.toneOut : ""}`}
+            >
+              <span className={c$.label}>💰 اللي فاضل</span>
+              <b className={c$.big} data-testid="report-left">
+                {money(left)}
+              </b>
+              <span className={c$.sub}>بعد المصاريف والتالف</span>
+            </section>
+            {report?.profit && (
+              <section className={c$.card} data-testid="report-net">
+                <span className={c$.label}>
+                  🧾 صافي المكسب{" "}
+                  <small data-testid="report-net-status">
+                    {report.profit.status === "actual"
+                      ? "(فعلي)"
+                      : report.profit.status === "estimated"
+                        ? "(تقديري)"
+                        : "(ناقص بيانات)"}
+                  </small>
+                </span>
+                <b className={c$.big} data-testid="report-net-profit">
+                  {money(
+                    report.profit.netProfitPiasters ??
+                      report.profit.estimatedNetProfitPiasters,
+                  )}
+                </b>
+              </section>
+            )}
+            <section className={c$.card}>
+              <span className={c$.label}>💸 المصاريف</span>
+              <b className={c$.big} data-testid="report-expenses">
+                {money(expenses)}
+              </b>
+              <span className={c$.sub}>
+                {report?.expenses.count ?? 0} مصروف
+              </span>
+            </section>
+            <section className={c$.card}>
+              <span className={c$.label}>📦 دخل بضاعة</span>
+              <b className={c$.big} data-testid="report-purchases">
+                {money(report?.purchases.totalPiasters)}
+              </b>
+              <span className={c$.sub}>
+                {report?.purchases.count ?? 0} مرة · مش مصروف
+              </span>
+            </section>
+            <section className={`${c$.card} ${losses > 0 ? c$.toneOut : ""}`}>
+              <span className={c$.label}>🗑️ التالف</span>
+              <b className={c$.big} data-testid="report-losses">
+                {money(losses)}
+              </b>
+              <span className={c$.sub}>
+                {report?.losses.count ?? 0} مرة · بسعر الشراء
+              </span>
+            </section>
+            {report?.profit && (
+              <section
+                className={`${c$.card} ${c$.toneLow}`}
+                data-testid="report-withdrawals"
+              >
+                <span className={c$.label}>👤 سحبت لنفسك</span>
+                <b className={c$.big}>
+                  {money(report.profit.ownerWithdrawalsPiasters)}
+                </b>
+                <span className={c$.sub}>من أرباحك · مش مصروف</span>
+              </section>
+            )}
+            {report?.profit && report.profit.serviceCommissionsPiasters > 0 && (
+              <section className={c$.card}>
+                <span className={c$.label}>📲 عمولات الخدمات</span>
+                <b className={c$.big} data-testid="report-commissions">
+                  {money(report.profit.serviceCommissionsPiasters)}
+                </b>
+              </section>
+            )}
+            {(sales?.serviceSalesPiasters ?? 0) > 0 && (
+              <section className={c$.card} data-testid="report-service-sales">
+                <span className={c$.label}>📲 منها خدمات</span>
+                <b className={c$.big}>{money(sales?.serviceSalesPiasters)}</b>
+                <span className={c$.sub}>مكسبك منها العمولة بس</span>
+              </section>
+            )}
+            {report?.profit && report.profit.discoveredSalesPiasters > 0 && (
+              <section className={c$.card} data-testid="report-discovered">
+                <span className={c$.label}>📋 اتباع ومتسجلش</span>
+                <b className={c$.big}>
+                  {money(report.profit.discoveredSalesPiasters)}
+                </b>
+                <span className={c$.sub}>من الجرد</span>
+              </section>
+            )}
+            <section className={c$.card}>
+              <span className={c$.label}>🏷️ تمن اللي اتباع</span>
+              <b className={c$.big} data-testid="report-cogs">
+                {money(sales?.cogsPiasters)}
+              </b>
+            </section>
+            {report?.inventoryValue && (
+              <section className={c$.card}>
+                <span className={c$.label}>📦 قيمة البضاعة</span>
+                <b className={c$.big} data-testid="report-stock-value">
+                  {money(report.inventoryValue.costPiasters)}
+                </b>
+                <span className={c$.sub}>
+                  بالبيع {money(report.inventoryValue.sellPiasters)}
+                </span>
+              </section>
+            )}
+          </div>
+
+          <h3 className={c$.section}>💳 بعت إزاي؟</h3>
+          <div className={c$.grid} data-testid="report-by-payment">
+            <section className={c$.card}>
+              <span className={c$.label}>💵 كاش</span>
+              <b className={c$.mid}>{money(pay?.cash)}</b>
+            </section>
+            <section className={c$.card}>
+              <span className={c$.label}>💳 محافظ وماكينات</span>
+              <b className={c$.mid}>
+                {pay ? formatMoney(pay.wallet + pay.card) : "—"}
+              </b>
+            </section>
+            <section className={c$.card}>
+              <span className={c$.label}>🧾 آجل</span>
+              <b className={c$.mid}>{money(pay?.debt)}</b>
+            </section>
+          </div>
+
+          <h3 className={c$.section}>التفاصيل</h3>
+          {report?.profit && (
+            <details className={c$.details}>
+              <summary>الحساب الكامل</summary>
+              <div className={c$.rows}>
+                <div className={c$.row}>
                   <span>مبيعات البضاعة</span>
                   <b>{money(report.profit.productSalesPiasters)}</b>
                 </div>
-                {report.profit.discoveredSalesPiasters > 0 && (
-                  <div className={styles.line}>
-                    <span>منها اتباع ومتسجلش (من الجرد)</span>
-                    <b>{money(report.profit.discoveredSalesPiasters)}</b>
-                  </div>
-                )}
-                <div className={styles.line}>
+                <div className={c$.row}>
                   <span>
-                    مكسب البضاعة{" "}
+                    مكسب البضاعة
                     {report.profit.grossProfitPiasters === null &&
                     report.profit.estimateMarginPercent !== null
-                      ? `(تقديري بهامش ${report.profit.estimateMarginPercent}%)`
+                      ? ` (تقديري ${report.profit.estimateMarginPercent}%)`
                       : ""}
                   </span>
                   <b>
@@ -540,68 +631,56 @@ export function ReportsView() {
                     )}
                   </b>
                 </div>
-                <div className={styles.line}>
-                  <span>📲 عمولات الخدمات</span>
-                  <b data-testid="report-commissions">
-                    {money(report.profit.serviceCommissionsPiasters)}
-                  </b>
+                <div className={c$.row}>
+                  <span>+ عمولات الخدمات</span>
+                  <b>{money(report.profit.serviceCommissionsPiasters)}</b>
                 </div>
-                <div className={styles.line}>
-                  <span>💸 مصاريف المحل</span>
+                <div className={c$.row}>
+                  <span>− مصاريف المحل</span>
+                  <b>{money(report.profit.operatingExpensesPiasters)}</b>
+                </div>
+                <div className={c$.row}>
+                  <span>− تالف وعجز جرد</span>
+                  <b>{money(report.profit.inventoryLossesPiasters)}</b>
+                </div>
+                <div className={c$.row}>
+                  <span>= صافي المكسب</span>
                   <b>
-                    {report.profit.operatingExpensesPiasters > 0 ? "−" : ""}
-                    {money(report.profit.operatingExpensesPiasters)}
+                    {money(
+                      report.profit.netProfitPiasters ??
+                        report.profit.estimatedNetProfitPiasters,
+                    )}
                   </b>
                 </div>
-                <div className={styles.line}>
-                  <span>🗑️ تالف وعجز جرد</span>
-                  <b>
-                    {report.profit.inventoryLossesPiasters > 0 ? "−" : ""}
-                    {money(report.profit.inventoryLossesPiasters)}
-                  </b>
-                </div>
-                <div className={styles.line}>
-                  <span>👤 سحبت لنفسك (مش من المصاريف)</span>
+                <div className={c$.row}>
+                  <span>
+                    سحبت لنفسك <small>(من أرباحك، مش مصروف)</small>
+                  </span>
                   <b>{money(report.profit.ownerWithdrawalsPiasters)}</b>
                 </div>
-                {report.inventoryValue && (
-                  <div className={styles.line}>
-                    <span>📦 قيمة البضاعة عندك دلوقتي (بالتكلفة / بالبيع)</span>
-                    <b data-testid="report-stock-value">
-                      {money(report.inventoryValue.costPiasters)} /{" "}
-                      {money(report.inventoryValue.sellPiasters)}
-                    </b>
-                  </div>
-                )}
               </div>
               {report.profit.notes.length > 0 && (
-                <ul className={styles.qsub} data-testid="report-net-notes">
+                <ul className={c$.sub} data-testid="report-net-notes">
                   {report.profit.notes.map((n) => (
                     <li key={n}>{n}</li>
                   ))}
                 </ul>
               )}
-            </section>
+            </details>
           )}
 
-          {/* 3. صرفت كام؟ */}
-          <section className={styles.qcard}>
-            <h3 className={styles.qtitle}>💸 صرفت كام؟</h3>
-            <b className={styles.qbig} data-testid="report-expenses">
-              {money(expenses)}
-            </b>
-            <small className={styles.qsub}>
-              {report?.expenses.count ?? 0} مصروف
-            </small>
-            {expenseList && expenseList.length > 0 && (
-              <div className={styles.qlines} data-testid="report-expense-list">
+          {expenseList && expenseList.length > 0 && (
+            <details className={c$.details}>
+              <summary>
+                المصاريف <span>{money(expenses)}</span>
+              </summary>
+              <div className={c$.rows} data-testid="report-expense-list">
                 {expenseList.map((e) => (
-                  <div key={e.id} className={styles.line}>
+                  <div key={e.id} className={c$.row}>
                     <span>
                       {t(`pages.expenses.categories.${e.category}`) ||
-                        e.category}
-                      <small className={styles.muted}>
-                        {" "}
+                        e.category}{" "}
+                      <small>
                         {dayLabel(e.spent_at)}
                         {e.note ? ` · ${e.note}` : ""}
                       </small>
@@ -610,35 +689,29 @@ export function ReportsView() {
                   </div>
                 ))}
               </div>
-            )}
-          </section>
+            </details>
+          )}
 
-          {/* 4. دخل عندي بضاعة بكام؟ */}
-          <section className={styles.qcard}>
-            <h3 className={styles.qtitle}>📦 دخل عندك بضاعة بكام؟</h3>
-            <b className={styles.qbig} data-testid="report-purchases">
-              {money(report?.purchases.totalPiasters)}
-            </b>
-            <small className={styles.qsub}>
-              {report?.purchases.count ?? 0} مرة دخلت بضاعة · بسعر الشراء، مش
-              مصروف
-            </small>
-            <div className={styles.qlines} data-testid="report-additions">
+          <details className={c$.details}>
+            <summary>
+              البضاعة اللي دخلت{" "}
+              <span>{money(report?.purchases.totalPiasters)}</span>
+            </summary>
+            <div className={c$.rows} data-testid="report-additions">
               {moves === null ? (
                 <Skeleton width={160} height={20} />
               ) : additions.length === 0 ? (
-                <div className={styles.note}>مفيش بضاعة دخلت في الفترة دي</div>
+                <div className={c$.sub}>مفيش بضاعة دخلت في الفترة دي</div>
               ) : (
                 additions.map((m) => (
-                  <div key={m.id} className={styles.line}>
+                  <div key={m.id} className={c$.row}>
                     <span>
                       {m.productName}
                       {m.flavor ? ` (${m.flavor})` : ""} ·{" "}
                       {m.unitMode === "weight"
                         ? `${m.quantityBase / 1000} كيلو`
-                        : `${m.quantityBase}`}
-                      <small className={styles.muted}>
-                        {" "}
+                        : `${m.quantityBase}`}{" "}
+                      <small>
                         {dayLabel(m.createdAt)}
                         {m.expiryDate
                           ? ` · تنتهي ${m.expiryDate.slice(0, 10)}`
@@ -657,28 +730,22 @@ export function ReportsView() {
                 ))
               )}
             </div>
-          </section>
+          </details>
 
-          {/* 5. في تالف قد إيه؟ */}
-          <section className={`${styles.qcard} ${styles.qbad}`}>
-            <h3 className={styles.qtitle}>🗑️ في تالف قد إيه؟</h3>
-            <b className={styles.qbig} data-testid="report-losses">
-              {money(losses)}
-            </b>
-            <small className={styles.qsub}>
-              {report?.losses.count ?? 0} مرة · بسعر الشراء
-            </small>
-            {report && report.losses.recent.length > 0 && (
-              <div className={styles.qlines} data-testid="home-losses">
+          {report && report.losses.recent.length > 0 && (
+            <details className={c$.details}>
+              <summary>
+                التالف <span>{money(losses)}</span>
+              </summary>
+              <div className={c$.rows} data-testid="home-losses">
                 {report.losses.recent.map((l) => (
-                  <div key={l.id} className={styles.line}>
+                  <div key={l.id} className={c$.row}>
                     <span>
                       {l.name} ·{" "}
                       {l.unit === "kg" || l.unit === "g"
                         ? `${l.quantityBase / 1000} كيلو`
-                        : l.quantityBase}
-                      <small className={styles.muted}>
-                        {" "}
+                        : l.quantityBase}{" "}
+                      <small>
                         {WASTE_REASON_LABELS[l.reason as WasteReason] ??
                           l.reason}
                       </small>
@@ -687,55 +754,31 @@ export function ReportsView() {
                   </div>
                 ))}
               </div>
-            )}
-          </section>
+            </details>
+          )}
 
-          {/* 6. إيه المنتجات المهمة؟ */}
           {report && report.topProducts.length > 0 && (
-            <section className={styles.qcard}>
-              <h3 className={styles.qtitle}>⭐ أكتر حاجات اتباعت</h3>
-              <div className={styles.qlines} data-testid="report-top">
+            <details className={c$.details}>
+              <summary>⭐ أكتر حاجات اتباعت</summary>
+              <div className={c$.rows} data-testid="report-top">
                 {report.topProducts.map((p) => (
-                  <div key={`${p.productId}-${p.name}`} className={styles.line}>
+                  <div key={`${p.productId}-${p.name}`} className={c$.row}>
                     <span>{p.name}</span>
                     <b>{formatMoney(p.revenuePiasters)}</b>
                   </div>
                 ))}
+                {report.byCategory.length > 1 &&
+                  report.byCategory.map((c) => (
+                    <div key={c.category} className={c$.row}>
+                      <span>
+                        <small>قسم</small> {c.category || "متفرقات"}
+                      </span>
+                      <b>{formatMoney(c.revenuePiasters)}</b>
+                    </div>
+                  ))}
               </div>
-              {report.byCategory.length > 1 && (
-                <>
-                  <div className={styles.lbl}>حسب القسم</div>
-                  <div className={styles.qlines}>
-                    {report.byCategory.map((c) => (
-                      <div key={c.category} className={styles.line}>
-                        <span>{c.category || "متفرقات"}</span>
-                        <b>{formatMoney(c.revenuePiasters)}</b>
-                      </div>
-                    ))}
-                  </div>
-                </>
-              )}
-            </section>
+            </details>
           )}
-
-          {/* 7. بعت إزاي؟ — last */}
-          <section className={styles.qcard}>
-            <h3 className={styles.qtitle}>💳 بعت إزاي؟</h3>
-            <div className={styles.qlines} data-testid="report-by-payment">
-              <div className={styles.line}>
-                <span>💵 كاش</span>
-                <b>{money(pay?.cash)}</b>
-              </div>
-              <div className={styles.line}>
-                <span>💳 محافظ وماكينات</span>
-                <b>{pay ? formatMoney(pay.wallet + pay.card) : "—"}</b>
-              </div>
-              <div className={styles.line}>
-                <span>🧾 آجل</span>
-                <b>{money(pay?.debt)}</b>
-              </div>
-            </div>
-          </section>
         </>
       )}
     </div>

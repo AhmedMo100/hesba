@@ -35,12 +35,42 @@ import {
 } from "@/client/shared/store-items";
 import { productEmoji } from "@/client/shared/product-emoji";
 import styles from "./ProductsView.module.css";
+import c$ from "@/client/shared/styles/Cards.module.css";
 
 import {
   fmtMoney,
   sandwichSubtitle as sandwichSubtitlePure,
   isWeightProduct,
 } from "./products.logic";
+
+/**
+ * A product card's status (ADR-0039), one word and one soft colour: out of stock, running
+ * low, expired or expiring within a week (from the live batches), needs a look (no price, or a
+ * negative quantity), or fine.
+ */
+function productStatus(
+  p: StoreProductItem,
+  level: "out" | "low" | "ok",
+  batches: Array<{ remainingQty: number; expiryDate?: string | null }> = [],
+): {
+  key: "out" | "low" | "expired" | "expiring" | "review" | "ok";
+  label: string;
+  tone: "toneOut" | "toneLow" | "toneMuted" | "toneOk" | null;
+} {
+  if (p.kind === "sandwich") return { key: "ok", label: "سندوتش", tone: null };
+  const today = new Date().toISOString().slice(0, 10);
+  const week = new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10);
+  const live = batches.filter((b) => b.remainingQty > 0 && b.expiryDate);
+  if (live.some((b) => b.expiryDate!.slice(0, 10) < today))
+    return { key: "expired", label: "فيه منتهي", tone: "toneOut" };
+  if (level === "out") return { key: "out", label: "خلصان", tone: "toneOut" };
+  if ((p.stock_quantity ?? 0) < 0 || p.sell_price_piasters <= 0)
+    return { key: "review", label: "محتاج مراجعة", tone: "toneMuted" };
+  if (live.some((b) => b.expiryDate!.slice(0, 10) <= week))
+    return { key: "expiring", label: "قرب يخلص صلاحيته", tone: "toneLow" };
+  if (level === "low") return { key: "low", label: "قليل", tone: "toneLow" };
+  return { key: "ok", label: "متوفر", tone: "toneOk" };
+}
 
 /** Cost / sell / profit of a sandwich card. Cost is the live recipe cost from the server. */
 function SandwichPriceBox({
@@ -478,7 +508,10 @@ export function ProductsView() {
   }, [filteredPhysicalProducts, sandwichById]);
 
   return (
-    <div className={styles.view} data-testid="page-products">
+    <div
+      className={`${styles.view} ${c$.pageProducts}`}
+      data-testid="page-products"
+    >
       <PageTitle>إيه اللي عندك في المحل؟</PageTitle>
       {/* V19: «+ جديد» (offer / sandwich / product) */}
       <button
@@ -629,38 +662,48 @@ export function ProductsView() {
               />
             </div>
           ) : (
-            <div className={styles.rowsList}>
-              {sortedProducts.map(({ p, level, stockTxt }) => (
-                <button
-                  type="button"
-                  className={`${styles.prow} ${level === "out" ? styles.prowRed : level === "low" ? styles.prowYel : ""} ${p.is_hidden ? styles.cardHidden : ""}`}
-                  key={p.id}
-                  data-testid={`product-card-${p.id}`}
-                  onClick={() => setSheetProduct(p)}
-                >
-                  <div className={styles.pch}>
-                    <span className={styles.prowEm} aria-hidden="true">
-                      {isSandwich(p) ? "🥪" : isWeightProduct(p) ? "⚖️" : "📦"}
+            <div className={c$.grid} data-testid="products-cards">
+              {sortedProducts.map(({ p, level, stockTxt }) => {
+                const status = productStatus(p, level, stockOf(p)?.batches);
+                return (
+                  <button
+                    type="button"
+                    className={`${c$.card} ${status.tone ? c$[status.tone] : ""} ${styles.productCard} ${p.is_hidden ? styles.cardHidden : ""}`}
+                    key={p.id}
+                    data-testid={`product-card-${p.id}`}
+                    data-status={status.key}
+                    onClick={() => setSheetProduct(p)}
+                  >
+                    <span className={c$.name}>
+                      <span aria-hidden="true">
+                        {isSandwich(p)
+                          ? "🥪"
+                          : isWeightProduct(p)
+                            ? "⚖️"
+                            : "📦"}
+                      </span>{" "}
+                      {p.name_ar}
                     </span>
-                    <div className={styles.pcn}>
-                      <b>{p.name_ar}</b>
-                      <small>
-                        {stockTxt}
-                        {p.sell_price_piasters > 0
-                          ? ` · ${p.sell_price_piasters / 100} ج`
-                          : ""}
-                      </small>
-                    </div>
-                    <span aria-hidden="true">›</span>
-                  </div>
-                  {isSandwich(p) && (
-                    <SandwichPriceBox
-                      sandwich={sandwichById.get(p.id)}
-                      sellPricePiasters={p.sell_price_piasters}
-                    />
-                  )}
-                </button>
-              ))}
+                    <span className={c$.pair}>
+                      <span>
+                        الكمية <b>{stockTxt}</b>
+                      </span>
+                      {p.sell_price_piasters > 0 && (
+                        <span>
+                          السعر <b>{fmtMoney(p.sell_price_piasters)} ج</b>
+                        </span>
+                      )}
+                    </span>
+                    <span className={c$.chip}>{status.label}</span>
+                    {isSandwich(p) && (
+                      <SandwichPriceBox
+                        sandwich={sandwichById.get(p.id)}
+                        sellPricePiasters={p.sell_price_piasters}
+                      />
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </>
