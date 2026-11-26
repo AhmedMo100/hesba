@@ -8,3 +8,8 @@ export {
   customerAllocationInTx,
   type LedgerOwner,
 } from "./ledger";
+export {
+  getPersonStatement,
+  type PersonStatement,
+  type StatementEntry,
+} from "./statement.service";

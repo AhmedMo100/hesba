@@ -15,6 +15,7 @@
  * Day arithmetic uses the Cairo calendar day (QA-52) — see {@link getDaysUntilExpiry}.
  */
 import { toCairoDateString } from "./time";
+import { isServiceProduct } from "./sale-pricing";
 
 /**
  * Stock level of one variant (QA-52), the rule of the behavioural reference
@@ -173,6 +174,7 @@ export function getDaysUntilExpiry(
 /**
  * Builds every alert list and clearance suggestion for one store.
  *
+ * - A service is skipped: it has no stock to run out of.
  * - A variant is "out" when its status is out or stock ≤ 0, otherwise "low" when flagged low.
  * - Each batch with stock and an expiry date is "expired" (< 0 days) or "near expiry"
  *   (0–{@link NEAR_EXPIRY_DAYS} days). Both lists are sorted most urgent first.
@@ -192,6 +194,8 @@ export function buildStoreAlerts(
   const nearExpiry: ExpiryAlertItem[] = [];
 
   for (const inv of inventory) {
+    // A service has no stock: it is never «خلصان» nor «قرب يخلص» (2026-11-26).
+    if (isServiceProduct({ unit: inv.unit, category: inv.category })) continue;
     const pId = inv.productId || inv.variantId;
     const uMode: "piece" | "weight" =
       inv.unitMode === "weight" ? "weight" : "piece";

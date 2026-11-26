@@ -1,32 +1,21 @@
 "use client";
 
+import { readAiDraft, writeAiDraft } from "@/client/shared/ai-draft";
+import { shareReport } from "@/client/shared/share";
+import type { NavRoute } from "@/client/app-shell/BottomNav";
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { StocktakeChartsView } from "../stocktake/StocktakeCharts";
+import type { StocktakeChartData } from "@/domain/stocktake-charts";
 import styles from "./AiView.module.css";
 import c from "./AiChat17.module.css";
-import { Icon } from "@/client/shared/ui";
+import { Icon, PageTitle } from "@/client/shared/ui";
 import { t } from "@/client/shared/i18n";
 import { AI_SUGGESTED_QUESTIONS } from "@/schemas/ai";
 
-/** The unsent question survives a reload or a lost connection (this device only). */
-const DRAFT_KEY = "hesba_ai_draft";
 const OFFLINE_MESSAGE = "مفيش نت دلوقتي. سؤالك محفوظ — ابعته لما النت يرجع.";
-
-function readDraft(): string {
-  try {
-    return localStorage.getItem(DRAFT_KEY) ?? "";
-  } catch {
-    return "";
-  }
-}
-
-function writeDraft(text: string): void {
-  try {
-    if (text) localStorage.setItem(DRAFT_KEY, text);
-    else localStorage.removeItem(DRAFT_KEY);
-  } catch {
-    // Private mode / blocked storage: the draft just is not kept.
-  }
-}
+/** The unsent question survives a reload or a lost connection (this device only). */
+const readDraft = readAiDraft;
+const writeDraft = writeAiDraft;
 
 /** Client backstop for one reply: the server's 20 s budget (AI_REPLY_TIMEOUT_MS) + margin. */
 const AI_CLIENT_TIMEOUT_MS = 25_000;
@@ -42,8 +31,16 @@ export interface AiChatMessage {
   role: "user" | "assistant";
   content: string;
   sources?: AiSource[];
+  /** A chart built on the server from the shop's own data (ADR-0039), shown under the text. */
+  visual?: AiVisual | null;
   createdAt?: string;
   failed?: boolean;
+}
+
+export interface AiVisual {
+  kind: "stocktake";
+  title: string;
+  data: StocktakeChartData;
 }
 
 export interface AiQuotaInfo {
@@ -227,7 +224,12 @@ function AiMessageContent({ content }: { content: string }) {
   );
 }
 
-export function AiView() {
+/** A conversation about stocktaking gets a button to the real (safe) stocktake screen. */
+const STOCKTAKE_WORDS = /جرد/;
+
+export function AiView({
+  onNavigate,
+}: { onNavigate?: (route: NavRoute) => void } = {}) {
   const [messages, setMessages] = useState<AiChatMessage[]>([]);
   const [input, setInputState] = useState(() =>
     typeof window === "undefined" ? "" : readDraft(),
@@ -287,6 +289,7 @@ export function AiView() {
                   body_text?: string;
                   content?: string;
                   sources?: AiSource[];
+                  visual?: AiVisual | null;
                   created_at?: string;
                   createdAt?: string;
                 }) => ({
@@ -294,6 +297,7 @@ export function AiView() {
                   role: m.role,
                   content: m.body_text ?? m.content ?? "",
                   sources: m.sources,
+                  visual: m.visual ?? null,
                   createdAt: m.created_at ?? m.createdAt,
                 }),
               ),
@@ -416,6 +420,7 @@ export function AiView() {
                         body_text?: string;
                         content?: string;
                         sources?: AiSource[];
+                        visual?: AiVisual | null;
                         created_at?: string;
                         createdAt?: string;
                       }) => ({
@@ -423,6 +428,7 @@ export function AiView() {
                         role: m.role,
                         content: m.body_text ?? m.content ?? "",
                         sources: m.sources,
+                        visual: m.visual ?? null,
                         createdAt: m.created_at ?? m.createdAt,
                       }),
                     ),
@@ -519,6 +525,7 @@ export function AiView() {
         json.body_text ?? json.message?.content ?? json.data?.message?.content;
       const sources =
         json.sources ?? json.message?.sources ?? json.data?.message?.sources;
+      const visual: AiVisual | null = json.visual ?? null;
       const rawQuota = json.quota ?? json.data?.quota;
 
       if (convId) {
@@ -541,6 +548,7 @@ export function AiView() {
             role: "assistant",
             content: bodyText,
             sources: sources,
+            visual,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -640,6 +648,7 @@ export function AiView() {
 
   return (
     <div className={c.page} data-testid="page-ai" dir="rtl">
+      <PageTitle className={c.pageTitle}>عايز تعرف إيه عن محلك؟</PageTitle>
       {/* V17 .chatTop: a new conversation, the previous ones */}
       <div className={c.chatTop}>
         <button
@@ -657,7 +666,7 @@ export function AiView() {
           aria-label={t("pages.ai.historyBtn")}
           data-testid="ai-history"
         >
-          📚 المحادثات السابقة
+          المحادثات السابقة
         </button>
       </div>
 
@@ -679,9 +688,6 @@ export function AiView() {
                     setShowHistoryModal(false);
                   }}
                 >
-                  <span className={c.em} aria-hidden="true">
-                    💬
-                  </span>
                   <span className={c.t}>
                     <b>{conv.title}</b>
                     <span>
@@ -738,6 +744,12 @@ export function AiView() {
                   ) : (
                     m.content
                   )}
+                  {m.visual?.kind === "stocktake" && (
+                    <div className={styles.visual} data-testid="ai-visual">
+                      <b className={styles.visualTitle}>{m.visual.title}</b>
+                      <StocktakeChartsView data={m.visual.data} />
+                    </div>
+                  )}
                   {m.sources && m.sources.length > 0 && (
                     <div className={styles.sources}>
                       <span className={styles.sourcesTitle}>
@@ -759,6 +771,38 @@ export function AiView() {
                           )}
                         </div>
                       ))}
+                    </div>
+                  )}
+                  {m.role === "assistant" && !m.failed && m.content && (
+                    <div className={styles.msgActions}>
+                      <button
+                        type="button"
+                        className={styles.msgAction}
+                        onClick={() =>
+                          void shareReport({
+                            title: "من حِسبة",
+                            text: m.content,
+                            file: {
+                              name: "تقرير-حسبة.txt",
+                              content: m.content,
+                              mime: "text/plain;charset=utf-8",
+                            },
+                          })
+                        }
+                        data-testid="ai-msg-share"
+                      >
+                        📤 شارك / نزّل
+                      </button>
+                      {onNavigate && STOCKTAKE_WORDS.test(m.content) && (
+                        <button
+                          type="button"
+                          className={styles.msgAction}
+                          onClick={() => onNavigate("stocktake")}
+                          data-testid="ai-open-stocktake"
+                        >
+                          🧮 افتح «اعمل جرد»
+                        </button>
+                      )}
                     </div>
                   )}
                   {m.failed && (

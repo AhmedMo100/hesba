@@ -35,6 +35,7 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import c$ from "@/client/shared/styles/Cards.module.css";
 import viewStyles from "@/client/shared/styles/ViewLayout.module.css";
 import {
   saleAmount,
@@ -52,7 +53,10 @@ import { Button, Icon, Modal, Skeleton } from "@/client/shared/ui";
 import { formatMoney, t } from "@/client/shared/i18n";
 import { calculateLineTotal } from "@/domain/money";
 import { normalizeArabic } from "@/domain/normalize";
-import { saleLineTotalPiasters } from "@/domain/sale-pricing";
+import {
+  isServiceProduct as isServiceUnit,
+  saleLineTotalPiasters,
+} from "@/domain/sale-pricing";
 import { stockLevel } from "@/domain/alerts";
 import { useAuth } from "@/client/shared/auth";
 import {
@@ -573,6 +577,8 @@ export function SalesView({
       allProducts.flatMap((p) => (p.variants ?? []).map((v) => [v.id, v])),
     );
     inventory.forEach((inv) => {
+      // A service is sold from «الخدمات» below, never as a product with no stock.
+      if (isServiceUnit({ unit: inv.unit, category: inv.category })) return;
       const v = variantOf.get(inv.variantId);
       list.push({
         sizeValue: v?.size_value ?? null,
@@ -588,6 +594,7 @@ export function SalesView({
         packName: inv.packName,
         currentStockBase: inv.currentStockBase,
         status: inv.currentStockBase <= 0 ? "out" : inv.status || "ok",
+        nearExpiry: inv.hasNearExpiry,
         isService: false,
         category: inv.category,
         hasBarcode: Boolean(inv.barcode) || barcodesOf.has(inv.productId),
@@ -1534,7 +1541,11 @@ export function SalesView({
       : principalRequiredPiasters + serviceCommissionPiasters;
 
   return (
-    <div className={viewStyles.view} data-testid="page-sales" dir="rtl">
+    <div
+      className={`${viewStyles.view} ${c$.pageSell}`}
+      data-testid="page-sales"
+      dir="rtl"
+    >
       <div className={styles.salesContainer}>
         {/* 1. فاتورة · آجل · مرتجع (V19 .sellTop style) */}
         <div className={styles.modeRow} role="group" aria-label="نوع البيعة">
@@ -1659,10 +1670,14 @@ export function SalesView({
           </div>
         )}
 
-        <div className={styles.legend}>
+        <div className={styles.legend} data-testid="sales-legend">
           <span>
             <i className={styles.legendYel} />
             قرب يخلص
+          </span>
+          <span>
+            <i className={styles.legendAttn} />
+            صلاحيته قربت
           </span>
           <span>
             <i className={styles.legendRed} />
@@ -1730,11 +1745,14 @@ export function SalesView({
               const isLow = item.status === "low";
               const isOut = item.status === "out";
               const isPop = flashId === item.id;
+              // Status (ADR-0039): out › running low › expiring › available (a plain card).
+              const isAttn = !isOut && !isLow && Boolean(item.nearExpiry);
               return (
                 <button
                   key={item.id}
                   type="button"
-                  className={`${styles.pcard} ${isLow ? styles.yel : ""} ${isOut ? styles.red : ""} ${isPop ? styles.pop : ""}`}
+                  className={`${styles.pcard} ${isLow ? styles.yel : ""} ${isOut ? styles.red : ""} ${isAttn ? styles.attn : ""} ${isPop ? styles.pop : ""}`}
+                  data-attention={isAttn || undefined}
                   onClick={() => handleCardClick(item)}
                   aria-label={`بيع ${item.name}`}
                   data-testid="sale-tile"

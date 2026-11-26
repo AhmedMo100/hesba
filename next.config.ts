@@ -23,6 +23,14 @@ const nextConfig: NextConfig = {
             process.env["HESBA_HSTS_INCLUDE_SUBDOMAINS"] === "1",
         }),
       },
+      // A shop's money, stock, sales and debts are never kept by a browser or a proxy: every API
+      // answer is read fresh (2026-11-26). The screens' own read cache (client/shared/api/
+      // read-cache.ts) is dropped on every write; the service worker sends /api/* to the network.
+      // The shared catalog sync sets its own short private cache and is left out here.
+      {
+        source: "/api/:path((?!sync/catalog).*)",
+        headers: [{ key: "Cache-Control", value: "private, no-store" }],
+      },
     ];
   },
 };

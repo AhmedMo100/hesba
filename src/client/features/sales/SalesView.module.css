@@ -89,7 +89,8 @@
 /* ─── V19: .legend ─── */
 .legend {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px 10px;
   margin: 6px 0;
   font-size: 14px;
   color: var(--muted);
@@ -166,6 +167,23 @@
   font-size: 15px;
   line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+/* ADR-0039: a tile is Home's card (radius 18, Home's shadow). Its status keeps the app's own
+   colours: قرب يخلص (yellow), صلاحيته قربت (beige, a dashed gold edge), خلص (red). */
+.pcard {
+  border-radius: 18px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.pcard.attn {
+  background: var(--beige);
+  border-color: var(--gold);
+  border-style: dashed;
+}
+
+.legendAttn {
+  background: var(--gold);
 }
 
 .pcard.yel {

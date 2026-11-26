@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import styles from "./ProfileModal.module.css";
 import {
   Modal,
@@ -40,7 +39,6 @@ function toLocalPhone(phone: string): string {
 }
 
 export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
-  const router = useRouter();
   const { t } = useTranslation();
   const toast = useToast();
   const { setSession } = useAuth();
@@ -153,12 +151,6 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
     } finally {
       setBusy(false);
     }
-  };
-
-  const handleLogout = async () => {
-    await authApi.logout();
-    onClose();
-    router.push("/");
   };
 
   return (
@@ -352,10 +344,6 @@ export function ProfileModal({ onClose, onProfileUpdated }: ProfileModalProps) {
             </Button>
           </div>
         </section>
-
-        <Button kind="dangerghost" wide onClick={handleLogout} disabled={busy}>
-          {t("profile.logout")}
-        </Button>
       </div>
     </Modal>
   );

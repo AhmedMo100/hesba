@@ -69,10 +69,23 @@ describe("security headers (QA-26)", () => {
     const keys = h.map((x) => x.key.toLowerCase());
     expect(new Set(keys).size).toBe(keys.length);
     const rules = await nextConfig.headers!();
-    expect(rules).toHaveLength(1);
+    expect(rules).toHaveLength(2);
     expect(rules[0]!.source).toBe("/:path*");
     expect(rules[0]!.headers.map((x) => x.key)).toContain(
       "Content-Security-Policy",
     );
+  });
+
+  it("API answers are never stored by a browser or a proxy (except the catalog sync)", async () => {
+    const rules = await nextConfig.headers!();
+    const api = rules.find((r) => r.source.startsWith("/api/"))!;
+    expect(api.headers).toEqual([
+      { key: "Cache-Control", value: "private, no-store" },
+    ]);
+    // The source is a path-to-regexp pattern: everything under /api/ but sync/catalog.
+    const re = new RegExp(`^/api/${api.source.match(/\((\(\?!.*)\)$/)![1]}$`);
+    for (const p of ["money", "stock", "reports/home", "people/x/statement"])
+      expect(re.test(`/api/${p}`)).toBe(true);
+    expect(re.test("/api/sync/catalog")).toBe(false);
   });
 });

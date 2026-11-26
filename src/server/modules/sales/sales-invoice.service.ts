@@ -690,6 +690,8 @@ export async function returnSale(
               reason: "damaged_return",
               note: input.reason?.trim() || null,
               saleReturnId: ret.id,
+              source: "return",
+              createdBy: userId,
             });
             toWaste -= q;
           }

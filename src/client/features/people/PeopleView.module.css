@@ -1189,3 +1189,162 @@
 .ghostDanger {
   color: var(--red);
 }
+
+/* ─── Manual debt with products, and the account statement (ADR-0036) ─── */
+.debtSheet {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.debtItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--card);
+}
+
+.debtItemRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.debtItemRow label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 14px;
+  color: var(--muted);
+  min-width: 0;
+}
+
+.debtInput {
+  width: 100%;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--bg);
+  color: var(--ink);
+  font: 700 16px inherit;
+  font-family: inherit;
+}
+
+.debtItemFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.debtTotal {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: var(--chip);
+  font-weight: 800;
+}
+
+.debtTotal b {
+  font-size: 20px;
+}
+
+.stmt {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stmtEntry {
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.stmtHead {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stmtHead span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.stmtHead small,
+.stmtFoot small,
+.stmtNote {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.stmtUp {
+  color: var(--red, #c0504a);
+  white-space: nowrap;
+}
+
+.stmtDown {
+  color: var(--green, #3d7a4a);
+  white-space: nowrap;
+}
+
+.stmtLines {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--bg);
+  font-size: 14px;
+}
+
+.stmtLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.stmtLine span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stmtFoot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ADR-0039: the amount on a person's card. */
+.personAmt {
+  margin-inline-start: 4px;
+}
+
+/* Debt direction, in the app's own colours: «ليك» green, «عليك» red. */
+.personAmt.amtMine {
+  color: var(--green);
+}
+
+.personAmt.amtTheirs {
+  color: var(--red);
+}
+
+/* The total, under the cards. */
+.peopleTotal {
+  margin-top: 12px;
+}

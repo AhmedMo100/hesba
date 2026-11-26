@@ -18,7 +18,14 @@ import { withTenant } from "@/server/infra/db/tenant";
 import {
   salesFinancialsInTx,
   dailyTotalsInRange,
+  periodProfitInTx,
 } from "@/server/modules/reports";
+import { drawerExpectedInTx } from "@/server/modules/drawer";
+import { serviceSummaryInRange } from "@/server/modules/services";
+import {
+  countEffectsInRange,
+  lastStocktakeResultInTx,
+} from "@/server/modules/inventory";
 import {
   addDaysToDateKey,
   cairoDayStartUtc,
@@ -205,6 +212,48 @@ export class BusinessToolsService {
         },
       },
       {
+        name: "getMoneyAccounts",
+        description:
+          "فلوس المحل فين دلوقتي: في الدرج (محسوبة من عمليات المحل الكاش) ورصيد كل محفظة وماكينة، وآخر سحب شخصي أو تحويل. دي فلوس موجودة، مش مبيعات.",
+        parameters: { type: "object", properties: {} },
+      },
+      {
+        name: "getServicesSummary",
+        description:
+          "الخدمات اللي اتعملت للزباين (فودافون كاش، فوري، أمان، شحن، فواتير، كروت): عددها، قيمة العمليات (مش إيراد)، والعمولات اللي هي المكسب الوحيد منها، حسب القسم.",
+        parameters: {
+          type: "object",
+          properties: {
+            period: {
+              type: "string",
+              enum: [...TOOL_PERIODS],
+              description: "الفترة بتوقيت القاهرة.",
+            },
+          },
+        },
+      },
+      {
+        name: "getStocktakeSummary",
+        description:
+          "الجرد الفعلي: آخر جرد اتأكد إمتى، فروق الجرد في الفترة (اتباع ومتسجلش، عجز مش معروف سببه، زيادة)، وقيمة البضاعة الحالية بالتكلفة وبسعر البيع. العجز مش مبيعات إلا لو صاحب المحل قال كده.",
+        parameters: {
+          type: "object",
+          properties: {
+            period: {
+              type: "string",
+              enum: [...TOOL_PERIODS],
+              description: "الفترة بتوقيت القاهرة.",
+            },
+          },
+        },
+      },
+      {
+        name: "getStocktakeResult",
+        description:
+          "نتيجة آخر جرد اتأكد: اتعدّ كام صنف، مظبوط كام، ناقص وزيادة كام، أكبر الأصناف اللي فيها نقص وسببها، قيمة خسائر التالف والمفقود بسعر الشراء، وقيمة «اتباع ومتسجلش» (الكاشير الذكي بس). استخدمها لما يقول «وريني نتيجة الجرد» أو يطلب رسم أو تحليل للجرد. للقراءة بس: مبتغيرش الجرد ولا المخزون.",
+        parameters: { type: "object", properties: {} },
+      },
+      {
         name: "searchMarketTrends",
         description:
           "يبحث في أسعار السلع الغذائية بسوق الجملة في مصر، وتأثيرات الوقود والدولار وأخبار التموين.",
@@ -291,6 +340,97 @@ export class BusinessToolsService {
             (args.period as string) || "today",
           );
 
+        case "getMoneyAccounts":
+          return await this.getMoneyAccounts(tx, storeId);
+
+        case "getServicesSummary": {
+          const { start, end } = this.getDateRange(
+            (args.period as string) || "today",
+          );
+          const summary = await serviceSummaryInRange(
+            tx,
+            storeId,
+            start,
+            new Date(end.getTime() + 1),
+          );
+          return {
+            period: (args.period as string) || "today",
+            services_count: summary.count,
+            operations_value_piasters_not_revenue: summary.amountPiasters,
+            commissions_piasters: summary.commissionPiasters,
+            cashier_service_sales: {
+              count: summary.cashier.count,
+              paid_by_customers_piasters_not_revenue:
+                summary.cashier.paidPiasters,
+              commissions_piasters: summary.cashier.commissionPiasters,
+              without_machine_charge_commission_unknown:
+                summary.cashier.unknownCommissionCount,
+            },
+            by_category: summary.byCategory.map((c) => ({
+              category: c.label,
+              count: c.count,
+              commissions_piasters: c.commissionPiasters,
+            })),
+          };
+        }
+
+        case "getStocktakeSummary": {
+          const period = (args.period as string) || "month";
+          const { start, end } = this.getDateRange(period);
+          const effects = await countEffectsInRange(
+            tx,
+            storeId,
+            start,
+            new Date(end.getTime() + 1),
+          );
+          const { profit, inventoryValue } = await periodProfitInTx(
+            tx,
+            storeId,
+            start,
+            new Date(end.getTime() + 1),
+          );
+          return {
+            period,
+            last_confirmed_stocktake: profit.lastStocktakeAt,
+            days_since_last_stocktake: profit.daysSinceLastStocktake,
+            confirmed_counts_in_period: effects.counts,
+            sold_unrecorded_value_piasters: effects.discoveredSalesPiasters,
+            unexplained_shortage_cost_piasters:
+              effects.unknownShortageCostPiasters,
+            surplus_cost_piasters: effects.surplusCostPiasters,
+            stock_value_at_cost_piasters: inventoryValue.costPiasters,
+            stock_value_at_selling_piasters: inventoryValue.sellPiasters,
+            items_without_cost: inventoryValue.unknownCostItems,
+            note: "العجز اللي سببه مش معروف خسارة، مش مبيعات. التالف والضايع محسوبين في الخسارة مرة واحدة.",
+          };
+        }
+
+        case "getStocktakeResult": {
+          const r = await lastStocktakeResultInTx(tx, storeId);
+          if (!r)
+            return {
+              found: false,
+              note: "لسه ما اتأكدش أي جرد. الجرد بيتعمل من «📋 الجرد».",
+            };
+          return {
+            found: true,
+            scope: r.scopeText,
+            confirmed_at: r.confirmedAt,
+            package: r.salesMode === "pos" ? "الكاشير الذكي" : "إدارة المحل",
+            counted_products: r.counted,
+            matched_products: r.matched,
+            shortage_products: r.shortageProducts,
+            surplus_products: r.surplusProducts,
+            top_shortages: r.topShortages,
+            top_surpluses: r.topSurpluses,
+            loss_value_piasters: r.lossPiasters,
+            loss_unknown_cost_products: r.lossUnknownCostProducts,
+            unrecorded_sales_value_piasters: r.unrecordedSalesPiasters,
+            chart: r.chart,
+            note: "النقص مش مبيعات إلا اللي صاحب المحل قال عليه «اتباع ومتسجلش». التالف والمفقود خسارة بسعر الشراء. الأرقام دي من جرد المحل نفسه.",
+          };
+        }
+
         case "searchMarketTrends":
           if (searchFn) {
             return await searchFn(String(args.query || ""));
@@ -301,6 +441,46 @@ export class BusinessToolsService {
           return { error: `Tool ${name} is not recognized` };
       }
     });
+  }
+
+  private async getMoneyAccounts(
+    tx: Prisma.TransactionClient,
+    storeId: string,
+  ) {
+    const expectedCash = await drawerExpectedInTx(tx, storeId);
+    const machines = await tx.posMachine.findMany({
+      where: { storeId, deletedAt: null },
+      select: { name: true, currentBalancePiasters: true },
+      orderBy: { createdAt: "asc" },
+    });
+    const recent = await tx.moneyMovement.findMany({
+      where: { storeId },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+      select: { kind: true, amountPiasters: true, createdAt: true },
+    });
+    const wallets = machines.map((m) => ({
+      name: m.name,
+      balance_piasters: Number(m.currentBalancePiasters),
+    }));
+    return {
+      // The cash is the shop's cash operations (in − out), never a balance typed by hand.
+      drawer_expected_piasters: expectedCash,
+      wallets,
+      total_known_piasters:
+        expectedCash + wallets.reduce((s, w) => s + w.balance_piasters, 0),
+      recent_owner_and_transfer_movements: recent.map((r) => ({
+        kind:
+          r.kind === "owner_withdrawal"
+            ? "سحب شخصي"
+            : r.kind === "owner_deposit"
+              ? "إيداع من صاحب المحل"
+              : "تحويل",
+        amount_piasters: Number(r.amountPiasters),
+        at: r.createdAt.toISOString(),
+      })),
+      note: "دي الفلوس الموجودة دلوقتي، مش المبيعات. الدرج محسوب من عمليات المحل الكاش (اللي دخل − اللي طلع).",
+    };
   }
 
   private getDateRange(period: string): { start: Date; end: Date } {
@@ -713,6 +893,13 @@ export class BusinessToolsService {
     const netProfit =
       grossProfit === null ? null : grossProfit - Number(expensesTotalPiasters);
 
+    // The full account, with the same rules as the reports (actual / estimated / incomplete).
+    const { profit } = await periodProfitInTx(
+      tx,
+      storeId,
+      start,
+      new Date(end.getTime() + 1),
+    );
     return {
       period,
       sales_count: financials.count,
@@ -721,6 +908,17 @@ export class BusinessToolsService {
       gross_profit_piasters: grossProfit,
       expenses_total_piasters: Number(expensesTotalPiasters),
       net_profit_piasters: netProfit,
+      full_account: {
+        status: profit.status,
+        estimated_gross_profit_piasters: profit.estimatedGrossProfitPiasters,
+        service_commissions_piasters: profit.serviceCommissionsPiasters,
+        operating_expenses_piasters: profit.operatingExpensesPiasters,
+        inventory_losses_piasters: profit.inventoryLossesPiasters,
+        net_profit_piasters: profit.netProfitPiasters,
+        estimated_net_profit_piasters: profit.estimatedNetProfitPiasters,
+        owner_withdrawals_piasters_not_expense: profit.ownerWithdrawalsPiasters,
+        notes: profit.notes,
+      },
       sales_without_recorded_cost: financials.unknownCostCount,
       daily_totals_piasters: financials.dailyTotalsPiasters,
       note:

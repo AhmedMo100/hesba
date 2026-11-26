@@ -1,7 +1,8 @@
 import { stockLevel } from "@/domain/alerts";
 import "server-only";
 import { toCairoDateString } from "@/domain/time";
-import type { WasteReason } from "@/schemas/inventory";
+import type { WasteReason, WasteSource } from "@/schemas/inventory";
+import { packWord, unitWord } from "@/client/shared/unit-labels";
 import { Prisma, PrismaClient } from "@prisma/client";
 import { withTenant, type TenantTx } from "@/server/infra/db/tenant";
 import { AppError } from "@/server/platform/error";
@@ -201,7 +202,7 @@ export async function takeStockInTx(
     storeVariantId: string;
     storeProductId: string | null;
     quantityBase: bigint;
-    type: "sale" | "waste" | "adjustment";
+    type: "sale" | "waste" | "adjustment" | "count_adjustment" | "daily_sale";
     batchId?: string | null;
     saleLineId?: string | null;
     wasteId?: string | null;
@@ -562,6 +563,28 @@ export async function restoreReturnInTx(
 }
 
 /**
+ * A waste quantity in the product's own unit, as the owner reads it: «1.5 كجم» for weighed goods,
+ * «2 كرتونة + 3 علبة» for packed goods, «5 برطمان» otherwise (the shared unit words).
+ */
+export function wasteQuantityText(
+  base: number,
+  p: { unit: string; packQty: number; packName: string | null },
+): string {
+  if (p.unit === "kg") {
+    return `${Number((base / 1000).toFixed(3)).toLocaleString("en-US", { maximumFractionDigits: 3 })} كجم`;
+  }
+  const uw = unitWord(p.unit);
+  const pack = Math.max(1, p.packQty || 1);
+  if (pack > 1 && base >= pack) {
+    const packs = Math.floor(base / pack);
+    const rest = base - packs * pack;
+    const pw = packWord(p.packName, pack);
+    return rest > 0 ? `${packs} ${pw} + ${rest} ${uw}` : `${packs} ${pw}`;
+  }
+  return `${base} ${uw}`;
+}
+
+/**
  * Records goods that left stock without a sale (damaged / lost, P4) inside the caller's tenant
  * transaction: a `waste_records` row (reason, note, cost of what was taken) and the take from
  * the batches — the chosen batch, or FEFO including expired batches — as `waste` movements.
@@ -578,6 +601,9 @@ export async function recordWasteInTx(
     note?: string | null;
     saleReturnId?: string | null;
     opId?: string | null;
+    /** Who recorded it and from which screen (the log shows both). */
+    createdBy?: string | null;
+    source?: WasteSource | null;
   },
 ) {
   const qtyBase = input.quantityBase;
@@ -585,7 +611,14 @@ export async function recordWasteInTx(
   // 1. Verify variant
   const variant = await tx.storeVariant.findFirst({
     where: { id: input.storeVariantId, storeId },
-    select: { id: true, storeProductId: true },
+    select: {
+      id: true,
+      storeProductId: true,
+      flavor: true,
+      packQty: true,
+      sizeUnit: true,
+      storeProduct: { select: { nameAr: true, unit: true } },
+    },
   });
   if (!variant) {
     throw AppError.notFound("الصنف غير موجود أو غير متاح في هذا المحل");
@@ -628,6 +661,7 @@ export async function recordWasteInTx(
   }
 
   // 4. The waste record, then the take from the batches (movements link to it)
+  const name = variant.storeProduct?.nameAr ?? "";
   const waste = await tx.wasteRecord.create({
     data: {
       storeId,
@@ -639,7 +673,19 @@ export async function recordWasteInTx(
       note: input.note ?? null,
       saleReturnId: input.saleReturnId ?? null,
       createdAt: now,
+      createdBy: input.createdBy ?? null,
+      source: input.source ?? null,
+      productName: (variant.flavor ? `${name} ${variant.flavor}` : name).slice(
+        0,
+        200,
+      ),
+      quantityText: wasteQuantityText(Number(qtyBase), {
+        unit: variant.storeProduct?.unit ?? "piece",
+        packQty: variant.packQty,
+        packName: variant.sizeUnit,
+      }).slice(0, 120),
     },
+    select: { id: true },
   });
   const taken = await takeStockInTx(tx, storeId, {
     storeVariantId: variant.id,
@@ -655,6 +701,7 @@ export async function recordWasteInTx(
     await tx.wasteRecord.update({
       where: { id: waste.id },
       data: { costMinor: taken.costPiasters },
+      select: { id: true },
     });
   }
 
@@ -984,6 +1031,7 @@ export class InventoryService {
       reason?: WasteReason;
       note?: string | null;
       opId?: string | null;
+      source?: WasteSource | null;
     },
   ) {
     const qtyBase = BigInt(input.quantityBase);
@@ -996,7 +1044,75 @@ export class InventoryService {
     return withTenant(
       storeId,
       userId,
-      (tx) => recordWasteInTx(tx, storeId, { ...input, quantityBase: qtyBase }),
+      (tx) =>
+        recordWasteInTx(tx, storeId, {
+          ...input,
+          quantityBase: qtyBase,
+          createdBy: userId,
+        }),
+      this.prisma,
+    );
+  }
+
+  /**
+   * «سجل التالف»: the shop's waste records, newest first — the product (as it was named when
+   * recorded), the quantity in its own unit, the reason, the cost of what was taken (0 when the
+   * batches' cost is unknown), the screen it was recorded from and who recorded it.
+   */
+  async listWaste(storeId: string, userId: string, limit = 200) {
+    return withTenant(
+      storeId,
+      userId,
+      async (tx) => {
+        const rows = await tx.wasteRecord.findMany({
+          where: { storeId },
+          orderBy: { createdAt: "desc" },
+          take: limit,
+          select: {
+            id: true,
+            quantityBase: true,
+            costMinor: true,
+            reason: true,
+            note: true,
+            source: true,
+            productName: true,
+            quantityText: true,
+            createdAt: true,
+            creator: { select: { name: true } },
+            storeVariant: {
+              select: {
+                flavor: true,
+                packQty: true,
+                sizeUnit: true,
+                storeProduct: { select: { nameAr: true, unit: true } },
+              },
+            },
+          },
+        });
+        return rows.map((r) => {
+          const v = r.storeVariant;
+          const current = v?.storeProduct?.nameAr ?? "";
+          return {
+            id: r.id,
+            productName:
+              r.productName ?? (v?.flavor ? `${current} ${v.flavor}` : current),
+            quantityBase: Number(r.quantityBase),
+            quantityText:
+              r.quantityText ??
+              wasteQuantityText(Number(r.quantityBase), {
+                unit: v?.storeProduct?.unit ?? "piece",
+                packQty: v?.packQty ?? 1,
+                packName: v?.sizeUnit ?? null,
+              }),
+            reason: r.reason,
+            note: r.note,
+            costPiasters: Number(r.costMinor),
+            source: r.source,
+            createdByName: r.creator?.name ?? null,
+            createdAt: r.createdAt.toISOString(),
+          };
+        });
+      },
       this.prisma,
     );
   }

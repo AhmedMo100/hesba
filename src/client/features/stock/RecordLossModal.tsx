@@ -2,11 +2,14 @@
 
 /**
  * @file RecordLossModal.tsx
- * @description «سجّل تالف / فاقد»: goods that left stock without a sale (expired, damaged,
- * missing, other). The owner picks the batch (or «الأقدم صلاحية الأول»), the quantity in the
- * product's own unit, the reason and an optional note. The server (`action: "waste"`) takes it
- * from the batch, records the movement and the loss at the batch's recorded cost.
- * This replaces free editing of the quantity in the Stock screen.
+ * @description «سجّل تالف» (ADR-0037): goods that left stock without a sale. Opened from
+ * «بضاعتي» (one product) or «التنبيهات» (pick the product here). The owner picks the batch (or
+ * «الأقدم صلاحية الأول»), the quantity in the product's own unit (kilos, packs + units, or
+ * units), the reason (منتهي / قرب انتهاء الصلاحية / تلف أثناء التخزين / كسر أو تسريب / سوء
+ * تخزين / تالف من المورد / سبب آخر — described) and an optional note.
+ * The server (`action: "waste"`) checks the stock, takes it from the batches at their recorded
+ * cost, and records who did it and from where — once per operation (opId). Nothing is shown as
+ * done before the server says so; offline, it says it needs the internet.
  */
 
 import React, { useMemo, useState } from "react";
@@ -52,13 +55,88 @@ export function batchLabel(
 }
 
 export function RecordLossModal({
-  item,
+  item: fixedItem,
+  items,
+  source,
   presetBatchId,
   presetReason,
   onClose,
   onSaved,
 }: {
-  item: StockInventoryItem;
+  /** The product (from «بضاعتي»); without it the owner picks one of `items`. */
+  item?: StockInventoryItem;
+  items?: StockInventoryItem[];
+  /** Where it is recorded from (the log shows it). */
+  source: "alerts" | "products";
+  presetBatchId?: string | null;
+  presetReason?: WasteReason;
+  onClose: () => void;
+  onSaved: (message: string) => void;
+}) {
+  const [pickedId, setPickedId] = useState<string>("");
+  const [search, setSearch] = useState("");
+  const choices = useMemo(
+    () =>
+      (items ?? [])
+        .filter((i) => i.currentStockBase > 0)
+        .filter((i) => !search.trim() || i.productName.includes(search.trim()))
+        .slice(0, 100),
+    [items, search],
+  );
+  const item =
+    fixedItem ?? (items ?? []).find((i) => i.variantId === pickedId) ?? null;
+  return (
+    <LossForm
+      key={item?.variantId ?? "none"}
+      item={item}
+      picker={
+        fixedItem ? null : (
+          <>
+            <Field label="المنتج">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="دوّر على المنتج…"
+                data-testid="loss-search"
+              />
+            </Field>
+            <select
+              value={pickedId}
+              onChange={(e) => setPickedId(e.target.value)}
+              data-testid="loss-product"
+              aria-label="اختار المنتج"
+            >
+              <option value="">اختار المنتج…</option>
+              {choices.map((i) => (
+                <option key={i.variantId} value={i.variantId}>
+                  {i.flavor ? `${i.productName} ${i.flavor}` : i.productName}
+                </option>
+              ))}
+            </select>
+          </>
+        )
+      }
+      source={source}
+      presetBatchId={presetBatchId}
+      presetReason={presetReason}
+      onClose={onClose}
+      onSaved={onSaved}
+    />
+  );
+}
+
+function LossForm({
+  item,
+  picker,
+  source,
+  presetBatchId,
+  presetReason,
+  onClose,
+  onSaved,
+}: {
+  item: StockInventoryItem | null;
+  picker: React.ReactNode;
+  source: "alerts" | "products";
   presetBatchId?: string | null;
   presetReason?: WasteReason;
   onClose: () => void;
@@ -66,15 +144,17 @@ export function RecordLossModal({
 }) {
   const batches = useMemo(
     () =>
-      item.batches
+      (item?.batches ?? [])
         .filter((b) => b.remainingQty > 0)
         .sort((a, b) =>
           (a.expiryDate ?? "9999").localeCompare(b.expiryDate ?? "9999"),
         ),
-    [item.batches],
+    [item],
   );
   const [batchId, setBatchId] = useState<string>(presetBatchId ?? "");
-  const [reason, setReason] = useState<WasteReason>(presetReason ?? "damaged");
+  const [reason, setReason] = useState<WasteReason>(
+    presetReason ?? "storage_damage",
+  );
   const [qty, setQty] = useState<QuantityInput>({
     kg: "",
     packs: "",
@@ -85,15 +165,15 @@ export function RecordLossModal({
   const [error, setError] = useState<string | null>(null);
   const op = useRetryOpId();
 
-  const weight = item.unitMode === "weight";
-  const pack = Math.max(1, item.packQty || 1);
-  const uw = unitWord(item.unit);
-  const pw = packWord(item.packName, pack);
+  const weight = item?.unitMode === "weight";
+  const pack = Math.max(1, item?.packQty || 1);
+  const uw = unitWord(item?.unit);
+  const pw = packWord(item?.packName, pack);
   const chosen = batches.find((b) => b.id === batchId);
   const limit = chosen
     ? chosen.remainingQty
-    : Math.max(0, item.currentStockBase);
-  const base = quantityBaseFromInput(qty, item);
+    : Math.max(0, item?.currentStockBase ?? 0);
+  const base = item ? quantityBaseFromInput(qty, item) : 0;
   const unitCost = chosen?.costPricePiasters ?? null;
   const estimate =
     unitCost !== null && base > 0
@@ -102,6 +182,14 @@ export function RecordLossModal({
 
   const submit = async () => {
     setError(null);
+    if (!item) {
+      setError("اختار المنتج الأول");
+      return;
+    }
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setError("مفيش نت: التالف بيتسجل لما النت يرجع، ومتسجلش لسه.");
+      return;
+    }
     if (base <= 0) {
       setError("اكتب الكمية");
       return;
@@ -110,8 +198,8 @@ export function RecordLossModal({
       setError(`الكمية أكبر من الموجود (${formatQty(limit, item)})`);
       return;
     }
-    if (reason === "other" && !note.trim()) {
-      setError("اكتب السبب في الملاحظة");
+    if (reason === "other" && note.trim().length < 2) {
+      setError("اكتب سبب التلف");
       return;
     }
     const body = {
@@ -121,6 +209,7 @@ export function RecordLossModal({
       batchId: batchId || null,
       reason,
       note: note.trim() || null,
+      source,
     };
     setBusy(true);
     try {
@@ -138,7 +227,13 @@ export function RecordLossModal({
         `اتسجّل ${formatQty(base, item)} ${WASTE_REASON_LABELS[reason]} من ${item.productName}`,
       );
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : "تعذر تسجيل التالف");
+      setError(
+        err instanceof TypeError
+          ? "مقدرناش نوصل للسيرفر: التالف متسجلش. جرّب تاني لما النت يبقى كويس."
+          : err instanceof Error
+            ? err.message
+            : "تعذر تسجيل التالف",
+      );
     } finally {
       setBusy(false);
     }
@@ -146,7 +241,7 @@ export function RecordLossModal({
 
   return (
     <Modal
-      title={`تالف / فاقد: ${item.productName}`}
+      title={item ? `سجّل تالف: ${item.productName}` : "سجّل منتج تالف"}
       onClose={busy ? () => {} : onClose}
       footer={
         <Button
@@ -166,6 +261,16 @@ export function RecordLossModal({
         data-testid="record-loss"
         style={{ display: "flex", flexDirection: "column", gap: 14 }}
       >
+        {picker}
+        {item && (
+          <div
+            style={{ fontSize: 14, color: "var(--ink2)" }}
+            data-testid="loss-available"
+          >
+            الموجود دلوقتي:{" "}
+            {formatQty(Math.max(0, item.currentStockBase), item)}
+          </div>
+        )}
         <div
           role="group"
           aria-label="السبب"
@@ -188,75 +293,88 @@ export function RecordLossModal({
           </Chips>
         </div>
 
-        <Field
-          label="من أنهي دفعة؟"
-          hint="كل دفعة بصلاحيتها؛ التلقائي بياخد الأقدم صلاحية الأول"
-        >
-          <select
-            value={batchId}
-            onChange={(e) => setBatchId(e.target.value)}
-            data-testid="loss-batch"
-          >
-            <option value="">الأقدم صلاحية الأول (تلقائي)</option>
-            {batches.map((b) => (
-              <option key={b.id} value={b.id}>
-                {batchLabel(b, item)}
-              </option>
-            ))}
-          </select>
-        </Field>
-
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: !weight && pack > 1 ? "1fr 1fr" : "1fr",
-            gap: 10,
-          }}
-        >
-          {weight ? (
-            <Field label="الكمية (كيلو)">
-              <input
-                inputMode="decimal"
-                value={qty.kg}
-                onChange={(e) => setQty({ ...qty, kg: e.target.value })}
-                placeholder="مثال: 0.5"
-                data-testid="loss-kg"
-              />
+        {item && (
+          <>
+            <Field
+              label="من أنهي دفعة؟"
+              hint="كل دفعة بصلاحيتها؛ التلقائي بياخد الأقدم صلاحية الأول"
+            >
+              <select
+                value={batchId}
+                onChange={(e) => setBatchId(e.target.value)}
+                data-testid="loss-batch"
+              >
+                <option value="">الأقدم صلاحية الأول (تلقائي)</option>
+                {batches.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {batchLabel(b, item)}
+                  </option>
+                ))}
+              </select>
             </Field>
-          ) : (
-            <>
-              {pack > 1 && (
-                <Field label={`${pw} (${pack} ${uw})`}>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: !weight && pack > 1 ? "1fr 1fr" : "1fr",
+                gap: 10,
+              }}
+            >
+              {weight ? (
+                <Field label="الكمية (كيلو)">
                   <input
-                    inputMode="numeric"
-                    value={qty.packs}
-                    onChange={(e) => setQty({ ...qty, packs: e.target.value })}
-                    data-testid="loss-packs"
+                    inputMode="decimal"
+                    value={qty.kg}
+                    onChange={(e) => setQty({ ...qty, kg: e.target.value })}
+                    placeholder="مثال: 0.5"
+                    data-testid="loss-kg"
                   />
                 </Field>
+              ) : (
+                <>
+                  {pack > 1 && (
+                    <Field label={`${pw} (${pack} ${uw})`}>
+                      <input
+                        inputMode="numeric"
+                        value={qty.packs}
+                        onChange={(e) =>
+                          setQty({ ...qty, packs: e.target.value })
+                        }
+                        data-testid="loss-packs"
+                      />
+                    </Field>
+                  )}
+                  <Field label={pack > 1 ? `${uw} زيادة` : `العدد (${uw})`}>
+                    <input
+                      inputMode="numeric"
+                      value={qty.units}
+                      onChange={(e) =>
+                        setQty({ ...qty, units: e.target.value })
+                      }
+                      data-testid="loss-units"
+                    />
+                  </Field>
+                </>
               )}
-              <Field label={pack > 1 ? `${uw} زيادة` : `العدد (${uw})`}>
-                <input
-                  inputMode="numeric"
-                  value={qty.units}
-                  onChange={(e) => setQty({ ...qty, units: e.target.value })}
-                  data-testid="loss-units"
-                />
-              </Field>
-            </>
-          )}
-        </div>
+            </div>
+          </>
+        )}
 
-        <Field label="ملاحظة (اختياري)">
+        <Field label={reason === "other" ? "اكتب السبب" : "ملاحظة (اختياري)"}>
           <input
             value={note}
             maxLength={500}
             onChange={(e) => setNote(e.target.value)}
-            placeholder="مثال: الكرتونة وقعت واتكسرت"
+            placeholder={
+              reason === "other"
+                ? "إيه اللي حصل؟"
+                : "مثال: الكرتونة وقعت واتكسرت"
+            }
+            data-testid="loss-note"
           />
         </Field>
 
-        {base > 0 && (
+        {item && base > 0 && (
           <div style={{ fontSize: 14, color: "var(--ink2)" }}>
             هيتخصم {formatQty(base, item)} من المخزون
             {estimate !== null

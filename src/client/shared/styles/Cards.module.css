@@ -1,0 +1,458 @@
+/*
+ * The card system (ADR-0039): Home's cards, shared. Every value is Home's own
+ * (`features/home/HomeView.module.css`: `.numCard`, `.tile`, `.step*`, `.stocktakeWide`,
+ * `.tileAsk`, `.mini*`) — the same radius, background, no border, the same shadow, padding,
+ * type sizes and the same press — and every colour is a Hesba token or a colour Home already
+ * uses. Home itself is not changed.
+ *
+ * - A card is Home's `.numCard`: a label (15px, muted), one value (24px, 900), one small line.
+ * - Each page has an identity, taken from Home's own accents (`--id-bg` / `--id-ink` /
+ *   `--id-ring`). It colours the page's lead card only, so the status colours stay readable.
+ * - The status colours are the ones the app already uses for stock: low (`--yelBg` ring
+ *   `--yelLine`), out (`--redBg` ring `--red`), good (green value, as Home's `.numGood`).
+ */
+
+/* ── Page identities (Home's accents) ────────────────────────────────────────────────── */
+
+/* «بيع حاجة», «الجرد»: Home's gold (`.stocktakeWide`, the scan button). */
+.pageSell,
+.pageStocktake {
+  --id-bg: var(--gold);
+  --id-ink: #1f3326;
+  --id-ring: var(--gold);
+}
+
+/* «شوف تقاريرك»: Home's «شوف تقاريرك» step (`.stepReport`). */
+.pageReports {
+  --id-bg: #e7eee5;
+  --id-ink: #1f3326;
+  --id-ring: #c7d8c4;
+}
+
+/* «التنبيهات»: the app's warning yellow (Home's alert line). */
+.pageAlerts {
+  --id-bg: var(--yelBg);
+  --id-ink: var(--ink);
+  --id-ring: var(--yelLine);
+}
+
+/* «بضاعتي»: Home's sage. */
+.pageProducts {
+  --id-bg: var(--sage);
+  --id-ink: var(--ink);
+  --id-ring: var(--sage);
+}
+
+/* «الخدمات»: Home's beige. */
+.pageServices {
+  --id-bg: var(--beige);
+  --id-ink: var(--ink);
+  --id-ring: var(--beige);
+}
+
+/* «حسابات الناس»: Home's cream chip colour. */
+.pagePeople {
+  --id-bg: var(--sf2);
+  --id-ink: var(--ink);
+  --id-ring: var(--line);
+}
+
+/* «فلوس حِسبة»: Home's step green (`.stepGreen`). */
+.pageMoney {
+  --id-bg: #4a6548;
+  --id-ink: #f7f4ec;
+  --id-ring: #4a6548;
+}
+
+:root[data-theme="dark"] .pageReports {
+  --id-bg: #263b2d;
+  --id-ink: #eee6d2;
+  --id-ring: #3c5a44;
+}
+
+:root[data-theme="dark"] .pageMoney {
+  --id-bg: #2e4a36;
+  --id-ink: #eee6d2;
+  --id-ring: #2e4a36;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] .pageReports {
+    --id-bg: #263b2d;
+    --id-ink: #eee6d2;
+    --id-ring: #3c5a44;
+  }
+
+  :root[data-theme="auto"] .pageMoney {
+    --id-bg: #2e4a36;
+    --id-ink: #eee6d2;
+    --id-ring: #2e4a36;
+  }
+}
+
+/* ── Layout ──────────────────────────────────────────────────────────────────────────── */
+
+/* Home's two-by-two on a phone (`.tiles17`: gap 12px); more side by side when there is room. */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));
+  gap: 12px;
+}
+
+/* Cards with a name and two numbers. */
+.gridWide {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
+  gap: 12px;
+}
+
+.full {
+  grid-column: 1 / -1;
+}
+
+/* A page's actions, in one row (Home's `.mini` buttons). */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.action {
+  min-height: 44px;
+  padding: 10px 14px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* The page's main action: Home's dark button (`.miniDark`). */
+.actionMain {
+  background: var(--dark);
+  color: var(--cream);
+  border-color: var(--dark);
+}
+
+/* ── The card: Home's `.numCard` ─────────────────────────────────────────────────────── */
+
+.card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  min-width: 0;
+  background: var(--card);
+  border: 0;
+  border-radius: 18px;
+  padding: 14px;
+  text-align: start;
+  color: var(--ink);
+  font-family: inherit;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+button.card,
+a.card {
+  cursor: pointer;
+  width: 100%;
+}
+
+button.card:active,
+.action:active,
+.cardAction:active {
+  transform: scale(0.97);
+}
+
+button.card:focus-visible,
+.action:focus-visible,
+.more:focus-visible,
+.cardAction:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 2px;
+}
+
+/* The page's lead card: its identity (Home's accent cards). */
+.lead {
+  background: var(--id-bg);
+  color: var(--id-ink);
+  box-shadow:
+    inset 0 0 0 1.5px var(--id-ring),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.lead .label,
+.lead .sub {
+  color: var(--id-ink);
+  opacity: 0.85;
+}
+
+.lead .big,
+.lead .name {
+  color: var(--id-ink);
+}
+
+.top {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The card's question / name (`.numCard small`). */
+.label {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.name {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+  line-height: 1.25;
+}
+
+/* The one value (`.numCard b`). */
+.big {
+  font-size: 24px;
+  font-weight: 900;
+  color: var(--ink);
+  line-height: 1.2;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.mid {
+  font-size: 19px;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* At most one small line (`.numCard em`). */
+.sub {
+  font-size: 13px;
+  font-style: normal;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+/* Two numbers in one card (الكمية · السعر). */
+.pair {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  align-items: baseline;
+}
+
+.pair span {
+  display: inline-flex;
+  gap: 4px;
+  align-items: baseline;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.pair b {
+  font-size: 17px;
+  font-weight: 900;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A small status chip (Home's cream chip). */
+.chip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  background: var(--sf2);
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+/* «⋯»: one menu instead of many buttons (Home's `.mini`, small). */
+.more {
+  flex: none;
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+}
+
+/* One clear action at a card's bottom (Home's `.mini`). */
+.cardAction {
+  margin-top: 6px;
+  min-height: 44px;
+  border-radius: 14px;
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+/* ── Status (the app's stock colours) ────────────────────────────────────────────────── */
+
+/* Good: Home's `.numGood` — the value in green, the card stays white. */
+.toneOk .big,
+.toneOk.big {
+  color: var(--green);
+}
+
+/* Running low / needs attention: the app's yellow. */
+.toneLow.card {
+  background: var(--yelBg);
+  box-shadow:
+    inset 0 0 0 1.5px var(--yelLine),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+/* Out / a loss: the app's red. */
+.toneOut.card {
+  background: var(--redBg);
+  box-shadow:
+    inset 0 0 0 1.5px var(--red),
+    0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.toneOut .big,
+.toneOut.big {
+  color: var(--red);
+}
+
+/* Neutral information (a transfer, a surplus): Home's sage. */
+.toneInfo.card {
+  background: var(--sage);
+}
+
+/* Settled / nothing to do: Home's cream. */
+.toneMuted.card {
+  background: var(--sf2);
+}
+
+.toneLow .chip,
+.toneOut .chip,
+.toneInfo .chip,
+.toneMuted .chip {
+  background: var(--card);
+}
+
+/* A section heading between groups of cards. */
+.section {
+  margin: 14px 0 8px;
+  font-size: 17px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* A details card: short lines of name · value. */
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 15px;
+  min-width: 0;
+}
+
+.row:first-child {
+  border-top: 0;
+}
+
+.row > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.row > b {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.row small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* A folded group of details («التفاصيل»): a Home card that opens. */
+.details {
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  padding: 0 14px;
+}
+
+.details + .details {
+  margin-top: 10px;
+}
+
+.details > summary {
+  cursor: pointer;
+  list-style: none;
+  padding: 14px 0;
+  font-weight: 800;
+  font-size: 16px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.details > summary::-webkit-details-marker {
+  display: none;
+}
+
+.details > summary::after {
+  content: "⌄";
+  color: var(--muted);
+}
+
+.details[open] > summary::after {
+  content: "⌃";
+}
+
+.details[open] {
+  padding-bottom: 10px;
+}
+
+.empty {
+  padding: 18px;
+  text-align: center;
+  color: var(--muted);
+  font-size: 15px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
