@@ -46,8 +46,8 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 12px 14px;
-  border-radius: 16px;
+  padding: 14px;
+  border-radius: 18px;
   background: var(--card);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
@@ -529,4 +529,400 @@
 
 .stepBack:active {
   transform: scale(0.94);
+}
+
+/* ── ADR-0039: the stocktake's charts (plain bars, no library) ───────────────────────── */
+.charts {
+  /* The app's own colours: مظبوط green, زيادة gold, ناقص red — in that order, so the green and
+     the red are never side by side; every part is also labelled with its number. */
+  --c-ok: var(--ok);
+  --c-over: var(--gold);
+  --c-short: var(--red);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: 12px;
+}
+
+/* Dark: the palette's gold sits too close to its light green, so «زيادة» takes the cream. */
+:root[data-theme="dark"] .charts {
+  --c-over: var(--cream);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root[data-theme="auto"] .charts {
+    --c-over: var(--cream);
+  }
+}
+
+.chartCard {
+  background: var(--card);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.chartTitle {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--ink);
+}
+
+/* One bar split by status; 2px gaps between the parts. */
+.stack {
+  display: flex;
+  gap: 2px;
+  height: 18px;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.seg {
+  min-width: 6px;
+  height: 100%;
+}
+
+.seg_ok {
+  background: var(--c-ok);
+}
+.seg_over {
+  background: var(--c-over);
+}
+.seg_short {
+  background: var(--c-short);
+}
+.seg_counted {
+  background: var(--ink);
+}
+.barExpected {
+  background: var(--line);
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend b {
+  color: var(--ink);
+}
+
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+}
+
+.pairs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.pairRow {
+  display: grid;
+  gap: 3px;
+}
+
+.reasonBarRow {
+  display: grid;
+  grid-template-columns: minmax(84px, 34%) 1fr;
+  align-items: center;
+  gap: 8px;
+}
+
+.pairName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.barTrack {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.barTrack b {
+  flex: none;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  display: block;
+  height: 10px;
+  min-width: 3px;
+  border-radius: 0 4px 4px 0;
+}
+
+/* RTL: the bar grows from the right; its rounded end is on the left. */
+:global([dir="rtl"]) .bar {
+  border-radius: 4px 0 0 4px;
+}
+
+/* ── ADR-0039: the barcode stocktake ─────────────────────────────────────────────────── */
+
+/* «اختار قسم»: sections side by side. */
+.sectionGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 140px), 1fr));
+  gap: 12px;
+}
+
+.sectionBtn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 64px;
+  padding: 10px 12px;
+  border-radius: 18px;
+  border: 0;
+  background: var(--card);
+  color: var(--ink);
+  font: inherit;
+  cursor: pointer;
+  text-align: start;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.sectionBtn:active {
+  transform: scale(0.97);
+}
+
+.sectionBtn b {
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.sectionBtn small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.sectionBtn:disabled {
+  opacity: 0.6;
+}
+
+.scanBtn {
+  min-height: 56px;
+  border-radius: 20px;
+  border: 0;
+  background: var(--gold);
+  color: #1f3326;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.scanMsg {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--yelBg);
+  color: var(--ink);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* One product being counted (on the page, or under the camera). */
+.linePanel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.already {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--sf2);
+  font-size: 14px;
+}
+
+.modeSwitch {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.modeSwitch button {
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.modeSwitch .modeOn {
+  background: var(--br);
+  border-color: var(--br);
+  color: var(--brInk);
+}
+
+.helpBox {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px dashed var(--line);
+  font-size: 13.5px;
+}
+
+.helpLine {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 13.5px;
+  text-align: start;
+  cursor: pointer;
+}
+
+p.helpLine {
+  cursor: default;
+}
+
+.helpLine small,
+.helpRecord {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.countInputs {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.countInputs .bigInput {
+  flex: 1;
+  min-width: 0;
+}
+
+.cartonBox {
+  flex: 0 0 38%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cartonInput {
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--sf);
+  color: var(--ink);
+  font: inherit;
+  font-size: 20px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.cartonBox small {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.totalLine {
+  margin: 0;
+  font-size: 15px;
+}
+
+.okMark {
+  color: var(--green);
+}
+
+/* «نتيجة الجرد»: four cards, then short lists. */
+.resultCards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+@media (max-width: 360px) {
+  .resultCards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.diffCard {
+  display: flex;
+  flex-direction: column;
+  padding: 14px;
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.diffCard .h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+}
+
+.diffRow {
+  margin: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--line);
+  font-size: 14.5px;
+}
+
+.diffCard .h3 + .diffRow {
+  border-top: 0;
+}
+
+.diffRow span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.diffRow small {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.diffRow b {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }

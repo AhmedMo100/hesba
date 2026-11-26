@@ -5,6 +5,7 @@ import { requireSession } from "@/server/modules/auth";
 import {
   getInventoryCount,
   updateInventoryCount,
+  updateInventoryCountBrief,
 } from "@/server/modules/inventory";
 import { readJsonBody, toSafeErrorResponse } from "@/server/platform/error";
 import { updateInventoryCountSchema } from "@/schemas/inventory-count";
@@ -30,12 +31,26 @@ export async function GET(req: Request, { params }: Ctx) {
   }
 }
 
-/** PATCH /api/inventory-counts/:id — counted quantities and reasons (while it is open). */
+/**
+ * PATCH /api/inventory-counts/:id — counted quantities and reasons (while it is open). Each
+ * line's count is a total (set, never added), so the same save twice changes nothing.
+ * `?view=brief` answers with the changed lines and the progress only (the counting screen).
+ */
 export async function PATCH(req: Request, { params }: Ctx) {
   try {
     const context = await requireSession(req);
     const id = idSchema.parse((await params).id);
     const input = updateInventoryCountSchema.parse(await readJsonBody(req));
+    if (new URL(req.url).searchParams.get("view") === "brief") {
+      return NextResponse.json(
+        await updateInventoryCountBrief(
+          context.store.id,
+          context.user.id,
+          id,
+          input,
+        ),
+      );
+    }
     const count = await updateInventoryCount(
       context.store.id,
       context.user.id,

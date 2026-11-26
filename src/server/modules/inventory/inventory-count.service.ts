@@ -35,10 +35,19 @@ import { AppError } from "@/server/platform/error";
 import { isServiceProduct } from "@/domain/sale-pricing";
 import { totalFromUnitCost } from "@/domain/stock/batch-cost";
 import type {
+  CountLinesQuery,
   CountReason,
   StartInventoryCountInput,
   UpdateInventoryCountInput,
 } from "@/schemas/inventory-count";
+import { WASTE_REASON_LABELS, type WasteReason } from "@/schemas/inventory";
+import { normalizeArabic } from "@/domain/normalize";
+import {
+  STOCKTAKE_REASON_LABEL,
+  stocktakeChartData,
+  type StocktakeChartData,
+} from "@/domain/stocktake-charts";
+import { toCairoDateString } from "@/domain/time";
 import {
   lockStockLevelInTx,
   recordWasteInTx,
@@ -137,6 +146,7 @@ async function linesOf(tx: TenantTx, storeId: string, sessionId: string) {
           id: true,
           packQty: true,
           flavor: true,
+          barcode: true,
           storeProduct: {
             select: {
               nameAr: true,
@@ -381,7 +391,33 @@ export async function getInventoryCountsOverview(
     });
     const lastConfirmed = history.find((h) => h.status === "confirmed") ?? null;
     const open = history.find((h) => h.status === "open") ?? null;
+    // «اختار قسم» (ADR-0039): each section with how many products it holds — so the page never
+    // loads the shop's whole product list to start a count. The same products `start` counts.
+    const groups = await tx.$queryRaw<
+      Array<{ category: string; unit: string; n: bigint }>
+    >`
+      SELECT sp.category, sp.unit, COUNT(*)::bigint AS n
+        FROM store_variants sv
+        JOIN store_products sp ON sp.id = sv.store_product_id
+       WHERE sv.store_id = ${storeId}::uuid AND sv.is_active AND sp.is_active
+         AND sp.kind <> 'sandwich'
+       GROUP BY sp.category, sp.unit`;
+    const byCategory = new Map<string, number>();
+    for (const g of groups) {
+      if (isServiceProduct({ unit: g.unit, category: g.category })) continue;
+      byCategory.set(
+        g.category,
+        (byCategory.get(g.category) ?? 0) + Number(g.n),
+      );
+    }
+    const sections = [...byCategory]
+      .map(([category, products]) => ({ category, products }))
+      .sort(
+        (a, b) =>
+          b.products - a.products || a.category.localeCompare(b.category, "ar"),
+      );
     return {
+      sections,
       lastConfirmedAt: lastConfirmed?.confirmedAt ?? null,
       daysSinceLastCount: lastConfirmed?.confirmedAt
         ? Math.floor(
@@ -401,6 +437,252 @@ export async function getInventoryCount(
   id: string,
 ): Promise<InventoryCountView> {
   return withTenant(storeId, userId, (tx) => viewInTx(tx, storeId, id));
+}
+
+const LINE_INCLUDE = {
+  storeVariant: {
+    select: {
+      id: true,
+      packQty: true,
+      flavor: true,
+      barcode: true,
+      storeProduct: {
+        select: {
+          nameAr: true,
+          unit: true,
+          category: true,
+          globalProduct: { select: { nameAr: true } },
+        },
+      },
+    },
+  },
+} as const;
+
+/** How far back «تالف مسجل قبل كده» looks. */
+const WASTE_LOOKBACK_DAYS = 90;
+
+/** A count line with what the counting screen shows next to it (ADR-0039). */
+export interface CountLineDetail extends InventoryCountLineView {
+  barcode: string | null;
+  /**
+   * Damage recorded on this product lately: help only. It already left Hesba's stock when it
+   * was recorded, so it is never added to the count's difference again.
+   */
+  wasteBefore: {
+    quantityBase: number;
+    records: Array<{
+      quantityBase: number;
+      reason: string;
+      reasonLabel: string;
+      source: string | null;
+      at: string;
+    }>;
+  } | null;
+  /** Of the stock Hesba holds for it, what sits in batches past their expiry date. */
+  expiredBase: number;
+}
+
+export interface CountLinesPage {
+  status: "open" | "confirmed" | "abandoned";
+  lines: CountLineDetail[];
+  /** The cursor of the next page, or null at the end. */
+  next: number | null;
+  /** The count's progress: lines counted / all its lines. */
+  counted: number;
+  total: number;
+  /** A scanned barcode that is the shop's but not in this count (another section). */
+  elsewhere: { name: string; category: string } | null;
+}
+
+type DetailRow = Prisma.InventoryCountLineGetPayload<{
+  include: typeof LINE_INCLUDE;
+}>;
+
+async function pageOf(
+  tx: TenantTx,
+  storeId: string,
+  sessionId: string,
+  status: CountLinesPage["status"],
+  rows: DetailRow[],
+  next: number | null,
+  elsewhere: CountLinesPage["elsewhere"] = null,
+): Promise<CountLinesPage> {
+  const ids = rows.map((r) => r.storeVariantId);
+  const since = new Date(Date.now() - WASTE_LOOKBACK_DAYS * 86_400_000);
+  const today = new Date(`${toCairoDateString(new Date())}T00:00:00Z`);
+  const [total, counted, waste, expired] = await Promise.all([
+    tx.inventoryCountLine.count({ where: { storeId, sessionId } }),
+    tx.inventoryCountLine.count({
+      where: { storeId, sessionId, countedBase: { not: null } },
+    }),
+    ids.length === 0
+      ? Promise.resolve([])
+      : tx.wasteRecord.findMany({
+          where: {
+            storeId,
+            storeVariantId: { in: ids },
+            createdAt: { gte: since },
+          },
+          orderBy: { createdAt: "desc" },
+          take: 300,
+          select: {
+            storeVariantId: true,
+            quantityBase: true,
+            reason: true,
+            source: true,
+            createdAt: true,
+          },
+        }),
+    ids.length === 0
+      ? Promise.resolve([])
+      : tx.storeStockBatch.groupBy({
+          by: ["storeVariantId"],
+          where: {
+            storeId,
+            storeVariantId: { in: ids },
+            remainingQuantityBase: { gt: ZERO },
+            expiryDate: { lt: today },
+          },
+          _sum: { remainingQuantityBase: true },
+        }),
+  ]);
+  const expiredOf = new Map(
+    expired.map((e) => [
+      e.storeVariantId,
+      Number(e._sum.remainingQuantityBase ?? ZERO),
+    ]),
+  );
+  const lines = rows.map((r): CountLineDetail => {
+    const mine = waste.filter((w) => w.storeVariantId === r.storeVariantId);
+    return {
+      ...lineView(r),
+      barcode: r.storeVariant.barcode ?? null,
+      wasteBefore:
+        mine.length === 0
+          ? null
+          : {
+              quantityBase: mine.reduce(
+                (n, w) => n + Number(w.quantityBase),
+                0,
+              ),
+              records: mine.slice(0, 3).map((w) => ({
+                quantityBase: Number(w.quantityBase),
+                reason: w.reason,
+                reasonLabel:
+                  WASTE_REASON_LABELS[w.reason as WasteReason] ?? w.reason,
+                source: w.source,
+                at: w.createdAt.toISOString(),
+              })),
+            },
+      expiredBase: r.storeVariantId
+        ? (expiredOf.get(r.storeVariantId) ?? 0)
+        : 0,
+    };
+  });
+  return { status, lines, next, counted, total, elsewhere };
+}
+
+/**
+ * One page of a count's lines (ADR-0039): by barcode, by name (Arabic letters normalised), by
+ * product, or by state. Read only; the same tenant transaction as everything else.
+ */
+export async function getInventoryCountLines(
+  storeId: string,
+  userId: string | null,
+  id: string,
+  query: CountLinesQuery,
+): Promise<CountLinesPage> {
+  return withTenant(storeId, userId, async (tx) => {
+    const s = await tx.inventoryCount.findFirst({
+      where: { storeId, id },
+      select: { id: true, status: true },
+    });
+    if (!s) throw AppError.notFound("الجرد ده مش موجود");
+    const status = s.status as CountLinesPage["status"];
+    const where: Prisma.InventoryCountLineWhereInput = {
+      storeId,
+      sessionId: id,
+    };
+    if (query.variantId) where.storeVariantId = query.variantId;
+    if (query.barcode) where.storeVariant = { barcode: query.barcode };
+    if (query.status === "pending") where.countedBase = null;
+    if (query.status === "counted" || query.status === "diff")
+      where.countedBase = { not: null };
+    const orderBy = [{ createdAt: "asc" as const }, { id: "asc" as const }];
+
+    // A name search or «فيه فرق» needs every candidate line (a count holds ≤ 2000), then one
+    // page of them; everything else is paged by the database.
+    if (query.q || query.status === "diff") {
+      const all = await tx.inventoryCountLine.findMany({
+        where,
+        orderBy,
+        include: LINE_INCLUDE,
+      });
+      const q = query.q ? normalizeArabic(query.q) : null;
+      const hits = all.filter((r) => {
+        if (
+          query.status === "diff" &&
+          (r.countedBase === null || r.countedBase === r.expectedBase)
+        )
+          return false;
+        if (!q) return true;
+        const v = r.storeVariant;
+        const text = normalizeArabic(
+          `${v.storeProduct?.nameAr ?? ""} ${v.storeProduct?.globalProduct?.nameAr ?? ""} ${v.flavor ?? ""}`,
+        );
+        return text.includes(q) || (v.barcode ?? "") === query.q;
+      });
+      const page = hits.slice(query.cursor, query.cursor + query.limit);
+      const next =
+        query.cursor + query.limit < hits.length
+          ? query.cursor + query.limit
+          : null;
+      return pageOf(tx, storeId, id, status, page, next);
+    }
+
+    const rows = await tx.inventoryCountLine.findMany({
+      where,
+      orderBy,
+      include: LINE_INCLUDE,
+      skip: query.cursor,
+      take: query.limit + 1,
+    });
+    const next = rows.length > query.limit ? query.cursor + query.limit : null;
+    let elsewhere: CountLinesPage["elsewhere"] = null;
+    if (query.barcode && rows.length === 0) {
+      // The shop's product, but not in this count: say where it is instead of «مش موجود».
+      const v = await tx.storeVariant.findFirst({
+        where: { storeId, barcode: query.barcode, isActive: true },
+        select: {
+          storeProduct: {
+            select: {
+              nameAr: true,
+              category: true,
+              globalProduct: { select: { nameAr: true } },
+            },
+          },
+        },
+      });
+      if (v?.storeProduct) {
+        elsewhere = {
+          name:
+            v.storeProduct.nameAr ||
+            v.storeProduct.globalProduct?.nameAr ||
+            "صنف",
+          category: v.storeProduct.category ?? "",
+        };
+      }
+    }
+    return pageOf(
+      tx,
+      storeId,
+      id,
+      status,
+      rows.slice(0, query.limit),
+      next,
+      elsewhere,
+    );
+  });
 }
 
 /** «اعمل جرد جديد». One count may be open at a time; a retry with the same opId returns it. */
@@ -526,49 +808,80 @@ export async function updateInventoryCount(
   input: UpdateInventoryCountInput,
 ): Promise<InventoryCountView> {
   return withTenant(storeId, userId, async (tx) => {
-    const s = await openSessionInTx(tx, storeId, id);
-    if (s.status !== "open") {
-      throw AppError.conflict("الجرد ده اتقفل، مينفعش يتعدل");
-    }
-    const now = new Date();
-    for (const l of input.lines) {
-      const line = await tx.inventoryCountLine.findFirst({
-        where: { storeId, sessionId: id, storeVariantId: l.variantId },
-        select: { id: true },
-      });
-      if (!line) throw AppError.notFound("الصنف ده مش في الجرد ده");
-      if (l.countedBase === null) {
-        await tx.inventoryCountLine.update({
-          where: { id: line.id },
-          data: { countedBase: null, reason: null, note: null, updatedAt: now },
-        });
-        continue;
-      }
-      const expected = await currentLevelInTx(tx, storeId, l.variantId);
-      const counted = BigInt(l.countedBase);
-      const diff = counted - expected;
-      let reason: CountReason | null = l.reason ?? null;
-      if (diff === ZERO) reason = null;
-      else if (diff > ZERO) reason = "surplus";
-      else if (!reason || reason === "surplus") reason = "unknown";
-      await tx.inventoryCountLine.update({
-        where: { id: line.id },
-        data: {
-          expectedBase: expected,
-          countedBase: counted,
-          reason,
-          // No difference, no note; otherwise the note sent (undefined keeps the saved one).
-          ...(diff === ZERO
-            ? { note: null }
-            : l.note !== undefined
-              ? { note: l.note?.trim() || null }
-              : {}),
-          updatedAt: now,
-        },
-      });
-    }
+    await applyCountLinesInTx(tx, storeId, id, input);
     return viewInTx(tx, storeId, id);
   });
+}
+
+/**
+ * The same save, answered briefly (ADR-0039): only the lines that changed, with the count's
+ * progress — never the whole count again. The counting screen saves every product this way.
+ */
+export async function updateInventoryCountBrief(
+  storeId: string,
+  userId: string | null,
+  id: string,
+  input: UpdateInventoryCountInput,
+): Promise<CountLinesPage> {
+  return withTenant(storeId, userId, async (tx) => {
+    const ids = await applyCountLinesInTx(tx, storeId, id, input);
+    const rows = await tx.inventoryCountLine.findMany({
+      where: { storeId, sessionId: id, storeVariantId: { in: ids } },
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+      include: LINE_INCLUDE,
+    });
+    return pageOf(tx, storeId, id, "open", rows, null);
+  });
+}
+
+async function applyCountLinesInTx(
+  tx: TenantTx,
+  storeId: string,
+  id: string,
+  input: UpdateInventoryCountInput,
+): Promise<string[]> {
+  const s = await openSessionInTx(tx, storeId, id);
+  if (s.status !== "open") {
+    throw AppError.conflict("الجرد ده اتقفل، مينفعش يتعدل");
+  }
+  const now = new Date();
+  for (const l of input.lines) {
+    const line = await tx.inventoryCountLine.findFirst({
+      where: { storeId, sessionId: id, storeVariantId: l.variantId },
+      select: { id: true },
+    });
+    if (!line) throw AppError.notFound("الصنف ده مش في الجرد ده");
+    if (l.countedBase === null) {
+      await tx.inventoryCountLine.update({
+        where: { id: line.id },
+        data: { countedBase: null, reason: null, note: null, updatedAt: now },
+      });
+      continue;
+    }
+    const expected = await currentLevelInTx(tx, storeId, l.variantId);
+    const counted = BigInt(l.countedBase);
+    const diff = counted - expected;
+    let reason: CountReason | null = l.reason ?? null;
+    if (diff === ZERO) reason = null;
+    else if (diff > ZERO) reason = "surplus";
+    else if (!reason || reason === "surplus") reason = "unknown";
+    await tx.inventoryCountLine.update({
+      where: { id: line.id },
+      data: {
+        expectedBase: expected,
+        countedBase: counted,
+        reason,
+        // No difference, no note; otherwise the note sent (undefined keeps the saved one).
+        ...(diff === ZERO
+          ? { note: null }
+          : l.note !== undefined
+            ? { note: l.note?.trim() || null }
+            : {}),
+        updatedAt: now,
+      },
+    });
+  }
+  return input.lines.map((l) => l.variantId);
 }
 
 export async function abandonInventoryCount(
@@ -882,4 +1195,94 @@ export async function lastConfirmedCountAt(
     select: { confirmedAt: true },
   });
   return s?.confirmedAt ?? null;
+}
+
+/** The latest confirmed count, explained (ADR-0039): for «اسأل حسبة» — read only. */
+export interface StocktakeResult {
+  countId: string;
+  scopeText: string;
+  confirmedAt: string | null;
+  salesMode: "simple" | "pos";
+  counted: number;
+  matched: number;
+  shortageProducts: number;
+  surplusProducts: number;
+  topShortages: Array<{ name: string; difference: string; reason: string }>;
+  topSurpluses: Array<{ name: string; difference: string }>;
+  /** تالف / منتهي / مفقود at cost, as applied (known costs only). */
+  lossPiasters: number;
+  lossUnknownCostProducts: number;
+  /** «اتباع ومتسجلش» at the selling price (الكاشير الذكي only; 0 in إدارة المحل). */
+  unrecordedSalesPiasters: number;
+  chart: StocktakeChartData;
+}
+
+const qtyText = (unit: string, base: number) =>
+  unit === "kg"
+    ? `${Number((base / 1000).toFixed(3))} كيلو`
+    : `${base.toLocaleString("en-US")}`;
+
+/**
+ * The shop's latest confirmed stocktake, or null. Only this shop's (the caller's tenant
+ * transaction), only numbers the server computed; nothing here changes a count or the stock.
+ */
+export async function lastStocktakeResultInTx(
+  tx: TenantTx,
+  storeId: string,
+): Promise<StocktakeResult | null> {
+  const last = await tx.inventoryCount.findFirst({
+    where: { storeId, status: "confirmed" },
+    orderBy: { confirmedAt: "desc" },
+    select: { id: true },
+  });
+  if (!last) return null;
+  const v = await viewInTx(tx, storeId, last.id);
+  const diffs = v.lines.filter(
+    (l) => l.differenceBase !== null && l.differenceBase !== 0,
+  );
+  const short = diffs
+    .filter((l) => l.differenceBase! < 0)
+    .sort((a, b) => a.differenceBase! - b.differenceBase!);
+  const over = diffs
+    .filter((l) => l.differenceBase! > 0)
+    .sort((a, b) => b.differenceBase! - a.differenceBase!);
+  let lossPiasters = 0;
+  let lossUnknownCostProducts = 0;
+  for (const l of short) {
+    if (l.reason !== "damaged" && l.reason !== "expired" && l.reason !== "lost")
+      continue;
+    const c = l.appliedCostPiasters ?? l.differenceCostPiasters;
+    if (c === null) lossUnknownCostProducts += 1;
+    else lossPiasters += c;
+  }
+  const scopeText =
+    v.scope === "category" && v.category
+      ? `قسم «${v.category}»`
+      : v.scope === "full"
+        ? "كل المحل"
+        : "منتجات معينة";
+  return {
+    countId: v.id,
+    scopeText,
+    confirmedAt: v.confirmedAt,
+    salesMode: v.salesMode,
+    counted: v.totals.counted,
+    matched: v.totals.matched,
+    shortageProducts: short.length,
+    surplusProducts: over.length,
+    topShortages: short.slice(0, 5).map((l) => ({
+      name: l.productName,
+      difference: `−${qtyText(l.unit, -l.differenceBase!)}`,
+      reason: STOCKTAKE_REASON_LABEL[l.reason ?? "unknown"],
+    })),
+    topSurpluses: over.slice(0, 3).map((l) => ({
+      name: l.productName,
+      difference: `+${qtyText(l.unit, l.differenceBase!)}`,
+    })),
+    lossPiasters,
+    lossUnknownCostProducts,
+    unrecordedSalesPiasters:
+      v.salesMode === "pos" ? v.totals.unrecordedSaleSellPiasters : 0,
+    chart: stocktakeChartData(v.lines),
+  };
 }

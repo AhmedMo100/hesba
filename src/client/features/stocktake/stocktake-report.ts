@@ -188,3 +188,34 @@ export function reportFileName(c: ReportCount, ext: "csv" | "txt"): string {
   const d = (c.confirmedAt ?? c.startedAt).slice(0, 10);
   return `جرد-${d}.${ext}`;
 }
+
+/**
+ * What the count does to the money (ADR-0039), only from the server's numbers — a value that is
+ * not known is left out, never guessed:
+ * - `unrecordedSalePiasters`: «اتباع ومتسجلش» at the selling price (الكاشير الذكي only; in إدارة
+ *   المحل its money is already in the day's totals, so it is 0 there).
+ * - `lossPiasters`: تالف / منتهي / مفقود at cost (what was applied once confirmed, else the
+ *   estimate at the line's cost). `lossUnknownLines`: lines whose cost is not known.
+ */
+export function countMoneyEffects(c: ReportCount): {
+  unrecordedSalePiasters: number;
+  lossPiasters: number;
+  lossUnknownLines: number;
+} {
+  let lossPiasters = 0;
+  let lossUnknownLines = 0;
+  for (const l of c.lines) {
+    if (l.differenceBase === null || l.differenceBase >= 0) continue;
+    if (l.reason !== "damaged" && l.reason !== "expired" && l.reason !== "lost")
+      continue;
+    const v = l.appliedCostPiasters ?? l.differenceCostPiasters;
+    if (v === null || v === undefined) lossUnknownLines += 1;
+    else lossPiasters += v;
+  }
+  return {
+    unrecordedSalePiasters:
+      c.salesMode === "simple" ? 0 : (c.totals.unrecordedSaleSellPiasters ?? 0),
+    lossPiasters,
+    lossUnknownLines,
+  };
+}

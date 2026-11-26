@@ -60,7 +60,12 @@ export const updateInventoryCountSchema = z
               .optional()
               .nullable(),
           })
-          .strict(),
+          .strict()
+          // «سبب آخر» (`unknown`, chosen by the owner) is explained in his own words (2026-11-26).
+          .refine((l) => l.reason !== "unknown" || !!l.note?.trim(), {
+            message: "اكتب السبب",
+            path: ["note"],
+          }),
       )
       .min(1)
       .max(500),
@@ -73,3 +78,20 @@ export type UpdateInventoryCountInput = z.infer<
 export const confirmInventoryCountSchema = z
   .object({ opId: z.string().uuid("رقم العملية غير صحيح") })
   .strict();
+
+/**
+ * `GET /api/inventory-counts/:id/lines` — one page of a count's lines, for the counting screen
+ * (ADR-0039): by barcode (the scanner), by name (the search), by product, or by state (not
+ * counted yet / counted / with a difference). Never the whole count at once.
+ */
+export const countLinesQuerySchema = z
+  .object({
+    status: z.enum(["all", "pending", "counted", "diff"]).default("all"),
+    q: z.string().trim().min(1).max(80).optional(),
+    barcode: z.string().trim().min(1).max(64).optional(),
+    variantId: z.string().uuid("الصنف غير صحيح").optional(),
+    cursor: z.coerce.number().int().min(0).max(100_000).default(0),
+    limit: z.coerce.number().int().min(1).max(50).default(30),
+  })
+  .strict();
+export type CountLinesQuery = z.infer<typeof countLinesQuerySchema>;
