@@ -58,7 +58,9 @@ import {
   formatStocktakeHelp,
   SHOP_REPORT_TOOLS,
   GROUNDED_UNSUPPORTED_ANSWER,
+  formatStocktakeResult,
 } from "./grounded-answers";
+import { packSources, visualFromTool, type AiVisual } from "./visuals";
 
 export const DEFAULT_ASSISTANT_MODEL = "gemini-3.6-flash";
 
@@ -138,6 +140,8 @@ export interface SendMessageResult {
   messageId: string;
   bodyText: string;
   sources?: SearchCitation[];
+  /** A chart built on the server from a read-only tool's result (ADR-0039). */
+  visual?: AiVisual | null;
   quota: AIQuotaStatus;
 }
 
@@ -373,6 +377,7 @@ export class AIService {
       // it must answer in text.
       const convo: ChatMessage[] = [...messages];
       let citations: SearchCitation[] = [];
+      let visual: AiVisual | null = null;
       let finalAnswer = "";
       for (let round = 0; ; round++) {
         if (signal.aborted) throw providerBusy();
@@ -415,6 +420,7 @@ export class AIService {
             );
           }
 
+          visual = visualFromTool(call.name, toolResult) ?? visual;
           convo.push({
             role: "tool",
             name: call.name,
@@ -441,9 +447,11 @@ export class AIService {
               role: "assistant",
               bodyText: finalAnswer,
               sources:
-                uniqueCitations.length > 0
-                  ? (uniqueCitations as unknown as Prisma.InputJsonValue)
-                  : Prisma.JsonNull,
+                (packSources(
+                  uniqueCitations,
+                  visual,
+                ) as unknown as Prisma.InputJsonValue | null) ??
+                Prisma.JsonNull,
             },
           });
         },
@@ -457,6 +465,7 @@ export class AIService {
         messageId: assistantRecord.id,
         bodyText: finalAnswer,
         sources: uniqueCitations.length > 0 ? uniqueCitations : undefined,
+        visual,
         quota: currentQuota,
       };
     } catch (err: unknown) {
@@ -545,6 +554,7 @@ export class AIService {
     conversationId: string,
   ): Promise<SendMessageResult> {
     let answer: string;
+    let visual: AiVisual | null = null;
     try {
       const intent = detectIntent(question);
       if (!intent) {
@@ -574,6 +584,14 @@ export class AIService {
             ctx,
           )) as Record<string, unknown>;
           answer = formatShopReport(results, { services, stocktake });
+        } else if (intent.tool === "stocktake_result") {
+          const r = (await this.businessTools.executeTool(
+            "getStocktakeResult",
+            {},
+            ctx,
+          )) as Record<string, unknown>;
+          answer = formatStocktakeResult(r);
+          visual = visualFromTool("getStocktakeResult", r);
         } else if (intent.tool === "stocktake_help") {
           const r = (await this.businessTools.executeTool(
             "getStocktakeSummary",
@@ -631,7 +649,11 @@ export class AIService {
             conversationId,
             role: "assistant",
             bodyText: answer,
-            sources: Prisma.JsonNull,
+            sources:
+              (packSources(
+                [],
+                visual,
+              ) as unknown as Prisma.InputJsonValue | null) ?? Prisma.JsonNull,
           },
         }),
       this.prisma,
@@ -640,6 +662,7 @@ export class AIService {
       conversationId,
       messageId: record.id,
       bodyText: answer,
+      visual,
       quota: await this.quotaService.getQuotaStatus(storeId),
     };
   }

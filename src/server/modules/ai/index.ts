@@ -10,3 +10,4 @@ export * from "./tools/business-tools";
 export * from "./scanner";
 export * from "./platform/ai-gate";
 export * from "./platform/usage";
+export * from "./visuals";

@@ -27,7 +27,9 @@ export type GroundedIntent =
   /** «اعملي تقرير كامل عن المحل»: several tools, one short report (this month). */
   | { tool: "shop_report" }
   /** «عايز أعمل جرد»: how to do it in «اعمل جرد» + the last count (read-only). */
-  | { tool: "stocktake_help" };
+  | { tool: "stocktake_help" }
+  /** «وريني نتيجة الجرد»: the latest confirmed count, explained, with its chart (read-only). */
+  | { tool: "stocktake_result" };
 
 /** The tools a full shop report reads, in the order the report is written. */
 export const SHOP_REPORT_TOOLS: Array<{
@@ -72,6 +74,13 @@ function periodOf(q: string): ToolPeriod {
 export function detectIntent(question: string): GroundedIntent | null {
   const q = normalizeArabic(question).replace(/[؟?!.،,]/g, " ");
   const period = periodOf(q);
+  if (
+    /جرد/.test(q) &&
+    /(نتيج|وريني|وريلي|ورينى|رسم|شكل|حلل|تحليل|فروق|فرق|ناقص|النقص|خسار|ملخص)/.test(
+      q,
+    )
+  )
+    return { tool: "stocktake_result" };
   if (/جرد/.test(q)) return { tool: "stocktake_help" };
   if (/تقرير/.test(q) && /(كامل|شامل|المحل|محلي|عن المحل)/.test(q))
     return { tool: "shop_report" };
@@ -138,6 +147,8 @@ export function formatGroundedAnswer(
   switch (intent.tool) {
     case "stocktake_help":
       return formatStocktakeHelp(r);
+    case "stocktake_result":
+      return formatStocktakeResult(r);
     case "shop_report":
       return formatShopReport(results, { services: {}, stocktake: {} });
     case "getSalesSummary": {
@@ -353,3 +364,43 @@ export const GROUNDED_UNSUPPORTED_ANSWER = [
   "جرّب سؤال من دول:",
   ...SUGGESTED_QUESTIONS.map((s) => `• ${s}`),
 ].join("\n");
+
+/**
+ * «وريني نتيجة الجرد»: the latest confirmed count in a few lines — only the tool's numbers. The
+ * chart beside it is built on the server from the same count (`visuals.ts`).
+ */
+export function formatStocktakeResult(r: Row): string {
+  if (!r.found)
+    return "لسه ما اتأكدش أي جرد. اعمل جرد من «📋 الجرد» في الصفحة الرئيسية، وبعد ما تأكّده أقدر أوريك نتيجته.";
+  const out = [
+    `📋 نتيجة آخر جرد (${String(r.scope ?? "")}):`,
+    `اتعدّ ${n(r.counted_products)} صنف: ${n(r.matched_products)} مظبوط، ${n(r.shortage_products)} ناقص، ${n(r.surplus_products)} زيادة.`,
+  ];
+  const top = Array.isArray(r.top_shortages)
+    ? (r.top_shortages as Array<{
+        name: string;
+        difference: string;
+        reason: string;
+      }>)
+    : [];
+  if (top.length > 0) {
+    out.push("أكبر نقص:");
+    for (const t of top) out.push(`• ${t.name}: ${t.difference} (${t.reason})`);
+  }
+  if (n(r.loss_value_piasters) > 0)
+    out.push(
+      `خسائر التالف والمفقود: ${money(n(r.loss_value_piasters))} بسعر الشراء.`,
+    );
+  if (n(r.loss_unknown_cost_products) > 0)
+    out.push(
+      `${n(r.loss_unknown_cost_products)} صنف تكلفته مش معروفة، مش محسوب.`,
+    );
+  if (n(r.unrecorded_sales_value_piasters) > 0)
+    out.push(
+      `اتباع ومتسجلش: ${money(n(r.unrecorded_sales_value_piasters))} بسعر البيع (اتحسب بيع ومكسب).`,
+    );
+  out.push(
+    "النقص مش مبيعات إلا اللي قلت عليه «اتباع ومتسجلش». أنا بشرح بس، مبغيرش الجرد ولا المخزون.",
+  );
+  return out.join("\n");
+}

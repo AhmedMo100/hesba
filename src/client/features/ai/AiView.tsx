@@ -4,6 +4,8 @@ import { readAiDraft, writeAiDraft } from "@/client/shared/ai-draft";
 import { shareReport } from "@/client/shared/share";
 import type { NavRoute } from "@/client/app-shell/BottomNav";
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { StocktakeChartsView } from "../stocktake/StocktakeCharts";
+import type { StocktakeChartData } from "@/domain/stocktake-charts";
 import styles from "./AiView.module.css";
 import c from "./AiChat17.module.css";
 import { Icon, PageTitle } from "@/client/shared/ui";
@@ -29,8 +31,16 @@ export interface AiChatMessage {
   role: "user" | "assistant";
   content: string;
   sources?: AiSource[];
+  /** A chart built on the server from the shop's own data (ADR-0039), shown under the text. */
+  visual?: AiVisual | null;
   createdAt?: string;
   failed?: boolean;
+}
+
+export interface AiVisual {
+  kind: "stocktake";
+  title: string;
+  data: StocktakeChartData;
 }
 
 export interface AiQuotaInfo {
@@ -279,6 +289,7 @@ export function AiView({
                   body_text?: string;
                   content?: string;
                   sources?: AiSource[];
+                  visual?: AiVisual | null;
                   created_at?: string;
                   createdAt?: string;
                 }) => ({
@@ -286,6 +297,7 @@ export function AiView({
                   role: m.role,
                   content: m.body_text ?? m.content ?? "",
                   sources: m.sources,
+                  visual: m.visual ?? null,
                   createdAt: m.created_at ?? m.createdAt,
                 }),
               ),
@@ -408,6 +420,7 @@ export function AiView({
                         body_text?: string;
                         content?: string;
                         sources?: AiSource[];
+                        visual?: AiVisual | null;
                         created_at?: string;
                         createdAt?: string;
                       }) => ({
@@ -415,6 +428,7 @@ export function AiView({
                         role: m.role,
                         content: m.body_text ?? m.content ?? "",
                         sources: m.sources,
+                        visual: m.visual ?? null,
                         createdAt: m.created_at ?? m.createdAt,
                       }),
                     ),
@@ -511,6 +525,7 @@ export function AiView({
         json.body_text ?? json.message?.content ?? json.data?.message?.content;
       const sources =
         json.sources ?? json.message?.sources ?? json.data?.message?.sources;
+      const visual: AiVisual | null = json.visual ?? null;
       const rawQuota = json.quota ?? json.data?.quota;
 
       if (convId) {
@@ -533,6 +548,7 @@ export function AiView({
             role: "assistant",
             content: bodyText,
             sources: sources,
+            visual,
             createdAt: new Date().toISOString(),
           },
         ]);
@@ -727,6 +743,12 @@ export function AiView({
                     <AiMessageContent content={m.content} />
                   ) : (
                     m.content
+                  )}
+                  {m.visual?.kind === "stocktake" && (
+                    <div className={styles.visual} data-testid="ai-visual">
+                      <b className={styles.visualTitle}>{m.visual.title}</b>
+                      <StocktakeChartsView data={m.visual.data} />
+                    </div>
                   )}
                   {m.sources && m.sources.length > 0 && (
                     <div className={styles.sources}>

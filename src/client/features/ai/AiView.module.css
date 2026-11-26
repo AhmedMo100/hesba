@@ -810,3 +810,16 @@
   font-weight: 800;
   cursor: pointer;
 }
+
+/* ADR-0039: a chart under an answer (built on the server from the shop's own data). */
+.visual {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.visualTitle {
+  font-size: 14px;
+}

@@ -22,7 +22,10 @@ import {
 } from "@/server/modules/reports";
 import { drawerExpectedInTx } from "@/server/modules/drawer";
 import { serviceSummaryInRange } from "@/server/modules/services";
-import { countEffectsInRange } from "@/server/modules/inventory";
+import {
+  countEffectsInRange,
+  lastStocktakeResultInTx,
+} from "@/server/modules/inventory";
 import {
   addDaysToDateKey,
   cairoDayStartUtc,
@@ -211,7 +214,7 @@ export class BusinessToolsService {
       {
         name: "getMoneyAccounts",
         description:
-          "فلوس المحل فين دلوقتي: المفروض في الدرج (من آخر عدّ) ورصيد كل محفظة وماكينة، وآخر سحب شخصي أو تحويل. دي فلوس موجودة، مش مبيعات.",
+          "فلوس المحل فين دلوقتي: في الدرج (محسوبة من عمليات المحل الكاش) ورصيد كل محفظة وماكينة، وآخر سحب شخصي أو تحويل. دي فلوس موجودة، مش مبيعات.",
         parameters: { type: "object", properties: {} },
       },
       {
@@ -243,6 +246,12 @@ export class BusinessToolsService {
             },
           },
         },
+      },
+      {
+        name: "getStocktakeResult",
+        description:
+          "نتيجة آخر جرد اتأكد: اتعدّ كام صنف، مظبوط كام، ناقص وزيادة كام، أكبر الأصناف اللي فيها نقص وسببها، قيمة خسائر التالف والمفقود بسعر الشراء، وقيمة «اتباع ومتسجلش» (الكاشير الذكي بس). استخدمها لما يقول «وريني نتيجة الجرد» أو يطلب رسم أو تحليل للجرد. للقراءة بس: مبتغيرش الجرد ولا المخزون.",
+        parameters: { type: "object", properties: {} },
       },
       {
         name: "searchMarketTrends",
@@ -396,6 +405,32 @@ export class BusinessToolsService {
           };
         }
 
+        case "getStocktakeResult": {
+          const r = await lastStocktakeResultInTx(tx, storeId);
+          if (!r)
+            return {
+              found: false,
+              note: "لسه ما اتأكدش أي جرد. الجرد بيتعمل من «📋 الجرد».",
+            };
+          return {
+            found: true,
+            scope: r.scopeText,
+            confirmed_at: r.confirmedAt,
+            package: r.salesMode === "pos" ? "الكاشير الذكي" : "إدارة المحل",
+            counted_products: r.counted,
+            matched_products: r.matched,
+            shortage_products: r.shortageProducts,
+            surplus_products: r.surplusProducts,
+            top_shortages: r.topShortages,
+            top_surpluses: r.topSurpluses,
+            loss_value_piasters: r.lossPiasters,
+            loss_unknown_cost_products: r.lossUnknownCostProducts,
+            unrecorded_sales_value_piasters: r.unrecordedSalesPiasters,
+            chart: r.chart,
+            note: "النقص مش مبيعات إلا اللي صاحب المحل قال عليه «اتباع ومتسجلش». التالف والمفقود خسارة بسعر الشراء. الأرقام دي من جرد المحل نفسه.",
+          };
+        }
+
         case "searchMarketTrends":
           if (searchFn) {
             return await searchFn(String(args.query || ""));
@@ -429,12 +464,11 @@ export class BusinessToolsService {
       balance_piasters: Number(m.currentBalancePiasters),
     }));
     return {
+      // The cash is the shop's cash operations (in − out), never a balance typed by hand.
       drawer_expected_piasters: expectedCash,
-      drawer_never_counted: expectedCash === null,
       wallets,
       total_known_piasters:
-        (expectedCash ?? 0) +
-        wallets.reduce((s, w) => s + w.balance_piasters, 0),
+        expectedCash + wallets.reduce((s, w) => s + w.balance_piasters, 0),
       recent_owner_and_transfer_movements: recent.map((r) => ({
         kind:
           r.kind === "owner_withdrawal"
@@ -445,7 +479,7 @@ export class BusinessToolsService {
         amount_piasters: Number(r.amountPiasters),
         at: r.createdAt.toISOString(),
       })),
-      note: "دي الفلوس الموجودة دلوقتي، مش المبيعات. الدرج محسوب من آخر عدّ.",
+      note: "دي الفلوس الموجودة دلوقتي، مش المبيعات. الدرج محسوب من عمليات المحل الكاش (اللي دخل − اللي طلع).",
     };
   }
 

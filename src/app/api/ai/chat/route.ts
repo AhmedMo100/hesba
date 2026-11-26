@@ -32,6 +32,7 @@ export async function POST(req: Request) {
       message_id: result.messageId,
       body_text: result.bodyText,
       sources: result.sources,
+      visual: result.visual ?? null,
       quota: {
         used: result.quota.used,
         remaining: result.quota.remaining,
